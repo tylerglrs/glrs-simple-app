@@ -22,28 +22,36 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Terms Modal Functions
-// Terms Modal Functions
 function showTermsModal() {
     document.getElementById('termsModal').style.display = 'flex';
     
-    // Get references to elements
-    const checkboxes = document.querySelectorAll('.terms-agreement input[type="checkbox"]');
+    // Set up the checkboxes and button
+    const ageCheck = document.getElementById('ageCheck');
+    const termsCheck = document.getElementById('termsCheck');
+    const privacyCheck = document.getElementById('privacyCheck');
+    const crisisCheck = document.getElementById('crisisCheck');
     const acceptBtn = document.getElementById('acceptTerms');
     
-    // Function to check if all boxes are checked
-    function checkAllBoxes() {
-        const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-        acceptBtn.disabled = !allChecked;
+    // Function to enable/disable button
+    function updateButton() {
+        if (ageCheck.checked && termsCheck.checked && privacyCheck.checked && crisisCheck.checked) {
+            acceptBtn.disabled = false;
+        } else {
+            acceptBtn.disabled = true;
+        }
     }
     
-    // Add event listener to each checkbox
-    checkboxes.forEach(cb => {
-        cb.addEventListener('change', checkAllBoxes);
-    });
+    // Add listeners
+    ageCheck.onchange = updateButton;
+    termsCheck.onchange = updateButton;
+    privacyCheck.onchange = updateButton;
+    crisisCheck.onchange = updateButton;
     
-    // Add click event to accept button
+    // Set up accept button
     acceptBtn.onclick = function() {
-        acceptTerms();
+        if (!acceptBtn.disabled) {
+            acceptTerms();
+        }
     };
 }
 
