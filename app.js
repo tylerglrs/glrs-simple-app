@@ -21,38 +21,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Terms Modal Functions
 function showTermsModal() {
     document.getElementById('termsModal').style.display = 'flex';
-    
-    // Set up the checkboxes and button
-    const ageCheck = document.getElementById('ageCheck');
-    const termsCheck = document.getElementById('termsCheck');
-    const privacyCheck = document.getElementById('privacyCheck');
-    const crisisCheck = document.getElementById('crisisCheck');
-    const acceptBtn = document.getElementById('acceptTerms');
-    
-    // Function to enable/disable button
-    function updateButton() {
-        if (ageCheck.checked && termsCheck.checked && privacyCheck.checked && crisisCheck.checked) {
-            acceptBtn.disabled = false;
-        } else {
-            acceptBtn.disabled = true;
-        }
-    }
-    
-    // Add listeners
-    ageCheck.onchange = updateButton;
-    termsCheck.onchange = updateButton;
-    privacyCheck.onchange = updateButton;
-    crisisCheck.onchange = updateButton;
-    
-    // Set up accept button
-    acceptBtn.onclick = function() {
-        if (!acceptBtn.disabled) {
-            acceptTerms();
-        }
-    };
 }
 
 function acceptTerms() {
