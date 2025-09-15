@@ -22,23 +22,29 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Terms Modal Functions
+// Terms Modal Functions
 function showTermsModal() {
     document.getElementById('termsModal').style.display = 'flex';
     
-    // Enable accept button only when all checkboxes are checked
+    // Get references to elements
     const checkboxes = document.querySelectorAll('.terms-agreement input[type="checkbox"]');
     const acceptBtn = document.getElementById('acceptTerms');
     
+    // Function to check if all boxes are checked
+    function checkAllBoxes() {
+        const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+        acceptBtn.disabled = !allChecked;
+    }
+    
+    // Add event listener to each checkbox
     checkboxes.forEach(cb => {
-        cb.addEventListener('change', function() {
-            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-            acceptBtn.disabled = !allChecked;
-        });
+        cb.addEventListener('change', checkAllBoxes);
     });
     
-    acceptBtn.addEventListener('click', function() {
+    // Add click event to accept button
+    acceptBtn.onclick = function() {
         acceptTerms();
-    });
+    };
 }
 
 function acceptTerms() {
