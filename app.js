@@ -13,7 +13,7 @@ let mockDatabase = {
     assignments: []
 };
 
-// Initialize app
+// Update the DOMContentLoaded event listener
 document.addEventListener('DOMContentLoaded', function() {
     const remembered = localStorage.getItem('rememberedUser');
     if (remembered) {
@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', function() {
             autoLogin(userData);
         }
     } else {
+        // Show login screen if no remembered user
         document.getElementById('loginScreen').style.display = 'block';
     }
 });
@@ -228,18 +229,25 @@ function calculateTier(recoveryDate) {
     return 'trusted';
 }
 
+// Update the proceedToApp function to handle PIR names properly
 function proceedToApp() {
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('userInfo').classList.remove('hidden');
-    document.getElementById('userName').textContent = currentUser.name;
     
+    // Set display name
     if (userRole === 'pir') {
+        const displayName = currentUser.firstName && currentUser.lastName 
+            ? `${currentUser.firstName} ${currentUser.lastName}` 
+            : currentUser.name || currentUser.username;
+        document.getElementById('userName').textContent = displayName;
+        
         document.getElementById('userTier').textContent = userTier.charAt(0).toUpperCase() + userTier.slice(1);
         document.getElementById('userTier').className = 'tier-badge ' + userTier;
         document.getElementById('pirInterface').classList.remove('hidden');
         updateTierFeatures();
         loadPIRDashboard();
     } else {
+        document.getElementById('userName').textContent = currentUser.name || currentUser.email;
         document.getElementById('userTier').textContent = 'Coach';
         document.getElementById('coachInterface').classList.remove('hidden');
         loadCoachDashboard();
