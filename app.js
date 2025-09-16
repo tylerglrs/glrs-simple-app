@@ -58,45 +58,148 @@ function login() {
     authenticateUser(loginInput, password, rememberMe);
 }
 
-function authenticateUser(credential, password, remember) {
-    // Check if coach
-    if (credential.includes('@glrecoveryservices.com')) {
-        currentUser = {
-            id: Date.now(),
-            email: credential,
-            name: 'Coach ' + credential.split('@')[0],
-            role: 'coach',
-            firstLogin: false
-        };
-        userRole = 'coach';
-    } else {
-        // PIR user - simulate finding in database
-        const recoveryDate = new Date();
-        recoveryDate.setDate(recoveryDate.getDate() - 45);
+// Google Sheets Integration
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxVT9xUGMBufIlY9kfoZvGpvPhHok0pByEM12GbRS_Z442XPDhBa7LU84mwfCRdleo/exec';
+
+async function saveToGoogleSheets(action, data) {
+    try {
+        let payload = {};
         
-        currentUser = {
-            id: Date.now(),
-            username: credential.includes('@') ? credential.split('@')[0] : credential,
-            email: credential.includes('@') ? credential : credential + '@example.com',
-            name: 'John Doe', // Would come from database
-            role: 'pir',
-            recoveryStartDate: recoveryDate.toISOString(),
-            tier: calculateTier(recoveryDate),
-            firstLogin: !localStorage.getItem('termsAccepted_' + credential),
-            coachId: 'coach1'
-        };
-        userRole = 'pir';
-        userTier = currentUser.tier;
+        switch(action) {
+            case 'createPIR':
+                payload = {
+                    action: 'createUser',
+                    userData: data
+                };
+                break;
+                
+            case 'checkin':
+                payload = {
+                    action: 'saveCheckin',
+                    checkinData: data
+                };
+                break;
+                
+            case 'authenticate':
+                payload = {
+                    action: 'authenticate',
+                    username: data.username,
+                    password: data.password
+                };
+                break;
+                
+            case 'getCheckins':
+                payload = {
+                    action: 'getCheckins',
+                    userId: data.userId
+                };
+                break;
+                
+            case 'updateTermsAcceptance':
+                payload = {
+                    action: 'updateUser',
+                    userId: data.id,
+                    updates: {
+                        firstLogin: false,
+                        termsAccepted: new Date().toISOString()
+                    }
+                };
+                break;
+                
+            case 'crisisAlert':
+                payload = {
+                    action: 'logCrisis',
+                    alertData: data
+                };
+                break;
+                
+            case 'passwordReset':
+                payload = {
+                    action: 'resetPassword',
+                    resetData: data
+                };
+                break;
+                
+            default:
+                payload = {
+                    action: action,
+                    data: data
+                };
+        }
+        
+        const response = await fetch(GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors', // Required for Google Apps Script
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
+        });
+        
+        // Note: With no-cors, we can't read the response
+        console.log('Data sent to Google Sheets');
+        return { success: true };
+        
+    } catch (error) {
+        console.error('Error saving to Google Sheets:', error);
+        return { success: false, error: error.toString() };
     }
-    
-    if (remember) {
-        localStorage.setItem('rememberedUser', JSON.stringify(currentUser));
-    }
-    
-    if (currentUser.firstLogin && userRole === 'pir') {
-        showTermsModal();
-    } else {
-        proceedToApp();
+}
+
+// Update the authenticateUser function to use Google Sheets
+async function authenticateUser(credential, password, remember) {
+    try {
+        // For now, still use mock data but log attempt
+        console.log('Authenticating via Google Sheets...');
+        
+        // In production, this would actually call the Google Sheets API
+        const result = await saveToGoogleSheets('authenticate', {
+            username: credential,
+            password: password
+        });
+        
+        // Continue with mock authentication for now
+        if (credential.includes('@glrecoveryservices.com')) {
+            currentUser = {
+                id: Date.now(),
+                email: credential,
+                name: 'Coach ' + credential.split('@')[0],
+                role: 'coach',
+                firstLogin: false
+            };
+            userRole = 'coach';
+        } else {
+            const recoveryDate = new Date();
+            recoveryDate.setDate(recoveryDate.getDate() - 45);
+            
+            currentUser = {
+                id: Date.now(),
+                username: credential.includes('@') ? credential.split('@')[0] : credential,
+                email: credential.includes('@') ? credential : credential + '@example.com',
+                name: 'John Doe',
+                role: 'pir',
+                recoveryStartDate: recoveryDate.toISOString(),
+                tier: calculateTier(recoveryDate),
+                firstLogin: !localStorage.getItem('termsAccepted_' + credential),
+                coachId: 'coach1'
+            };
+            userRole = 'pir';
+            userTier = currentUser.tier;
+        }
+        
+        if (remember) {
+            localStorage.setItem('rememberedUser', JSON.stringify(currentUser));
+        }
+        
+        if (currentUser.firstLogin && userRole === 'pir') {
+            showTermsModal();
+        } else {
+            proceedToApp();
+        }
+        
+    } catch (error) {
+        console.error('Authentication error:', error);
+        alert('Login failed. Please try again.');
     }
 }
 
@@ -564,6 +667,7 @@ function generateCreateAccountForm() {
     `;
 }
 
+// Update the createPIRAccount function to properly save to Sheets
 function createPIRAccount(event) {
     event.preventDefault();
     
@@ -576,27 +680,25 @@ function createPIRAccount(event) {
     const tempPassword = 'Temp' + Math.random().toString(36).slice(-8) + '!';
     
     const newPIR = {
-        id: Date.now(),
         username: username,
         email: email,
+        tempPassword: tempPassword,
         firstName: firstName,
         lastName: lastName,
         phone: document.getElementById('pirPhone').value,
         recoveryStartDate: document.getElementById('recoveryDate').value,
         servicePackage: document.getElementById('servicePackage').value,
-        emergencyContact: {
-            name: document.getElementById('emergencyName').value,
-            phone: document.getElementById('emergencyPhone').value
-        },
+        emergencyName: document.getElementById('emergencyName').value,
+        emergencyPhone: document.getElementById('emergencyPhone').value,
         notes: document.getElementById('initialNotes').value,
         createdBy: currentUser.id,
-        createdAt: new Date().toISOString(),
-        tempPassword: tempPassword,
-        firstLogin: true
+        role: 'pir'
     };
     
-    // Save to database (Google Sheets)
-    saveToGoogleSheets('createPIR', newPIR);
+    // Save to Google Sheets
+    saveToGoogleSheets('createPIR', newPIR).then(result => {
+        console.log('PIR account created:', result);
+    });
     
     // Show success message
     document.getElementById('accountCreatedInfo').innerHTML = `
@@ -605,8 +707,9 @@ function createPIRAccount(event) {
             <p><strong>Username:</strong> ${username}</p>
             <p><strong>Temporary Password:</strong> ${tempPassword}</p>
             <p><strong>Email:</strong> ${email}</p>
-            <p class="mt-10">An email with login credentials has been queued for sending to ${email}</p>
+            <p class="mt-10">An email with login credentials will be sent to ${email}</p>
             <button onclick="copyCredentials('${username}', '${tempPassword}')" class="primary-btn">Copy Credentials</button>
+            <button onclick="showCoachSection('createAccount')" class="btn-secondary">Create Another</button>
         </div>
     `;
     document.getElementById('accountCreatedInfo').style.display = 'block';
@@ -917,9 +1020,18 @@ function copyCredentials(username, password) {
     });
 }
 
-function saveToGoogleSheets(action, data) {
-    console.log('Saving to Google Sheets:', action, data);
-    // Will be replaced with actual Google Sheets API integration
+// Test connection to Google Sheets
+async function testGoogleSheetsConnection() {
+    try {
+        const testUrl = GOOGLE_SCRIPT_URL + '?action=test';
+        const response = await fetch(testUrl);
+        const text = await response.text();
+        console.log('Google Sheets API Test:', text);
+        return text === 'GLRS API is working!';
+    } catch (error) {
+        console.error('Google Sheets connection test failed:', error);
+        return false;
+    }
 }
 
 // Additional mock functions for coach actions
@@ -946,6 +1058,7 @@ function denyConnection(connectionId) {
 function downloadProgress() {
     alert('Progress report download started...');
 }
+
 function downloadWorksheet(type) {
     alert(`Downloading ${type} worksheet...`);
 }
@@ -1092,9 +1205,17 @@ function initializeDemoData() {
     }
 }
 
-// Call initialization when user logs in
+// Run test on page load
 window.addEventListener('load', function() {
     if (currentUser) {
         initializeDemoData();
     }
+    
+    testGoogleSheetsConnection().then(isConnected => {
+        if (isConnected) {
+            console.log('✓ Successfully connected to Google Sheets');
+        } else {
+            console.log('✗ Failed to connect to Google Sheets');
+        }
+    });
 });
