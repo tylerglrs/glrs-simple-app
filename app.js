@@ -38,6 +38,12 @@ function acceptTerms() {
         currentUser.termsAccepted = new Date().toISOString();
         currentUser.firstLogin = false;
         localStorage.setItem('termsAccepted_' + currentUser.username, 'true');
+        
+        // Update Google Sheets to mark terms accepted
+        saveToGoogleSheets('updateTermsAcceptance', {
+            userId: currentUser.id,
+            username: currentUser.username
+        });
     }
     
     document.getElementById('termsModal').style.display = 'none';
@@ -174,55 +180,39 @@ async function saveToGoogleSheets(action, data) {
     }
 }
 
-// Update the authenticateUser function to use Google Sheets
 async function authenticateUser(credential, password, remember) {
     try {
-        // For now, still use mock data but log attempt
         console.log('Authenticating via Google Sheets...');
         
-        // In production, this would actually call the Google Sheets API
+        // Actually call Google Sheets to authenticate
         const result = await saveToGoogleSheets('authenticate', {
             username: credential,
             password: password
         });
         
-        // Continue with mock authentication for now
-        if (credential.includes('@glrecoveryservices.com')) {
-            currentUser = {
-                id: Date.now(),
-                email: credential,
-                name: 'Coach ' + credential.split('@')[0],
-                role: 'coach',
-                firstLogin: false
-            };
-            userRole = 'coach';
-        } else {
-            const recoveryDate = new Date();
-            recoveryDate.setDate(recoveryDate.getDate() - 45);
+        if (result.success && result.user) {
+            // Use the real user data from Google Sheets
+            currentUser = result.user;
+            currentUser.id = result.user.userId;
+            userRole = result.user.role;
             
-            currentUser = {
-                id: Date.now(),
-                username: credential.includes('@') ? credential.split('@')[0] : credential,
-                email: credential.includes('@') ? credential : credential + '@example.com',
-                name: 'John Doe',
-                role: 'pir',
-                recoveryStartDate: recoveryDate.toISOString(),
-                tier: calculateTier(recoveryDate),
-                firstLogin: !localStorage.getItem('termsAccepted_' + credential),
-                coachId: 'coach1'
-            };
-            userRole = 'pir';
-            userTier = currentUser.tier;
-        }
-        
-        if (remember) {
-            localStorage.setItem('rememberedUser', JSON.stringify(currentUser));
-        }
-        
-        if (currentUser.firstLogin && userRole === 'pir') {
-            showTermsModal();
+            if (userRole === 'pir') {
+                userTier = calculateTier(result.user.recoveryStartDate);
+                currentUser.tier = userTier;
+            }
+            
+            if (remember) {
+                localStorage.setItem('rememberedUser', JSON.stringify(currentUser));
+            }
+            
+            if (currentUser.firstLogin && userRole === 'pir') {
+                showTermsModal();
+            } else {
+                proceedToApp();
+            }
         } else {
-            proceedToApp();
+            // Authentication failed
+            alert('Invalid username or password. Please try again.');
         }
         
     } catch (error) {
