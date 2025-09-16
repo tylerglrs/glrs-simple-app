@@ -52,7 +52,8 @@ async function loadUserData(uid) {
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
-    // Firebase will handle auth state
+    // Just show login screen - Firebase will handle the rest
+    document.getElementById('loginScreen').style.display = 'block';
 });
 
 // Show login screen
