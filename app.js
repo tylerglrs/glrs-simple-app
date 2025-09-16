@@ -203,8 +203,12 @@ async function changePassword() {
     }
 }
 
-// Accept terms function
 async function acceptTerms() {
+    if (!currentUser || !currentUser.uid) {
+        console.error("No user logged in");
+        return;
+    }
+    
     try {
         await db.collection('users').doc(currentUser.uid).update({
             termsAccepted: firebase.firestore.FieldValue.serverTimestamp()
@@ -217,7 +221,6 @@ async function acceptTerms() {
         console.error("Error accepting terms:", error);
     }
 }
-
 // Save check-in function
 async function saveCheckin(event) {
     event.preventDefault();
