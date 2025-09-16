@@ -42,13 +42,56 @@ function acceptTerms() {
         
         // Update Google Sheets to mark terms accepted
         saveToGoogleSheets('updateTermsAcceptance', {
-            userId: currentUser.id,
+            userId: currentUser.userId, // Fixed: was currentUser.id
             username: currentUser.username
         });
     }
     
     document.getElementById('termsModal').style.display = 'none';
     proceedToApp();
+}
+
+// Password Change Modal Functions
+function showPasswordChangeModal() {
+    document.getElementById('passwordModal').style.display = 'flex';
+}
+
+function changePassword() {
+    const newPassword = document.getElementById('newPassword').value;
+    const confirmPassword = document.getElementById('confirmPassword').value;
+    
+    if (!newPassword || !confirmPassword) {
+        alert('Please enter and confirm your new password');
+        return;
+    }
+    
+    if (newPassword !== confirmPassword) {
+        alert('Passwords do not match');
+        return;
+    }
+    
+    if (newPassword.length < 8) {
+        alert('Password must be at least 8 characters long');
+        return;
+    }
+    
+    // Update password in Google Sheets
+    saveToGoogleSheets('updatePassword', {
+        userId: currentUser.userId,
+        newPassword: newPassword
+    }).then(result => {
+        if (result.success) {
+            alert('Password updated successfully!');
+            document.getElementById('passwordModal').style.display = 'none';
+            
+            // Continue to terms or app
+            if (currentUser.firstLogin && userRole === 'pir') {
+                showTermsModal();
+            } else {
+                proceedToApp();
+            }
+        }
+    });
 }
 
 // Login Functions
@@ -105,11 +148,19 @@ async function saveToGoogleSheets(action, data) {
             case 'updateTermsAcceptance':
                 payload = {
                     action: 'updateUser',
-                    userId: data.id,
+                    userId: data.userId,
                     updates: {
                         firstLogin: false,
                         termsAccepted: new Date().toISOString()
                     }
+                };
+                break;
+                
+            case 'updatePassword':
+                payload = {
+                    action: 'updatePassword',
+                    userId: data.userId,
+                    newPassword: data.newPassword
                 };
                 break;
                 
@@ -194,7 +245,6 @@ async function authenticateUser(credential, password, remember) {
         if (result.success && result.user) {
             // Use the real user data from Google Sheets
             currentUser = result.user;
-            currentUser.id = result.user.userId;
             userRole = result.user.role;
             
             if (userRole === 'pir') {
@@ -206,7 +256,10 @@ async function authenticateUser(credential, password, remember) {
                 localStorage.setItem('rememberedUser', JSON.stringify(currentUser));
             }
             
-            if (currentUser.firstLogin && userRole === 'pir') {
+            // Check if this is a temporary password (contains 'Temp')
+            if (password.includes('Temp')) {
+                showPasswordChangeModal();
+            } else if (currentUser.firstLogin && userRole === 'pir') {
                 showTermsModal();
             } else {
                 proceedToApp();
@@ -359,7 +412,7 @@ document.getElementById('checkinForm')?.addEventListener('submit', function(e) {
     e.preventDefault();
     
     const checkinData = {
-        userId: currentUser.id,
+        userId: currentUser.userId,
         date: new Date().toISOString(),
         mood: document.getElementById('mood').value,
         cravings: document.getElementById('cravings').value,
@@ -392,7 +445,7 @@ document.getElementById('checkinForm')?.addEventListener('submit', function(e) {
 function loadRecentCheckins() {
     const recentList = document.getElementById('recentCheckinsList');
     const userCheckins = mockDatabase.checkins
-        .filter(c => c.userId === currentUser.id)
+        .filter(c => c.userId === currentUser.userId)
         .slice(-7)
         .reverse();
     
@@ -717,7 +770,7 @@ function createPIRAccount(event) {
         emergencyName: document.getElementById('emergencyName').value,
         emergencyPhone: document.getElementById('emergencyPhone').value,
         notes: document.getElementById('initialNotes').value,
-        createdBy: currentUser.id,
+        createdBy: currentUser.userId,
         role: 'pir'
     };
     
@@ -972,7 +1025,7 @@ Please call 988 (Suicide & Crisis Lifeline) immediately for support.
 If you're in immediate danger, call 911.`);
     
     saveToGoogleSheets('crisisAlert', {
-        userId: currentUser.id,
+        userId: currentUser.userId,
         timestamp: new Date().toISOString(),
         type: 'self-harm keywords detected'
     });
@@ -983,7 +1036,7 @@ function getWeeklyCheckins() {
     weekAgo.setDate(weekAgo.getDate() - 7);
     
     return mockDatabase.checkins.filter(c => 
-        c.userId === currentUser.id && 
+        c.userId === currentUser.userId && 
         new Date(c.date) > weekAgo
     ).length;
 }
@@ -995,7 +1048,7 @@ function getCheckInStreak() {
 
 function calculateAverageMood() {
     const recentCheckins = mockDatabase.checkins
-        .filter(c => c.userId === currentUser.id)
+        .filter(c => c.userId === currentUser.userId)
         .slice(-7);
     
     if (recentCheckins.length === 0) return 'N/A';
@@ -1184,7 +1237,7 @@ function addResource(event) {
         title: document.getElementById('resourceTitle').value,
         category: document.getElementById('resourceCategory').value,
         description: document.getElementById('resourceDescription').value,
-        addedBy: currentUser.id,
+        addedBy: currentUser.userId,
         addedAt: new Date().toISOString()
     };
     
@@ -1215,7 +1268,7 @@ function initializeDemoData() {
             date.setDate(date.getDate() - i);
             
             demoCheckins.push({
-                userId: currentUser.id,
+                userId: currentUser.userId,
                 date: date.toISOString(),
                 mood: Math.floor(Math.random() * 4) + 5,
                 cravings: Math.floor(Math.random() * 3) + 1,
