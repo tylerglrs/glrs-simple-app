@@ -120,6 +120,34 @@ async function saveToGoogleSheets(action, data) {
                 };
                 break;
                 
+            case 'addResource':
+                payload = {
+                    action: 'addResource',
+                    resourceData: data
+                };
+                break;
+                
+            case 'createMessage':
+                payload = {
+                    action: 'createMessage',
+                    messageData: data
+                };
+                break;
+                
+            case 'createAssignment':
+                payload = {
+                    action: 'createAssignment',
+                    assignmentData: data
+                };
+                break;
+                
+            case 'updateConnection':
+                payload = {
+                    action: 'updateConnection',
+                    connectionData: data
+                };
+                break;
+                
             default:
                 payload = {
                     action: action,
@@ -127,18 +155,18 @@ async function saveToGoogleSheets(action, data) {
                 };
         }
         
+        // POST request without 'no-cors' to get response data
         const response = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
-            mode: 'no-cors', // Required for Google Apps Script
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(payload)
         });
         
-        // Note: With no-cors, we can't read the response
-        console.log('Data sent to Google Sheets');
-        return { success: true };
+        const result = await response.json();
+        console.log('Google Sheets response:', result);
+        return result;
         
     } catch (error) {
         console.error('Error saving to Google Sheets:', error);
