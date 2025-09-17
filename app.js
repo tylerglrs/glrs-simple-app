@@ -1,4 +1,4 @@
-// GLRS PIR Platform - Fixed Version
+// GLRS PIR Platform - Complete Fixed Version
 // Global variables
 let currentUser = null;
 let userRole = null;
@@ -156,8 +156,6 @@ function showToast(message, type = 'success') {
 
 // Email sending function
 async function sendEmail(to, subject, body) {
-    // Using EmailJS (you'll need to sign up at emailjs.com)
-    // For now, I'll provide the structure
     try {
         console.log('Email would be sent to:', to);
         console.log('Subject:', subject);
@@ -382,6 +380,7 @@ window.createPIRAccount = async function(event) {
             emergencyPhone: document.getElementById('emergencyPhone').value,
             notes: document.getElementById('initialNotes').value,
             coachId: selectedCoachId || currentUser.uid,
+            openToConnections: document.getElementById('openToConnections').value === 'true',
             createdBy: currentUser.uid,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             firstLogin: true,
@@ -451,8 +450,6 @@ The GLRS Team
 
 // Save to Google Sheets function
 async function saveToGoogleSheets(userData) {
-    // This would connect to your Google Sheets API
-    // For now, we'll just log it
     console.log('Would save to Google Sheets:', userData);
 }
 
@@ -616,7 +613,6 @@ async function loadPIRDashboard() {
         });
         
         if (futureSessions.length > 0) {
-            // Sort by date
             futureSessions.sort((a, b) => a.date.toDate() - b.date.toDate());
             const nextSession = futureSessions[0];
             const sessionDate = nextSession.date.toDate();
@@ -744,7 +740,6 @@ async function loadRecentCheckins() {
 async function loadProgressContent() {
     const days = Math.floor((new Date() - new Date(currentUser.recoveryStartDate)) / (1000 * 60 * 60 * 24));
     
-    // Get check-in data for charts
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     
@@ -754,7 +749,6 @@ async function loadProgressContent() {
             .limit(30)
             .get();
         
-        // Sort manually
         const checkins = [];
         checkinsSnapshot.forEach(doc => {
             const data = doc.data();
@@ -810,7 +804,6 @@ async function loadProgressContent() {
             </div>
         `;
         
-        // Create chart if data exists
         if (moodData.length > 0) {
             setTimeout(() => {
                 createProgressChart(dates, moodData, cravingData);
@@ -938,7 +931,6 @@ async function loadConnectionsContent() {
         return;
     }
     
-    // Load connections for established/trusted users
     try {
         const connectionsSnapshot = await window.db.collection('connections')
             .where('participants', 'array-contains', currentUser.uid)
@@ -947,9 +939,6 @@ async function loadConnectionsContent() {
         
         let connectionsHTML = '';
         if (connectionsSnapshot.empty) {
-            connectionsHTML = '<p>No connections yet. Find recovery buddies
-                // ... continuing from loadConnectionsContent()
-
             connectionsHTML = '<p>No connections yet. Find recovery buddies to connect with!</p>';
         } else {
             for (const doc of connectionsSnapshot.docs) {
@@ -1066,9 +1055,9 @@ async function loadMessagesContent() {
     try {
         const messagesHTML = `
             <div class="message-tabs">
-                <button onclick="showMessageTab('coach')" class="message-tab-btn active">Coach Messages</button>
-                ${userTier !== 'new' ? '<button onclick="showMessageTab(\'peers\')" class="message-tab-btn">Peer Messages</button>' : ''}
-                <button onclick="showMessageTab('announcements')" class="message-tab-btn">Announcements</button>
+                <button onclick="showMessageTab('coach', event)" class="message-tab-btn active">Coach Messages</button>
+                ${userTier !== 'new' ? '<button onclick="showMessageTab(\'peers\', event)" class="message-tab-btn">Peer Messages</button>' : ''}
+                <button onclick="showMessageTab('announcements', event)" class="message-tab-btn">Announcements</button>
             </div>
             
             <div id="messageTabContent">
@@ -1086,7 +1075,6 @@ async function loadMessagesContent() {
         
         document.getElementById('messagesContent').innerHTML = messagesHTML;
         
-        // Load coach messages by default
         await loadCoachMessages();
         
     } catch (error) {
@@ -1103,12 +1091,10 @@ async function loadCoachMessages() {
             .limit(50)
             .get();
         
-        // Filter for coach-pir messages
         const coachMessages = messages.docs.filter(doc => 
             doc.data().type === 'coach-pir'
         );
         
-        // Sort by timestamp
         coachMessages.sort((a, b) => {
             const timeA = a.data().timestamp || 0;
             const timeB = b.data().timestamp || 0;
@@ -1196,7 +1182,7 @@ function formatMessageTime(timestamp) {
 }
 
 // Show message tab
-window.showMessageTab = async function(tab) {
+window.showMessageTab = async function(tab, event) {
     document.querySelectorAll('.message-tab-btn').forEach(btn => btn.classList.remove('active'));
     event.target.classList.add('active');
     
@@ -1204,10 +1190,12 @@ window.showMessageTab = async function(tab) {
         case 'coach':
             await loadCoachMessages();
             document.querySelector('.message-compose h4').textContent = 'Send Message to Coach';
+            document.querySelector('.message-compose').style.display = 'block';
             break;
         case 'peers':
             await loadPeerMessages();
             document.querySelector('.message-compose h4').textContent = 'Select a peer to message';
+            document.querySelector('.message-compose').style.display = 'block';
             break;
         case 'announcements':
             await loadAnnouncements();
@@ -1224,12 +1212,10 @@ async function loadPeerMessages() {
             .limit(50)
             .get();
         
-        // Filter for peer messages
         const peerMessages = messages.docs.filter(doc => 
             doc.data().type === 'peer-peer'
         );
         
-        // Sort by timestamp
         peerMessages.sort((a, b) => {
             const timeA = a.data().timestamp || 0;
             const timeB = b.data().timestamp || 0;
@@ -1278,7 +1264,6 @@ async function loadAnnouncements() {
         if (announcements.empty) {
             announcementsHTML = '<p class="no-messages">No announcements yet.</p>';
         } else {
-            // Sort manually
             const announcementsList = [];
             announcements.forEach(doc => {
                 announcementsList.push({ id: doc.id, ...doc.data() });
@@ -1397,7 +1382,6 @@ window.uploadAssignment = async function() {
         return;
     }
     
-    // In a real app, this would upload to Firebase Storage
     showToast('File uploaded successfully!', 'success');
     fileInput.value = '';
 }
@@ -1462,7 +1446,6 @@ async function loadCoachOverview() {
             .where('coachId', '==', currentUser.uid)
             .get();
         
-        // Filter for today's alerts
         const todaysAlerts = [];
         alertsSnapshot.forEach(doc => {
             const data = doc.data();
@@ -1471,11 +1454,9 @@ async function loadCoachOverview() {
             }
         });
         
-        // Get today's check-ins
         const checkinsSnapshot = await window.db.collection('checkins')
             .get();
         
-        // Filter check-ins for coach's PIRs
         const pirIds = pirsSnapshot.docs.map(doc => doc.id);
         const todaysCheckins = [];
         checkinsSnapshot.forEach(doc => {
@@ -1485,7 +1466,6 @@ async function loadCoachOverview() {
             }
         });
         
-        // Build alerts HTML
         let alertsHTML = '';
         if (todaysAlerts.length === 0) {
             alertsHTML = '<p>No alerts today.</p>';
@@ -1535,7 +1515,6 @@ async function loadCoachOverview() {
             </div>
         `;
         
-        // Load recent activity
         loadRecentActivity();
         
     } catch (error) {
@@ -1554,14 +1533,12 @@ async function loadRecentActivity() {
         
         const pirIds = pirsSnapshot.docs.map(doc => doc.id);
         
-        // Get recent check-ins
         const recentCheckins = await window.db.collection('checkins')
             .limit(20)
             .get();
         
         let activityHTML = '<ul>';
         
-        // Filter and sort manually
         const relevantCheckins = [];
         recentCheckins.forEach(doc => {
             const checkin = doc.data();
@@ -1592,38 +1569,6 @@ async function loadRecentActivity() {
     } catch (error) {
         console.error("Error loading recent activity:", error);
         document.getElementById('recentActivity').innerHTML = '<p>Error loading activity</p>';
-    }
-}
-
-// Continue with remaining coach functions...
-// [The rest of the coach functions remain the same as in your original code]
-
-// Message a connection
-window.messageConnection = function(userId) {
-    showToast('Opening message composer...', 'info');
-}
-
-// Filter check-ins
-window.filterCheckins = function(filter) {
-    showToast(`Filtering by: ${filter}`, 'info');
-}
-
-// View alert details
-window.viewAlert = async function(alertId) {
-    try {
-        const alertDoc = await window.db.collection('alerts').doc(alertId).get();
-        const alert = alertDoc.data();
-        
-        await window.db.collection('alerts').doc(alertId).update({
-            reviewed: true,
-            reviewedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        showToast('Alert reviewed', 'success');
-        
-    } catch (error) {
-        console.error("Error viewing alert:", error);
-        showToast('Error viewing alert', 'error');
     }
 }
 
@@ -1732,12 +1677,10 @@ async function loadCoachesForDropdown() {
     }
 }
 
-// [Include all remaining coach functions here - they remain the same as in your original code]
-/ Load coach check-ins review
+// Load coach check-ins review
 async function loadCoachCheckinsReview() {
     try {
-        // Get PIRs assigned to this coach
-        const pirsSnapshot = await db.collection('users')
+        const pirsSnapshot = await window.db.collection('users')
             .where('coachId', '==', currentUser.uid)
             .where('role', '==', 'pir')
             .get();
@@ -1754,19 +1697,27 @@ async function loadCoachCheckinsReview() {
             <div class="checkin-review-grid">
         `;
         
-        // For each PIR, get their latest check-in
         for (const pirDoc of pirsSnapshot.docs) {
             const pir = pirDoc.data();
             
-            // Get latest check-in
-            const latestCheckin = await db.collection('checkins')
+            const latestCheckin = await window.db.collection('checkins')
                 .where('userId', '==', pirDoc.id)
-                .orderBy('date', 'desc')
                 .limit(1)
                 .get();
             
-            if (!latestCheckin.empty) {
-                const checkin = latestCheckin.docs[0].data();
+            let latestCheckinData = null;
+            let latestDate = null;
+            
+            latestCheckin.forEach(doc => {
+                const data = doc.data();
+                if (!latestDate || data.date.toDate() > latestDate) {
+                    latestDate = data.date.toDate();
+                    latestCheckinData = data;
+                }
+            });
+            
+            if (latestCheckinData) {
+                const checkin = latestCheckinData;
                 const isAlert = checkin.mood <= 3 || checkin.cravings >= 7 || checkin.support <= 3;
                 
                 checkinsHTML += `
@@ -1779,6 +1730,8 @@ async function loadCoachCheckinsReview() {
                                 <span>${checkin.mood}/10</span>
                             </div>
                             <div class="checkin-metric">
+                            // ... continuing from loadCoachCheckinsReview()
+
                                 <strong>Cravings</strong>
                                 <span>${checkin.cravings}/10</span>
                             </div>
@@ -1812,18 +1765,18 @@ async function loadCoachCheckinsReview() {
 }
 
 // View PIR details
-async function viewPIRDetails(pirId) {
-    // This would show a detailed view of the PIR's history
+window.viewPIRDetails = async function(pirId) {
     showToast('Loading PIR details...', 'info');
+    // This would show a detailed view of the PIR's history
 }
 
 // Send reminder to PIR
-async function sendReminder(pirId) {
+window.sendReminder = async function(pirId) {
     try {
-        const pirDoc = await db.collection('users').doc(pirId).get();
+        const pirDoc = await window.db.collection('users').doc(pirId).get();
         const pir = pirDoc.data();
         
-        await db.collection('messages').add({
+        await window.db.collection('messages').add({
             fromUserId: currentUser.uid,
             fromUserName: 'Your Coach',
             toUserId: pirId,
@@ -1843,18 +1796,16 @@ async function sendReminder(pirId) {
 }
 
 // View alert details
-async function viewAlert(alertId) {
+window.viewAlert = async function(alertId) {
     try {
-        const alertDoc = await db.collection('alerts').doc(alertId).get();
+        const alertDoc = await window.db.collection('alerts').doc(alertId).get();
         const alert = alertDoc.data();
         
-        // Mark alert as reviewed
-        await db.collection('alerts').doc(alertId).update({
+        await window.db.collection('alerts').doc(alertId).update({
             reviewed: true,
             reviewedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        // Show alert details (in a real app, this would be a modal)
         showToast('Alert reviewed', 'success');
         
     } catch (error) {
@@ -1866,7 +1817,7 @@ async function viewAlert(alertId) {
 // Load coach progress tracking
 async function loadCoachProgressTracking() {
     try {
-        const pirsSnapshot = await db.collection('users')
+        const pirsSnapshot = await window.db.collection('users')
             .where('coachId', '==', currentUser.uid)
             .where('role', '==', 'pir')
             .get();
@@ -1874,7 +1825,7 @@ async function loadCoachProgressTracking() {
         let progressHTML = `
             <h2>PIR Progress Tracking</h2>
             <div class="progress-overview">
-                <select id="pirSelector" onchange="loadPIRProgress(this.value)" class="mb-20">
+                <select id="pirSelector" onchange="loadPIRProgress(this.value)" class="form-select mb-20">
                     <option value="">Select a PIR</option>
         `;
         
@@ -1900,32 +1851,37 @@ async function loadCoachProgressTracking() {
 }
 
 // Load specific PIR progress
-async function loadPIRProgress(pirId) {
+window.loadPIRProgress = async function(pirId) {
     if (!pirId) return;
     
     try {
-        const pirDoc = await db.collection('users').doc(pirId).get();
+        const pirDoc = await window.db.collection('users').doc(pirId).get();
         const pir = pirDoc.data();
         
-        // Get check-ins for last 30 days
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         
-        const checkinsSnapshot = await db.collection('checkins')
+        const checkinsSnapshot = await window.db.collection('checkins')
             .where('userId', '==', pirId)
-            .where('date', '>', thirtyDaysAgo)
-            .orderBy('date')
+            .limit(30)
             .get();
         
-        // Calculate stats
+        const recentCheckins = [];
+        checkinsSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.date && data.date.toDate() > thirtyDaysAgo) {
+                recentCheckins.push(data);
+            }
+        });
+        
         const days = Math.floor((new Date() - new Date(pir.recoveryStartDate)) / (1000 * 60 * 60 * 24));
-        const checkinRate = Math.round((checkinsSnapshot.size / 30) * 100);
+        const checkinRate = Math.round((recentCheckins.length / 30) * 100);
         
         let totalMood = 0;
-        checkinsSnapshot.forEach(doc => {
-            totalMood += parseInt(doc.data().mood);
+        recentCheckins.forEach(data => {
+            totalMood += parseInt(data.mood);
         });
-        const avgMood = checkinsSnapshot.size > 0 ? (totalMood / checkinsSnapshot.size).toFixed(1) : 'N/A';
+        const avgMood = recentCheckins.length > 0 ? (totalMood / recentCheckins.length).toFixed(1) : 'N/A';
         
         document.getElementById('selectedPIRProgress').innerHTML = `
             <div class="pir-progress-details">
@@ -1948,6 +1904,7 @@ async function loadPIRProgress(pirId) {
                 <button onclick="showPIRCheckinHistory('${pirId}')" class="btn-secondary mt-20">View Check-in History</button>
             </div>
         `;
+        
     } catch (error) {
         console.error("Error loading PIR progress:", error);
         document.getElementById('selectedPIRProgress').innerHTML = '<p>Error loading progress data</p>';
@@ -1955,16 +1912,25 @@ async function loadPIRProgress(pirId) {
 }
 
 // Generate PIR report
-async function generatePIRReport(pirId) {
+window.generatePIRReport = async function(pirId) {
     try {
-        const pirDoc = await db.collection('users').doc(pirId).get();
+        const pirDoc = await window.db.collection('users').doc(pirId).get();
         const pir = pirDoc.data();
         
-        // Get all check-ins
-        const checkinsSnapshot = await db.collection('checkins')
+        const checkinsSnapshot = await window.db.collection('checkins')
             .where('userId', '==', pirId)
-            .orderBy('date', 'desc')
             .get();
+        
+        const checkins = [];
+        checkinsSnapshot.forEach(doc => {
+            checkins.push({ id: doc.id, ...doc.data() });
+        });
+        
+        checkins.sort((a, b) => {
+            const dateA = a.date ? a.date.toDate() : new Date(0);
+            const dateB = b.date ? b.date.toDate() : new Date(0);
+            return dateB - dateA;
+        });
         
         let report = `
 PIR PROGRESS REPORT
@@ -1978,9 +1944,9 @@ Days in Recovery: ${Math.floor((new Date() - new Date(pir.recoveryStartDate)) / 
 Service Package: ${pir.servicePackage}
 
 CHECK-IN SUMMARY
-Total Check-ins: ${checkinsSnapshot.size}
-Last 30 Days: ${checkinsSnapshot.docs.filter(doc => {
-    const date = doc.data().date.toDate();
+Total Check-ins: ${checkins.length}
+Last 30 Days: ${checkins.filter(checkin => {
+    const date = checkin.date.toDate();
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     return date > thirtyDaysAgo;
@@ -1989,9 +1955,7 @@ Last 30 Days: ${checkinsSnapshot.docs.filter(doc => {
 RECENT CHECK-INS
 `;
         
-        // Add last 10 check-ins
-        checkinsSnapshot.docs.slice(0, 10).forEach(doc => {
-            const checkin = doc.data();
+        checkins.slice(0, 10).forEach(checkin => {
             report += `
 Date: ${checkin.date.toDate().toLocaleDateString()}
 Mood: ${checkin.mood}/10 | Cravings: ${checkin.cravings}/10 | Support: ${checkin.support}/10
@@ -2001,7 +1965,6 @@ Mood: ${checkin.mood}/10 | Cravings: ${checkin.cravings}/10 | Support: ${checkin
             report += '---\n';
         });
         
-        // Download report
         const blob = new Blob([report], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -2018,18 +1981,27 @@ Mood: ${checkin.mood}/10 | Cravings: ${checkin.cravings}/10 | Support: ${checkin
 }
 
 // Show PIR check-in history
-async function showPIRCheckinHistory(pirId) {
+window.showPIRCheckinHistory = async function(pirId) {
     try {
-        const checkinsSnapshot = await db.collection('checkins')
+        const checkinsSnapshot = await window.db.collection('checkins')
             .where('userId', '==', pirId)
-            .orderBy('date', 'desc')
             .limit(30)
             .get();
         
+        const checkins = [];
+        checkinsSnapshot.forEach(doc => {
+            checkins.push({ id: doc.id, ...doc.data() });
+        });
+        
+        checkins.sort((a, b) => {
+            const dateA = a.date ? a.date.toDate() : new Date(0);
+            const dateB = b.date ? b.date.toDate() : new Date(0);
+            return dateB - dateA;
+        });
+        
         let historyHTML = '<h3>Check-in History</h3><div class="checkin-history">';
         
-        checkinsSnapshot.forEach(doc => {
-            const checkin = doc.data();
+        checkins.forEach(checkin => {
             const date = checkin.date.toDate().toLocaleDateString();
             
             historyHTML += `
@@ -2060,13 +2032,11 @@ async function showPIRCheckinHistory(pirId) {
 // Load coach connection management
 async function loadCoachConnectionManagement() {
     try {
-        // Get connection requests
-        const requestsSnapshot = await db.collection('connectionRequests')
+        const requestsSnapshot = await window.db.collection('connectionRequests')
             .where('status', '==', 'pending')
             .get();
         
-        // Get active connections
-        const connectionsSnapshot = await db.collection('connections')
+        const connectionsSnapshot = await window.db.collection('connections')
             .where('status', '==', 'active')
             .get();
         
@@ -2082,9 +2052,8 @@ async function loadCoachConnectionManagement() {
             for (const doc of requestsSnapshot.docs) {
                 const request = doc.data();
                 
-                // Get user details
-                const fromUser = await db.collection('users').doc(request.fromUserId).get();
-                const toUser = await db.collection('users').doc(request.toUserId).get();
+                const fromUser = await window.db.collection('users').doc(request.fromUserId).get();
+                const toUser = await window.db.collection('users').doc(request.toUserId).get();
                 
                 if (fromUser.exists && toUser.exists) {
                     const fromData = fromUser.data();
@@ -2123,20 +2092,18 @@ async function loadCoachConnectionManagement() {
 }
 
 // Approve connection
-async function approveConnection(requestId) {
+window.approveConnection = async function(requestId) {
     try {
-        const requestDoc = await db.collection('connectionRequests').doc(requestId).get();
+        const requestDoc = await window.db.collection('connectionRequests').doc(requestId).get();
         const request = requestDoc.data();
         
-        // Create connection
-        await db.collection('connections').add({
+        await window.db.collection('connections').add({
             participants: [request.fromUserId, request.toUserId],
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             status: 'active'
         });
         
-        // Update request status
-        await db.collection('connectionRequests').doc(requestId).update({
+        await window.db.collection('connectionRequests').doc(requestId).update({
             status: 'approved',
             approvedBy: currentUser.uid,
             approvedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -2152,9 +2119,9 @@ async function approveConnection(requestId) {
 }
 
 // Deny connection
-async function denyConnection(requestId) {
+window.denyConnection = async function(requestId) {
     try {
-        await db.collection('connectionRequests').doc(requestId).update({
+        await window.db.collection('connectionRequests').doc(requestId).update({
             status: 'denied',
             deniedBy: currentUser.uid,
             deniedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -2172,8 +2139,7 @@ async function denyConnection(requestId) {
 // Load coach message center
 async function loadCoachMessageCenter() {
     try {
-        // Get PIRs
-        const pirsSnapshot = await db.collection('users')
+        const pirsSnapshot = await window.db.collection('users')
             .where('coachId', '==', currentUser.uid)
             .where('role', '==', 'pir')
             .get();
@@ -2186,7 +2152,7 @@ async function loadCoachMessageCenter() {
             
             <div class="mt-20">
                 <h3>Select PIR to Message</h3>
-                <select id="messageRecipient" onchange="loadMessagesWithPIR(this.value)">
+                <select id="messageRecipient" onchange="loadMessagesWithPIR(this.value)" class="form-select">
                     <option value="">Select a PIR...</option>
                     <option value="all">All PIRs (Broadcast)</option>
         `;
@@ -2212,23 +2178,21 @@ async function loadCoachMessageCenter() {
 }
 
 // Load messages with specific PIR
-async function loadMessagesWithPIR(pirId) {
+window.loadMessagesWithPIR = async function(pirId) {
     if (!pirId) return;
     
     if (pirId === 'all') {
         document.getElementById('messagesContainer').innerHTML = `
             <h3>Broadcast Message to All PIRs</h3>
-            <textarea id="broadcastMessage" rows="4" placeholder="Type your message to all PIRs..."></textarea>
+            <textarea id="broadcastMessage" rows="4" placeholder="Type your message to all PIRs..." class="form-textarea"></textarea>
             <button onclick="sendBroadcastMessage()" class="primary-btn mt-10">Send to All</button>
         `;
         return;
     }
     
     try {
-        // Load conversation with this PIR
-        const messages = await db.collection('messages')
+        const messages = await window.db.collection('messages')
             .where('participants', 'array-contains', currentUser.uid)
-            .orderBy('timestamp', 'desc')
             .limit(50)
             .get();
         
@@ -2237,6 +2201,12 @@ async function loadMessagesWithPIR(pirId) {
         const filteredMessages = messages.docs.filter(doc => 
             doc.data().participants.includes(pirId)
         );
+        
+        filteredMessages.sort((a, b) => {
+            const timeA = a.data().timestamp || 0;
+            const timeB = b.data().timestamp || 0;
+            return timeB - timeA;
+        });
         
         if (filteredMessages.length === 0) {
             messagesHTML += '<p>No messages yet.</p>';
@@ -2261,7 +2231,7 @@ async function loadMessagesWithPIR(pirId) {
         messagesHTML += `
             </div>
             <div class="message-compose mt-20">
-                <textarea id="coachMessage" rows="4" placeholder="Type your message..."></textarea>
+                <textarea id="coachMessage" rows="4" placeholder="Type your message..." class="form-textarea"></textarea>
                 <button onclick="sendMessageToPIR('${pirId}')" class="primary-btn mt-10">Send</button>
             </div>
         `;
@@ -2275,7 +2245,7 @@ async function loadMessagesWithPIR(pirId) {
 }
 
 // Send message to PIR
-async function sendMessageToPIR(pirId) {
+window.sendMessageToPIR = async function(pirId) {
     const messageText = document.getElementById('coachMessage').value.trim();
     
     if (!messageText) {
@@ -2284,7 +2254,7 @@ async function sendMessageToPIR(pirId) {
     }
     
     try {
-        await db.collection('messages').add({
+        await window.db.collection('messages').add({
             fromUserId: currentUser.uid,
             fromUserName: 'Your Coach',
             toUserId: pirId,
@@ -2306,7 +2276,7 @@ async function sendMessageToPIR(pirId) {
 }
 
 // Send broadcast message
-async function sendBroadcastMessage() {
+window.sendBroadcastMessage = async function() {
     const messageText = document.getElementById('broadcastMessage').value.trim();
     
     if (!messageText) {
@@ -2315,15 +2285,13 @@ async function sendBroadcastMessage() {
     }
     
     try {
-        // Get all PIRs
-        const pirsSnapshot = await db.collection('users')
+        const pirsSnapshot = await window.db.collection('users')
             .where('coachId', '==', currentUser.uid)
             .where('role', '==', 'pir')
             .get();
         
-        // Send message to each PIR
         const promises = pirsSnapshot.docs.map(doc => 
-            db.collection('messages').add({
+            window.db.collection('messages').add({
                 fromUserId: currentUser.uid,
                 fromUserName: 'Your Coach',
                 toUserId: doc.id,
@@ -2348,7 +2316,7 @@ async function sendBroadcastMessage() {
 }
 
 // Compose announcement
-async function composeAnnouncement() {
+window.composeAnnouncement = async function() {
     const title = prompt('Announcement Title:');
     if (!title) return;
     
@@ -2356,7 +2324,7 @@ async function composeAnnouncement() {
     if (!message) return;
     
     try {
-        await db.collection('announcements').add({
+        await window.db.collection('announcements').add({
             title: title,
             message: message,
             authorId: currentUser.uid,
@@ -2375,7 +2343,7 @@ async function composeAnnouncement() {
 // Load coach assignment center
 async function loadCoachAssignmentCenter() {
     try {
-        const pirsSnapshot = await db.collection('users')
+        const pirsSnapshot = await window.db.collection('users')
             .where('coachId', '==', currentUser.uid)
             .where('role', '==', 'pir')
             .get();
@@ -2388,18 +2356,18 @@ async function loadCoachAssignmentCenter() {
             
             <div id="createAssignmentForm" style="display: none;" class="mt-20">
                 <h3>Create Assignment</h3>
-                <form onsubmit="createAssignment(event)">
+                <form onsubmit="createAssignment(event); return false;">
                     <div class="form-group">
                         <label>Assignment Title *</label>
-                        <input type="text" id="assignmentTitle" required>
+                        <input type="text" id="assignmentTitle" required class="form-input">
                     </div>
                     <div class="form-group">
                         <label>Description *</label>
-                        <textarea id="assignmentDescription" rows="3" required></textarea>
+                        <textarea id="assignmentDescription" rows="3" required class="form-textarea"></textarea>
                     </div>
                     <div class="form-group">
                         <label>Assign To *</label>
-                        <select id="assignTo" required>
+                        <select id="assignTo" required class="form-select">
                             <option value="all">All PIRs</option>
         `;
         
@@ -2413,9 +2381,9 @@ async function loadCoachAssignmentCenter() {
                     </div>
                     <div class="form-group">
                         <label>Due Date</label>
-                        <input type="date" id="assignmentDueDate">
+                        <input type="date" id="assignmentDueDate" class="form-input">
                     </div>
-                    <button type="submit" class="save-btn">Create Assignment</button>
+                    <button type="submit" class="btn btn-primary">Create Assignment</button>
                 </form>
             </div>
             
@@ -2435,12 +2403,12 @@ async function loadCoachAssignmentCenter() {
 }
 
 // Show create assignment form
-function showCreateAssignment() {
+window.showCreateAssignment = function() {
     document.getElementById('createAssignmentForm').style.display = 'block';
 }
 
 // Create assignment
-async function createAssignment(event) {
+window.createAssignment = async function(event) {
     event.preventDefault();
     
     const title = document.getElementById('assignmentTitle').value;
@@ -2450,14 +2418,13 @@ async function createAssignment(event) {
     
     try {
         if (assignTo === 'all') {
-            // Create assignment for all PIRs
-            const pirsSnapshot = await db.collection('users')
+            const pirsSnapshot = await window.db.collection('users')
                 .where('coachId', '==', currentUser.uid)
                 .where('role', '==', 'pir')
                 .get();
             
             const promises = pirsSnapshot.docs.map(doc => 
-                db.collection('assignments').add({
+                window.db.collection('assignments').add({
                     title: title,
                     description: description,
                     pirId: doc.id,
@@ -2471,8 +2438,7 @@ async function createAssignment(event) {
             await Promise.all(promises);
             showToast(`Assignment created for ${pirsSnapshot.size} PIRs!`, 'success');
         } else {
-            // Create for specific PIR
-            await db.collection('assignments').add({
+            await window.db.collection('assignments').add({
                 title: title,
                 description: description,
                 pirId: assignTo,
@@ -2497,10 +2463,10 @@ async function createAssignment(event) {
 // Load active assignments
 async function loadActiveAssignments() {
     try {
-        const assignments = await db.collection('assignments')
+        const assignments = await window.db.collection('assignments')
             .where('coachId', '==', currentUser.uid)
             .where('status', '==', 'active')
-            .orderBy('createdAt', 'desc')
+            .limit(50)
             .get();
         
         if (assignments.empty) {
@@ -2508,7 +2474,6 @@ async function loadActiveAssignments() {
             return;
         }
         
-        // Group by assignment title
         const grouped = {};
         assignments.forEach(doc => {
             const data = doc.data();
@@ -2551,14 +2516,14 @@ async function loadCoachResourceManagement() {
         
         <div class="add-resource">
             <h3>Add New Resource</h3>
-            <form onsubmit="addResource(event)">
+            <form onsubmit="addResource(event); return false;">
                 <div class="form-group">
                     <label>Resource Title *</label>
-                    <input type="text" id="resourceTitle" required>
+                    <input type="text" id="resourceTitle" required class="form-input">
                 </div>
                 <div class="form-group">
                     <label>Category *</label>
-                    <select id="resourceCategory" required>
+                    <select id="resourceCategory" required class="form-select">
                         <option value="crisis">Crisis Support</option>
                         <option value="coping">Coping Skills</option>
                         <option value="literature">Recovery Literature</option>
@@ -2568,21 +2533,21 @@ async function loadCoachResourceManagement() {
                 </div>
                 <div class="form-group">
                     <label>Description *</label>
-                    <textarea id="resourceDescription" rows="3" required></textarea>
+                    <textarea id="resourceDescription" rows="3" required class="form-textarea"></textarea>
                 </div>
                 <div class="form-group">
                     <label>Link (optional)</label>
-                    <input type="url" id="resourceLink" placeholder="https://...">
+                    <input type="url" id="resourceLink" placeholder="https://..." class="form-input">
                 </div>
                 <div class="form-group">
                     <label>Minimum Tier Required</label>
-                    <select id="resourceTier">
+                    <select id="resourceTier" class="form-select">
                         <option value="all">All Members</option>
                         <option value="established">Established & Trusted</option>
                         <option value="trusted">Trusted Only</option>
                     </select>
                 </div>
-                <button type="submit" class="save-btn">Add Resource</button>
+                <button type="submit" class="btn btn-primary">Add Resource</button>
             </form>
         </div>
         
@@ -2597,7 +2562,7 @@ async function loadCoachResourceManagement() {
 }
 
 // Add resource
-async function addResource(event) {
+window.addResource = async function(event) {
     event.preventDefault();
     
     const resourceData = {
@@ -2612,7 +2577,7 @@ async function addResource(event) {
     };
     
     try {
-        await db.collection('resources').add(resourceData);
+        await window.db.collection('resources').add(resourceData);
         showToast('Resource added successfully!', 'success');
         event.target.reset();
         loadExistingResources();
@@ -2626,9 +2591,9 @@ async function addResource(event) {
 // Load existing resources
 async function loadExistingResources() {
     try {
-        const resources = await db.collection('resources')
+        const resources = await window.db.collection('resources')
             .where('active', '==', true)
-            .orderBy('addedAt', 'desc')
+            .limit(50)
             .get();
         
         if (resources.empty) {
@@ -2636,9 +2601,19 @@ async function loadExistingResources() {
             return;
         }
         
-        let html = '<div class="resources-grid">';
+        const resourceList = [];
         resources.forEach(doc => {
-            const resource = doc.data();
+            resourceList.push({ id: doc.id, ...doc.data() });
+        });
+        
+        resourceList.sort((a, b) => {
+            const timeA = a.addedAt || 0;
+            const timeB = b.addedAt || 0;
+            return timeB - timeA;
+        });
+        
+        let html = '<div class="resources-grid">';
+        resourceList.forEach(resource => {
             html += `
                 <div class="resource-item">
                     <h4>${resource.title}</h4>
@@ -2646,7 +2621,7 @@ async function loadExistingResources() {
                     <p>${resource.description}</p>
                     ${resource.link ? `<a href="${resource.link}" target="_blank">View Resource</a>` : ''}
                     <p><small>Access: ${resource.minTier === 'all' ? 'All Members' : resource.minTier}</small></p>
-                    <button onclick="removeResource('${doc.id}')" class="btn-sm danger">Remove</button>
+                    <button onclick="removeResource('${resource.id}')" class="btn btn-sm danger">Remove</button>
                 </div>
             `;
         });
@@ -2661,11 +2636,11 @@ async function loadExistingResources() {
 }
 
 // Remove resource
-async function removeResource(resourceId) {
+window.removeResource = async function(resourceId) {
     if (!confirm('Are you sure you want to remove this resource?')) return;
     
     try {
-        await db.collection('resources').doc(resourceId).update({
+        await window.db.collection('resources').doc(resourceId).update({
             active: false,
             removedAt: firebase.firestore.FieldValue.serverTimestamp(),
             removedBy: currentUser.uid
@@ -2681,13 +2656,35 @@ async function removeResource(resourceId) {
 }
 
 // Message a connection
-function messageConnection(userId) {
+window.messageConnection = function(userId) {
     showToast('Opening message composer...', 'info');
-    // This would open a message composer for peer-to-peer messaging
 }
 
 // Filter check-ins
-function filterCheckins(filter) {
+window.filterCheckins = function(filter) {
     showToast(`Filtering by: ${filter}`, 'info');
-    // This would filter the check-ins display
+}
+
+// Initialize Lucide icons when DOM changes
+if (typeof MutationObserver !== 'undefined') {
+    const iconObserver = new MutationObserver((mutations) => {
+        let shouldUpdate = false;
+        mutations.forEach((mutation) => {
+            if (mutation.addedNodes.length > 0) {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === 1 && node.querySelector && node.querySelector('[data-lucide]')) {
+                        shouldUpdate = true;
+                    }
+                });
+            }
+        });
+        if (shouldUpdate) {
+            setTimeout(createIcons, 10);
+        }
+    });
+    
+    iconObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
 }
