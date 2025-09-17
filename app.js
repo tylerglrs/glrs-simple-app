@@ -58,12 +58,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Show login screen
 function showLoginScreen() {
-    document.getElementById('loginScreen').style.display = 'block';
-    document.getElementById('pirInterface').classList.add('hidden');
-    document.getElementById('coachInterface').classList.add('hidden');
-    document.getElementById('userInfo').classList.add('hidden');
-    document.getElementById('termsModal').style.display = 'none';
-    document.getElementById('passwordModal').style.display = 'none';
+    const loginScreen = document.getElementById('loginScreen');
+    if (loginScreen) loginScreen.style.display = 'block';
+    
+    const pirInterface = document.getElementById('pirInterface');
+    if (pirInterface) pirInterface.classList.add('hidden');
+    
+    const coachInterface = document.getElementById('coachInterface');
+    if (coachInterface) coachInterface.classList.add('hidden');
+    
+    const userInfo = document.getElementById('userInfo');
+    if (userInfo) userInfo.classList.add('hidden');
+    
+    const termsModal = document.getElementById('termsModal');
+    if (termsModal) termsModal.style.display = 'none';
+    
+    const passwordModal = document.getElementById('passwordModal');
+    if (passwordModal) passwordModal.style.display = 'none';
 }
 
 // Show toast notification
@@ -242,14 +253,12 @@ function proceedToApp() {
         document.getElementById('userTier').textContent = userTier.charAt(0).toUpperCase() + userTier.slice(1);
         document.getElementById('userTier').className = 'tier-badge ' + userTier;
         document.getElementById('pirInterface').classList.remove('hidden');
-        document.getElementById('coachInterface').classList.add('hidden');
         updateTierFeatures();
         loadPIRDashboard();
     } else {
-        document.getElementById('userName').textContent = currentUser.email;
-        document.getElementById('userTier').textContent = 'Coach';
+        const coachNameEl = document.getElementById('coachName');
+        if (coachNameEl) coachNameEl.textContent = currentUser.email;
         document.getElementById('coachInterface').classList.remove('hidden');
-        document.getElementById('pirInterface').classList.add('hidden');
         loadCoachDashboard();
     }
 }
