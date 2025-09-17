@@ -1730,7 +1730,6 @@ async function loadCoachCheckinsReview() {
                                 <span>${checkin.mood}/10</span>
                             </div>
                             <div class="checkin-metric">
-                            // ... continuing from loadCoachCheckinsReview()
 
                                 <strong>Cravings</strong>
                                 <span>${checkin.cravings}/10</span>
