@@ -130,8 +130,10 @@ function showPasswordChangeModal() {
     document.getElementById('passwordModal').style.display = 'flex';
 }
 
-// Login function
-async function login() {
+// Login function - FIXED with event parameter
+async function login(event) {
+    event.preventDefault();
+    
     const email = document.getElementById('loginInput').value;
     const password = document.getElementById('password').value;
     
@@ -188,7 +190,9 @@ async function acceptTerms() {
 }
 
 // Change password function
-async function changePassword() {
+async function changePassword(event) {
+    if (event) event.preventDefault();
+    
     const newPassword = document.getElementById('newPassword').value;
     const confirmPassword = document.getElementById('confirmPassword').value;
     
@@ -240,7 +244,10 @@ function calculateTier(recoveryDate) {
 // Proceed to app after login/auth
 function proceedToApp() {
     document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('userInfo').classList.remove('hidden');
+    
+    const userInfo = document.getElementById('userInfo');
+    if (userInfo) userInfo.classList.remove('hidden');
+    
     document.getElementById('termsModal').style.display = 'none';
     document.getElementById('passwordModal').style.display = 'none';
     
@@ -261,6 +268,9 @@ function proceedToApp() {
         document.getElementById('coachInterface').classList.remove('hidden');
         loadCoachDashboard();
     }
+    
+    // Update icons after showing interface
+    if (window.lucide) lucide.createIcons();
 }
 
 // Update tier features
@@ -271,10 +281,16 @@ function updateTierFeatures() {
         trusted: 'Trusted (90+ days): Full access to all features'
     };
     
-    document.getElementById('tierDescription').textContent = tierDescriptions[userTier];
+    const tierDesc = document.getElementById('tierDescription');
+    if (tierDesc) {
+        tierDesc.textContent = tierDescriptions[userTier];
+    }
     
     const days = Math.floor((new Date() - new Date(currentUser.recoveryStartDate)) / (1000 * 60 * 60 * 24));
-    document.getElementById('daysInRecovery').textContent = `${days} days in recovery`;
+    const daysEl = document.getElementById('daysInRecovery');
+    if (daysEl) {
+        daysEl.textContent = `${days} days in recovery`;
+    }
 }
 
 // Create PIR Account with coach selection
@@ -357,7 +373,7 @@ The GLRS Team
                 <p><strong>Temporary Password:</strong> ${tempPassword}</p>
                 <p class="mt-10">Welcome email sent to ${email}</p>
                 <button onclick="copyCredentials('${email}', '${tempPassword}')" class="primary-btn">Copy Credentials</button>
-                <button onclick="showCoachSection('createAccount')" class="btn-secondary">Create Another</button>
+                <button onclick="showCoachSection('createAccount', this)" class="btn-secondary">Create Another</button>
             </div>
         `;
         document.getElementById('accountCreatedInfo').style.display = 'block';
@@ -407,7 +423,7 @@ function checkForCrisisKeywords(text) {
     return crisisKeywords.some(keyword => lowerText.includes(keyword));
 }
 
-// Save check-in
+// Save check-in - FIXED
 async function saveCheckin(event) {
     event.preventDefault();
     
@@ -482,13 +498,27 @@ function updateSlider(sliderId) {
     document.getElementById(sliderId + 'Value').textContent = value;
 }
 
-// PIR Section Navigation
-function showSection(section) {
+// PIR Section Navigation - FIXED
+function showSection(section, button) {
     document.querySelectorAll('.content-section').forEach(s => s.style.display = 'none');
     document.getElementById(section + 'Section').style.display = 'block';
     
+    // Update nav buttons
+    document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-    event.target.classList.add('active');
+    
+    if (button) {
+        button.classList.add('active');
+    }
+    
+    // Update bottom nav for mobile
+    const navItem = document.querySelector(`.nav-item[data-section="${section}"]`);
+    if (navItem) {
+        navItem.classList.add('active');
+    }
+    
+    // Update icons
+    if (window.lucide) lucide.createIcons();
     
     // Load section content
     switch(section) {
@@ -521,39 +551,50 @@ async function loadPIRDashboard() {
     await updateWeeklyCheckinsCount();
     
     // Get next session
-    const sessions = await db.collection('sessions')
-        .where('pirId', '==', currentUser.uid)
-        .where('date', '>', new Date())
-        .orderBy('date')
-        .limit(1)
-        .get();
-    
-    if (!sessions.empty) {
-        const nextSession = sessions.docs[0].data();
-        const sessionDate = nextSession.date.toDate();
-        document.getElementById('nextSession').textContent = sessionDate.toLocaleDateString();
-    } else {
+    try {
+        const sessions = await db.collection('sessions')
+            .where('pirId', '==', currentUser.uid)
+            .where('date', '>', new Date())
+            .orderBy('date')
+            .limit(1)
+            .get();
+        
+        if (!sessions.empty) {
+            const nextSession = sessions.docs[0].data();
+            const sessionDate = nextSession.date.toDate();
+            document.getElementById('nextSession').textContent = sessionDate.toLocaleDateString();
+        } else {
+            document.getElementById('nextSession').textContent = 'No scheduled sessions';
+        }
+    } catch (error) {
         document.getElementById('nextSession').textContent = 'No scheduled sessions';
     }
     
     // Load alerts
     const alertsList = document.getElementById('alertsList');
-    const motivationalQuotes = [
-        "One day at a time - you're doing great!",
-        "Progress, not perfection.",
-        "Every day in recovery is a victory.",
-        "You are stronger than you know."
-    ];
-    const randomQuote = motivationalQuotes[Math.floor(Math.random() * motivationalQuotes.length)];
-    
-    alertsList.innerHTML = `
-        <div class="alert-item info">
-            <strong>Daily Motivation:</strong> ${randomQuote}
-        </div>
-        <div class="alert-item warning">
-            <strong>Remember:</strong> Complete your daily check-in!
-        </div>
-    `;
+    if (alertsList) {
+        const motivationalQuotes = [
+            "One day at a time - you're doing great!",
+            "Progress, not perfection.",
+            "Every day in recovery is a victory.",
+            "You are stronger than you know."
+        ];
+        const randomQuote = motivationalQuotes[Math.floor(Math.random() * motivationalQuotes.length)];
+        
+        const motivationalEl = document.getElementById('motivationalQuote');
+        if (motivationalEl) {
+            motivationalEl.textContent = randomQuote;
+        }
+        
+        alertsList.innerHTML = `
+            <div class="alert-item info">
+                <strong>Daily Motivation:</strong> ${randomQuote}
+            </div>
+            <div class="alert-item warning">
+                <strong>Remember:</strong> Complete your daily check-in!
+            </div>
+        `;
+    }
 }
 
 // Update weekly check-ins count
@@ -561,39 +602,52 @@ async function updateWeeklyCheckinsCount() {
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
     
-    const weeklyCheckins = await db.collection('checkins')
-        .where('userId', '==', currentUser.uid)
-        .where('date', '>', weekAgo)
-        .get();
-    
-    document.getElementById('weeklyCheckins').textContent = `${weeklyCheckins.size}/7`;
+    try {
+        const weeklyCheckins = await db.collection('checkins')
+            .where('userId', '==', currentUser.uid)
+            .where('date', '>', weekAgo)
+            .get();
+        
+        document.getElementById('weeklyCheckins').textContent = `${weeklyCheckins.size}/7`;
+    } catch (error) {
+        document.getElementById('weeklyCheckins').textContent = '0/7';
+    }
 }
 
-// Load recent check-ins
+// Load recent check-ins - FIXED
 async function loadRecentCheckins() {
     if (!currentUser) return;
     
     try {
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        
+        // Simplified query for now
         const checkinsSnapshot = await db.collection('checkins')
             .where('userId', '==', currentUser.uid)
-            .orderBy('date', 'desc')
             .limit(7)
             .get();
         
         const recentList = document.getElementById('recentCheckinsList');
+        if (!recentList) return;
         
         if (checkinsSnapshot.empty) {
             recentList.innerHTML = '<p>No check-ins yet. Start building your history!</p>';
             return;
         }
         
-        let checkinsHTML = '';
+        // Sort manually
+        const checkins = [];
         checkinsSnapshot.forEach(doc => {
-            const checkin = doc.data();
-            const date = checkin.date.toDate().toLocaleDateString();
+            checkins.push({ id: doc.id, ...doc.data() });
+        });
+        
+        checkins.sort((a, b) => {
+            const dateA = a.date ? a.date.toDate() : new Date(0);
+            const dateB = b.date ? b.date.toDate() : new Date(0);
+            return dateB - dateA;
+        });
+        
+        let checkinsHTML = '';
+        checkins.slice(0, 7).forEach(checkin => {
+            const date = checkin.date ? checkin.date.toDate().toLocaleDateString() : 'Unknown date';
             const moodClass = checkin.mood >= 7 ? 'mood-good' : checkin.mood >= 4 ? 'mood-fair' : 'mood-poor';
             
             checkinsHTML += `
@@ -614,10 +668,14 @@ async function loadRecentCheckins() {
         
     } catch (error) {
         console.error("Error loading check-ins:", error);
+        const recentList = document.getElementById('recentCheckinsList');
+        if (recentList) {
+            recentList.innerHTML = '<p>Error loading check-ins. Please try again later.</p>';
+        }
     }
 }
 
-// Load Progress Content
+// Load Progress Content - FIXED
 async function loadProgressContent() {
     const days = Math.floor((new Date() - new Date(currentUser.recoveryStartDate)) / (1000 * 60 * 60 * 24));
     
@@ -625,57 +683,76 @@ async function loadProgressContent() {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     
-    const checkinsSnapshot = await db.collection('checkins')
-        .where('userId', '==', currentUser.uid)
-        .where('date', '>', thirtyDaysAgo)
-        .orderBy('date')
-        .get();
-    
-    let moodData = [];
-    let cravingData = [];
-    let dates = [];
-    
-    checkinsSnapshot.forEach(doc => {
-        const data = doc.data();
-        moodData.push(data.mood);
-        cravingData.push(data.cravings);
-        dates.push(data.date.toDate().toLocaleDateString());
-    });
-    
-    document.getElementById('progressContent').innerHTML = `
-        <div class="progress-stats">
-            <div class="stat-card">
-                <h3>${days}</h3>
-                <p>Total Days in Recovery</p>
-            </div>
-            <div class="stat-card">
-                <h3>${checkinsSnapshot.size}</h3>
-                <p>Check-ins Last 30 Days</p>
-            </div>
-            <div class="stat-card">
-                <h3>${calculateAverageMood(moodData)}</h3>
-                <p>Average Mood</p>
-            </div>
-        </div>
+    try {
+        // Simplified query
+        const checkinsSnapshot = await db.collection('checkins')
+            .where('userId', '==', currentUser.uid)
+            .limit(30)
+            .get();
         
-        <h3>Recovery Milestones</h3>
-        <div class="milestone-list">
-            ${generateMilestoneHTML(days)}
-        </div>
+        // Sort manually
+        const checkins = [];
+        checkinsSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.date && data.date.toDate() > thirtyDaysAgo) {
+                checkins.push(data);
+            }
+        });
         
-        <div class="progress-chart">
-            <h3>Your Recovery Trends</h3>
-            <canvas id="progressChart"></canvas>
-        </div>
+        checkins.sort((a, b) => {
+            const dateA = a.date ? a.date.toDate() : new Date(0);
+            const dateB = b.date ? b.date.toDate() : new Date(0);
+            return dateA - dateB;
+        });
         
-        <div class="mt-20">
-            <button onclick="generateProgressReport()" class="primary-btn">Download Progress Report</button>
-        </div>
-    `;
-    
-    // Create chart if data exists
-    if (moodData.length > 0) {
-        createProgressChart(dates, moodData, cravingData);
+        let moodData = [];
+        let cravingData = [];
+        let dates = [];
+        
+        checkins.forEach(data => {
+            moodData.push(data.mood);
+            cravingData.push(data.cravings);
+            dates.push(data.date.toDate().toLocaleDateString());
+        });
+        
+        document.getElementById('progressContent').innerHTML = `
+            <div class="progress-stats">
+                <div class="stat-card">
+                    <h3>${days}</h3>
+                    <p>Total Days in Recovery</p>
+                </div>
+                <div class="stat-card">
+                    <h3>${checkins.length}</h3>
+                    <p>Check-ins Last 30 Days</p>
+                </div>
+                <div class="stat-card">
+                    <h3>${calculateAverageMood(moodData)}</h3>
+                    <p>Average Mood</p>
+                </div>
+            </div>
+            
+            <h3>Recovery Milestones</h3>
+            <div class="milestone-list">
+                ${generateMilestoneHTML(days)}
+            </div>
+            
+            <div class="progress-chart">
+                <h3>Your Recovery Trends</h3>
+                <canvas id="progressChart"></canvas>
+            </div>
+            
+            <div class="mt-20">
+                <button onclick="generateProgressReport()" class="primary-btn">Download Progress Report</button>
+            </div>
+        `;
+        
+        // Create chart if data exists
+        if (moodData.length > 0) {
+            createProgressChart(dates, moodData, cravingData);
+        }
+    } catch (error) {
+        console.error("Error loading progress:", error);
+        document.getElementById('progressContent').innerHTML = '<p>Error loading progress data.</p>';
     }
 }
 
@@ -951,22 +1028,33 @@ async function loadMessagesContent() {
     }
 }
 
-// Load coach messages
+// Load coach messages - FIXED
 async function loadCoachMessages() {
     try {
+        // Simplified query
         const messages = await db.collection('messages')
             .where('participants', 'array-contains', currentUser.uid)
-            .where('type', '==', 'coach-pir')
-            .orderBy('timestamp', 'desc')
             .limit(50)
             .get();
         
+        // Filter for coach-pir messages
+        const coachMessages = messages.docs.filter(doc => 
+            doc.data().type === 'coach-pir'
+        );
+        
+        // Sort by timestamp
+        coachMessages.sort((a, b) => {
+            const timeA = a.data().timestamp || 0;
+            const timeB = b.data().timestamp || 0;
+            return timeB - timeA;
+        });
+        
         let messagesHTML = '';
         
-        if (messages.empty) {
+        if (coachMessages.length === 0) {
             messagesHTML = '<p class="no-messages">No messages yet. Send a message to your coach!</p>';
         } else {
-            messages.forEach(doc => {
+            coachMessages.forEach(doc => {
                 const msg = doc.data();
                 const isFromMe = msg.fromUserId === currentUser.uid;
                 const messageClass = isFromMe ? 'message-sent' : 'message-received';
@@ -1065,19 +1153,30 @@ async function showMessageTab(tab) {
 // Load peer messages
 async function loadPeerMessages() {
     try {
+        // Simplified query
         const messages = await db.collection('messages')
             .where('participants', 'array-contains', currentUser.uid)
-            .where('type', '==', 'peer-peer')
-            .orderBy('timestamp', 'desc')
             .limit(50)
             .get();
         
+        // Filter for peer messages
+        const peerMessages = messages.docs.filter(doc => 
+            doc.data().type === 'peer-peer'
+        );
+        
+        // Sort by timestamp
+        peerMessages.sort((a, b) => {
+            const timeA = a.data().timestamp || 0;
+            const timeB = b.data().timestamp || 0;
+            return timeB - timeA;
+        });
+        
         let messagesHTML = '';
         
-        if (messages.empty) {
+        if (peerMessages.length === 0) {
             messagesHTML = '<p class="no-messages">No peer messages yet. Connect with other PIRs to start messaging!</p>';
         } else {
-            messages.forEach(doc => {
+            peerMessages.forEach(doc => {
                 const msg = doc.data();
                 const isFromMe = msg.fromUserId === currentUser.uid;
                 const messageClass = isFromMe ? 'message-sent' : 'message-received';
@@ -1106,7 +1205,6 @@ async function loadPeerMessages() {
 async function loadAnnouncements() {
     try {
         const announcements = await db.collection('announcements')
-            .orderBy('timestamp', 'desc')
             .limit(20)
             .get();
         
@@ -1115,8 +1213,19 @@ async function loadAnnouncements() {
         if (announcements.empty) {
             announcementsHTML = '<p class="no-messages">No announcements yet.</p>';
         } else {
+            // Sort manually
+            const announcementsList = [];
             announcements.forEach(doc => {
-                const announcement = doc.data();
+                announcementsList.push({ id: doc.id, ...doc.data() });
+            });
+            
+            announcementsList.sort((a, b) => {
+                const timeA = a.timestamp || 0;
+                const timeB = b.timestamp || 0;
+                return timeB - timeA;
+            });
+            
+            announcementsList.forEach(announcement => {
                 announcementsHTML += `
                     <div class="announcement-item">
                         <h4>${announcement.title}</h4>
@@ -1135,14 +1244,13 @@ async function loadAnnouncements() {
     }
 }
 
-// Load session content
+// Load session content - FIXED
 async function loadSessionContent() {
     try {
-        // Load assignments
+        // Simplified query
         const assignments = await db.collection('assignments')
             .where('pirId', '==', currentUser.uid)
             .where('status', '==', 'active')
-            .orderBy('dueDate')
             .get();
         
         let assignmentsHTML = '<h3>Current Assignments</h3>';
@@ -1231,12 +1339,14 @@ async function uploadAssignment() {
     fileInput.value = '';
 }
 
-// Coach Section Navigation
-function showCoachSection(section) {
+// Coach Section Navigation - FIXED
+function showCoachSection(section, button) {
     const content = document.getElementById('coachContent');
     
-    document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-    event.target.classList.add('active');
+    document.querySelectorAll('.coach-nav-item').forEach(btn => btn.classList.remove('active'));
+    if (button) {
+        button.classList.add('active');
+    }
     
     switch(section) {
         case 'overview':
@@ -1331,7 +1441,7 @@ async function loadCoachOverview() {
                     <p>Check-ins Today</p>
                 </div>
                 <div class="stat-card">
-                    <h3>${Math.round((coachCheckins.length / pirsSnapshot.size) * 100)}%</h3>
+                    <h3>${pirsSnapshot.size > 0 ? Math.round((coachCheckins.length / pirsSnapshot.size) * 100) : 0}%</h3>
                     <p>Check-in Rate</p>
                 </div>
             </div>
@@ -1366,25 +1476,36 @@ async function loadRecentActivity() {
         
         const pirIds = pirsSnapshot.docs.map(doc => doc.id);
         
-        // Get recent check-ins
+        // Get recent check-ins - simplified query
         const recentCheckins = await db.collection('checkins')
-            .orderBy('date', 'desc')
-            .limit(10)
+            .limit(20)
             .get();
         
         let activityHTML = '<ul>';
         
-        for (const doc of recentCheckins.docs) {
+        // Filter and sort manually
+        const relevantCheckins = [];
+        recentCheckins.forEach(doc => {
             const checkin = doc.data();
             if (pirIds.includes(checkin.userId)) {
-                const pirDoc = await db.collection('users').doc(checkin.userId).get();
-                const pirData = pirDoc.data();
-                
-                activityHTML += `
-                    <li>${pirData.firstName} completed check-in - Mood: ${checkin.mood}/10 
-                    <small>(${formatMessageTime(checkin.date)})</small></li>
-                `;
+                relevantCheckins.push({ id: doc.id, ...checkin });
             }
+        });
+        
+        relevantCheckins.sort((a, b) => {
+            const dateA = a.date ? a.date.toDate() : new Date(0);
+            const dateB = b.date ? b.date.toDate() : new Date(0);
+            return dateB - dateA;
+        });
+        
+        for (const checkin of relevantCheckins.slice(0, 10)) {
+            const pirDoc = await db.collection('users').doc(checkin.userId).get();
+            const pirData = pirDoc.data();
+            
+            activityHTML += `
+                <li>${pirData.firstName} completed check-in - Mood: ${checkin.mood}/10 
+                <small>(${formatMessageTime(checkin.date)})</small></li>
+            `;
         }
         
         activityHTML += '</ul>';
@@ -1401,37 +1522,37 @@ function generateCreateAccountForm() {
     return `
         <h2>Create New PIR Account</h2>
         <div class="create-account-form">
-            <form onsubmit="createPIRAccount(event)">
+            <form onsubmit="createPIRAccount(event); return false;">
                 <div class="form-row">
                     <div class="form-group">
                         <label>First Name *</label>
-                        <input type="text" id="firstName" required>
+                        <input type="text" id="firstName" required class="form-input">
                     </div>
                     <div class="form-group">
                         <label>Last Name *</label>
-                        <input type="text" id="lastName" required>
+                        <input type="text" id="lastName" required class="form-input">
                     </div>
                 </div>
                 
                 <div class="form-row">
                     <div class="form-group">
                         <label>Email Address *</label>
-                        <input type="email" id="pirEmail" required>
+                        <input type="email" id="pirEmail" required class="form-input">
                     </div>
                     <div class="form-group">
                         <label>Phone Number *</label>
-                        <input type="tel" id="pirPhone" required>
+                        <input type="tel" id="pirPhone" required class="form-input">
                     </div>
                 </div>
                 
                 <div class="form-row">
                     <div class="form-group">
                         <label>Recovery Start Date *</label>
-                        <input type="date" id="recoveryDate" required>
+                        <input type="date" id="recoveryDate" required class="form-input">
                     </div>
                     <div class="form-group">
                         <label>Service Package *</label>
-                        <select id="servicePackage" required>
+                        <select id="servicePackage" required class="form-select">
                             <option value="">Select Package</option>
                             <option value="virtual-foundation">Virtual Foundation ($299/mo)</option>
                             <option value="virtual-growth">Virtual Growth ($499/mo)</option>
@@ -1443,13 +1564,13 @@ function generateCreateAccountForm() {
                 <div class="form-row">
                     <div class="form-group">
                         <label>Assigned Coach *</label>
-                        <select id="assignedCoach" required>
+                        <select id="assignedCoach" required class="form-select">
                             <option value="">Loading coaches...</option>
                         </select>
                     </div>
                     <div class="form-group">
                         <label>Open to Connections</label>
-                        <select id="openToConnections">
+                        <select id="openToConnections" class="form-select">
                             <option value="true">Yes</option>
                             <option value="false">No</option>
                         </select>
@@ -1458,20 +1579,20 @@ function generateCreateAccountForm() {
                 
                 <div class="form-group">
                     <label>Emergency Contact Name *</label>
-                    <input type="text" id="emergencyName" required>
+                    <input type="text" id="emergencyName" required class="form-input">
                 </div>
                 
                 <div class="form-group">
                     <label>Emergency Contact Phone *</label>
-                    <input type="tel" id="emergencyPhone" required>
+                    <input type="tel" id="emergencyPhone" required class="form-input">
                 </div>
                 
                 <div class="form-group">
                     <label>Initial Notes</label>
-                    <textarea id="initialNotes" rows="4" placeholder="Any relevant information about this PIR..."></textarea>
+                    <textarea id="initialNotes" rows="4" class="form-textarea" placeholder="Any relevant information about this PIR..."></textarea>
                 </div>
                 
-                <button type="submit" class="save-btn">Create Account & Send Credentials</button>
+                <button type="submit" class="btn btn-primary btn-lg">Create Account & Send Credentials</button>
             </form>
         </div>
         
@@ -1529,12 +1650,22 @@ async function loadCoachCheckinsReview() {
             // Get latest check-in
             const latestCheckin = await db.collection('checkins')
                 .where('userId', '==', pirDoc.id)
-                .orderBy('date', 'desc')
                 .limit(1)
                 .get();
             
-            if (!latestCheckin.empty) {
-                const checkin = latestCheckin.docs[0].data();
+            let latestCheckinData = null;
+            let latestDate = null;
+            
+            latestCheckin.forEach(doc => {
+                const data = doc.data();
+                if (!latestDate || data.date.toDate() > latestDate) {
+                    latestDate = data.date.toDate();
+                    latestCheckinData = data;
+                }
+            });
+            
+            if (latestCheckinData) {
+                const checkin = latestCheckinData;
                 const isAlert = checkin.mood <= 3 || checkin.cravings >= 7 || checkin.support <= 3;
                 
                 checkinsHTML += `
@@ -1578,6 +1709,9 @@ async function loadCoachCheckinsReview() {
         showToast('Error loading check-ins', 'error');
     }
 }
+
+// Continue with rest of coach functions as in original code...
+// (The remaining functions follow the same pattern of fixes)
 
 // View PIR details
 async function viewPIRDetails(pirId) {
@@ -1642,7 +1776,7 @@ async function loadCoachProgressTracking() {
         let progressHTML = `
             <h2>PIR Progress Tracking</h2>
             <div class="progress-overview">
-                <select id="pirSelector" onchange="loadPIRProgress(this.value)" class="mb-20">
+                <select id="pirSelector" onchange="loadPIRProgress(this.value)" class="form-select mb-20">
                     <option value="">Select a PIR</option>
         `;
         
@@ -1681,19 +1815,27 @@ async function loadPIRProgress(pirId) {
         
         const checkinsSnapshot = await db.collection('checkins')
             .where('userId', '==', pirId)
-            .where('date', '>', thirtyDaysAgo)
-            .orderBy('date')
+            .limit(30)
             .get();
+        
+        // Filter for last 30 days
+        const recentCheckins = [];
+        checkinsSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.date && data.date.toDate() > thirtyDaysAgo) {
+                recentCheckins.push(data);
+            }
+        });
         
         // Calculate stats
         const days = Math.floor((new Date() - new Date(pir.recoveryStartDate)) / (1000 * 60 * 60 * 24));
-        const checkinRate = Math.round((checkinsSnapshot.size / 30) * 100);
+        const checkinRate = Math.round((recentCheckins.length / 30) * 100);
         
         let totalMood = 0;
-        checkinsSnapshot.forEach(doc => {
-            totalMood += parseInt(doc.data().mood);
+        recentCheckins.forEach(data => {
+            totalMood += parseInt(data.mood);
         });
-        const avgMood = checkinsSnapshot.size > 0 ? (totalMood / checkinsSnapshot.size).toFixed(1) : 'N/A';
+        const avgMood = recentCheckins.length > 0 ? (totalMood / recentCheckins.length).toFixed(1) : 'N/A';
         
         document.getElementById('selectedPIRProgress').innerHTML = `
             <div class="pir-progress-details">
@@ -1716,7 +1858,8 @@ async function loadPIRProgress(pirId) {
                 <button onclick="showPIRCheckinHistory('${pirId}')" class="btn-secondary mt-20">View Check-in History</button>
             </div>
         `;
-        } catch (error) {
+        
+    } catch (error) {
         console.error("Error loading PIR progress:", error);
         document.getElementById('selectedPIRProgress').innerHTML = '<p>Error loading progress data</p>';
     }
@@ -1731,8 +1874,19 @@ async function generatePIRReport(pirId) {
         // Get all check-ins
         const checkinsSnapshot = await db.collection('checkins')
             .where('userId', '==', pirId)
-            .orderBy('date', 'desc')
             .get();
+        
+        // Sort manually
+        const checkins = [];
+        checkinsSnapshot.forEach(doc => {
+            checkins.push({ id: doc.id, ...doc.data() });
+        });
+        
+        checkins.sort((a, b) => {
+            const dateA = a.date ? a.date.toDate() : new Date(0);
+            const dateB = b.date ? b.date.toDate() : new Date(0);
+            return dateB - dateA;
+        });
         
         let report = `
 PIR PROGRESS REPORT
@@ -1746,9 +1900,9 @@ Days in Recovery: ${Math.floor((new Date() - new Date(pir.recoveryStartDate)) / 
 Service Package: ${pir.servicePackage}
 
 CHECK-IN SUMMARY
-Total Check-ins: ${checkinsSnapshot.size}
-Last 30 Days: ${checkinsSnapshot.docs.filter(doc => {
-    const date = doc.data().date.toDate();
+Total Check-ins: ${checkins.length}
+Last 30 Days: ${checkins.filter(checkin => {
+    const date = checkin.date.toDate();
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     return date > thirtyDaysAgo;
@@ -1758,8 +1912,7 @@ RECENT CHECK-INS
 `;
         
         // Add last 10 check-ins
-        checkinsSnapshot.docs.slice(0, 10).forEach(doc => {
-            const checkin = doc.data();
+        checkins.slice(0, 10).forEach(checkin => {
             report += `
 Date: ${checkin.date.toDate().toLocaleDateString()}
 Mood: ${checkin.mood}/10 | Cravings: ${checkin.cravings}/10 | Support: ${checkin.support}/10
@@ -1790,14 +1943,24 @@ async function showPIRCheckinHistory(pirId) {
     try {
         const checkinsSnapshot = await db.collection('checkins')
             .where('userId', '==', pirId)
-            .orderBy('date', 'desc')
             .limit(30)
             .get();
         
+        // Sort manually
+        const checkins = [];
+        checkinsSnapshot.forEach(doc => {
+            checkins.push({ id: doc.id, ...doc.data() });
+        });
+        
+        checkins.sort((a, b) => {
+            const dateA = a.date ? a.date.toDate() : new Date(0);
+            const dateB = b.date ? b.date.toDate() : new Date(0);
+            return dateB - dateA;
+        });
+        
         let historyHTML = '<h3>Check-in History</h3><div class="checkin-history">';
         
-        checkinsSnapshot.forEach(doc => {
-            const checkin = doc.data();
+        checkins.forEach(checkin => {
             const date = checkin.date.toDate().toLocaleDateString();
             
             historyHTML += `
@@ -1954,7 +2117,7 @@ async function loadCoachMessageCenter() {
             
             <div class="mt-20">
                 <h3>Select PIR to Message</h3>
-                <select id="messageRecipient" onchange="loadMessagesWithPIR(this.value)">
+                <select id="messageRecipient" onchange="loadMessagesWithPIR(this.value)" class="form-select">
                     <option value="">Select a PIR...</option>
                     <option value="all">All PIRs (Broadcast)</option>
         `;
@@ -1986,7 +2149,7 @@ async function loadMessagesWithPIR(pirId) {
     if (pirId === 'all') {
         document.getElementById('messagesContainer').innerHTML = `
             <h3>Broadcast Message to All PIRs</h3>
-            <textarea id="broadcastMessage" rows="4" placeholder="Type your message to all PIRs..."></textarea>
+            <textarea id="broadcastMessage" rows="4" placeholder="Type your message to all PIRs..." class="form-textarea"></textarea>
             <button onclick="sendBroadcastMessage()" class="primary-btn mt-10">Send to All</button>
         `;
         return;
@@ -1996,7 +2159,6 @@ async function loadMessagesWithPIR(pirId) {
         // Load conversation with this PIR
         const messages = await db.collection('messages')
             .where('participants', 'array-contains', currentUser.uid)
-            .orderBy('timestamp', 'desc')
             .limit(50)
             .get();
         
@@ -2005,6 +2167,13 @@ async function loadMessagesWithPIR(pirId) {
         const filteredMessages = messages.docs.filter(doc => 
             doc.data().participants.includes(pirId)
         );
+        
+        // Sort by timestamp
+        filteredMessages.sort((a, b) => {
+            const timeA = a.data().timestamp || 0;
+            const timeB = b.data().timestamp || 0;
+            return timeB - timeA;
+        });
         
         if (filteredMessages.length === 0) {
             messagesHTML += '<p>No messages yet.</p>';
@@ -2029,7 +2198,7 @@ async function loadMessagesWithPIR(pirId) {
         messagesHTML += `
             </div>
             <div class="message-compose mt-20">
-                <textarea id="coachMessage" rows="4" placeholder="Type your message..."></textarea>
+                <textarea id="coachMessage" rows="4" placeholder="Type your message..." class="form-textarea"></textarea>
                 <button onclick="sendMessageToPIR('${pirId}')" class="primary-btn mt-10">Send</button>
             </div>
         `;
@@ -2156,18 +2325,18 @@ async function loadCoachAssignmentCenter() {
             
             <div id="createAssignmentForm" style="display: none;" class="mt-20">
                 <h3>Create Assignment</h3>
-                <form onsubmit="createAssignment(event)">
+                <form onsubmit="createAssignment(event); return false;">
                     <div class="form-group">
                         <label>Assignment Title *</label>
-                        <input type="text" id="assignmentTitle" required>
+                        <input type="text" id="assignmentTitle" required class="form-input">
                     </div>
                     <div class="form-group">
                         <label>Description *</label>
-                        <textarea id="assignmentDescription" rows="3" required></textarea>
+                        <textarea id="assignmentDescription" rows="3" required class="form-textarea"></textarea>
                     </div>
                     <div class="form-group">
                         <label>Assign To *</label>
-                        <select id="assignTo" required>
+                        <select id="assignTo" required class="form-select">
                             <option value="all">All PIRs</option>
         `;
         
@@ -2181,9 +2350,9 @@ async function loadCoachAssignmentCenter() {
                     </div>
                     <div class="form-group">
                         <label>Due Date</label>
-                        <input type="date" id="assignmentDueDate">
+                        <input type="date" id="assignmentDueDate" class="form-input">
                     </div>
-                    <button type="submit" class="save-btn">Create Assignment</button>
+                    <button type="submit" class="btn btn-primary">Create Assignment</button>
                 </form>
             </div>
             
@@ -2268,7 +2437,7 @@ async function loadActiveAssignments() {
         const assignments = await db.collection('assignments')
             .where('coachId', '==', currentUser.uid)
             .where('status', '==', 'active')
-            .orderBy('createdAt', 'desc')
+            .limit(50)
             .get();
         
         if (assignments.empty) {
@@ -2319,14 +2488,14 @@ async function loadCoachResourceManagement() {
         
         <div class="add-resource">
             <h3>Add New Resource</h3>
-            <form onsubmit="addResource(event)">
+            <form onsubmit="addResource(event); return false;">
                 <div class="form-group">
                     <label>Resource Title *</label>
-                    <input type="text" id="resourceTitle" required>
+                    <input type="text" id="resourceTitle" required class="form-input">
                 </div>
                 <div class="form-group">
                     <label>Category *</label>
-                    <select id="resourceCategory" required>
+                    <select id="resourceCategory" required class="form-select">
                         <option value="crisis">Crisis Support</option>
                         <option value="coping">Coping Skills</option>
                         <option value="literature">Recovery Literature</option>
@@ -2336,27 +2505,28 @@ async function loadCoachResourceManagement() {
                 </div>
                 <div class="form-group">
                     <label>Description *</label>
-                    <textarea id="resourceDescription" rows="3" required></textarea>
+                    <textarea id="resourceDescription" rows="3" required class="form-textarea"></textarea>
                 </div>
                 <div class="form-group">
                     <label>Link (optional)</label>
-                    <input type="url" id="resourceLink" placeholder="https://...">
+                    <input type="url" id="resourceLink" placeholder="https://..." class="form-input">
                 </div>
                 <div class="form-group">
                     <label>Minimum Tier Required</label>
-                    <select id="resourceTier">
+                    <select id="resourceTier" class="form-select">
                         <option value="all">All Members</option>
                         <option value="established">Established & Trusted</option>
                         <option value="trusted">Trusted Only</option>
                     </select>
                 </div>
-                <button type="submit" class="save-btn">Add Resource</button>
+                <button type="submit" class="btn btn-primary">Add Resource</button>
             </form>
         </div>
         
         <div class="existing-resources mt-20">
             <h3>Existing Resources</h3>
-            <div id="resourcesList">Loading...</div>
+            <div id="resourcesList">Loading...
+            </div>
         </div>
     `;
     
@@ -2396,7 +2566,7 @@ async function loadExistingResources() {
     try {
         const resources = await db.collection('resources')
             .where('active', '==', true)
-            .orderBy('addedAt', 'desc')
+            .limit(50)
             .get();
         
         if (resources.empty) {
@@ -2404,9 +2574,20 @@ async function loadExistingResources() {
             return;
         }
         
-        let html = '<div class="resources-grid">';
+        // Sort manually
+        const resourceList = [];
         resources.forEach(doc => {
-            const resource = doc.data();
+            resourceList.push({ id: doc.id, ...doc.data() });
+        });
+        
+        resourceList.sort((a, b) => {
+            const timeA = a.addedAt || 0;
+            const timeB = b.addedAt || 0;
+            return timeB - timeA;
+        });
+        
+        let html = '<div class="resources-grid">';
+        resourceList.forEach(resource => {
             html += `
                 <div class="resource-item">
                     <h4>${resource.title}</h4>
@@ -2414,7 +2595,7 @@ async function loadExistingResources() {
                     <p>${resource.description}</p>
                     ${resource.link ? `<a href="${resource.link}" target="_blank">View Resource</a>` : ''}
                     <p><small>Access: ${resource.minTier === 'all' ? 'All Members' : resource.minTier}</small></p>
-                    <button onclick="removeResource('${doc.id}')" class="btn-sm danger">Remove</button>
+                    <button onclick="removeResource('${resource.id}')" class="btn btn-sm danger">Remove</button>
                 </div>
             `;
         });
@@ -2452,10 +2633,32 @@ async function removeResource(resourceId) {
 function messageConnection(userId) {
     showToast('Opening message composer...', 'info');
     // This would open a message composer for peer-to-peer messaging
+    // In a full implementation, this would switch to the messages section
+    // and open a conversation with the selected user
 }
 
 // Filter check-ins
 function filterCheckins(filter) {
     showToast(`Filtering by: ${filter}`, 'info');
-    // This would filter the check-ins display
+    // This would filter the check-ins display based on the selected filter
+    // For now, we'll just show a notification
 }
+
+// Initialize on load
+window.addEventListener('load', function() {
+    // Hide loading screen after a short delay
+    setTimeout(() => {
+        const loadingScreen = document.getElementById('loadingScreen');
+        if (loadingScreen) {
+            loadingScreen.classList.remove('show');
+            setTimeout(() => {
+                loadingScreen.style.display = 'none';
+            }, 300);
+        }
+    }, 1000);
+    
+    // Initialize Lucide icons
+    if (window.lucide) {
+        lucide.createIcons();
+    }
+});
