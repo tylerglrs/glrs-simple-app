@@ -1,0 +1,1521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GLRS Coach Portal</title>
+    
+    <!-- React and Babel for JSX -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    
+    <!-- Chart.js for analytics -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
+            min-height: 100vh;
+        }
+        
+        /* Layout */
+        .coach-app {
+            display: flex;
+            min-height: 100vh;
+        }
+        
+        /* Sidebar */
+        .sidebar {
+            width: 260px;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 20px 0;
+            margin-bottom: 30px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .logo {
+            font-size: 32px;
+        }
+        
+        .logo-text {
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .nav-menu {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            color: rgba(255, 255, 255, 0.7);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: none;
+            border: none;
+            text-align: left;
+            width: 100%;
+            font-size: 15px;
+        }
+        
+        .nav-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: white;
+        }
+        
+        .nav-item.active {
+            background: rgba(244, 196, 48, 0.2);
+            color: #f4c430;
+        }
+        
+        .nav-icon {
+            font-size: 20px;
+        }
+        
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+        
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+        
+        .page-title {
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        .notification-btn {
+            position: relative;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+        
+        .notification-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #ff4757;
+            color: white;
+            font-size: 12px;
+            padding: 2px 6px;
+            border-radius: 10px;
+        }
+        
+        .coach-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        /* Dashboard Widgets */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+        }
+        
+        .stat-label {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .stat-value {
+            color: white;
+            font-size: 36px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .stat-change {
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .positive {
+            color: #4caf50;
+        }
+        
+        .negative {
+            color: #ff4757;
+        }
+        
+        /* PIR Roster */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .section-title {
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .pir-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .pir-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .pir-card:hover {
+            transform: translateY(-2px);
+            background: rgba(255, 255, 255, 0.15);
+        }
+        
+        .pir-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 15px;
+        }
+        
+        .pir-info {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        
+        .pir-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #f4c430 0%, #ffd54f 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1a365d;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        
+        .pir-details {
+            color: white;
+        }
+        
+        .pir-name {
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+        
+        .pir-days {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+        
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #4caf50;
+        }
+        
+        .status-indicator.warning {
+            background: #ff9800;
+        }
+        
+        .status-indicator.alert {
+            background: #ff4757;
+        }
+        
+        .pir-stats {
+            display: flex;
+            justify-content: space-between;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .pir-stat {
+            text-align: center;
+        }
+        
+        .pir-stat-value {
+            color: #f4c430;
+            font-size: 20px;
+            font-weight: bold;
+        }
+        
+        .pir-stat-label {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        
+        /* Activity Feed */
+        .activity-feed {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .activity-item {
+            display: flex;
+            gap: 15px;
+            padding: 15px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+        
+        .activity-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+        
+        .activity-icon.check-in {
+            background: rgba(76, 175, 80, 0.2);
+        }
+        
+        .activity-icon.assignment {
+            background: rgba(244, 196, 48, 0.2);
+        }
+        
+        .activity-icon.message {
+            background: rgba(103, 126, 234, 0.2);
+        }
+        
+        .activity-content {
+            flex: 1;
+            color: white;
+        }
+        
+        .activity-title {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        
+        .activity-description {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+        }
+        
+        .activity-time {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+        }
+        
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 800px;
+            width: 100%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+        
+        .modal-title {
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        
+        /* Forms */
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-label {
+            color: white;
+            font-size: 14px;
+            margin-bottom: 8px;
+            display: block;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            font-size: 16px;
+        }
+        
+        .form-input::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+        
+        .form-input:focus {
+            outline: none;
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .form-select {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        
+        /* Buttons */
+        .btn-primary {
+            background: linear-gradient(135deg, #f4c430 0%, #ffd54f 100%);
+            color: #1a365d;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(244, 196, 48, 0.3);
+        }
+        
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 10px 24px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-export {
+            background: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        /* Alert Badges */
+        .alert-badge {
+            background: rgba(255, 71, 87, 0.2);
+            border: 1px solid #ff4757;
+            color: #ff4757;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .warning-badge {
+            background: rgba(255, 152, 0, 0.2);
+            border: 1px solid #ff9800;
+            color: #ff9800;
+        }
+        
+        .success-badge {
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid #4caf50;
+            color: #4caf50;
+        }
+        
+        /* PIR Detail View */
+        .pir-detail-header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .pir-detail-info {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        
+        .pir-detail-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #f4c430 0%, #ffd54f 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1a365d;
+            font-size: 32px;
+            font-weight: bold;
+        }
+        
+        .pir-detail-text {
+            color: white;
+        }
+        
+        .pir-detail-name {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+        
+        .pir-detail-meta {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+        }
+        
+        .tab-nav {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 25px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 5px;
+            border-radius: 12px;
+        }
+        
+        .tab-btn {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.7);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        
+        .tab-btn.active {
+            background: rgba(244, 196, 48, 0.2);
+            color: #f4c430;
+        }
+        
+        /* Charts Container */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .chart-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+        }
+        
+        .chart-title {
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        
+        /* Assignment Creator */
+        .assignment-form {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .goal-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .goal-chip {
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 20px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .goal-chip.selected {
+            background: rgba(244, 196, 48, 0.2);
+            border-color: #f4c430;
+            color: #f4c430;
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 70px;
+            }
+            
+            .logo-text,
+            .nav-item span {
+                display: none;
+            }
+            
+            .pir-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        // Firebase Configuration (same as PIR app)
+        const firebaseConfig = {
+            apiKey: "AIzaSyBaBgCsRD3kQNH0Ipl5fNtre6DW6j_4JPM",
+            authDomain: "glrs-apps.firebaseapp.com",
+            projectId: "glrs-apps",
+            storageBucket: "glrs-apps.firebasestorage.app",
+            messagingSenderId: "432303589789",
+            appId: "1:432303589789:web:6c53cf5d68bf1bc33aa15d",
+            measurementId: "G-55J0WYRSED"
+        };
+        
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        
+        const { useState, useEffect, useRef } = React;
+        
+        // Main Coach App Component
+        function CoachApp() {
+            const [loading, setLoading] = useState(true);
+            const [coach, setCoach] = useState(null);
+            const [currentView, setCurrentView] = useState('dashboard');
+            const [selectedPIR, setSelectedPIR] = useState(null);
+            const [showModal, setShowModal] = useState(null);
+            const [notifications, setNotifications] = useState(5);
+            
+            // Demo PIR Data - aligned with PIR app structure
+            const [pirs] = useState([
+                {
+                    id: 1,
+                    name: 'Sarah Johnson',
+                    email: 'sarah.j@email.com',
+                    sobrietyDays: 956,
+                    lastCheckIn: '2 hours ago',
+                    mood: '😊',
+                    cravingLevel: 3,
+                    status: 'active',
+                    assignmentsComplete: 5,
+                    assignmentsTotal: 8,
+                    currentStreak: 45,
+                    goals: [
+                        { id: 1, title: 'Manage Triggers', progress: 75 },
+                        { id: 2, title: 'Build Support Network', progress: 60 }
+                    ]
+                },
+                {
+                    id: 2,
+                    name: 'Michael Chen',
+                    email: 'mchen@email.com',
+                    sobrietyDays: 123,
+                    lastCheckIn: '1 day ago',
+                    mood: '😐',
+                    cravingLevel: 6,
+                    status: 'warning',
+                    assignmentsComplete: 3,
+                    assignmentsTotal: 10,
+                    currentStreak: 12,
+                    goals: [
+                        { id: 1, title: 'Manage Triggers', progress: 40 },
+                        { id: 3, title: 'Develop Healthy Routines', progress: 55 }
+                    ]
+                },
+                {
+                    id: 3,
+                    name: 'Emily Rodriguez',
+                    email: 'emily.r@email.com',
+                    sobrietyDays: 45,
+                    lastCheckIn: '3 days ago',
+                    mood: '😔',
+                    cravingLevel: 8,
+                    status: 'alert',
+                    assignmentsComplete: 1,
+                    assignmentsTotal: 7,
+                    currentStreak: 0,
+                    goals: [
+                        { id: 2, title: 'Build Support Network', progress: 25 },
+                        { id: 3, title: 'Develop Healthy Routines', progress: 30 }
+                    ]
+                }
+            ]);
+            
+            // Activity Feed - shows what PIRs are doing
+            const [activityFeed] = useState([
+                { type: 'check-in', pir: 'Sarah Johnson', description: 'Completed morning check-in', mood: '😊', time: '2 hours ago' },
+                { type: 'assignment', pir: 'Michael Chen', description: 'Completed "Journal about triggers"', time: '5 hours ago' },
+                { type: 'message', pir: 'Emily Rodriguez', description: 'Sent you a message', time: '1 day ago' },
+                { type: 'check-in', pir: 'Sarah Johnson', description: 'Completed evening reflection', time: '1 day ago' }
+            ]);
+            
+            useEffect(() => {
+                // Simulate login
+                setTimeout(() => {
+                    setCoach({ name: 'John Doe', email: 'coach@glrs.org' });
+                    setLoading(false);
+                }, 1500);
+            }, []);
+            
+            const handleCreateAssignment = (pirId, assignment) => {
+                console.log('Creating assignment for PIR:', pirId, assignment);
+                // Would save to Firebase
+            };
+            
+            const handleExportReport = (pirId, dateRange) => {
+                console.log('Exporting report for PIR:', pirId, 'Range:', dateRange);
+                // Would generate PDF
+            };
+            
+            const getStatusColor = (status) => {
+                switch(status) {
+                    case 'active': return '#4caf50';
+                    case 'warning': return '#ff9800';
+                    case 'alert': return '#ff4757';
+                    default: return '#4caf50';
+                }
+            };
+            
+            if (loading) {
+                return (
+                    <div style={{
+                        height: '100vh',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        background: 'linear-gradient(135deg, #1a365d 0%, #2c5282 100%)'
+                    }}>
+                        <div style={{fontSize: '48px', marginBottom: '20px'}}>🏠</div>
+                        <div style={{color: 'white', fontSize: '18px'}}>Loading Coach Portal...</div>
+                    </div>
+                );
+            }
+            
+            return (
+                <div className="coach-app">
+                    <Sidebar 
+                        currentView={currentView} 
+                        onViewChange={setCurrentView}
+                        coach={coach}
+                    />
+                    
+                    <div className="main-content">
+                        <Header 
+                            coach={coach}
+                            notifications={notifications}
+                            currentView={currentView}
+                        />
+                        
+                        {currentView === 'dashboard' && (
+                            <DashboardView 
+                                pirs={pirs}
+                                activityFeed={activityFeed}
+                                onSelectPIR={setSelectedPIR}
+                                onViewChange={setCurrentView}
+                            />
+                        )}
+                        
+                        {currentView === 'pirs' && (
+                            <PIRsView 
+                                pirs={pirs}
+                                onSelectPIR={(pir) => {
+                                    setSelectedPIR(pir);
+                                    setCurrentView('pir-detail');
+                                }}
+                            />
+                        )}
+                        
+                        {currentView === 'pir-detail' && selectedPIR && (
+                            <PIRDetailView 
+                                pir={selectedPIR}
+                                onBack={() => setCurrentView('pirs')}
+                                onShowModal={setShowModal}
+                            />
+                        )}
+                        
+                        {currentView === 'assignments' && (
+                            <AssignmentsView 
+                                pirs={pirs}
+                                onShowModal={setShowModal}
+                            />
+                        )}
+                        
+                        {currentView === 'messages' && (
+                            <MessagesView pirs={pirs} />
+                        )}
+                        
+                        {currentView === 'analytics' && (
+                            <AnalyticsView pirs={pirs} />
+                        )}
+                    </div>
+                    
+                    {showModal && (
+                        <Modal 
+                            type={showModal}
+                            onClose={() => setShowModal(null)}
+                            selectedPIR={selectedPIR}
+                        />
+                    )}
+                </div>
+            );
+        }
+        
+        // Sidebar Component
+        function Sidebar({ currentView, onViewChange, coach }) {
+            const menuItems = [
+                { id: 'dashboard', icon: '📊', label: 'Dashboard' },
+                { id: 'pirs', icon: '👥', label: 'My PIRs' },
+                { id: 'assignments', icon: '📝', label: 'Assignments' },
+                { id: 'messages', icon: '💬', label: 'Messages' },
+                { id: 'analytics', icon: '📈', label: 'Analytics' }
+            ];
+            
+            return (
+                <div className="sidebar">
+                    <div className="logo-section">
+                        <span className="logo">🏠</span>
+                        <span className="logo-text">GLRS Coach</span>
+                    </div>
+                    
+                    <nav className="nav-menu">
+                        {menuItems.map(item => (
+                            <button
+                                key={item.id}
+                                className={`nav-item ${currentView === item.id ? 'active' : ''}`}
+                                onClick={() => onViewChange(item.id)}
+                            >
+                                <span className="nav-icon">{item.icon}</span>
+                                <span>{item.label}</span>
+                            </button>
+                        ))}
+                    </nav>
+                </div>
+            );
+        }
+        
+        // Header Component
+        function Header({ coach, notifications, currentView }) {
+            const getTitle = () => {
+                switch(currentView) {
+                    case 'dashboard': return 'Dashboard';
+                    case 'pirs': return 'My PIRs';
+                    case 'pir-detail': return 'PIR Details';
+                    case 'assignments': return 'Assignments';
+                    case 'messages': return 'Messages';
+                    case 'analytics': return 'Analytics';
+                    default: return 'Dashboard';
+                }
+            };
+            
+            return (
+                <div className="header">
+                    <h1 className="page-title">{getTitle()}</h1>
+                    <div className="header-actions">
+                        <button className="notification-btn">
+                            🔔
+                            {notifications > 0 && (
+                                <span className="notification-badge">{notifications}</span>
+                            )}
+                        </button>
+                        <div className="coach-avatar">
+                            {coach.name.charAt(0)}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        
+        // Dashboard View
+        function DashboardView({ pirs, activityFeed, onSelectPIR, onViewChange }) {
+            const activePIRs = pirs.filter(p => p.status === 'active').length;
+            const needsAttention = pirs.filter(p => p.status === 'alert').length;
+            const avgCompletion = Math.round(
+                pirs.reduce((acc, p) => acc + (p.assignmentsComplete / p.assignmentsTotal * 100), 0) / pirs.length
+            );
+            
+            return (
+                <>
+                    <div className="dashboard-grid">
+                        <div className="stat-card">
+                            <div className="stat-label">Active PIRs</div>
+                            <div className="stat-value">{pirs.length}</div>
+                            <div className="stat-change positive">
+                                <span>↑</span> {activePIRs} engaged today
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Needs Attention</div>
+                            <div className="stat-value">{needsAttention}</div>
+                            <div className="stat-change negative">
+                                <span>!</span> {needsAttention} PIRs need support
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Avg Completion</div>
+                            <div className="stat-value">{avgCompletion}%</div>
+                            <div className="stat-change positive">
+                                <span>↑</span> 12% from last week
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Today's Check-ins</div>
+                            <div className="stat-value">2/3</div>
+                            <div className="stat-change">
+                                <span>⏰</span> 1 pending
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div className="section-header">
+                        <h2 className="section-title">Recent Activity</h2>
+                        <button className="btn-secondary">View All</button>
+                    </div>
+                    
+                    <div className="activity-feed">
+                        {activityFeed.map((activity, idx) => (
+                            <div key={idx} className="activity-item">
+                                <div className={`activity-icon ${activity.type}`}>
+                                    {activity.type === 'check-in' && '✅'}
+                                    {activity.type === 'assignment' && '📝'}
+                                    {activity.type === 'message' && '💬'}
+                                </div>
+                                <div className="activity-content">
+                                    <div className="activity-title">{activity.pir}</div>
+                                    <div className="activity-description">
+                                        {activity.description}
+                                        {activity.mood && ` - Mood: ${activity.mood}`}
+                                    </div>
+                                </div>
+                                <div className="activity-time">{activity.time}</div>
+                            </div>
+                        ))}
+                    </div>
+                    
+                    <div className="section-header">
+                        <h2 className="section-title">PIR Overview</h2>
+                        <button className="btn-secondary" onClick={() => onViewChange('pirs')}>
+                            View All PIRs
+                        </button>
+                    </div>
+                    
+                    <div className="pir-grid">
+                        {pirs.map(pir => (
+                            <PIRCard 
+                                key={pir.id} 
+                                pir={pir} 
+                                onClick={() => {
+                                    onSelectPIR(pir);
+                                    onViewChange('pir-detail');
+                                }}
+                            />
+                        ))}
+                    </div>
+                </>
+            );
+        }
+        
+        // PIR Card Component
+        function PIRCard({ pir, onClick }) {
+            return (
+                <div className="pir-card" onClick={onClick}>
+                    <div className="pir-header">
+                        <div className="pir-info">
+                            <div className="pir-avatar">
+                                {pir.name.split(' ').map(n => n[0]).join('')}
+                            </div>
+                            <div className="pir-details">
+                                <div className="pir-name">{pir.name}</div>
+                                <div className="pir-days">{pir.sobrietyDays} days sober</div>
+                            </div>
+                        </div>
+                        <div className={`status-indicator ${pir.status}`}></div>
+                    </div>
+                    
+                    <div className="pir-stats">
+                        <div className="pir-stat">
+                            <div className="pir-stat-value">{pir.mood}</div>
+                            <div className="pir-stat-label">Mood</div>
+                        </div>
+                        <div className="pir-stat">
+                            <div className="pir-stat-value">{pir.cravingLevel}/10</div>
+                            <div className="pir-stat-label">Craving</div>
+                        </div>
+                        <div className="pir-stat">
+                            <div className="pir-stat-value">{pir.currentStreak}</div>
+                            <div className="pir-stat-label">Streak</div>
+                        </div>
+                    </div>
+                    
+                    {pir.status === 'alert' && (
+                        <div className="alert-badge" style={{marginTop: '15px'}}>
+                            ⚠️ Needs attention - {pir.lastCheckIn}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+        
+        // PIRs List View
+        function PIRsView({ pirs, onSelectPIR }) {
+            return (
+                <>
+                    <div className="section-header">
+                        <h2 className="section-title">All PIRs ({pirs.length})</h2>
+                        <button className="btn-primary">+ Add New PIR</button>
+                    </div>
+                    
+                    <div className="pir-grid">
+                        {pirs.map(pir => (
+                            <PIRCard 
+                                key={pir.id} 
+                                pir={pir} 
+                                onClick={() => onSelectPIR(pir)}
+                            />
+                        ))}
+                    </div>
+                </>
+            );
+        }
+        
+        // PIR Detail View
+        function PIRDetailView({ pir, onBack, onShowModal }) {
+            const [activeTab, setActiveTab] = useState('overview');
+            
+            return (
+                <>
+                    <button 
+                        onClick={onBack}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'white',
+                            fontSize: '16px',
+                            cursor: 'pointer',
+                            marginBottom: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        ← Back to PIRs
+                    </button>
+                    
+                    <div className="pir-detail-header">
+                        <div className="pir-detail-info">
+                            <div className="pir-detail-avatar">
+                                {pir.name.split(' ').map(n => n[0]).join('')}
+                            </div>
+                            <div className="pir-detail-text">
+                                <div className="pir-detail-name">{pir.name}</div>
+                                <div className="pir-detail-meta">
+                                    {pir.email} • {pir.sobrietyDays} days sober • Last check-in: {pir.lastCheckIn}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div style={{display: 'flex', gap: '10px'}}>
+                            <button className="btn-export" onClick={() => onShowModal('export')}>
+                                📥 Export Report
+                            </button>
+                            <button className="btn-primary" onClick={() => onShowModal('message')}>
+                                💬 Send Message
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="tab-nav">
+                        <button 
+                            className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('overview')}
+                        >
+                            Overview
+                        </button>
+                        <button 
+                            className={`tab-btn ${activeTab === 'check-ins' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('check-ins')}
+                        >
+                            Check-ins
+                        </button>
+                        <button 
+                            className={`tab-btn ${activeTab === 'assignments' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('assignments')}
+                        >
+                            Assignments
+                        </button>
+                        <button 
+                            className={`tab-btn ${activeTab === 'progress' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('progress')}
+                        >
+                            Progress
+                        </button>
+                    </div>
+                    
+                    {activeTab === 'overview' && (
+                        <div>
+                            <div className="dashboard-grid">
+                                <div className="stat-card">
+                                    <div className="stat-label">Current Mood</div>
+                                    <div className="stat-value" style={{fontSize: '48px'}}>{pir.mood}</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Craving Level</div>
+                                    <div className="stat-value">{pir.cravingLevel}/10</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Check-in Streak</div>
+                                    <div className="stat-value">{pir.currentStreak} days</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Assignments</div>
+                                    <div className="stat-value">{pir.assignmentsComplete}/{pir.assignmentsTotal}</div>
+                                </div>
+                            </div>
+                            
+                            <div className="chart-card">
+                                <div className="chart-title">Goals Progress</div>
+                                {pir.goals.map(goal => (
+                                    <div key={goal.id} style={{marginBottom: '15px'}}>
+                                        <div style={{color: 'white', marginBottom: '8px'}}>
+                                            {goal.title}: {goal.progress}%
+                                        </div>
+                                        <div style={{
+                                            width: '100%',
+                                            height: '30px',
+                                            background: 'rgba(255,255,255,0.1)',
+                                            borderRadius: '15px',
+                                            overflow: 'hidden'
+                                        }}>
+                                            <div style={{
+                                                width: `${goal.progress}%`,
+                                                height: '100%',
+                                                background: 'linear-gradient(90deg, #f4c430, #ffd54f)',
+                                                borderRadius: '15px',
+                                                transition: 'width 0.5s ease'
+                                            }}></div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    
+                    {activeTab === 'check-ins' && (
+                        <div className="chart-card">
+                            <div className="chart-title">Recent Check-ins</div>
+                            <p style={{color: 'white'}}>Morning Check-in (Today, 8:00 AM):</p>
+                            <p style={{color: 'rgba(255,255,255,0.7)', marginLeft: '20px'}}>
+                                Mood: 7/10 • Craving: 3/10 • Energy: 6/10 • Sleep: 8/10
+                            </p>
+                            <p style={{color: 'rgba(255,255,255,0.7)', marginLeft: '20px', marginTop: '10px'}}>
+                                "Feeling good today. Had a solid night's sleep and ready to tackle my assignments."
+                            </p>
+                        </div>
+                    )}
+                    
+                    {activeTab === 'assignments' && (
+                        <div>
+                            <button 
+                                className="btn-primary" 
+                                style={{marginBottom: '20px'}}
+                                onClick={() => onShowModal('create-assignment')}
+                            >
+                                + Create New Assignment
+                            </button>
+                            
+                            <div className="chart-card">
+                                <div className="chart-title">Active Assignments</div>
+                                <div style={{color: 'white'}}>
+                                    ✅ Journal about triggers (Completed)<br/>
+                                    ⏳ Practice breathing exercise (Due Tomorrow)<br/>
+                                    ⏳ Attend group meeting (Due Today)<br/>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {activeTab === 'progress' && (
+                        <div className="charts-grid">
+                            <div className="chart-card">
+                                <div className="chart-title">7-Day Mood Trend</div>
+                                <canvas id="moodChart"></canvas>
+                            </div>
+                            <div className="chart-card">
+                                <div className="chart-title">7-Day Craving Trend</div>
+                                <canvas id="cravingChart"></canvas>
+                            </div>
+                        </div>
+                    )}
+                </>
+            );
+        }
+        
+        // Assignments View
+        function AssignmentsView({ pirs, onShowModal }) {
+            return (
+                <>
+                    <div className="section-header">
+                        <h2 className="section-title">Assignment Management</h2>
+                        <button className="btn-primary" onClick={() => onShowModal('create-assignment')}>
+                            + Create Assignment
+                        </button>
+                    </div>
+                    
+                    <div className="assignment-form">
+                        <h3 style={{color: 'white', marginBottom: '15px'}}>Quick Assign</h3>
+                        <div className="form-group">
+                            <label className="form-label">Select PIR</label>
+                            <select className="form-select">
+                                {pirs.map(pir => (
+                                    <option key={pir.id} value={pir.id}>{pir.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        
+                        <div className="form-group">
+                            <label className="form-label">Assignment Title</label>
+                            <input type="text" className="form-input" placeholder="Enter assignment title" />
+                        </div>
+                        
+                        <div className="form-group">
+                            <label className="form-label">Link to Goal</label>
+                            <div className="goal-selector">
+                                <div className="goal-chip">Manage Triggers</div>
+                                <div className="goal-chip selected">Build Support Network</div>
+                                <div className="goal-chip">Develop Healthy Routines</div>
+                            </div>
+                        </div>
+                        
+                        <div className="form-group">
+                            <label className="form-label">Due Date</label>
+                            <input type="date" className="form-input" />
+                        </div>
+                        
+                        <button className="btn-primary">Create Assignment</button>
+                    </div>
+                </>
+            );
+        }
+        
+        // Messages View
+        function MessagesView({ pirs }) {
+            return (
+                <>
+                    <h2 className="section-title" style={{marginBottom: '20px'}}>Messages</h2>
+                    <div className="activity-feed">
+                        {pirs.map(pir => (
+                            <div key={pir.id} className="activity-item">
+                                <div className="activity-icon message">💬</div>
+                                <div className="activity-content">
+                                    <div className="activity-title">{pir.name}</div>
+                                    <div className="activity-description">
+                                        {pir.status === 'alert' ? 
+                                            "I'm struggling today, can we talk?" : 
+                                            "Thanks for the assignment, working on it now!"}
+                                    </div>
+                                </div>
+                                <div className="activity-time">{pir.lastCheckIn}</div>
+                            </div>
+                        ))}
+                    </div>
+                </>
+            );
+        }
+        
+        // Analytics View
+        function AnalyticsView({ pirs }) {
+            return (
+                <>
+                    <h2 className="section-title" style={{marginBottom: '20px'}}>Analytics Overview</h2>
+                    <div className="charts-grid">
+                        <div className="chart-card">
+                            <div className="chart-title">Overall Completion Rate</div>
+                            <canvas id="completionChart"></canvas>
+                        </div>
+                        <div className="chart-card">
+                            <div className="chart-title">Average Mood Trends</div>
+                            <canvas id="avgMoodChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div className="chart-card" style={{marginTop: '20px'}}>
+                        <div className="chart-title">PIR Engagement Metrics</div>
+                        <table style={{width: '100%', color: 'white'}}>
+                            <thead>
+                                <tr style={{borderBottom: '1px solid rgba(255,255,255,0.1)'}}>
+                                    <th style={{padding: '10px', textAlign: 'left'}}>PIR Name</th>
+                                    <th style={{padding: '10px'}}>Check-in Rate</th>
+                                    <th style={{padding: '10px'}}>Assignment Completion</th>
+                                    <th style={{padding: '10px'}}>Engagement Score</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {pirs.map(pir => (
+                                    <tr key={pir.id} style={{borderBottom: '1px solid rgba(255,255,255,0.05)'}}>
+                                        <td style={{padding: '10px'}}>{pir.name}</td>
+                                        <td style={{padding: '10px', textAlign: 'center'}}>
+                                            {pir.currentStreak > 30 ? '100%' : '75%'}
+                                        </td>
+                                        <td style={{padding: '10px', textAlign: 'center'}}>
+                                            {Math.round(pir.assignmentsComplete / pir.assignmentsTotal * 100)}%
+                                        </td>
+                                        <td style={{padding: '10px', textAlign: 'center'}}>
+                                            <span className={pir.status === 'active' ? 'success-badge' : 
+                                                           pir.status === 'warning' ? 'warning-badge' : 'alert-badge'}>
+                                                {pir.status === 'active' ? 'High' : 
+                                                 pir.status === 'warning' ? 'Medium' : 'Low'}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </>
+            );
+        }
+        
+        // Modal Component
+        function Modal({ type, onClose, selectedPIR }) {
+            const getModalContent = () => {
+                switch(type) {
+                    case 'export':
+                        return (
+                            <>
+                                <h2 className="modal-title">Export PIR Report</h2>
+                                <div className="form-group">
+                                    <label className="form-label">Date Range</label>
+                                    <select className="form-select">
+                                        <option>Last 7 days</option>
+                                        <option>Last 30 days</option>
+                                        <option>Last 90 days</option>
+                                        <option>Custom range</option>
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Include in Report</label>
+                                    <div style={{color: 'white'}}>
+                                        <label style={{display: 'block', marginBottom: '10px'}}>
+                                            <input type="checkbox" defaultChecked /> Check-ins and Reflections
+                                        </label>
+                                        <label style={{display: 'block', marginBottom: '10px'}}>
+                                            <input type="checkbox" defaultChecked /> Assignment Progress
+                                        </label>
+                                        <label style={{display: 'block', marginBottom: '10px'}}>
+                                            <input type="checkbox" defaultChecked /> Mood/Craving Trends
+                                        </label>
+                                        <label style={{display: 'block', marginBottom: '10px'}}>
+                                            <input type="checkbox" defaultChecked /> Goal Progress
+                                        </label>
+                                    </div>
+                                </div>
+                                <button className="btn-primary">Generate PDF Report</button>
+                            </>
+                        );
+                        
+                    case 'message':
+                        return (
+                            <>
+                                <h2 className="modal-title">Send Message to {selectedPIR?.name}</h2>
+                                <div className="form-group">
+                                    <label className="form-label">Message</label>
+                                    <textarea 
+                                        className="form-input"
+                                        style={{minHeight: '150px'}}
+                                        placeholder="Type your message..."
+                                    />
+                                </div>
+                                <button className="btn-primary">Send Message</button>
+                            </>
+                        );
+                        
+                    case 'create-assignment':
+                        return (
+                            <>
+                                <h2 className="modal-title">Create New Assignment</h2>
+                                <div className="form-group">
+                                    <label className="form-label">Assignment Title</label>
+                                    <input type="text" className="form-input" placeholder="Enter title" />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Description</label>
+                                    <textarea 
+                                        className="form-input"
+                                        style={{minHeight: '100px'}}
+                                        placeholder="Describe the assignment..."
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Link to Goal</label>
+                                    <select className="form-select">
+                                        <option>Manage Triggers</option>
+                                        <option>Build Support Network</option>
+                                        <option>Develop Healthy Routines</option>
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Due Date</label>
+                                    <input type="date" className="form-input" />
+                                </div>
+                                <button className="btn-primary">Create Assignment</button>
+                            </>
+                        );
+                        
+                    default:
+                        return null;
+                }
+            };
+            
+            return (
+                <div className="modal-overlay" onClick={onClose}>
+                    <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            {getModalContent()}
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        
+        // Render the app
+        ReactDOM.render(<CoachApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
