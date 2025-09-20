@@ -2907,31 +2907,38 @@ const loadGoals = async (uid) => {
             
             // Handle profile image upload
             const handleProfileImageUpload = async (file) => {
-                if (!file) return;
-                
-                try {
-                    // Upload to Firebase Storage
-                    const storageRef = storage.ref();
-                    const imageRef = storageRef.child(`profileImages/${user.uid}/${Date.now()}_${file.name}`);
-                    const snapshot = await imageRef.put(file);
-                    const downloadURL = await snapshot.ref.getDownloadURL();
-                    
-                    // Update user document
-                    await db.collection('users').doc(user.uid).update({
-                        profileImageUrl: downloadURL,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    // Update local state
-                    setProfileImage(downloadURL);
-                    setUserData(prev => ({ ...prev, profileImageUrl: downloadURL }));
-                    
-                    alert('Profile picture updated successfully!');
-                } catch (error) {
-                    console.error('Error uploading profile image:', error);
-                    alert('Error uploading image. Please try again.');
-                }
-            };
+    if (!file) return;
+    
+    // Check file size (limit to 2MB for base64)
+    if (file.size > 2 * 1024 * 1024) {
+        alert('Please choose an image under 2MB');
+        return;
+    }
+    
+    try {
+        // Convert to base64
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+            const base64String = reader.result;
+            
+            // Store directly in Firestore (no CORS issues)
+            await db.collection('users').doc(user.uid).update({
+                profileImageUrl: base64String,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Update local state
+            setProfileImage(base64String);
+            setUserData(prev => ({ ...prev, profileImageUrl: base64String }));
+            
+            alert('Profile picture updated successfully!');
+        };
+        reader.readAsDataURL(file);
+    } catch (error) {
+        console.error('Error uploading profile image:', error);
+        alert('Error uploading image. Please try again.');
+    }
+};
             
             // Change password
             const changePassword = async (currentPassword, newPassword) => {
