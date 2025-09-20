@@ -2745,20 +2745,23 @@
                 };
                 
                 const handleQuickAction = async (action, e) => {
-                    e.stopPropagation();
-                    
-                    if (action === 'deactivate') {
-                        if (confirm(`Deactivate ${user.displayName || user.email}?`)) {
-                            await db.collection('users').doc(user.id).update({ active: false });
-                            onRefresh();
-                        }
-                    } else if (action === 'activate') {
-                        await db.collection('users').doc(user.id).update({ active: true });
-                        onRefresh();
-                    } else if (action === 'message') {
-                        alert('Message feature coming soon');
-                    }
-                };
+    e.stopPropagation();
+    
+    if (action === 'deactivate') {
+        if (confirm(`Deactivate ${user.displayName || user.email}?`)) {
+            await db.collection('users').doc(user.id).update({ active: false });
+            onRefresh();
+        }
+    } else if (action === 'activate') {
+        await db.collection('users').doc(user.id).update({ active: true });
+        onRefresh();
+    } else if (action === 'message') {
+        // Open the user detail modal with messages tab
+        setSelectedUser(user);
+        // You'll need to add a way to set the default tab to 'messages'
+        // Either by passing it as a prop or setting a state
+    }
+};
                 
                 const status = getStatus();
                 
@@ -3905,44 +3908,92 @@
             }
 
             // User Detail View - COMPLETE
-            function UserDetailView({ user, checkIns, assignments, messages, onBack, onShowModal, onRefresh }) {
-                const [activeTab, setActiveTab] = useState('overview');
-                
-                const userCheckIns = checkIns.filter(c => c.userId === user.id);
-                const userAssignments = assignments.filter(a => a.pirId === user.id);
-                const userMessages = messages.filter(m => 
-                    m.senderId === user.id || m.recipientId === user.id
-                );
-                
-                const handleReassign = async () => {
-                    const newCoachId = prompt('Enter new coach ID:');
-                    if (newCoachId) {
-                        await db.collection('users').doc(user.id).update({
-                            assignedCoach: newCoachId
-                        });
-                        alert('Coach reassigned successfully!');
-                        onRefresh();
-                    }
-                };
-                
-                const handleExport = () => {
-                    const userData = {
-                        profile: user,
-                        checkIns: userCheckIns,
-                        assignments: userAssignments,
-                        messages: userMessages
-                    };
-                    
-                    const dataStr = JSON.stringify(userData, null, 2);
-                    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-                    
-                    const exportFileDefaultName = `${user.displayName || user.id}_data.json`;
-                    
-                    const linkElement = document.createElement('a');
-                    linkElement.setAttribute('href', dataUri);
-                    linkElement.setAttribute('download', exportFileDefaultName);
-                    linkElement.click();
-                };
+function UserDetailView({ user, checkIns, assignments, messages, onBack, onShowModal, onRefresh }) {
+    const [activeTab, setActiveTab] = useState('overview');
+    const [messageText, setMessageText] = useState('');
+    const [userMessages, setUserMessages] = useState([]);
+    
+    const userCheckIns = checkIns.filter(c => c.userId === user.id);
+    const userAssignments = assignments.filter(a => a.pirId === user.id);
+    
+    // Load messages on component mount or user change
+    useEffect(() => {
+        loadUserMessages();
+    }, [user.id, messages]); // Added messages to dependency array
+    
+    const loadUserMessages = () => {
+        const filteredMessages = messages.filter(m => 
+            m.senderId === user.id || m.recipientId === user.id
+        ).sort((a, b) => {
+            const timeA = a.createdAt?.toMillis() || 0;
+            const timeB = b.createdAt?.toMillis() || 0;
+            return timeA - timeB; // Oldest first for chat view
+        });
+        setUserMessages(filteredMessages);
+    };
+    
+    const handleSendMessage = async () => {
+        if (!messageText.trim()) return;
+        
+        try {
+            // Get current admin user from auth
+            const currentUser = auth.currentUser;
+            
+            await db.collection('messages').add({
+                text: messageText,
+                senderId: currentUser.uid,
+                senderName: 'Admin',
+                recipientId: user.id,
+                recipientName: user.displayName || user.email,
+                type: 'direct',
+                read: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Clear input
+            setMessageText('');
+            
+            // Refresh to show new message
+            onRefresh();
+            
+            // Show temporary success message
+            alert('Message sent successfully!');
+            
+        } catch (error) {
+            console.error('Error sending message:', error);
+            alert('Failed to send message');
+        }
+    };
+    
+    const handleReassign = async () => {
+        const newCoachId = prompt('Enter new coach ID:');
+        if (newCoachId) {
+            await db.collection('users').doc(user.id).update({
+                assignedCoach: newCoachId
+            });
+            alert('Coach reassigned successfully!');
+            onRefresh();
+        }
+    };
+    
+    const handleExport = () => {
+        const userData = {
+            profile: user,
+            checkIns: userCheckIns,
+            assignments: userAssignments,
+            messages: userMessages
+        };
+        
+        const dataStr = JSON.stringify(userData, null, 2);
+        const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+        
+        const exportFileDefaultName = `${user.displayName || user.id}_data.json`;
+        
+        const linkElement = document.createElement('a');
+        linkElement.setAttribute('href', dataUri);
+        linkElement.setAttribute('download', exportFileDefaultName);
+        linkElement.click();
+    };
                 
                 return (
                     <div className="user-detail-container">
@@ -4141,26 +4192,87 @@
                         )}
                         
                         {activeTab === 'messages' && (
-                            <div style={{marginTop: '20px'}}>
-                                {userMessages.length === 0 ? (
-                                    <div className="empty-state">
-                                        <div className="empty-state-text">No messages yet</div>
-                                    </div>
-                                ) : (
-                                    <div style={{maxHeight: '400px', overflowY: 'auto', background: 'rgba(255,255,255,0.05)', borderRadius: '15px', padding: '20px'}}>
-                                        {userMessages.map(message => (
-                                            <div key={message.id} className={`message ${message.senderId === user.id ? 'received' : 'sent'}`}>
-                                                <div>{message.text}</div>
-                                                <div className="message-time">{formatTime(message.createdAt)}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
+    <div style={{marginTop: '20px'}}>
+        {/* Message Input Section */}
+        <div style={{
+            display: 'flex',
+            gap: '10px',
+            marginBottom: '20px'
+        }}>
+            <input 
+                type="text"
+                className="form-input"
+                placeholder="Type a message..."
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                onKeyPress={(e) => {
+                    if (e.key === 'Enter' && messageText.trim()) {
+                        handleSendMessage();
+                    }
+                }}
+                style={{flex: 1}}
+            />
+            <button 
+                className="btn-primary" 
+                onClick={handleSendMessage}
+                disabled={!messageText.trim()}
+                style={{width: 'auto', padding: '10px 20px'}}
+            >
+                Send
+            </button>
+        </div>
+        
+        {/* Messages Display Section */}
+        <div style={{
+            maxHeight: '400px', 
+            overflowY: 'auto', 
+            background: 'rgba(255,255,255,0.05)', 
+            borderRadius: '15px', 
+            padding: '20px'
+        }}>
+            {userMessages.length === 0 ? (
+                <div className="empty-state">
+                    <div className="empty-state-icon">💬</div>
+                    <div className="empty-state-text">
+                        No messages yet. Start the conversation!
                     </div>
-                );
-            }
+                </div>
+            ) : (
+                userMessages.map(message => (
+                    <div 
+                        key={message.id} 
+                        className={`message-item ${message.senderId === admin.uid ? 'sent' : 'received'}`}
+                        style={{
+                            marginBottom: '15px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: message.senderId === admin.uid ? 'flex-end' : 'flex-start'
+                        }}
+                    >
+                        <div style={{
+                            maxWidth: '70%',
+                            padding: '10px 15px',
+                            borderRadius: '15px',
+                            background: message.senderId === admin.uid ? 
+                                'rgba(244, 196, 48, 0.3)' : 
+                                'rgba(106, 99, 255, 0.3)',
+                            color: 'white'
+                        }}>
+                            {message.text || message.content}
+                        </div>
+                        <div style={{
+                            fontSize: '11px',
+                            color: 'rgba(255, 255, 255, 0.5)',
+                            marginTop: '5px'
+                        }}>
+                            {message.senderId === admin.uid ? 'You' : user.displayName} • {formatTime(message.createdAt)}
+                        </div>
+                    </div>
+                ))
+            )}
+        </div>
+    </div>
+)}
 
             // Login Screen Component
             function LoginScreen() {
