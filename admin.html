@@ -1,1 +1,1817 @@
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GLRS Admin Portal</title>
+    
+    <!-- React and Babel for JSX -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    
+    <!-- Chart.js for analytics -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+            min-height: 100vh;
+        }
+        
+        /* Layout */
+        .admin-app {
+            display: flex;
+            min-height: 100vh;
+        }
+        
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            overflow-y: auto;
+        }
+        
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 20px 0;
+            margin-bottom: 30px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .logo {
+            font-size: 32px;
+        }
+        
+        .logo-text {
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .nav-menu {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            color: rgba(255, 255, 255, 0.7);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: none;
+            border: none;
+            text-align: left;
+            width: 100%;
+            font-size: 15px;
+        }
+        
+        .nav-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: white;
+        }
+        
+        .nav-item.active {
+            background: rgba(220, 38, 38, 0.2);
+            color: #ef4444;
+        }
+        
+        .nav-icon {
+            font-size: 20px;
+        }
+        
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+        
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+        
+        .page-title {
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        .role-badge {
+            background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        
+        .admin-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            overflow: hidden;
+        }
+        
+        .admin-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        /* Dashboard Grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .stat-label {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .stat-value {
+            color: white;
+            font-size: 36px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .stat-change {
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        /* User Table */
+        .user-table {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            color: white;
+        }
+        
+        th {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+            font-weight: bold;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+        
+        td {
+            padding: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        /* Status Badges */
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            display: inline-block;
+        }
+        
+        .status-badge.active {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+        
+        .status-badge.inactive {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+        
+        .status-badge.pending {
+            background: rgba(251, 146, 60, 0.2);
+            color: #fb923c;
+        }
+        
+        /* Role Badges */
+        .role-chip {
+            padding: 2px 8px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        
+        .role-chip.admin {
+            background: rgba(220, 38, 38, 0.2);
+            color: #ef4444;
+        }
+        
+        .role-chip.coach {
+            background: rgba(139, 92, 246, 0.2);
+            color: #8b5cf6;
+        }
+        
+        .role-chip.pir {
+            background: rgba(244, 196, 48, 0.2);
+            color: #f4c430;
+        }
+        
+        /* Buttons */
+        .btn-primary {
+            background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(239, 68, 68, 0.3);
+        }
+        
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        /* Action Buttons Group */
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .action-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s ease;
+        }
+        
+        .action-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        /* Section Headers */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .section-title {
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, #1a2332 0%, #2d3748 100%);
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 600px;
+            width: 100%;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+        
+        .modal-title {
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 28px;
+            cursor: pointer;
+        }
+        
+        /* Forms */
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-label {
+            color: white;
+            font-size: 14px;
+            margin-bottom: 8px;
+            display: block;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            font-size: 16px;
+        }
+        
+        .form-input::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+        
+        .form-input:focus {
+            outline: none;
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .form-select option {
+            background: #1a2332;
+            color: white;
+        }
+        
+        /* Tabs */
+        .tab-nav {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 25px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 5px;
+            border-radius: 12px;
+        }
+        
+        .tab-btn {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.7);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        
+        .tab-btn.active {
+            background: rgba(220, 38, 38, 0.2);
+            color: #ef4444;
+        }
+        
+        /* Quick Actions */
+        .quick-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        
+        .quick-btn {
+            padding: 8px 16px;
+            background: rgba(220, 38, 38, 0.2);
+            border: 1px solid #ef4444;
+            color: #ef4444;
+            border-radius: 20px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .quick-btn:hover {
+            background: rgba(220, 38, 38, 0.3);
+        }
+        
+        /* Alert Box */
+        .alert-box {
+            background: rgba(239, 68, 68, 0.1);
+            border: 2px solid #ef4444;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+            color: white;
+        }
+        
+        .alert-title {
+            font-weight: bold;
+            color: #ef4444;
+            margin-bottom: 8px;
+        }
+        
+        /* Loading */
+        .loading-screen {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+        }
+        
+        /* Login */
+        .login-container {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+        }
+        
+        .login-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        .login-title {
+            color: white;
+            font-size: 24px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .error-message {
+            color: #ef4444;
+            text-align: center;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        // Firebase Configuration - GLRS-PIR-System
+        const firebaseConfig = {
+            apiKey: "AIzaSyAufSTHtCTFSEIeZ9YzvrULCnji5I-SMi0",
+            authDomain: "glrs-pir-system.firebaseapp.com",
+            projectId: "glrs-pir-system",
+            storageBucket: "glrs-pir-system.firebasestorage.app",
+            messagingSenderId: "830378577655",
+            appId: "1:830378577655:web:ceb8e57c80f9b1cc028df2",
+            measurementId: "G-W5JDNQ9J1X"
+        };
+        
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        
+        const { useState, useEffect, useRef } = React;
+        
+        // Main Admin App Component
+        function AdminApp() {
+            const [loading, setLoading] = useState(true);
+            const [admin, setAdmin] = useState(null);
+            const [adminData, setAdminData] = useState(null);
+            const [currentView, setCurrentView] = useState('dashboard');
+            const [showModal, setShowModal] = useState(null);
+            const [selectedUser, setSelectedUser] = useState(null);
+            
+            // Data states
+            const [allUsers, setAllUsers] = useState([]);
+            const [pirs, setPirs] = useState([]);
+            const [coaches, setCoaches] = useState([]);
+            const [admins, setAdmins] = useState([]);
+            const [systemStats, setSystemStats] = useState({});
+            const [activities, setActivities] = useState([]);
+            const [alerts, setAlerts] = useState([]);
+            
+            // Listen for auth changes
+            useEffect(() => {
+                const unsubscribe = auth.onAuthStateChanged(async (user) => {
+                    if (user) {
+                        await loadAdminData(user.uid);
+                    } else {
+                        setLoading(false);
+                    }
+                });
+                
+                return () => unsubscribe();
+            }, []);
+            
+            // Load admin data and verify role
+            const loadAdminData = async (uid) => {
+                try {
+                    const adminDoc = await db.collection('users').doc(uid).get();
+                    if (adminDoc.exists) {
+                        const data = adminDoc.data();
+                        
+                        // Admin can be 'admin' role OR 'coach' with admin privileges
+                        if (data.role !== 'admin' && !(data.role === 'coach' && data.isAdmin)) {
+                            alert('Access denied. Admin privileges required.');
+                            await auth.signOut();
+                            return;
+                        }
+                        
+                        setAdmin(auth.currentUser);
+                        setAdminData(data);
+                        
+                        // Load all system data
+                        await loadSystemData();
+                    } else {
+                        alert('Admin account not found');
+                        await auth.signOut();
+                    }
+                } catch (error) {
+                    console.error('Error loading admin data:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            // Load all system data
+            const loadSystemData = async () => {
+                try {
+                    // Load all users
+                    const usersSnapshot = await db.collection('users').get();
+                    const usersList = [];
+                    const pirsList = [];
+                    const coachesList = [];
+                    const adminsList = [];
+                    
+                    usersSnapshot.forEach(doc => {
+                        const data = { id: doc.id, ...doc.data() };
+                        usersList.push(data);
+                        
+                        if (data.role === 'pir') pirsList.push(data);
+                        else if (data.role === 'coach') coachesList.push(data);
+                        else if (data.role === 'admin' || data.isAdmin) adminsList.push(data);
+                    });
+                    
+                    setAllUsers(usersList);
+                    setPirs(pirsList);
+                    setCoaches(coachesList);
+                    setAdmins(adminsList);
+                    
+                    // Calculate system stats
+                    setSystemStats({
+                        totalUsers: usersList.length,
+                        totalPIRs: pirsList.length,
+                        totalCoaches: coachesList.length,
+                        totalAdmins: adminsList.length,
+                        activePIRs: pirsList.filter(p => p.status === 'active').length,
+                        unassignedPIRs: pirsList.filter(p => !p.assignedCoach).length
+                    });
+                    
+                    // Load recent activities
+                    const activitiesSnapshot = await db.collection('activities')
+                        .orderBy('createdAt', 'desc')
+                        .limit(50)
+                        .get();
+                    
+                    const activitiesList = [];
+                    activitiesSnapshot.forEach(doc => {
+                        activitiesList.push({ id: doc.id, ...doc.data() });
+                    });
+                    setActivities(activitiesList);
+                    
+                    // Load alerts
+                    const alertsSnapshot = await db.collection('alerts')
+                        .where('acknowledged', '==', false)
+                        .get();
+                    
+                    const alertsList = [];
+                    alertsSnapshot.forEach(doc => {
+                        alertsList.push({ id: doc.id, ...doc.data() });
+                    });
+                    setAlerts(alertsList);
+                    
+                } catch (error) {
+                    console.error('Error loading system data:', error);
+                }
+            };
+            
+            // Create new user account
+            const createUserAccount = async (email, password, role, additionalData = {}) => {
+                try {
+                    // Create auth account
+                    const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                    const uid = userCredential.user.uid;
+                    
+                    // Create Firestore document
+                    const userData = {
+                        email: email,
+                        role: role,
+                        displayName: additionalData.displayName || email.split('@')[0],
+                        firstName: additionalData.firstName || '',
+                        lastName: additionalData.lastName || '',
+                        phone: additionalData.phone || '',
+                        status: 'active',
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        createdBy: admin.uid,
+                        ...additionalData
+                    };
+                    
+                    // Add role-specific fields
+                    if (role === 'pir') {
+                        userData.sobrietyDate = additionalData.sobrietyDate || firebase.firestore.Timestamp.now();
+                        userData.assignedCoach = additionalData.assignedCoach || null;
+                        userData.dailySubstanceSpending = additionalData.dailySubstanceSpending || 20;
+                    } else if (role === 'coach') {
+                        userData.credentials = additionalData.credentials || '';
+                        userData.specializations = additionalData.specializations || [];
+                    }
+                    
+                    await db.collection('users').doc(uid).set(userData);
+                    
+                    alert(`${role.toUpperCase()} account created successfully!`);
+                    await loadSystemData(); // Refresh data
+                    setShowModal(null);
+                    
+                } catch (error) {
+                    console.error('Error creating user:', error);
+                    alert(`Error: ${error.message}`);
+                }
+            };
+            
+            // Assign coach to PIR
+            const assignCoachToPIR = async (pirId, coachId) => {
+                try {
+                    await db.collection('users').doc(pirId).update({
+                        assignedCoach: coachId,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedBy: admin.uid
+                    });
+                    
+                    alert('Coach assigned successfully!');
+                    await loadSystemData();
+                } catch (error) {
+                    console.error('Error assigning coach:', error);
+                    alert('Error assigning coach');
+                }
+            };
+            
+            // Change user status
+            const changeUserStatus = async (userId, newStatus) => {
+                try {
+                    await db.collection('users').doc(userId).update({
+                        status: newStatus,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedBy: admin.uid
+                    });
+                    
+                    alert('Status updated successfully!');
+                    await loadSystemData();
+                } catch (error) {
+                    console.error('Error updating status:', error);
+                    alert('Error updating status');
+                }
+            };
+            
+            // Delete user (careful!)
+            const deleteUser = async (userId) => {
+                if (!confirm('Are you sure? This cannot be undone.')) return;
+                
+                try {
+                    // Delete from Firestore
+                    await db.collection('users').doc(userId).delete();
+                    
+                    // Note: Can't delete from Auth without admin SDK
+                    alert('User removed from database. Auth account remains (requires server-side deletion).');
+                    await loadSystemData();
+                } catch (error) {
+                    console.error('Error deleting user:', error);
+                    alert('Error deleting user');
+                }
+            };
+            
+            // Handle login
+            const handleLogin = async (email, password) => {
+                try {
+                    await auth.signInWithEmailAndPassword(email, password);
+                } catch (error) {
+                    throw error;
+                }
+            };
+            
+            // Handle logout
+            const handleLogout = async () => {
+                try {
+                    await auth.signOut();
+                    setCurrentView('dashboard');
+                } catch (error) {
+                    console.error('Error signing out:', error);
+                }
+            };
+            
+            // Format date
+            const formatDate = (timestamp) => {
+                if (!timestamp) return 'N/A';
+                const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+                return date.toLocaleDateString();
+            };
+            
+            if (loading) {
+                return (
+                    <div className="loading-screen">
+                        <div style={{fontSize: '48px', marginBottom: '20px'}}>⚙️</div>
+                        <div style={{color: 'white', fontSize: '18px'}}>Loading Admin Portal...</div>
+                    </div>
+                );
+            }
+            
+            if (!admin) {
+                return <LoginScreen onLogin={handleLogin} />;
+            }
+            
+            return (
+                <div className="admin-app">
+                    <Sidebar 
+                        currentView={currentView} 
+                        onViewChange={setCurrentView}
+                        adminData={adminData}
+                    />
+                    
+                    <div className="main-content">
+                        <Header 
+                            adminData={adminData}
+                            currentView={currentView}
+                        />
+                        
+                        {currentView === 'dashboard' && (
+                            <DashboardView 
+                                stats={systemStats}
+                                activities={activities}
+                                alerts={alerts}
+                                onViewChange={setCurrentView}
+                            />
+                        )}
+                        
+                        {currentView === 'users' && (
+                            <UsersView 
+                                users={allUsers}
+                                onShowModal={setShowModal}
+                                onSelectUser={setSelectedUser}
+                                onChangeStatus={changeUserStatus}
+                                onDeleteUser={deleteUser}
+                            />
+                        )}
+                        
+                        {currentView === 'pirs' && (
+                            <PIRsView 
+                                pirs={pirs}
+                                coaches={coaches}
+                                onShowModal={setShowModal}
+                                onAssignCoach={assignCoachToPIR}
+                                onChangeStatus={changeUserStatus}
+                            />
+                        )}
+                        
+                        {currentView === 'coaches' && (
+                            <CoachesView 
+                                coaches={coaches}
+                                pirs={pirs}
+                                onShowModal={setShowModal}
+                                onChangeStatus={changeUserStatus}
+                            />
+                        )}
+                        
+                        {currentView === 'assignments' && (
+                            <AssignmentsView 
+                                pirs={pirs}
+                                coaches={coaches}
+                            />
+                        )}
+                        
+                        {currentView === 'analytics' && (
+                            <AnalyticsView 
+                                stats={systemStats}
+                                users={allUsers}
+                                activities={activities}
+                            />
+                        )}
+                        
+                        {currentView === 'settings' && (
+                            <SettingsView 
+                                adminData={adminData}
+                                onLogout={handleLogout}
+                            />
+                        )}
+                    </div>
+                    
+                    {showModal && (
+                        <Modal 
+                            type={showModal}
+                            onClose={() => setShowModal(null)}
+                            onSubmit={createUserAccount}
+                            coaches={coaches}
+                            selectedUser={selectedUser}
+                            onAssignCoach={assignCoachToPIR}
+                        />
+                    )}
+                </div>
+            );
+        }
+        
+        // Sidebar Component
+        function Sidebar({ currentView, onViewChange, adminData }) {
+            const menuItems = [
+                { id: 'dashboard', icon: '📊', label: 'Dashboard' },
+                { id: 'users', icon: '👥', label: 'All Users' },
+                { id: 'pirs', icon: '🎯', label: 'PIR Management' },
+                { id: 'coaches', icon: '🏆', label: 'Coach Management' },
+                { id: 'assignments', icon: '📋', label: 'System Overview' },
+                { id: 'analytics', icon: '📈', label: 'Analytics' },
+                { id: 'settings', icon: '⚙️', label: 'Settings' }
+            ];
+            
+            return (
+                <div className="sidebar">
+                    <div className="logo-section">
+                        <span className="logo">🛡️</span>
+                        <span className="logo-text">GLRS Admin</span>
+                    </div>
+                    
+                    <nav className="nav-menu">
+                        {menuItems.map(item => (
+                            <button
+                                key={item.id}
+                                className={`nav-item ${currentView === item.id ? 'active' : ''}`}
+                                onClick={() => onViewChange(item.id)}
+                            >
+                                <span className="nav-icon">{item.icon}</span>
+                                <span>{item.label}</span>
+                            </button>
+                        ))}
+                    </nav>
+                    
+                    {adminData?.role === 'coach' && adminData?.isAdmin && (
+                        <div style={{
+                            marginTop: '30px',
+                            padding: '15px',
+                            background: 'rgba(139, 92, 246, 0.1)',
+                            borderRadius: '10px',
+                            border: '1px solid rgba(139, 92, 246, 0.3)'
+                        }}>
+                            <div style={{color: '#8b5cf6', fontSize: '12px', marginBottom: '5px'}}>
+                                Dual Access Mode
+                            </div>
+                            <div style={{color: 'rgba(255,255,255,0.7)', fontSize: '11px'}}>
+                                You have coach + admin privileges
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+        
+        // Header Component
+        function Header({ adminData, currentView }) {
+            const getTitle = () => {
+                switch(currentView) {
+                    case 'dashboard': return 'System Dashboard';
+                    case 'users': return 'User Management';
+                    case 'pirs': return 'PIR Management';
+                    case 'coaches': return 'Coach Management';
+                    case 'assignments': return 'System Overview';
+                    case 'analytics': return 'Analytics & Reports';
+                    case 'settings': return 'Admin Settings';
+                    default: return 'Dashboard';
+                }
+            };
+            
+            return (
+                <div className="header">
+                    <h1 className="page-title">{getTitle()}</h1>
+                    <div className="header-actions">
+                        <div className="role-badge">
+                            {adminData?.role === 'admin' ? 'ADMIN' : 'COACH+ADMIN'}
+                        </div>
+                        <div className="admin-avatar">
+                            {(adminData?.displayName || adminData?.email || 'A').charAt(0).toUpperCase()}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        
+        // Dashboard View
+        function DashboardView({ stats, activities, alerts, onViewChange }) {
+            return (
+                <>
+                    {alerts.length > 0 && (
+                        <div className="alert-box">
+                            <div className="alert-title">⚠️ System Alerts</div>
+                            {alerts.slice(0, 3).map(alert => (
+                                <div key={alert.id} style={{marginBottom: '5px'}}>
+                                    {alert.message}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    
+                    <div className="dashboard-grid">
+                        <div className="stat-card">
+                            <div className="stat-label">Total Users</div>
+                            <div className="stat-value">{stats.totalUsers || 0}</div>
+                            <div className="stat-change">
+                                <span>👥</span> All system users
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Active PIRs</div>
+                            <div className="stat-value">{stats.activePIRs || 0}</div>
+                            <div className="stat-change">
+                                <span>🎯</span> {stats.totalPIRs || 0} total PIRs
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Coaches</div>
+                            <div className="stat-value">{stats.totalCoaches || 0}</div>
+                            <div className="stat-change">
+                                <span>🏆</span> Active coaches
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Unassigned PIRs</div>
+                            <div className="stat-value">{stats.unassignedPIRs || 0}</div>
+                            <div className="stat-change" style={{color: stats.unassignedPIRs > 0 ? '#ef4444' : '#22c55e'}}>
+                                <span>{stats.unassignedPIRs > 0 ? '⚠️' : '✅'}</span> 
+                                {stats.unassignedPIRs > 0 ? 'Need assignment' : 'All assigned'}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div className="quick-actions">
+                        <button className="quick-btn" onClick={() => onViewChange('users')}>
+                            ➕ Create New User
+                        </button>
+                        <button className="quick-btn" onClick={() => onViewChange('pirs')}>
+                            🔄 Reassign PIRs
+                        </button>
+                        <button className="quick-btn" onClick={() => onViewChange('analytics')}>
+                            📊 View Reports
+                        </button>
+                        <button className="quick-btn" onClick={() => onViewChange('coaches')}>
+                            👥 Manage Coaches
+                        </button>
+                    </div>
+                    
+                    <div className="section-header">
+                        <h2 className="section-title">Recent System Activity</h2>
+                    </div>
+                    
+                    <div className="user-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>User</th>
+                                    <th>Action</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {activities.slice(0, 10).map(activity => (
+                                    <tr key={activity.id}>
+                                        <td>{activity.userName || 'Unknown'}</td>
+                                        <td>{activity.description}</td>
+                                        <td>{formatTimeAgo(activity.createdAt)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </>
+            );
+        }
+        
+        // Users View
+        function UsersView({ users, onShowModal, onSelectUser, onChangeStatus, onDeleteUser }) {
+            const [filter, setFilter] = useState('all');
+            
+            const filteredUsers = filter === 'all' ? users : users.filter(u => u.role === filter);
+            
+            return (
+                <>
+                    <div className="section-header">
+                        <h2 className="section-title">All Users ({users.length})</h2>
+                        <button className="btn-primary" onClick={() => onShowModal('create-user')}>
+                            + Create New User
+                        </button>
+                    </div>
+                    
+                    <div className="tab-nav">
+                        <button className={`tab-btn ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
+                            All Users
+                        </button>
+                        <button className={`tab-btn ${filter === 'pir' ? 'active' : ''}`} onClick={() => setFilter('pir')}>
+                            PIRs
+                        </button>
+                        <button className={`tab-btn ${filter === 'coach' ? 'active' : ''}`} onClick={() => setFilter('coach')}>
+                            Coaches
+                        </button>
+                        <button className={`tab-btn ${filter === 'admin' ? 'active' : ''}`} onClick={() => setFilter('admin')}>
+                            Admins
+                        </button>
+                    </div>
+                    
+                    <div className="user-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredUsers.map(user => (
+                                    <tr key={user.id}>
+                                        <td>{`${user.firstName || ''} ${user.lastName || ''}`.trim() || user.displayName || 'N/A'}</td>
+                                        <td>{user.email}</td>
+                                        <td>
+                                            <span className={`role-chip ${user.role}`}>
+                                                {user.role}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span className={`status-badge ${user.status || 'active'}`}>
+                                                {user.status || 'active'}
+                                            </span>
+                                        </td>
+                                        <td>{formatDate(user.createdAt)}</td>
+                                        <td>
+                                            <div className="action-buttons">
+                                                <button 
+                                                    className="action-btn" 
+                                                    onClick={() => {
+                                                        onSelectUser(user);
+                                                        onShowModal('edit-user');
+                                                    }}
+                                                >
+                                                    Edit
+                                                </button>
+                                                {user.status === 'active' ? (
+                                                    <button 
+                                                        className="action-btn" 
+                                                        onClick={() => onChangeStatus(user.id, 'inactive')}
+                                                    >
+                                                        Deactivate
+                                                    </button>
+                                                ) : (
+                                                    <button 
+                                                        className="action-btn" 
+                                                        onClick={() => onChangeStatus(user.id, 'active')}
+                                                    >
+                                                        Activate
+                                                    </button>
+                                                )}
+                                                <button 
+                                                    className="action-btn" 
+                                                    onClick={() => onDeleteUser(user.id)}
+                                                    style={{color: '#ef4444'}}
+                                                >
+                                                    Delete
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </>
+            );
+        }
+        
+        // PIRs View
+        function PIRsView({ pirs, coaches, onShowModal, onAssignCoach, onChangeStatus }) {
+            return (
+                <>
+                    <div className="section-header">
+                        <h2 className="section-title">PIR Management ({pirs.length})</h2>
+                        <button className="btn-primary" onClick={() => onShowModal('create-pir')}>
+                            + Create New PIR
+                        </button>
+                    </div>
+                    
+                    <div className="user-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>PIR Name</th>
+                                    <th>Email</th>
+                                    <th>Assigned Coach</th>
+                                    <th>Sobriety Days</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {pirs.map(pir => {
+                                    const assignedCoach = coaches.find(c => c.id === pir.assignedCoach);
+                                    const sobrietyDays = pir.sobrietyDate ? 
+                                        Math.floor((Date.now() - (pir.sobrietyDate.toDate ? pir.sobrietyDate.toDate() : new Date(pir.sobrietyDate))) / (1000 * 60 * 60 * 24)) : 0;
+                                    
+                                    return (
+                                        <tr key={pir.id}>
+                                            <td>{`${pir.firstName || ''} ${pir.lastName || ''}`.trim() || pir.displayName || 'N/A'}</td>
+                                            <td>{pir.email}</td>
+                                            <td>
+                                                {assignedCoach ? (
+                                                    <span>{assignedCoach.displayName || assignedCoach.email}</span>
+                                                ) : (
+                                                    <span style={{color: '#ef4444'}}>Unassigned</span>
+                                                )}
+                                            </td>
+                                            <td>{sobrietyDays}</td>
+                                            <td>
+                                                <span className={`status-badge ${pir.status || 'active'}`}>
+                                                    {pir.status || 'active'}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <div className="action-buttons">
+                                                    <button 
+                                                        className="action-btn"
+                                                        onClick={() => {
+                                                            const newCoachId = prompt('Enter Coach UID:');
+                                                            if (newCoachId) {
+                                                                onAssignCoach(pir.id, newCoachId);
+                                                            }
+                                                        }}
+                                                    >
+                                                        Assign Coach
+                                                    </button>
+                                                    {pir.status === 'active' ? (
+                                                        <button 
+                                                            className="action-btn" 
+                                                            onClick={() => onChangeStatus(pir.id, 'inactive')}
+                                                        >
+                                                            Deactivate
+                                                        </button>
+                                                    ) : (
+                                                        <button 
+                                                            className="action-btn" 
+                                                            onClick={() => onChangeStatus(pir.id, 'active')}
+                                                        >
+                                                            Activate
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </>
+            );
+        }
+        
+        // Coaches View
+        function CoachesView({ coaches, pirs, onShowModal, onChangeStatus }) {
+            return (
+                <>
+                    <div className="section-header">
+                        <h2 className="section-title">Coach Management ({coaches.length})</h2>
+                        <button className="btn-primary" onClick={() => onShowModal('create-coach')}>
+                            + Create New Coach
+                        </button>
+                    </div>
+                    
+                    <div className="user-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Coach Name</th>
+                                    <th>Email</th>
+                                    <th>PIRs Assigned</th>
+                                    <th>Credentials</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {coaches.map(coach => {
+                                    const assignedPIRs = pirs.filter(p => p.assignedCoach === coach.id);
+                                    
+                                    return (
+                                        <tr key={coach.id}>
+                                            <td>{`${coach.firstName || ''} ${coach.lastName || ''}`.trim() || coach.displayName || 'N/A'}</td>
+                                            <td>{coach.email}</td>
+                                            <td>{assignedPIRs.length} PIRs</td>
+                                            <td>{coach.credentials || 'N/A'}</td>
+                                            <td>
+                                                <span className={`status-badge ${coach.status || 'active'}`}>
+                                                    {coach.status || 'active'}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <div className="action-buttons">
+                                                    <button className="action-btn">View PIRs</button>
+                                                    {coach.status === 'active' ? (
+                                                        <button 
+                                                            className="action-btn" 
+                                                            onClick={() => onChangeStatus(coach.id, 'inactive')}
+                                                        >
+                                                            Deactivate
+                                                        </button>
+                                                    ) : (
+                                                        <button 
+                                                            className="action-btn" 
+                                                            onClick={() => onChangeStatus(coach.id, 'active')}
+                                                        >
+                                                            Activate
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </div>
+                </>
+            );
+        }
+        
+        // Assignments View (System Overview)
+        function AssignmentsView({ pirs, coaches }) {
+            return (
+                <>
+                    <div className="section-header">
+                        <h2 className="section-title">System Overview</h2>
+                    </div>
+                    
+                    <div className="dashboard-grid">
+                        <div className="stat-card">
+                            <div className="stat-label">Average PIRs per Coach</div>
+                            <div className="stat-value">
+                                {coaches.length > 0 ? Math.round(pirs.length / coaches.length) : 0}
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Unassigned PIRs</div>
+                            <div className="stat-value" style={{color: '#ef4444'}}>
+                                {pirs.filter(p => !p.assignedCoach).length}
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Active Coaches</div>
+                            <div className="stat-value">
+                                {coaches.filter(c => c.status === 'active' || !c.status).length}
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">System Health</div>
+                            <div className="stat-value" style={{color: '#22c55e'}}>
+                                Good
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div className="section-header">
+                        <h3 className="section-title">Coach Workload</h3>
+                    </div>
+                    
+                    <div className="user-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Coach</th>
+                                    <th>Assigned PIRs</th>
+                                    <th>Workload Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {coaches.map(coach => {
+                                    const assignedPIRs = pirs.filter(p => p.assignedCoach === coach.id);
+                                    const workload = assignedPIRs.length;
+                                    const status = workload > 10 ? 'High' : workload > 5 ? 'Moderate' : 'Low';
+                                    const statusColor = workload > 10 ? '#ef4444' : workload > 5 ? '#fb923c' : '#22c55e';
+                                    
+                                    return (
+                                        <tr key={coach.id}>
+                                            <td>{coach.displayName || coach.email}</td>
+                                            <td>{workload}</td>
+                                            <td>
+                                                <span style={{color: statusColor, fontWeight: 'bold'}}>
+                                                    {status}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </>
+            );
+        }
+        
+        // Analytics View
+        function AnalyticsView({ stats, users, activities }) {
+            return (
+                <>
+                    <div className="section-header">
+                        <h2 className="section-title">System Analytics</h2>
+                    </div>
+                    
+                    <div className="dashboard-grid">
+                        <div className="stat-card">
+                            <div className="stat-label">System Growth</div>
+                            <div className="stat-value">+12%</div>
+                            <div className="stat-change positive">
+                                <span>↑</span> This month
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Active Users</div>
+                            <div className="stat-value">
+                                {Math.round((stats.activePIRs / stats.totalPIRs) * 100) || 0}%
+                            </div>
+                            <div className="stat-change positive">
+                                <span>📈</span> Engagement rate
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Total Activities</div>
+                            <div className="stat-value">{activities.length}</div>
+                            <div className="stat-change">
+                                <span>📊</span> Last 50 shown
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Success Rate</div>
+                            <div className="stat-value">87%</div>
+                            <div className="stat-change positive">
+                                <span>✅</span> Recovery success
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style={{
+                        background: 'rgba(255,255,255,0.1)',
+                        borderRadius: '15px',
+                        padding: '20px',
+                        marginTop: '20px'
+                    }}>
+                        <h3 style={{color: 'white', marginBottom: '15px'}}>Quick Reports</h3>
+                        <div className="quick-actions">
+                            <button className="quick-btn">📥 Export User Report</button>
+                            <button className="quick-btn">📊 Generate PIR Progress Report</button>
+                            <button className="quick-btn">📈 Coach Performance Report</button>
+                            <button className="quick-btn">💰 Financial Summary</button>
+                        </div>
+                    </div>
+                </>
+            );
+        }
+        
+        // Settings View
+        function SettingsView({ adminData, onLogout }) {
+            return (
+                <>
+                    <div className="section-header">
+                        <h2 className="section-title">Admin Settings</h2>
+                    </div>
+                    
+                    <div style={{
+                        background: 'rgba(255,255,255,0.1)',
+                        borderRadius: '15px',
+                        padding: '25px',
+                        marginBottom: '20px'
+                    }}>
+                        <h3 style={{color: 'white', marginBottom: '20px'}}>Admin Profile</h3>
+                        <div style={{color: 'white', marginBottom: '10px'}}>
+                            <strong>Name:</strong> {adminData?.displayName || 'Admin'}
+                        </div>
+                        <div style={{color: 'white', marginBottom: '10px'}}>
+                            <strong>Email:</strong> {adminData?.email}
+                        </div>
+                        <div style={{color: 'white', marginBottom: '10px'}}>
+                            <strong>Role:</strong> {adminData?.role === 'admin' ? 'System Administrator' : 'Coach with Admin Privileges'}
+                        </div>
+                    </div>
+                    
+                    <div style={{
+                        background: 'rgba(255,255,255,0.1)',
+                        borderRadius: '15px',
+                        padding: '25px',
+                        marginBottom: '20px'
+                    }}>
+                        <h3 style={{color: 'white', marginBottom: '20px'}}>System Actions</h3>
+                        <div className="quick-actions">
+                            <button className="quick-btn">🔄 Sync Database</button>
+                            <button className="quick-btn">📦 Backup System</button>
+                            <button className="quick-btn">🔧 Maintenance Mode</button>
+                            <button className="quick-btn">📝 Audit Logs</button>
+                        </div>
+                    </div>
+                    
+                    <button className="btn-danger" onClick={onLogout} style={{marginTop: '20px'}}>
+                        Sign Out
+                    </button>
+                </>
+            );
+        }
+        
+        // Modal Component
+        function Modal({ type, onClose, onSubmit, coaches, selectedUser, onAssignCoach }) {
+            const [formData, setFormData] = useState({
+                email: '',
+                password: '',
+                role: 'pir',
+                firstName: '',
+                lastName: '',
+                displayName: '',
+                phone: '',
+                assignedCoach: '',
+                sobrietyDate: new Date().toISOString().split('T')[0],
+                dailySubstanceSpending: 20,
+                credentials: ''
+            });
+            
+            const handleSubmit = () => {
+                if (!formData.email || !formData.password) {
+                    alert('Email and password are required');
+                    return;
+                }
+                
+                // Convert sobriety date for PIRs
+                if (formData.role === 'pir' && formData.sobrietyDate) {
+                    formData.sobrietyDate = firebase.firestore.Timestamp.fromDate(new Date(formData.sobrietyDate));
+                }
+                
+                onSubmit(formData.email, formData.password, formData.role, formData);
+            };
+            
+            const renderModalContent = () => {
+                switch(type) {
+                    case 'create-user':
+                    case 'create-pir':
+                    case 'create-coach':
+                        const defaultRole = type === 'create-pir' ? 'pir' : type === 'create-coach' ? 'coach' : formData.role;
+                        
+                        return (
+                            <>
+                                <div className="form-group">
+                                    <label className="form-label">Email</label>
+                                    <input 
+                                        type="email" 
+                                        className="form-input" 
+                                        placeholder="user@example.com"
+                                        value={formData.email}
+                                        onChange={(e) => setFormData({...formData, email: e.target.value})}
+                                    />
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label className="form-label">Password</label>
+                                    <input 
+                                        type="password" 
+                                        className="form-input" 
+                                        placeholder="Minimum 6 characters"
+                                        value={formData.password}
+                                        onChange={(e) => setFormData({...formData, password: e.target.value})}
+                                    />
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label className="form-label">Role</label>
+                                    <select 
+                                        className="form-select" 
+                                        value={defaultRole}
+                                        onChange={(e) => setFormData({...formData, role: e.target.value})}
+                                        disabled={type !== 'create-user'}
+                                    >
+                                        <option value="pir">PIR (Person in Recovery)</option>
+                                        <option value="coach">Coach</option>
+                                        <option value="admin">Admin</option>
+                                    </select>
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label className="form-label">First Name</label>
+                                    <input 
+                                        type="text" 
+                                        className="form-input" 
+                                        value={formData.firstName}
+                                        onChange={(e) => setFormData({...formData, firstName: e.target.value})}
+                                    />
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label className="form-label">Last Name</label>
+                                    <input 
+                                        type="text" 
+                                        className="form-input" 
+                                        value={formData.lastName}
+                                        onChange={(e) => setFormData({...formData, lastName: e.target.value})}
+                                    />
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label className="form-label">Phone</label>
+                                    <input 
+                                        type="tel" 
+                                        className="form-input" 
+                                        value={formData.phone}
+                                        onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                                    />
+                                </div>
+                                
+                                {(formData.role === 'pir' || defaultRole === 'pir') && (
+                                    <>
+                                        <div className="form-group">
+                                            <label className="form-label">Sobriety Date</label>
+                                            <input 
+                                                type="date" 
+                                                className="form-input" 
+                                                value={formData.sobrietyDate}
+                                                onChange={(e) => setFormData({...formData, sobrietyDate: e.target.value})}
+                                            />
+                                        </div>
+                                        
+                                        <div className="form-group">
+                                            <label className="form-label">Daily Substance Spending</label>
+                                            <input 
+                                                type="number" 
+                                                className="form-input" 
+                                                value={formData.dailySubstanceSpending}
+                                                onChange={(e) => setFormData({...formData, dailySubstanceSpending: parseFloat(e.target.value)})}
+                                            />
+                                        </div>
+                                        
+                                        <div className="form-group">
+                                            <label className="form-label">Assign to Coach (Optional)</label>
+                                            <select 
+                                                className="form-select"
+                                                value={formData.assignedCoach}
+                                                onChange={(e) => setFormData({...formData, assignedCoach: e.target.value})}
+                                            >
+                                                <option value="">No coach assigned</option>
+                                                {coaches.map(coach => (
+                                                    <option key={coach.id} value={coach.id}>
+                                                        {coach.displayName || coach.email}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </>
+                                )}
+                                
+                                {(formData.role === 'coach' || defaultRole === 'coach') && (
+                                    <div className="form-group">
+                                       <label className="form-label">Credentials</label>
+                                        <input 
+                                            type="text" 
+                                            className="form-input" 
+                                            placeholder="e.g., CARC, CADC"
+                                            value={formData.credentials}
+                                            onChange={(e) => setFormData({...formData, credentials: e.target.value})}
+                                        />
+                                    </div>
+                                )}
+                            </>
+                        );
+                        
+                    default:
+                        return null;
+                }
+            };
+            
+            return (
+                <div className="modal-overlay" onClick={onClose}>
+                    <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h2 className="modal-title">
+                                {type === 'create-user' && 'Create New User'}
+                                {type === 'create-pir' && 'Create New PIR'}
+                                {type === 'create-coach' && 'Create New Coach'}
+                            </h2>
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                        {renderModalContent()}
+                        <button className="btn-primary" onClick={handleSubmit} style={{marginTop: '20px'}}>
+                            Create Account
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+        
+        // Login Screen
+        function LoginScreen({ onLogin }) {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+            const [loading, setLoading] = useState(false);
+            
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setError('');
+                setLoading(true);
+                
+                try {
+                    await onLogin(email, password);
+                } catch (error) {
+                    setError(error.message);
+                    setLoading(false);
+                }
+            };
+            
+            return (
+                <div className="login-container">
+                    <div className="login-card">
+                        <h2 className="login-title">GLRS Admin Portal</h2>
+                        <form onSubmit={handleSubmit}>
+                            <div className="form-group">
+                                <input
+                                    type="email"
+                                    className="form-input"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    placeholder="Admin Email"
+                                    required
+                                    disabled={loading}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <input
+                                    type="password"
+                                    className="form-input"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    placeholder="Password"
+                                    required
+                                    disabled={loading}
+                                />
+                            </div>
+                            {error && <div className="error-message">{error}</div>}
+                            <button type="submit" className="btn-primary" disabled={loading}>
+                                {loading ? 'Loading...' : 'Sign In'}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            );
+        }
+        
+        // Helper function
+        function formatTimeAgo(timestamp) {
+            if (!timestamp) return 'Never';
+            const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+            
+            if (diffMins < 60) return `${diffMins} min ago`;
+            if (diffHours < 24) return `${diffHours} hours ago`;
+            return `${diffDays} days ago`;
+        }
+        
+        function formatDate(timestamp) {
+            if (!timestamp) return 'N/A';
+            const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+            return date.toLocaleDateString();
+        }
+        
+        // Render the app
+        ReactDOM.render(<AdminApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
+                                          
