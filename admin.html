@@ -2226,7 +2226,1117 @@
                     listeners.current.forEach(unsubscribe => unsubscribe());
                 };
             }, []);
+            // Complete all remaining view components
+        
+        // Messages View with full functionality
+        function MessagesView({ messages, users, admin, onShowModal }) {
+            const [selectedConversation, setSelectedConversation] = useState(null);
+            const [messageText, setMessageText] = useState('');
+            const [searchQuery, setSearchQuery] = useState('');
             
+            // Group messages by conversation
+            const conversations = {};
+            messages.forEach(msg => {
+                const otherUserId = msg.senderId === admin.uid ? msg.recipientId : msg.senderId;
+                if (!conversations[otherUserId]) {
+                    const otherUser = users.find(u => u.id === otherUserId);
+                    conversations[otherUserId] = {
+                        user: otherUser,
+                        messages: [],
+                        lastMessage: null,
+                        unreadCount: 0
+                    };
+                }
+                conversations[otherUserId].messages.push(msg);
+                if (!conversations[otherUserId].lastMessage || 
+                    msg.createdAt > conversations[otherUserId].lastMessage.createdAt) {
+                    conversations[otherUserId].lastMessage = msg;
+                }
+                if (!msg.read && msg.recipientId === admin.uid) {
+                    conversations[otherUserId].unreadCount++;
+                }
+            });
+            
+            const conversationList = Object.values(conversations)
+                .sort((a, b) => b.lastMessage?.createdAt - a.lastMessage?.createdAt);
+            
+            const filteredConversations = conversationList.filter(conv => 
+                conv.user?.displayName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                conv.user?.email?.toLowerCase().includes(searchQuery.toLowerCase())
+            );
+            
+            const sendMessage = async () => {
+                if (!messageText.trim() || !selectedConversation) return;
+                
+                const newMessage = {
+                    text: messageText,
+                    senderId: admin.uid,
+                    senderName: 'Admin',
+                    recipientId: selectedConversation.user.id,
+                    recipientName: selectedConversation.user.displayName || selectedConversation.user.email,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    read: false,
+                    type: 'admin'
+                };
+                
+                await db.collection('messages').add(newMessage);
+                setMessageText('');
+            };
+            
+            return (
+                <>
+                    <div className="broadcast-bar">
+                        <span style={{color: 'white'}}>📢 Broadcast Message:</span>
+                        <select className="broadcast-select">
+                            <option>All PIRs</option>
+                            <option>All Coaches</option>
+                            <option>Everyone</option>
+                        </select>
+                        <input 
+                            type="text" 
+                            placeholder="Type broadcast message..."
+                            style={{flex: 1, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', 
+                                   color: 'white', padding: '8px 15px', borderRadius: '10px'}}
+                        />
+                        <button className="btn btn-primary" onClick={() => onShowModal('broadcastMessage')}>
+                            Send Broadcast
+                        </button>
+                    </div>
+                    
+                    <div className="message-center">
+                        <div className="conversation-list">
+                            <div className="conversation-search">
+                                <span>🔍</span>
+                                <input 
+                                    type="text"
+                                    placeholder="Search conversations..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                            </div>
+                            
+                            {filteredConversations.length === 0 ? (
+                                <div className="empty-state">
+                                    <div className="empty-state-text">No conversations yet</div>
+                                </div>
+                            ) : (
+                                filteredConversations.map(conv => (
+                                    <div 
+                                        key={conv.user.id}
+                                        className={`conversation-item ${selectedConversation?.user.id === conv.user.id ? 'active' : ''}`}
+                                        onClick={() => setSelectedConversation(conv)}
+                                    >
+                                        <div className="conversation-avatar">
+                                            {(conv.user.displayName || conv.user.email || 'U').charAt(0).toUpperCase()}
+                                        </div>
+                                        <div className="conversation-details">
+                                            <div className="conversation-name">
+                                                {conv.user.displayName || conv.user.email}
+                                            </div>
+                                            <div className="conversation-preview">
+                                                {conv.lastMessage?.text || 'No messages'}
+                                            </div>
+                                        </div>
+                                        <div className="conversation-meta">
+                                            <div className="conversation-time">
+                                                {formatTime(conv.lastMessage?.createdAt)}
+                                            </div>
+                                            {conv.unreadCount > 0 && (
+                                                <span className="unread-count">{conv.unreadCount}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        
+                        {selectedConversation ? (
+                            <div className="chat-view">
+                                <div className="chat-header">
+                                    <div className="chat-user-info">
+                                        <div className="conversation-avatar">
+                                            {(selectedConversation.user.displayName || 'U').charAt(0).toUpperCase()}
+                                        </div>
+                                        <div>
+                                            <div style={{color: 'white', fontWeight: 'bold'}}>
+                                                {selectedConversation.user.displayName || selectedConversation.user.email}
+                                            </div>
+                                            <div style={{color: 'rgba(255,255,255,0.6)', fontSize: '13px'}}>
+                                                {selectedConversation.user.role} • {selectedConversation.user.email}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="chat-actions">
+                                        <button className="chat-action-btn">View Profile</button>
+                                        <button className="chat-action-btn">Clear Chat</button>
+                                    </div>
+                                </div>
+                                
+                                <div className="chat-messages">
+                                    {selectedConversation.messages.map(msg => (
+                                        <div 
+                                            key={msg.id} 
+                                            className={`message ${msg.senderId === admin.uid ? 'sent' : 'received'}`}
+                                        >
+                                            <div>{msg.text}</div>
+                                            <div className="message-time">{formatTime(msg.createdAt)}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                                
+                                <div className="chat-input-container">
+                                    <div className="chat-input">
+                                        <input 
+                                            type="text"
+                                            placeholder="Type a message..."
+                                            value={messageText}
+                                            onChange={(e) => setMessageText(e.target.value)}
+                                            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                                        />
+                                        <button onClick={sendMessage}>Send</button>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="chat-view">
+                                <div className="empty-state">
+                                    <div className="empty-state-icon">💬</div>
+                                    <div className="empty-state-title">Select a conversation</div>
+                                    <div className="empty-state-text">Choose a conversation to view messages</div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </>
+            );
+        }
+        
+        // Feedback View
+        function FeedbackView({ feedback, users, coaches }) {
+            const [filter, setFilter] = useState('all');
+            
+            const filteredFeedback = feedback.filter(f => {
+                if (filter === 'all') return true;
+                if (filter === 'unread') return !f.reviewed;
+                if (filter === 'critical') return f.priority === 'critical';
+                return f.type === filter;
+            });
+            
+            const handleMarkReviewed = async (feedbackId) => {
+                await db.collection('feedback').doc(feedbackId).update({ 
+                    reviewed: true,
+                    reviewedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            };
+            
+            const handleAssignToCoach = async (feedbackId) => {
+                const coachId = prompt('Enter coach ID to assign:');
+                if (coachId) {
+                    await db.collection('feedback').doc(feedbackId).update({
+                        assignedTo: coachId,
+                        assignedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            };
+            
+            return (
+                <div className="feedback-container">
+                    <div className="feedback-header">
+                        <div>
+                            <h2 style={{color: 'white', marginBottom: '10px'}}>Feedback Management</h2>
+                            <p style={{color: 'rgba(255,255,255,0.7)'}}>Review and respond to user feedback</p>
+                        </div>
+                        <div className="feedback-stats">
+                            <div className="feedback-stat">
+                                <div className="feedback-stat-value">{feedback.length}</div>
+                                <div className="feedback-stat-label">Total</div>
+                            </div>
+                            <div className="feedback-stat">
+                                <div className="feedback-stat-value">
+                                    {feedback.filter(f => !f.reviewed).length}
+                                </div>
+                                <div className="feedback-stat-label">Unreviewed</div>
+                            </div>
+                            <div className="feedback-stat">
+                                <div className="feedback-stat-value">
+                                    {feedback.filter(f => f.priority === 'critical').length}
+                                </div>
+                                <div className="feedback-stat-label">Critical</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div className="feed-filters" style={{marginBottom: '20px'}}>
+                        <button 
+                            className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
+                            onClick={() => setFilter('all')}
+                        >All</button>
+                        <button 
+                            className={`filter-btn ${filter === 'unread' ? 'active' : ''}`}
+                            onClick={() => setFilter('unread')}
+                        >Unreviewed</button>
+                        <button 
+                            className={`filter-btn ${filter === 'critical' ? 'active' : ''}`}
+                            onClick={() => setFilter('critical')}
+                        >Critical</button>
+                        <button 
+                            className={`filter-btn ${filter === 'bug' ? 'active' : ''}`}
+                            onClick={() => setFilter('bug')}
+                        >Bugs</button>
+                        <button 
+                            className={`filter-btn ${filter === 'feature' ? 'active' : ''}`}
+                            onClick={() => setFilter('feature')}
+                        >Features</button>
+                    </div>
+                    
+                    <div className="feedback-list">
+                        {filteredFeedback.length === 0 ? (
+                            <div className="empty-state">
+                                <div className="empty-state-text">No feedback to display</div>
+                            </div>
+                        ) : (
+                            filteredFeedback.map(fb => (
+                                <div key={fb.id} className={`feedback-item ${!fb.reviewed ? 'unread' : ''}`}>
+                                    <div className="feedback-item-header">
+                                        <div className="feedback-author">
+                                            <div className="feedback-author-avatar">
+                                                {(fb.userName || 'U').charAt(0).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <div className="feedback-author-name">{fb.userName || 'Unknown'}</div>
+                                                <div className="feedback-date">{formatTime(fb.createdAt)}</div>
+                                            </div>
+                                        </div>
+                                        <div className={`feedback-priority ${fb.priority || 'suggestion'}`}>
+                                            {fb.priority || 'Suggestion'}
+                                        </div>
+                                    </div>
+                                    <div className="feedback-content">{fb.content}</div>
+                                    <div style={{marginBottom: '10px'}}>
+                                        <span className="feedback-type">{fb.type || 'General'}</span>
+                                    </div>
+                                    <div className="feedback-actions">
+                                        {!fb.reviewed && (
+                                            <button 
+                                                className="feedback-action-btn"
+                                                onClick={() => handleMarkReviewed(fb.id)}
+                                            >
+                                                Mark Reviewed
+                                            </button>
+                                        )}
+                                        <button 
+                                            className="feedback-action-btn"
+                                            onClick={() => handleAssignToCoach(fb.id)}
+                                        >
+                                            Assign to Coach
+                                        </button>
+                                        <button className="feedback-action-btn">Reply</button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        }
+        // Resources View with upload functionality
+        function ResourcesView({ resources, onShowModal, onRefresh }) {
+            const [selectedCategory, setSelectedCategory] = useState('all');
+            const [searchQuery, setSearchQuery] = useState('');
+            
+            const categories = ['all', 'videos', 'articles', 'worksheets', 'meditations', 'books'];
+            
+            const filteredResources = resources.filter(r => {
+                const matchesCategory = selectedCategory === 'all' || r.category === selectedCategory;
+                const matchesSearch = r.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                     r.description?.toLowerCase().includes(searchQuery.toLowerCase());
+                return matchesCategory && matchesSearch;
+            });
+            
+            const handleDeleteResource = async (resourceId) => {
+                if (confirm('Delete this resource?')) {
+                    await db.collection('resources').doc(resourceId).delete();
+                    onRefresh();
+                }
+            };
+            
+            return (
+                <div className="resource-management">
+                    <div className="resource-sidebar">
+                        <button 
+                            className="btn btn-primary" 
+                            style={{width: '100%', marginBottom: '20px'}}
+                            onClick={() => onShowModal('createResource')}
+                        >
+                            ➕ Add Resource
+                        </button>
+                        
+                        <div className="resource-categories">
+                            <h3 style={{color: 'white', marginBottom: '15px'}}>Categories</h3>
+                            {categories.map(cat => (
+                                <div 
+                                    key={cat}
+                                    className={`category-item ${selectedCategory === cat ? 'active' : ''}`}
+                                    onClick={() => setSelectedCategory(cat)}
+                                >
+                                    <div className="category-name">
+                                        <span>{cat === 'all' ? '📚' : '📄'}</span>
+                                        <span style={{textTransform: 'capitalize'}}>{cat}</span>
+                                    </div>
+                                    <span className="category-count">
+                                        {cat === 'all' ? resources.length : 
+                                         resources.filter(r => r.category === cat).length}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    
+                    <div className="resource-content">
+                        <div className="conversation-search" style={{marginBottom: '20px'}}>
+                            <span>🔍</span>
+                            <input 
+                                type="text"
+                                placeholder="Search resources..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                        </div>
+                        
+                        <div className="resource-grid">
+                            {filteredResources.length === 0 ? (
+                                <div className="empty-state">
+                                    <div className="empty-state-icon">📚</div>
+                                    <div className="empty-state-title">No Resources Found</div>
+                                    <button 
+                                        className="btn btn-primary" 
+                                        onClick={() => onShowModal('createResource')}
+                                    >
+                                        Create First Resource
+                                    </button>
+                                </div>
+                            ) : (
+                                filteredResources.map(resource => (
+                                    <div key={resource.id} className="resource-card">
+                                        <div className="resource-icon">
+                                            {resource.category === 'videos' ? '🎥' :
+                                             resource.category === 'articles' ? '📄' :
+                                             resource.category === 'worksheets' ? '📝' :
+                                             resource.category === 'meditations' ? '🧘' :
+                                             resource.category === 'books' ? '📖' : '📚'}
+                                        </div>
+                                        <div className="resource-title">{resource.title}</div>
+                                        <div className="resource-description">{resource.description}</div>
+                                        <div className="resource-meta">
+                                            <span>{resource.category}</span>
+                                            <span>{resource.downloads || 0} downloads</span>
+                                        </div>
+                                        <div className="resource-actions">
+                                            <button className="resource-action">Edit</button>
+                                            <button 
+                                                className="resource-action"
+                                                onClick={() => handleDeleteResource(resource.id)}
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        
+        // Groups View with create/edit functionality
+        function GroupsView({ groups, pirs, onShowModal, onRefresh }) {
+            const [selectedGroup, setSelectedGroup] = useState(null);
+            
+            const handleDeleteGroup = async (groupId) => {
+                if (confirm('Delete this support group?')) {
+                    await db.collection('supportGroups').doc(groupId).delete();
+                    onRefresh();
+                }
+            };
+            
+            return (
+                <div className="groups-container">
+                    <div style={{marginBottom: '20px'}}>
+                        <button 
+                            className="btn btn-primary"
+                            onClick={() => onShowModal('createGroup')}
+                        >
+                            ➕ Create New Group
+                        </button>
+                    </div>
+                    
+                    {groups.length === 0 ? (
+                        <div className="empty-state">
+                            <div className="empty-state-icon">🏘️</div>
+                            <div className="empty-state-title">No Groups Yet</div>
+                            <div className="empty-state-text">Create your first support group</div>
+                            <button 
+                                className="btn btn-primary"
+                                onClick={() => onShowModal('createGroup')}
+                            >
+                                Create Group
+                            </button>
+                        </div>
+                    ) : (
+                        groups.map(group => (
+                            <div key={group.id} className="group-card">
+                                <div className="group-header">
+                                    <div>
+                                        <h3 className="group-title">{group.name}</h3>
+                                        <div className="group-type">{group.type || 'Support Group'}</div>
+                                    </div>
+                                </div>
+                                <div className="group-description">{group.description}</div>
+                                <div className="group-meta">
+                                    <div className="group-meta-item">
+                                        <div className="group-meta-value">{group.members?.length || 0}</div>
+                                        <div className="group-meta-label">Members</div>
+                                    </div>
+                                    <div className="group-meta-item">
+                                        <div className="group-meta-value">{group.capacity || 10}</div>
+                                        <div className="group-meta-label">Capacity</div>
+                                    </div>
+                                    <div className="group-meta-item">
+                                        <div className="group-meta-value">{group.meetings || 'Weekly'}</div>
+                                        <div className="group-meta-label">Schedule</div>
+                                    </div>
+                                </div>
+                                <div className="group-actions">
+                                    <button className="btn btn-secondary">View Members</button>
+                                    <button className="btn btn-secondary">Edit</button>
+                                    <button 
+                                        className="btn btn-danger"
+                                        onClick={() => handleDeleteGroup(group.id)}
+                                    >
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            );
+        }
+        
+        // CheckIns View with monitoring and export
+        function CheckInsView({ checkIns, pirs }) {
+            const [filter, setFilter] = useState('all');
+            const [dateFilter, setDateFilter] = useState('today');
+            
+            const filteredCheckIns = checkIns.filter(c => {
+                // Date filter
+                if (dateFilter === 'today') {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const checkInDate = c.createdAt?.toDate() || new Date(0);
+                    if (checkInDate < today) return false;
+                } else if (dateFilter === 'week') {
+                    const weekAgo = new Date();
+                    weekAgo.setDate(weekAgo.getDate() - 7);
+                    const checkInDate = c.createdAt?.toDate() || new Date(0);
+                    if (checkInDate < weekAgo) return false;
+                }
+                
+                // Mood filter
+                if (filter === 'concerning') {
+                    return c.morningData?.mood <= 3 || c.morningData?.craving >= 8;
+                } else if (filter === 'positive') {
+                    return c.morningData?.mood >= 7 && c.morningData?.craving <= 3;
+                }
+                
+                return true;
+            });
+            
+            const exportCheckIns = () => {
+                const csvContent = [
+                    ['Date', 'User', 'Type', 'Mood', 'Energy', 'Sleep', 'Cravings', 'Notes'],
+                    ...filteredCheckIns.map(c => [
+                        new Date(c.createdAt?.toDate()).toLocaleDateString(),
+                        c.userName || 'Unknown',
+                        c.type || 'morning',
+                        c.morningData?.mood || '',
+                        c.morningData?.energy || '',
+                        c.morningData?.sleep || '',
+                        c.morningData?.craving || '',
+                        c.morningData?.notes || c.eveningData?.reflection || ''
+                    ])
+                ].map(row => row.join(',')).join('\n');
+                
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `checkins_${new Date().toISOString().split('T')[0]}.csv`;
+                a.click();
+            };
+            
+            return (
+                <>
+                    <div className="feed-filters" style={{marginBottom: '20px'}}>
+                        <button 
+                            className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
+                            onClick={() => setFilter('all')}
+                        >All Check-ins</button>
+                        <button 
+                            className={`filter-btn ${filter === 'concerning' ? 'active' : ''}`}
+                            onClick={() => setFilter('concerning')}
+                        >Concerning</button>
+                        <button 
+                            className={`filter-btn ${filter === 'positive' ? 'active' : ''}`}
+                            onClick={() => setFilter('positive')}
+                        >Positive</button>
+                        
+                        <select 
+                            className="broadcast-select" 
+                            style={{marginLeft: '20px'}}
+                            value={dateFilter}
+                            onChange={(e) => setDateFilter(e.target.value)}
+                        >
+                            <option value="today">Today</option>
+                            <option value="week">Last 7 Days</option>
+                            <option value="all">All Time</option>
+                        </select>
+                        
+                        <button className="btn btn-primary" style={{marginLeft: '20px'}} onClick={exportCheckIns}>
+                            📥 Export CSV
+                        </button>
+                    </div>
+                    
+                    <div className="table-container">
+                        {filteredCheckIns.length === 0 ? (
+                            <div className="empty-state">
+                                <div className="empty-state-text">No check-ins found</div>
+                            </div>
+                        ) : (
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>User</th>
+                                        <th>Date/Time</th>
+                                        <th>Type</th>
+                                        <th>Mood</th>
+                                        <th>Energy</th>
+                                        <th>Sleep</th>
+                                        <th>Cravings</th>
+                                        <th>Notes</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredCheckIns.map(checkIn => (
+                                        <tr key={checkIn.id}>
+                                            <td>{checkIn.userName || 'Unknown'}</td>
+                                            <td>{new Date(checkIn.createdAt?.toDate()).toLocaleString()}</td>
+                                            <td>{checkIn.type || 'morning'}</td>
+                                            <td>
+                                                <span className={`mood-badge ${
+                                                    checkIn.morningData?.mood >= 7 ? 'high' :
+                                                    checkIn.morningData?.mood >= 4 ? 'medium' : 'low'
+                                                }`}>
+                                                    {checkIn.morningData?.mood || '-'}/10
+                                                </span>
+                                            </td>
+                                            <td>{checkIn.morningData?.energy || '-'}/10</td>
+                                            <td>{checkIn.morningData?.sleep || '-'}/10</td>
+                                            <td>{checkIn.morningData?.craving || '-'}/10</td>
+                                            <td>{checkIn.morningData?.notes || checkIn.eveningData?.reflection || '-'}</td>
+                                            <td>
+                                                <button className="feedback-action-btn">Flag</button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                </>
+            );
+        }
+        
+        // Assignments View
+        function AssignmentsView({ assignments, pirs, coaches, onShowModal }) {
+            const [filter, setFilter] = useState('all');
+            
+            const filteredAssignments = assignments.filter(a => {
+                if (filter === 'overdue') {
+                    if (a.dueDate && a.status !== 'completed') {
+                        const dueDate = a.dueDate.toDate ? a.dueDate.toDate() : new Date(a.dueDate);
+                        return dueDate < new Date();
+                    }
+                    return false;
+                }
+                if (filter === 'pending') return a.status === 'pending';
+                if (filter === 'completed') return a.status === 'completed';
+                return true;
+            });
+            
+            const handleCompleteAssignment = async (assignmentId) => {
+                await db.collection('assignments').doc(assignmentId).update({
+                    status: 'completed',
+                    completedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            };
+            
+            return (
+                <>
+                    <div className="quick-actions">
+                        <button className="quick-action-btn" onClick={() => onShowModal('createAssignment')}>
+                            ➕ Create Assignment
+                        </button>
+                    </div>
+                    
+                    <div className="feed-filters" style={{marginBottom: '20px'}}>
+                        <button 
+                            className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
+                            onClick={() => setFilter('all')}
+                        >All ({assignments.length})</button>
+                        <button 
+                            className={`filter-btn ${filter === 'pending' ? 'active' : ''}`}
+                            onClick={() => setFilter('pending')}
+                        >Pending</button>
+                        <button 
+                            className={`filter-btn ${filter === 'overdue' ? 'active' : ''}`}
+                            onClick={() => setFilter('overdue')}
+                        >Overdue</button>
+                        <button 
+                            className={`filter-btn ${filter === 'completed' ? 'active' : ''}`}
+                            onClick={() => setFilter('completed')}
+                        >Completed</button>
+                    </div>
+                    
+                    <div className="table-container">
+                        {filteredAssignments.length === 0 ? (
+                            <div className="empty-state">
+                                <div className="empty-state-text">No assignments found</div>
+                            </div>
+                        ) : (
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Title</th>
+                                        <th>PIR</th>
+                                        <th>Coach</th>
+                                        <th>Due Date</th>
+                                        <th>Status</th>
+                                        <th>Created</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredAssignments.map(assignment => (
+                                        <tr key={assignment.id}>
+                                            <td>{assignment.title}</td>
+                                            <td>{assignment.pirName || 'Unknown'}</td>
+                                            <td>{assignment.coachName || 'Unknown'}</td>
+                                            <td>{assignment.dueDate ? new Date(assignment.dueDate.toDate()).toLocaleDateString() : '-'}</td>
+                                            <td>
+                                                <span className={`mood-badge ${
+                                                    assignment.status === 'completed' ? 'high' :
+                                                    assignment.status === 'pending' ? 'medium' : 'low'
+                                                }`}>
+                                                    {assignment.status}
+                                                </span>
+                                            </td>
+                                            <td>{formatTime(assignment.createdAt)}</td>
+                                            <td>
+                                                {assignment.status !== 'completed' && (
+                                                    <button 
+                                                        className="feedback-action-btn"
+                                                        onClick={() => handleCompleteAssignment(assignment.id)}
+                                                    >
+                                                        Complete
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                </>
+            );
+        }
+        
+        // Alerts View
+        function AlertsView({ alerts, users }) {
+            const [filter, setFilter] = useState('all');
+            
+            const filteredAlerts = alerts.filter(a => {
+                if (filter === 'critical') return a.severity === 'critical';
+                if (filter === 'resolved') return a.status === 'resolved';
+                if (filter === 'active') return a.status === 'active';
+                return true;
+            });
+            
+            const handleResolveAlert = async (alertId) => {
+                await db.collection('alerts').doc(alertId).update({
+                    status: 'resolved',
+                    resolvedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            };
+            
+            return (
+                <>
+                    <div className="feed-filters" style={{marginBottom: '20px'}}>
+                        <button 
+                            className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
+                            onClick={() => setFilter('all')}
+                        >All Alerts</button>
+                        <button 
+                            className={`filter-btn ${filter === 'critical' ? 'active' : ''}`}
+                            onClick={() => setFilter('critical')}
+                            style={{color: '#ff4757'}}
+                        >SOS ({alerts.filter(a => a.severity === 'critical').length})</button>
+                        <button 
+                            className={`filter-btn ${filter === 'active' ? 'active' : ''}`}
+                            onClick={() => setFilter('active')}
+                        >Active</button>
+                        <button 
+                            className={`filter-btn ${filter === 'resolved' ? 'active' : ''}`}
+                            onClick={() => setFilter('resolved')}
+                        >Resolved</button>
+                    </div>
+                    
+                    {filteredAlerts.length === 0 ? (
+                        <div className="empty-state">
+                            <div className="empty-state-icon">✅</div>
+                            <div className="empty-state-title">No Alerts</div>
+                            <div className="empty-state-text">All clear - no active alerts</div>
+                        </div>
+                    ) : (
+                        <div className="user-grid">
+                            {filteredAlerts.map(alert => {
+                                const user = users.find(u => u.id === alert.userId);
+                                return (
+                                    <div key={alert.id} className="user-card" style={{
+                                        borderColor: alert.severity === 'critical' ? '#ff4757' : ''
+                                    }}>
+                                        <div className="user-header">
+                                            <div className="user-avatar">🚨</div>
+                                            <div className="user-info">
+                                                <div className="user-name">{alert.userName || user?.displayName || 'Unknown'}</div>
+                                                <div className="user-role" style={{
+                                                    background: alert.severity === 'critical' ? 'rgba(255, 71, 87, 0.2)' : '',
+                                                    color: alert.severity === 'critical' ? '#ff4757' : ''
+                                                }}>
+                                                    {alert.severity === 'critical' ? 'SOS ALERT' : alert.type}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div style={{padding: '15px 0'}}>
+                                            <p style={{color: 'rgba(255,255,255,0.9)', marginBottom: '10px'}}>
+                                                {alert.message || 'Emergency alert triggered'}
+                                            </p>
+                                            <p style={{color: 'rgba(255,255,255,0.6)', fontSize: '13px'}}>
+                                                {formatTime(alert.createdAt)}
+                                            </p>
+                                        </div>
+                                        {user?.emergencyContacts && user.emergencyContacts.length > 0 && (
+                                            <div style={{marginBottom: '15px', padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px'}}>
+                                                <div style={{fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginBottom: '5px'}}>
+                                                    Emergency Contacts:
+                                                </div>
+                                                {user.emergencyContacts.map((contact, idx) => (
+                                                    <div key={idx} style={{color: 'white', fontSize: '14px'}}>
+                                                        {contact.name}: {contact.phone}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <div className="user-actions">
+                                            {alert.status === 'active' && (
+                                                <button 
+                                                    className="btn btn-danger" 
+                                                    style={{width: '100%'}}
+                                                    onClick={() => handleResolveAlert(alert.id)}
+                                                >
+                                                    Resolve Alert
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </>
+            );
+        }
+        
+        // Reports View
+        function ReportsView({ pirs, coaches, activities, checkIns, assignments, systemStats }) {
+            const [reportType, setReportType] = useState('system');
+            const [dateRange, setDateRange] = useState('month');
+            
+            const generateReport = () => {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                
+                // Add header
+                doc.setFontSize(20);
+                doc.text('GLRS System Report', 20, 20);
+                
+                // Add date
+                doc.setFontSize(12);
+                doc.text(`Generated: ${new Date().toLocaleString()}`, 20, 30);
+                
+                // Add stats
+                doc.setFontSize(14);
+                doc.text('System Statistics', 20, 45);
+                
+                doc.setFontSize(12);
+                doc.text(`Total PIRs: ${systemStats.totalPirs}`, 20, 55);
+                doc.text(`Active PIRs: ${systemStats.activePirs}`, 20, 65);
+                doc.text(`Total Coaches: ${systemStats.totalCoaches}`, 20, 75);
+                doc.text(`Check-in Rate: ${systemStats.checkInRate}%`, 20, 85);
+                doc.text(`SOS Alerts: ${systemStats.sosAlerts}`, 20, 95);
+                doc.text(`Pending Feedback: ${systemStats.pendingFeedback}`, 20, 105);
+                
+                // Save the PDF
+                doc.save(`GLRS_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+            };
+            
+            return (
+                <>
+                    <div style={{marginBottom: '20px'}}>
+                        <select 
+                            className="form-select" 
+                            value={reportType}
+                            onChange={(e) => setReportType(e.target.value)}
+                            style={{marginRight: '15px', width: '200px'}}
+                        >
+                            <option value="system">System Report</option>
+                            <option value="users">User Report</option>
+                            <option value="checkins">Check-ins Report</option>
+                            <option value="assignments">Assignments Report</option>
+                        </select>
+                        
+                        <select 
+                            className="form-select"
+                            value={dateRange}
+                            onChange={(e) => setDateRange(e.target.value)}
+                            style={{marginRight: '15px', width: '200px'}}
+                        >
+                            <option value="week">Last Week</option>
+                            <option value="month">Last Month</option>
+                            <option value="quarter">Last Quarter</option>
+                            <option value="year">Last Year</option>
+                        </select>
+                        
+                        <button className="btn btn-primary" onClick={generateReport}>
+                            📄 Generate PDF Report
+                        </button>
+                    </div>
+                    
+                    <div className="dashboard-grid">
+                        <div className="stat-card">
+                            <div className="stat-label">Total PIRs</div>
+                            <div className="stat-value">{systemStats.totalPirs}</div>
+                            <div className="stat-change positive">Active: {systemStats.activePirs}</div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Check-in Compliance</div>
+                            <div className="stat-value">{systemStats.checkInRate}%</div>
+                            <div className="stat-change">Daily average</div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Assignments Completed</div>
+                            <div className="stat-value">
+                                {assignments.filter(a => a.status === 'completed').length}
+                            </div>
+                            <div className="stat-change">
+                                Of {assignments.length} total
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-label">Average Mood</div>
+                            <div className="stat-value">
+                                {checkIns.length > 0 ? 
+                                    (checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / 
+                                     checkIns.filter(c => c.morningData?.mood).length).toFixed(1) : '0'}
+                            </div>
+                            <div className="stat-change">Last 7 days</div>
+                        </div>
+                    </div>
+                    
+                    <div className="charts-grid">
+                        <div className="chart-card">
+                            <h3 className="chart-title">Check-in Trends</h3>
+                            <canvas id="checkinChart"></canvas>
+                        </div>
+                        
+                        <div className="chart-card">
+                            <h3 className="chart-title">User Growth</h3>
+                            <canvas id="userChart"></canvas>
+                        </div>
+                    </div>
+                </>
+            );
+        }
+        
+        // Settings View
+        function SettingsView({ adminData, onUpdate }) {
+            const [formData, setFormData] = useState({
+                firstName: adminData?.firstName || '',
+                lastName: adminData?.lastName || '',
+                email: adminData?.email || '',
+                phone: adminData?.phone || '',
+                notifications: adminData?.notifications || {
+                    sosAlerts: true,
+                    newPirs: true,
+                    feedback: true,
+                    checkIns: false
+                }
+            });
+            
+            const handleSave = async () => {
+                await onUpdate(formData);
+                alert('Settings saved successfully!');
+            };
+            
+            const handlePasswordReset = () => {
+                auth.sendPasswordResetEmail(adminData.email)
+                    .then(() => alert('Password reset email sent!'))
+                    .catch(error => alert('Error: ' + error.message));
+            };
+            
+            return (
+                <div className="user-detail-container">
+                    <h2 style={{color: 'white', marginBottom: '30px'}}>System Settings</h2>
+                    
+                    <div className="tab-nav">
+                        <button className="tab-btn active">Profile</button>
+                        <button className="tab-btn">Notifications</button>
+                        <button className="tab-btn">Security</button>
+                        <button className="tab-btn">System</button>
+                    </div>
+                    
+                    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginTop: '30px'}}>
+                        <div>
+                            <h3 style={{color: 'white', marginBottom: '20px'}}>Admin Profile</h3>
+                            <div className="form-group">
+                                <label className="form-label">First Name</label>
+                                <input 
+                                    type="text"
+                                    className="form-input"
+                                    value={formData.firstName}
+                                    onChange={(e) => setFormData({...formData, firstName: e.target.value})}
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Last Name</label>
+                                <input 
+                                    type="text"
+                                    className="form-input"
+                                    value={formData.lastName}
+                                    onChange={(e) => setFormData({...formData, lastName: e.target.value})}
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Email</label>
+                                <input 
+                                    type="email"
+                                    className="form-input"
+                                    value={formData.email}
+                                    onChange={(e) => setFormData({...formData, email: e.target.value})}
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Phone</label>
+                                <input 
+                                    type="tel"
+                                    className="form-input"
+                                    value={formData.phone}
+                                    onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                                />
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h3 style={{color: 'white', marginBottom: '20px'}}>Notification Preferences</h3>
+                            
+                            <div className="checkbox-group">
+                                <input 
+                                    type="checkbox"
+                                    id="sos"
+                                    checked={formData.notifications.sosAlerts}
+                                    onChange={(e) => setFormData({
+                                        ...formData,
+                                        notifications: {...formData.notifications, sosAlerts: e.target.checked}
+                                    })}
+                                />
+                                <label htmlFor="sos">SOS Alerts</label>
+                            </div>
+                            
+                            <div className="checkbox-group">
+                                <input 
+                                    type="checkbox"
+                                    id="newpirs"
+                                    checked={formData.notifications.newPirs}
+                                    onChange={(e) => setFormData({
+                                        ...formData,
+                                        notifications: {...formData.notifications, newPirs: e.target.checked}
+                                    })}
+                                />
+                                <label htmlFor="newpirs">New PIR Registrations</label>
+                            </div>
+                            
+                            <div className="checkbox-group">
+                                <input 
+                                    type="checkbox"
+                                    id="feedback"
+                                    checked={formData.notifications.feedback}
+                                    onChange={(e) => setFormData({
+                                        ...formData,
+                                        notifications: {...formData.notifications, feedback: e.target.checked}
+                                    })}
+                                />
+                                <label htmlFor="feedback">New Feedback</label>
+                            </div>
+                            
+                            <div className="checkbox-group">
+                                <input 
+                                    type="checkbox"
+                                    id="checkins"
+                                    checked={formData.notifications.checkIns}
+                                    onChange={(e) => setFormData({
+                                        ...formData,
+                                        notifications: {...formData.notifications, checkIns: e.target.checked}
+                                    })}
+                                />
+                                <label htmlFor="checkins">Low Mood Check-ins</label>
+                            </div>
+                            
+                            <h3 style={{color: 'white', margin: '30px 0 20px'}}>Security</h3>
+                            <button className="btn btn-secondary" onClick={handlePasswordReset}>
+                                Reset Password
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div style={{marginTop: '30px'}}>
+                        <button className="btn btn-primary" onClick={handleSave}>
+                            Save Settings
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+        
+        // End of all view components - now return the main AdminApp component JSX
             // Handle logout
             const handleLogout = async () => {
                 try {
@@ -3385,1117 +4495,7 @@
                 </div>
             );
         }
-        // Complete all remaining view components
         
-        // Messages View with full functionality
-        function MessagesView({ messages, users, admin, onShowModal }) {
-            const [selectedConversation, setSelectedConversation] = useState(null);
-            const [messageText, setMessageText] = useState('');
-            const [searchQuery, setSearchQuery] = useState('');
-            
-            // Group messages by conversation
-            const conversations = {};
-            messages.forEach(msg => {
-                const otherUserId = msg.senderId === admin.uid ? msg.recipientId : msg.senderId;
-                if (!conversations[otherUserId]) {
-                    const otherUser = users.find(u => u.id === otherUserId);
-                    conversations[otherUserId] = {
-                        user: otherUser,
-                        messages: [],
-                        lastMessage: null,
-                        unreadCount: 0
-                    };
-                }
-                conversations[otherUserId].messages.push(msg);
-                if (!conversations[otherUserId].lastMessage || 
-                    msg.createdAt > conversations[otherUserId].lastMessage.createdAt) {
-                    conversations[otherUserId].lastMessage = msg;
-                }
-                if (!msg.read && msg.recipientId === admin.uid) {
-                    conversations[otherUserId].unreadCount++;
-                }
-            });
-            
-            const conversationList = Object.values(conversations)
-                .sort((a, b) => b.lastMessage?.createdAt - a.lastMessage?.createdAt);
-            
-            const filteredConversations = conversationList.filter(conv => 
-                conv.user?.displayName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                conv.user?.email?.toLowerCase().includes(searchQuery.toLowerCase())
-            );
-            
-            const sendMessage = async () => {
-                if (!messageText.trim() || !selectedConversation) return;
-                
-                const newMessage = {
-                    text: messageText,
-                    senderId: admin.uid,
-                    senderName: 'Admin',
-                    recipientId: selectedConversation.user.id,
-                    recipientName: selectedConversation.user.displayName || selectedConversation.user.email,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    read: false,
-                    type: 'admin'
-                };
-                
-                await db.collection('messages').add(newMessage);
-                setMessageText('');
-            };
-            
-            return (
-                <>
-                    <div className="broadcast-bar">
-                        <span style={{color: 'white'}}>📢 Broadcast Message:</span>
-                        <select className="broadcast-select">
-                            <option>All PIRs</option>
-                            <option>All Coaches</option>
-                            <option>Everyone</option>
-                        </select>
-                        <input 
-                            type="text" 
-                            placeholder="Type broadcast message..."
-                            style={{flex: 1, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', 
-                                   color: 'white', padding: '8px 15px', borderRadius: '10px'}}
-                        />
-                        <button className="btn btn-primary" onClick={() => onShowModal('broadcastMessage')}>
-                            Send Broadcast
-                        </button>
-                    </div>
-                    
-                    <div className="message-center">
-                        <div className="conversation-list">
-                            <div className="conversation-search">
-                                <span>🔍</span>
-                                <input 
-                                    type="text"
-                                    placeholder="Search conversations..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                            </div>
-                            
-                            {filteredConversations.length === 0 ? (
-                                <div className="empty-state">
-                                    <div className="empty-state-text">No conversations yet</div>
-                                </div>
-                            ) : (
-                                filteredConversations.map(conv => (
-                                    <div 
-                                        key={conv.user.id}
-                                        className={`conversation-item ${selectedConversation?.user.id === conv.user.id ? 'active' : ''}`}
-                                        onClick={() => setSelectedConversation(conv)}
-                                    >
-                                        <div className="conversation-avatar">
-                                            {(conv.user.displayName || conv.user.email || 'U').charAt(0).toUpperCase()}
-                                        </div>
-                                        <div className="conversation-details">
-                                            <div className="conversation-name">
-                                                {conv.user.displayName || conv.user.email}
-                                            </div>
-                                            <div className="conversation-preview">
-                                                {conv.lastMessage?.text || 'No messages'}
-                                            </div>
-                                        </div>
-                                        <div className="conversation-meta">
-                                            <div className="conversation-time">
-                                                {formatTime(conv.lastMessage?.createdAt)}
-                                            </div>
-                                            {conv.unreadCount > 0 && (
-                                                <span className="unread-count">{conv.unreadCount}</span>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                        
-                        {selectedConversation ? (
-                            <div className="chat-view">
-                                <div className="chat-header">
-                                    <div className="chat-user-info">
-                                        <div className="conversation-avatar">
-                                            {(selectedConversation.user.displayName || 'U').charAt(0).toUpperCase()}
-                                        </div>
-                                        <div>
-                                            <div style={{color: 'white', fontWeight: 'bold'}}>
-                                                {selectedConversation.user.displayName || selectedConversation.user.email}
-                                            </div>
-                                            <div style={{color: 'rgba(255,255,255,0.6)', fontSize: '13px'}}>
-                                                {selectedConversation.user.role} • {selectedConversation.user.email}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="chat-actions">
-                                        <button className="chat-action-btn">View Profile</button>
-                                        <button className="chat-action-btn">Clear Chat</button>
-                                    </div>
-                                </div>
-                                
-                                <div className="chat-messages">
-                                    {selectedConversation.messages.map(msg => (
-                                        <div 
-                                            key={msg.id} 
-                                            className={`message ${msg.senderId === admin.uid ? 'sent' : 'received'}`}
-                                        >
-                                            <div>{msg.text}</div>
-                                            <div className="message-time">{formatTime(msg.createdAt)}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                                
-                                <div className="chat-input-container">
-                                    <div className="chat-input">
-                                        <input 
-                                            type="text"
-                                            placeholder="Type a message..."
-                                            value={messageText}
-                                            onChange={(e) => setMessageText(e.target.value)}
-                                            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                                        />
-                                        <button onClick={sendMessage}>Send</button>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="chat-view">
-                                <div className="empty-state">
-                                    <div className="empty-state-icon">💬</div>
-                                    <div className="empty-state-title">Select a conversation</div>
-                                    <div className="empty-state-text">Choose a conversation to view messages</div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </>
-            );
-        }
-        
-        // Feedback View
-        function FeedbackView({ feedback, users, coaches }) {
-            const [filter, setFilter] = useState('all');
-            
-            const filteredFeedback = feedback.filter(f => {
-                if (filter === 'all') return true;
-                if (filter === 'unread') return !f.reviewed;
-                if (filter === 'critical') return f.priority === 'critical';
-                return f.type === filter;
-            });
-            
-            const handleMarkReviewed = async (feedbackId) => {
-                await db.collection('feedback').doc(feedbackId).update({ 
-                    reviewed: true,
-                    reviewedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            };
-            
-            const handleAssignToCoach = async (feedbackId) => {
-                const coachId = prompt('Enter coach ID to assign:');
-                if (coachId) {
-                    await db.collection('feedback').doc(feedbackId).update({
-                        assignedTo: coachId,
-                        assignedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                }
-            };
-            
-            return (
-                <div className="feedback-container">
-                    <div className="feedback-header">
-                        <div>
-                            <h2 style={{color: 'white', marginBottom: '10px'}}>Feedback Management</h2>
-                            <p style={{color: 'rgba(255,255,255,0.7)'}}>Review and respond to user feedback</p>
-                        </div>
-                        <div className="feedback-stats">
-                            <div className="feedback-stat">
-                                <div className="feedback-stat-value">{feedback.length}</div>
-                                <div className="feedback-stat-label">Total</div>
-                            </div>
-                            <div className="feedback-stat">
-                                <div className="feedback-stat-value">
-                                    {feedback.filter(f => !f.reviewed).length}
-                                </div>
-                                <div className="feedback-stat-label">Unreviewed</div>
-                            </div>
-                            <div className="feedback-stat">
-                                <div className="feedback-stat-value">
-                                    {feedback.filter(f => f.priority === 'critical').length}
-                                </div>
-                                <div className="feedback-stat-label">Critical</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div className="feed-filters" style={{marginBottom: '20px'}}>
-                        <button 
-                            className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
-                            onClick={() => setFilter('all')}
-                        >All</button>
-                        <button 
-                            className={`filter-btn ${filter === 'unread' ? 'active' : ''}`}
-                            onClick={() => setFilter('unread')}
-                        >Unreviewed</button>
-                        <button 
-                            className={`filter-btn ${filter === 'critical' ? 'active' : ''}`}
-                            onClick={() => setFilter('critical')}
-                        >Critical</button>
-                        <button 
-                            className={`filter-btn ${filter === 'bug' ? 'active' : ''}`}
-                            onClick={() => setFilter('bug')}
-                        >Bugs</button>
-                        <button 
-                            className={`filter-btn ${filter === 'feature' ? 'active' : ''}`}
-                            onClick={() => setFilter('feature')}
-                        >Features</button>
-                    </div>
-                    
-                    <div className="feedback-list">
-                        {filteredFeedback.length === 0 ? (
-                            <div className="empty-state">
-                                <div className="empty-state-text">No feedback to display</div>
-                            </div>
-                        ) : (
-                            filteredFeedback.map(fb => (
-                                <div key={fb.id} className={`feedback-item ${!fb.reviewed ? 'unread' : ''}`}>
-                                    <div className="feedback-item-header">
-                                        <div className="feedback-author">
-                                            <div className="feedback-author-avatar">
-                                                {(fb.userName || 'U').charAt(0).toUpperCase()}
-                                            </div>
-                                            <div>
-                                                <div className="feedback-author-name">{fb.userName || 'Unknown'}</div>
-                                                <div className="feedback-date">{formatTime(fb.createdAt)}</div>
-                                            </div>
-                                        </div>
-                                        <div className={`feedback-priority ${fb.priority || 'suggestion'}`}>
-                                            {fb.priority || 'Suggestion'}
-                                        </div>
-                                    </div>
-                                    <div className="feedback-content">{fb.content}</div>
-                                    <div style={{marginBottom: '10px'}}>
-                                        <span className="feedback-type">{fb.type || 'General'}</span>
-                                    </div>
-                                    <div className="feedback-actions">
-                                        {!fb.reviewed && (
-                                            <button 
-                                                className="feedback-action-btn"
-                                                onClick={() => handleMarkReviewed(fb.id)}
-                                            >
-                                                Mark Reviewed
-                                            </button>
-                                        )}
-                                        <button 
-                                            className="feedback-action-btn"
-                                            onClick={() => handleAssignToCoach(fb.id)}
-                                        >
-                                            Assign to Coach
-                                        </button>
-                                        <button className="feedback-action-btn">Reply</button>
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </div>
-            );
-        }
-        // Resources View with upload functionality
-        function ResourcesView({ resources, onShowModal, onRefresh }) {
-            const [selectedCategory, setSelectedCategory] = useState('all');
-            const [searchQuery, setSearchQuery] = useState('');
-            
-            const categories = ['all', 'videos', 'articles', 'worksheets', 'meditations', 'books'];
-            
-            const filteredResources = resources.filter(r => {
-                const matchesCategory = selectedCategory === 'all' || r.category === selectedCategory;
-                const matchesSearch = r.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                                     r.description?.toLowerCase().includes(searchQuery.toLowerCase());
-                return matchesCategory && matchesSearch;
-            });
-            
-            const handleDeleteResource = async (resourceId) => {
-                if (confirm('Delete this resource?')) {
-                    await db.collection('resources').doc(resourceId).delete();
-                    onRefresh();
-                }
-            };
-            
-            return (
-                <div className="resource-management">
-                    <div className="resource-sidebar">
-                        <button 
-                            className="btn btn-primary" 
-                            style={{width: '100%', marginBottom: '20px'}}
-                            onClick={() => onShowModal('createResource')}
-                        >
-                            ➕ Add Resource
-                        </button>
-                        
-                        <div className="resource-categories">
-                            <h3 style={{color: 'white', marginBottom: '15px'}}>Categories</h3>
-                            {categories.map(cat => (
-                                <div 
-                                    key={cat}
-                                    className={`category-item ${selectedCategory === cat ? 'active' : ''}`}
-                                    onClick={() => setSelectedCategory(cat)}
-                                >
-                                    <div className="category-name">
-                                        <span>{cat === 'all' ? '📚' : '📄'}</span>
-                                        <span style={{textTransform: 'capitalize'}}>{cat}</span>
-                                    </div>
-                                    <span className="category-count">
-                                        {cat === 'all' ? resources.length : 
-                                         resources.filter(r => r.category === cat).length}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                    
-                    <div className="resource-content">
-                        <div className="conversation-search" style={{marginBottom: '20px'}}>
-                            <span>🔍</span>
-                            <input 
-                                type="text"
-                                placeholder="Search resources..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                            />
-                        </div>
-                        
-                        <div className="resource-grid">
-                            {filteredResources.length === 0 ? (
-                                <div className="empty-state">
-                                    <div className="empty-state-icon">📚</div>
-                                    <div className="empty-state-title">No Resources Found</div>
-                                    <button 
-                                        className="btn btn-primary" 
-                                        onClick={() => onShowModal('createResource')}
-                                    >
-                                        Create First Resource
-                                    </button>
-                                </div>
-                            ) : (
-                                filteredResources.map(resource => (
-                                    <div key={resource.id} className="resource-card">
-                                        <div className="resource-icon">
-                                            {resource.category === 'videos' ? '🎥' :
-                                             resource.category === 'articles' ? '📄' :
-                                             resource.category === 'worksheets' ? '📝' :
-                                             resource.category === 'meditations' ? '🧘' :
-                                             resource.category === 'books' ? '📖' : '📚'}
-                                        </div>
-                                        <div className="resource-title">{resource.title}</div>
-                                        <div className="resource-description">{resource.description}</div>
-                                        <div className="resource-meta">
-                                            <span>{resource.category}</span>
-                                            <span>{resource.downloads || 0} downloads</span>
-                                        </div>
-                                        <div className="resource-actions">
-                                            <button className="resource-action">Edit</button>
-                                            <button 
-                                                className="resource-action"
-                                                onClick={() => handleDeleteResource(resource.id)}
-                                            >
-                                                Delete
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-        
-        // Groups View with create/edit functionality
-        function GroupsView({ groups, pirs, onShowModal, onRefresh }) {
-            const [selectedGroup, setSelectedGroup] = useState(null);
-            
-            const handleDeleteGroup = async (groupId) => {
-                if (confirm('Delete this support group?')) {
-                    await db.collection('supportGroups').doc(groupId).delete();
-                    onRefresh();
-                }
-            };
-            
-            return (
-                <div className="groups-container">
-                    <div style={{marginBottom: '20px'}}>
-                        <button 
-                            className="btn btn-primary"
-                            onClick={() => onShowModal('createGroup')}
-                        >
-                            ➕ Create New Group
-                        </button>
-                    </div>
-                    
-                    {groups.length === 0 ? (
-                        <div className="empty-state">
-                            <div className="empty-state-icon">🏘️</div>
-                            <div className="empty-state-title">No Groups Yet</div>
-                            <div className="empty-state-text">Create your first support group</div>
-                            <button 
-                                className="btn btn-primary"
-                                onClick={() => onShowModal('createGroup')}
-                            >
-                                Create Group
-                            </button>
-                        </div>
-                    ) : (
-                        groups.map(group => (
-                            <div key={group.id} className="group-card">
-                                <div className="group-header">
-                                    <div>
-                                        <h3 className="group-title">{group.name}</h3>
-                                        <div className="group-type">{group.type || 'Support Group'}</div>
-                                    </div>
-                                </div>
-                                <div className="group-description">{group.description}</div>
-                                <div className="group-meta">
-                                    <div className="group-meta-item">
-                                        <div className="group-meta-value">{group.members?.length || 0}</div>
-                                        <div className="group-meta-label">Members</div>
-                                    </div>
-                                    <div className="group-meta-item">
-                                        <div className="group-meta-value">{group.capacity || 10}</div>
-                                        <div className="group-meta-label">Capacity</div>
-                                    </div>
-                                    <div className="group-meta-item">
-                                        <div className="group-meta-value">{group.meetings || 'Weekly'}</div>
-                                        <div className="group-meta-label">Schedule</div>
-                                    </div>
-                                </div>
-                                <div className="group-actions">
-                                    <button className="btn btn-secondary">View Members</button>
-                                    <button className="btn btn-secondary">Edit</button>
-                                    <button 
-                                        className="btn btn-danger"
-                                        onClick={() => handleDeleteGroup(group.id)}
-                                    >
-                                        Delete
-                                    </button>
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
-            );
-        }
-        
-        // CheckIns View with monitoring and export
-        function CheckInsView({ checkIns, pirs }) {
-            const [filter, setFilter] = useState('all');
-            const [dateFilter, setDateFilter] = useState('today');
-            
-            const filteredCheckIns = checkIns.filter(c => {
-                // Date filter
-                if (dateFilter === 'today') {
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    const checkInDate = c.createdAt?.toDate() || new Date(0);
-                    if (checkInDate < today) return false;
-                } else if (dateFilter === 'week') {
-                    const weekAgo = new Date();
-                    weekAgo.setDate(weekAgo.getDate() - 7);
-                    const checkInDate = c.createdAt?.toDate() || new Date(0);
-                    if (checkInDate < weekAgo) return false;
-                }
-                
-                // Mood filter
-                if (filter === 'concerning') {
-                    return c.morningData?.mood <= 3 || c.morningData?.craving >= 8;
-                } else if (filter === 'positive') {
-                    return c.morningData?.mood >= 7 && c.morningData?.craving <= 3;
-                }
-                
-                return true;
-            });
-            
-            const exportCheckIns = () => {
-                const csvContent = [
-                    ['Date', 'User', 'Type', 'Mood', 'Energy', 'Sleep', 'Cravings', 'Notes'],
-                    ...filteredCheckIns.map(c => [
-                        new Date(c.createdAt?.toDate()).toLocaleDateString(),
-                        c.userName || 'Unknown',
-                        c.type || 'morning',
-                        c.morningData?.mood || '',
-                        c.morningData?.energy || '',
-                        c.morningData?.sleep || '',
-                        c.morningData?.craving || '',
-                        c.morningData?.notes || c.eveningData?.reflection || ''
-                    ])
-                ].map(row => row.join(',')).join('\n');
-                
-                const blob = new Blob([csvContent], { type: 'text/csv' });
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `checkins_${new Date().toISOString().split('T')[0]}.csv`;
-                a.click();
-            };
-            
-            return (
-                <>
-                    <div className="feed-filters" style={{marginBottom: '20px'}}>
-                        <button 
-                            className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
-                            onClick={() => setFilter('all')}
-                        >All Check-ins</button>
-                        <button 
-                            className={`filter-btn ${filter === 'concerning' ? 'active' : ''}`}
-                            onClick={() => setFilter('concerning')}
-                        >Concerning</button>
-                        <button 
-                            className={`filter-btn ${filter === 'positive' ? 'active' : ''}`}
-                            onClick={() => setFilter('positive')}
-                        >Positive</button>
-                        
-                        <select 
-                            className="broadcast-select" 
-                            style={{marginLeft: '20px'}}
-                            value={dateFilter}
-                            onChange={(e) => setDateFilter(e.target.value)}
-                        >
-                            <option value="today">Today</option>
-                            <option value="week">Last 7 Days</option>
-                            <option value="all">All Time</option>
-                        </select>
-                        
-                        <button className="btn btn-primary" style={{marginLeft: '20px'}} onClick={exportCheckIns}>
-                            📥 Export CSV
-                        </button>
-                    </div>
-                    
-                    <div className="table-container">
-                        {filteredCheckIns.length === 0 ? (
-                            <div className="empty-state">
-                                <div className="empty-state-text">No check-ins found</div>
-                            </div>
-                        ) : (
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>User</th>
-                                        <th>Date/Time</th>
-                                        <th>Type</th>
-                                        <th>Mood</th>
-                                        <th>Energy</th>
-                                        <th>Sleep</th>
-                                        <th>Cravings</th>
-                                        <th>Notes</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredCheckIns.map(checkIn => (
-                                        <tr key={checkIn.id}>
-                                            <td>{checkIn.userName || 'Unknown'}</td>
-                                            <td>{new Date(checkIn.createdAt?.toDate()).toLocaleString()}</td>
-                                            <td>{checkIn.type || 'morning'}</td>
-                                            <td>
-                                                <span className={`mood-badge ${
-                                                    checkIn.morningData?.mood >= 7 ? 'high' :
-                                                    checkIn.morningData?.mood >= 4 ? 'medium' : 'low'
-                                                }`}>
-                                                    {checkIn.morningData?.mood || '-'}/10
-                                                </span>
-                                            </td>
-                                            <td>{checkIn.morningData?.energy || '-'}/10</td>
-                                            <td>{checkIn.morningData?.sleep || '-'}/10</td>
-                                            <td>{checkIn.morningData?.craving || '-'}/10</td>
-                                            <td>{checkIn.morningData?.notes || checkIn.eveningData?.reflection || '-'}</td>
-                                            <td>
-                                                <button className="feedback-action-btn">Flag</button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        )}
-                    </div>
-                </>
-            );
-        }
-        
-        // Assignments View
-        function AssignmentsView({ assignments, pirs, coaches, onShowModal }) {
-            const [filter, setFilter] = useState('all');
-            
-            const filteredAssignments = assignments.filter(a => {
-                if (filter === 'overdue') {
-                    if (a.dueDate && a.status !== 'completed') {
-                        const dueDate = a.dueDate.toDate ? a.dueDate.toDate() : new Date(a.dueDate);
-                        return dueDate < new Date();
-                    }
-                    return false;
-                }
-                if (filter === 'pending') return a.status === 'pending';
-                if (filter === 'completed') return a.status === 'completed';
-                return true;
-            });
-            
-            const handleCompleteAssignment = async (assignmentId) => {
-                await db.collection('assignments').doc(assignmentId).update({
-                    status: 'completed',
-                    completedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            };
-            
-            return (
-                <>
-                    <div className="quick-actions">
-                        <button className="quick-action-btn" onClick={() => onShowModal('createAssignment')}>
-                            ➕ Create Assignment
-                        </button>
-                    </div>
-                    
-                    <div className="feed-filters" style={{marginBottom: '20px'}}>
-                        <button 
-                            className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
-                            onClick={() => setFilter('all')}
-                        >All ({assignments.length})</button>
-                        <button 
-                            className={`filter-btn ${filter === 'pending' ? 'active' : ''}`}
-                            onClick={() => setFilter('pending')}
-                        >Pending</button>
-                        <button 
-                            className={`filter-btn ${filter === 'overdue' ? 'active' : ''}`}
-                            onClick={() => setFilter('overdue')}
-                        >Overdue</button>
-                        <button 
-                            className={`filter-btn ${filter === 'completed' ? 'active' : ''}`}
-                            onClick={() => setFilter('completed')}
-                        >Completed</button>
-                    </div>
-                    
-                    <div className="table-container">
-                        {filteredAssignments.length === 0 ? (
-                            <div className="empty-state">
-                                <div className="empty-state-text">No assignments found</div>
-                            </div>
-                        ) : (
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Title</th>
-                                        <th>PIR</th>
-                                        <th>Coach</th>
-                                        <th>Due Date</th>
-                                        <th>Status</th>
-                                        <th>Created</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredAssignments.map(assignment => (
-                                        <tr key={assignment.id}>
-                                            <td>{assignment.title}</td>
-                                            <td>{assignment.pirName || 'Unknown'}</td>
-                                            <td>{assignment.coachName || 'Unknown'}</td>
-                                            <td>{assignment.dueDate ? new Date(assignment.dueDate.toDate()).toLocaleDateString() : '-'}</td>
-                                            <td>
-                                                <span className={`mood-badge ${
-                                                    assignment.status === 'completed' ? 'high' :
-                                                    assignment.status === 'pending' ? 'medium' : 'low'
-                                                }`}>
-                                                    {assignment.status}
-                                                </span>
-                                            </td>
-                                            <td>{formatTime(assignment.createdAt)}</td>
-                                            <td>
-                                                {assignment.status !== 'completed' && (
-                                                    <button 
-                                                        className="feedback-action-btn"
-                                                        onClick={() => handleCompleteAssignment(assignment.id)}
-                                                    >
-                                                        Complete
-                                                    </button>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        )}
-                    </div>
-                </>
-            );
-        }
-        
-        // Alerts View
-        function AlertsView({ alerts, users }) {
-            const [filter, setFilter] = useState('all');
-            
-            const filteredAlerts = alerts.filter(a => {
-                if (filter === 'critical') return a.severity === 'critical';
-                if (filter === 'resolved') return a.status === 'resolved';
-                if (filter === 'active') return a.status === 'active';
-                return true;
-            });
-            
-            const handleResolveAlert = async (alertId) => {
-                await db.collection('alerts').doc(alertId).update({
-                    status: 'resolved',
-                    resolvedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            };
-            
-            return (
-                <>
-                    <div className="feed-filters" style={{marginBottom: '20px'}}>
-                        <button 
-                            className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
-                            onClick={() => setFilter('all')}
-                        >All Alerts</button>
-                        <button 
-                            className={`filter-btn ${filter === 'critical' ? 'active' : ''}`}
-                            onClick={() => setFilter('critical')}
-                            style={{color: '#ff4757'}}
-                        >SOS ({alerts.filter(a => a.severity === 'critical').length})</button>
-                        <button 
-                            className={`filter-btn ${filter === 'active' ? 'active' : ''}`}
-                            onClick={() => setFilter('active')}
-                        >Active</button>
-                        <button 
-                            className={`filter-btn ${filter === 'resolved' ? 'active' : ''}`}
-                            onClick={() => setFilter('resolved')}
-                        >Resolved</button>
-                    </div>
-                    
-                    {filteredAlerts.length === 0 ? (
-                        <div className="empty-state">
-                            <div className="empty-state-icon">✅</div>
-                            <div className="empty-state-title">No Alerts</div>
-                            <div className="empty-state-text">All clear - no active alerts</div>
-                        </div>
-                    ) : (
-                        <div className="user-grid">
-                            {filteredAlerts.map(alert => {
-                                const user = users.find(u => u.id === alert.userId);
-                                return (
-                                    <div key={alert.id} className="user-card" style={{
-                                        borderColor: alert.severity === 'critical' ? '#ff4757' : ''
-                                    }}>
-                                        <div className="user-header">
-                                            <div className="user-avatar">🚨</div>
-                                            <div className="user-info">
-                                                <div className="user-name">{alert.userName || user?.displayName || 'Unknown'}</div>
-                                                <div className="user-role" style={{
-                                                    background: alert.severity === 'critical' ? 'rgba(255, 71, 87, 0.2)' : '',
-                                                    color: alert.severity === 'critical' ? '#ff4757' : ''
-                                                }}>
-                                                    {alert.severity === 'critical' ? 'SOS ALERT' : alert.type}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div style={{padding: '15px 0'}}>
-                                            <p style={{color: 'rgba(255,255,255,0.9)', marginBottom: '10px'}}>
-                                                {alert.message || 'Emergency alert triggered'}
-                                            </p>
-                                            <p style={{color: 'rgba(255,255,255,0.6)', fontSize: '13px'}}>
-                                                {formatTime(alert.createdAt)}
-                                            </p>
-                                        </div>
-                                        {user?.emergencyContacts && user.emergencyContacts.length > 0 && (
-                                            <div style={{marginBottom: '15px', padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px'}}>
-                                                <div style={{fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginBottom: '5px'}}>
-                                                    Emergency Contacts:
-                                                </div>
-                                                {user.emergencyContacts.map((contact, idx) => (
-                                                    <div key={idx} style={{color: 'white', fontSize: '14px'}}>
-                                                        {contact.name}: {contact.phone}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        <div className="user-actions">
-                                            {alert.status === 'active' && (
-                                                <button 
-                                                    className="btn btn-danger" 
-                                                    style={{width: '100%'}}
-                                                    onClick={() => handleResolveAlert(alert.id)}
-                                                >
-                                                    Resolve Alert
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </>
-            );
-        }
-        
-        // Reports View
-        function ReportsView({ pirs, coaches, activities, checkIns, assignments, systemStats }) {
-            const [reportType, setReportType] = useState('system');
-            const [dateRange, setDateRange] = useState('month');
-            
-            const generateReport = () => {
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF();
-                
-                // Add header
-                doc.setFontSize(20);
-                doc.text('GLRS System Report', 20, 20);
-                
-                // Add date
-                doc.setFontSize(12);
-                doc.text(`Generated: ${new Date().toLocaleString()}`, 20, 30);
-                
-                // Add stats
-                doc.setFontSize(14);
-                doc.text('System Statistics', 20, 45);
-                
-                doc.setFontSize(12);
-                doc.text(`Total PIRs: ${systemStats.totalPirs}`, 20, 55);
-                doc.text(`Active PIRs: ${systemStats.activePirs}`, 20, 65);
-                doc.text(`Total Coaches: ${systemStats.totalCoaches}`, 20, 75);
-                doc.text(`Check-in Rate: ${systemStats.checkInRate}%`, 20, 85);
-                doc.text(`SOS Alerts: ${systemStats.sosAlerts}`, 20, 95);
-                doc.text(`Pending Feedback: ${systemStats.pendingFeedback}`, 20, 105);
-                
-                // Save the PDF
-                doc.save(`GLRS_Report_${new Date().toISOString().split('T')[0]}.pdf`);
-            };
-            
-            return (
-                <>
-                    <div style={{marginBottom: '20px'}}>
-                        <select 
-                            className="form-select" 
-                            value={reportType}
-                            onChange={(e) => setReportType(e.target.value)}
-                            style={{marginRight: '15px', width: '200px'}}
-                        >
-                            <option value="system">System Report</option>
-                            <option value="users">User Report</option>
-                            <option value="checkins">Check-ins Report</option>
-                            <option value="assignments">Assignments Report</option>
-                        </select>
-                        
-                        <select 
-                            className="form-select"
-                            value={dateRange}
-                            onChange={(e) => setDateRange(e.target.value)}
-                            style={{marginRight: '15px', width: '200px'}}
-                        >
-                            <option value="week">Last Week</option>
-                            <option value="month">Last Month</option>
-                            <option value="quarter">Last Quarter</option>
-                            <option value="year">Last Year</option>
-                        </select>
-                        
-                        <button className="btn btn-primary" onClick={generateReport}>
-                            📄 Generate PDF Report
-                        </button>
-                    </div>
-                    
-                    <div className="dashboard-grid">
-                        <div className="stat-card">
-                            <div className="stat-label">Total PIRs</div>
-                            <div className="stat-value">{systemStats.totalPirs}</div>
-                            <div className="stat-change positive">Active: {systemStats.activePirs}</div>
-                        </div>
-                        
-                        <div className="stat-card">
-                            <div className="stat-label">Check-in Compliance</div>
-                            <div className="stat-value">{systemStats.checkInRate}%</div>
-                            <div className="stat-change">Daily average</div>
-                        </div>
-                        
-                        <div className="stat-card">
-                            <div className="stat-label">Assignments Completed</div>
-                            <div className="stat-value">
-                                {assignments.filter(a => a.status === 'completed').length}
-                            </div>
-                            <div className="stat-change">
-                                Of {assignments.length} total
-                            </div>
-                        </div>
-                        
-                        <div className="stat-card">
-                            <div className="stat-label">Average Mood</div>
-                            <div className="stat-value">
-                                {checkIns.length > 0 ? 
-                                    (checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / 
-                                     checkIns.filter(c => c.morningData?.mood).length).toFixed(1) : '0'}
-                            </div>
-                            <div className="stat-change">Last 7 days</div>
-                        </div>
-                    </div>
-                    
-                    <div className="charts-grid">
-                        <div className="chart-card">
-                            <h3 className="chart-title">Check-in Trends</h3>
-                            <canvas id="checkinChart"></canvas>
-                        </div>
-                        
-                        <div className="chart-card">
-                            <h3 className="chart-title">User Growth</h3>
-                            <canvas id="userChart"></canvas>
-                        </div>
-                    </div>
-                </>
-            );
-        }
-        
-        // Settings View
-        function SettingsView({ adminData, onUpdate }) {
-            const [formData, setFormData] = useState({
-                firstName: adminData?.firstName || '',
-                lastName: adminData?.lastName || '',
-                email: adminData?.email || '',
-                phone: adminData?.phone || '',
-                notifications: adminData?.notifications || {
-                    sosAlerts: true,
-                    newPirs: true,
-                    feedback: true,
-                    checkIns: false
-                }
-            });
-            
-            const handleSave = async () => {
-                await onUpdate(formData);
-                alert('Settings saved successfully!');
-            };
-            
-            const handlePasswordReset = () => {
-                auth.sendPasswordResetEmail(adminData.email)
-                    .then(() => alert('Password reset email sent!'))
-                    .catch(error => alert('Error: ' + error.message));
-            };
-            
-            return (
-                <div className="user-detail-container">
-                    <h2 style={{color: 'white', marginBottom: '30px'}}>System Settings</h2>
-                    
-                    <div className="tab-nav">
-                        <button className="tab-btn active">Profile</button>
-                        <button className="tab-btn">Notifications</button>
-                        <button className="tab-btn">Security</button>
-                        <button className="tab-btn">System</button>
-                    </div>
-                    
-                    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginTop: '30px'}}>
-                        <div>
-                            <h3 style={{color: 'white', marginBottom: '20px'}}>Admin Profile</h3>
-                            <div className="form-group">
-                                <label className="form-label">First Name</label>
-                                <input 
-                                    type="text"
-                                    className="form-input"
-                                    value={formData.firstName}
-                                    onChange={(e) => setFormData({...formData, firstName: e.target.value})}
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label className="form-label">Last Name</label>
-                                <input 
-                                    type="text"
-                                    className="form-input"
-                                    value={formData.lastName}
-                                    onChange={(e) => setFormData({...formData, lastName: e.target.value})}
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label className="form-label">Email</label>
-                                <input 
-                                    type="email"
-                                    className="form-input"
-                                    value={formData.email}
-                                    onChange={(e) => setFormData({...formData, email: e.target.value})}
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label className="form-label">Phone</label>
-                                <input 
-                                    type="tel"
-                                    className="form-input"
-                                    value={formData.phone}
-                                    onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                                />
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <h3 style={{color: 'white', marginBottom: '20px'}}>Notification Preferences</h3>
-                            
-                            <div className="checkbox-group">
-                                <input 
-                                    type="checkbox"
-                                    id="sos"
-                                    checked={formData.notifications.sosAlerts}
-                                    onChange={(e) => setFormData({
-                                        ...formData,
-                                        notifications: {...formData.notifications, sosAlerts: e.target.checked}
-                                    })}
-                                />
-                                <label htmlFor="sos">SOS Alerts</label>
-                            </div>
-                            
-                            <div className="checkbox-group">
-                                <input 
-                                    type="checkbox"
-                                    id="newpirs"
-                                    checked={formData.notifications.newPirs}
-                                    onChange={(e) => setFormData({
-                                        ...formData,
-                                        notifications: {...formData.notifications, newPirs: e.target.checked}
-                                    })}
-                                />
-                                <label htmlFor="newpirs">New PIR Registrations</label>
-                            </div>
-                            
-                            <div className="checkbox-group">
-                                <input 
-                                    type="checkbox"
-                                    id="feedback"
-                                    checked={formData.notifications.feedback}
-                                    onChange={(e) => setFormData({
-                                        ...formData,
-                                        notifications: {...formData.notifications, feedback: e.target.checked}
-                                    })}
-                                />
-                                <label htmlFor="feedback">New Feedback</label>
-                            </div>
-                            
-                            <div className="checkbox-group">
-                                <input 
-                                    type="checkbox"
-                                    id="checkins"
-                                    checked={formData.notifications.checkIns}
-                                    onChange={(e) => setFormData({
-                                        ...formData,
-                                        notifications: {...formData.notifications, checkIns: e.target.checked}
-                                    })}
-                                />
-                                <label htmlFor="checkins">Low Mood Check-ins</label>
-                            </div>
-                            
-                            <h3 style={{color: 'white', margin: '30px 0 20px'}}>Security</h3>
-                            <button className="btn btn-secondary" onClick={handlePasswordReset}>
-                                Reset Password
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div style={{marginTop: '30px'}}>
-                        <button className="btn btn-primary" onClick={handleSave}>
-                            Save Settings
-                        </button>
-                    </div>
-                </div>
-            );
-        }
-        
-        // End of all view components - now return the main AdminApp component JSX
         
         // Handle logout
         const handleLogout = async () => {
