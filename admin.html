@@ -2643,6 +2643,585 @@ function MyPIRsView({ searchQuery, user }) {
         </div>
     );
 }
+        // Community Management View - Topic Rooms and GLRS Chat
+function CommunityView({ searchQuery, user }) {
+    const [activeTab, setActiveTab] = useState('chat');
+    const [loading, setLoading] = useState(true);
+    const [messages, setMessages] = useState([]);
+    const [topicRooms, setTopicRooms] = useState([]);
+    const [flaggedMessages, setFlaggedMessages] = useState([]);
+    const [selectedRoom, setSelectedRoom] = useState('main'); // main or room ID
+    const [newMessage, setNewMessage] = useState('');
+    const [showCreateRoom, setShowCreateRoom] = useState(false);
+    const [messageListener, setMessageListener] = useState(null);
+    const [stats, setStats] = useState({
+        totalMessages: 0,
+        activeUsers: 0,
+        flaggedCount: 0,
+        roomsCount: 0
+    });
+
+    useEffect(() => {
+        loadCommunityData();
+        return () => {
+            // Cleanup listener on unmount
+            if (messageListener) {
+                messageListener();
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        // Load messages when room changes
+        if (selectedRoom) {
+            loadMessages(selectedRoom);
+        }
+    }, [selectedRoom]);
+
+    const loadCommunityData = async () => {
+        try {
+            setLoading(true);
+
+            // Load topic rooms
+            const roomsSnap = await db.collection('topicRooms').get();
+            const roomsData = [];
+            roomsSnap.forEach(doc => {
+                roomsData.push({ id: doc.id, ...doc.data() });
+            });
+            setTopicRooms(roomsData);
+
+            // Load flagged messages
+            const flaggedSnap = await db.collection('messages')
+                .where('flagged', '==', true)
+                .where('resolved', '==', false)
+                .orderBy('flaggedAt', 'desc')
+                .limit(20)
+                .get();
+
+            const flaggedData = [];
+            for (const doc of flaggedSnap.docs) {
+                const messageData = { id: doc.id, ...doc.data() };
+                
+                // Get user info
+                if (messageData.userId) {
+                    const userDoc = await db.collection('users').doc(messageData.userId).get();
+                    if (userDoc.exists) {
+                        messageData.userName = userDoc.data().displayName || userDoc.data().email;
+                    }
+                }
+                
+                flaggedData.push(messageData);
+            }
+            setFlaggedMessages(flaggedData);
+
+            // Calculate stats
+            const messagesSnap = await db.collection('messages')
+                .where('roomId', '==', 'main')
+                .orderBy('createdAt', 'desc')
+                .limit(100)
+                .get();
+
+            const uniqueUsers = new Set();
+            messagesSnap.forEach(doc => {
+                const data = doc.data();
+                if (data.userId) uniqueUsers.add(data.userId);
+            });
+
+            setStats({
+                totalMessages: messagesSnap.size,
+                activeUsers: uniqueUsers.size,
+                flaggedCount: flaggedData.length,
+                roomsCount: roomsData.length
+            });
+
+        } catch (error) {
+            console.error('Error loading community data:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadMessages = async (roomId) => {
+        // Clear previous listener
+        if (messageListener) {
+            messageListener();
+        }
+
+        // Set up real-time listener for messages
+        const listener = db.collection('messages')
+            .where('roomId', '==', roomId)
+            .orderBy('createdAt', 'desc')
+            .limit(50)
+            .onSnapshot(async snapshot => {
+                const messagesData = [];
+                
+                for (const doc of snapshot.docs) {
+                    const messageData = { id: doc.id, ...doc.data() };
+                    
+                    // Get user info
+                    if (messageData.userId) {
+                        const userDoc = await db.collection('users').doc(messageData.userId).get();
+                        if (userDoc.exists) {
+                            const userData = userDoc.data();
+                            messageData.userName = userData.displayName || userData.email;
+                            messageData.userRole = userData.role;
+                        }
+                    }
+                    
+                    messagesData.push(messageData);
+                }
+                
+                setMessages(messagesData);
+            });
+
+        setMessageListener(() => listener);
+    };
+
+    const handleSendMessage = async () => {
+        if (!newMessage.trim()) return;
+
+        try {
+            await db.collection('messages').add({
+                roomId: selectedRoom,
+                userId: user.uid,
+                content: newMessage,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                edited: false,
+                flagged: false,
+                resolved: false,
+                fromAdmin: true
+            });
+
+            setNewMessage('');
+        } catch (error) {
+            console.error('Error sending message:', error);
+            alert('Failed to send message');
+        }
+    };
+
+    const handleDeleteMessage = async (messageId) => {
+        if (confirm('Delete this message permanently?')) {
+            try {
+                await db.collection('messages').doc(messageId).delete();
+                alert('Message deleted');
+            } catch (error) {
+                console.error('Error deleting message:', error);
+                alert('Failed to delete message');
+            }
+        }
+    };
+
+    const handleFlagResolve = async (messageId, action) => {
+        try {
+            if (action === 'delete') {
+                await db.collection('messages').doc(messageId).delete();
+            } else if (action === 'unflag') {
+                await db.collection('messages').doc(messageId).update({
+                    flagged: false,
+                    resolved: true,
+                    resolvedBy: user.uid,
+                    resolvedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+            
+            // Reload flagged messages
+            loadCommunityData();
+        } catch (error) {
+            console.error('Error resolving flag:', error);
+            alert('Failed to resolve flag');
+        }
+    };
+
+    const handleCreateRoom = async (roomData) => {
+        try {
+            await db.collection('topicRooms').add({
+                ...roomData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: user.uid,
+                active: true,
+                messageCount: 0
+            });
+
+            alert('Topic room created successfully!');
+            setShowCreateRoom(false);
+            loadCommunityData();
+        } catch (error) {
+            console.error('Error creating room:', error);
+            alert('Failed to create room');
+        }
+    };
+
+    const handleToggleRoom = async (roomId, currentStatus) => {
+        try {
+            await db.collection('topicRooms').doc(roomId).update({
+                active: !currentStatus
+            });
+            loadCommunityData();
+        } catch (error) {
+            console.error('Error toggling room:', error);
+            alert('Failed to update room status');
+        }
+    };
+
+    const handleDeleteRoom = async (roomId) => {
+        if (confirm('Delete this topic room? All messages will be preserved but the room will be removed.')) {
+            try {
+                await db.collection('topicRooms').doc(roomId).delete();
+                alert('Room deleted');
+                loadCommunityData();
+            } catch (error) {
+                console.error('Error deleting room:', error);
+                alert('Failed to delete room');
+            }
+        }
+    };
+
+    const renderChatTab = () => (
+        <div className="chat-container">
+            <div className="chat-sidebar">
+                <h4>Chat Rooms</h4>
+                <div 
+                    className={`room-item ${selectedRoom === 'main' ? 'active' : ''}`}
+                    onClick={() => setSelectedRoom('main')}
+                >
+                    <span className="room-icon">🏠</span>
+                    <span className="room-name">GLRS Main Chat</span>
+                </div>
+                
+                {topicRooms.filter(room => room.active).map(room => (
+                    <div 
+                        key={room.id}
+                        className={`room-item ${selectedRoom === room.id ? 'active' : ''}`}
+                        onClick={() => setSelectedRoom(room.id)}
+                    >
+                        <span className="room-icon">{room.icon || '💬'}</span>
+                        <span className="room-name">{room.name}</span>
+                    </div>
+                ))}
+            </div>
+
+            <div className="chat-main">
+                <div className="chat-header">
+                    <h4>
+                        {selectedRoom === 'main' ? 'GLRS Community Chat' : 
+                         topicRooms.find(r => r.id === selectedRoom)?.name || 'Chat'}
+                    </h4>
+                    <span className="chat-info">
+                        {messages.length} messages loaded
+                    </span>
+                </div>
+
+                <div className="messages-container">
+                    {messages.map(message => (
+                        <div key={message.id} className={`message-item ${message.fromAdmin ? 'admin-message' : ''}`}>
+                            <div className="message-header">
+                                <span className="message-author">
+                                    {message.userName || 'Unknown User'}
+                                    {message.userRole === 'admin' && ' 🛡️'}
+                                    {message.userRole === 'coach' && ' 👤'}
+                                </span>
+                                <span className="message-time">
+                                    {formatTimeAgo(message.createdAt)}
+                                </span>
+                            </div>
+                            <div className="message-content">
+                                {message.content}
+                            </div>
+                            <div className="message-actions">
+                                <button 
+                                    className="action-btn btn-sm"
+                                    onClick={() => handleDeleteMessage(message.id)}
+                                >
+                                    Delete
+                                </button>
+                                {message.flagged && (
+                                    <span className="flag-indicator">🚩 Flagged</span>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                    
+                    {messages.length === 0 && (
+                        <div className="empty-state">No messages in this room</div>
+                    )}
+                </div>
+
+                <div className="chat-input-container">
+                    <input
+                        type="text"
+                        className="chat-input"
+                        placeholder="Type a message as admin..."
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                    />
+                    <button 
+                        className="btn btn-primary"
+                        onClick={handleSendMessage}
+                    >
+                        Send
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderRoomsTab = () => (
+        <div className="rooms-management">
+            <div className="rooms-header">
+                <h3>Topic Rooms Management</h3>
+                <button 
+                    className="btn btn-primary"
+                    onClick={() => setShowCreateRoom(true)}
+                >
+                    + Create Room
+                </button>
+            </div>
+
+            <div className="rooms-grid">
+                {topicRooms.map(room => (
+                    <div key={room.id} className="room-card">
+                        <div className="room-card-header">
+                            <span className="room-icon-large">{room.icon || '💬'}</span>
+                            <h4>{room.name}</h4>
+                        </div>
+                        
+                        <div className="room-info">
+                            <p>{room.description}</p>
+                            <div className="room-meta">
+                                <span>Created: {formatDate(room.createdAt)}</span>
+                                <span>Messages: {room.messageCount || 0}</span>
+                            </div>
+                        </div>
+                        
+                        <div className="room-status">
+                            <span className={`badge ${room.active ? 'badge-success' : 'badge-danger'}`}>
+                                {room.active ? 'Active' : 'Inactive'}
+                            </span>
+                        </div>
+                        
+                        <div className="room-actions">
+                            <button 
+                                className={`btn btn-sm ${room.active ? 'btn-warning' : 'btn-success'}`}
+                                onClick={() => handleToggleRoom(room.id, room.active)}
+                            >
+                                {room.active ? 'Deactivate' : 'Activate'}
+                            </button>
+                            <button 
+                                className="btn btn-sm btn-danger"
+                                onClick={() => handleDeleteRoom(room.id)}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {topicRooms.length === 0 && (
+                <div className="empty-state">
+                    No topic rooms created yet. Create one to get started!
+                </div>
+            )}
+
+            {/* Create Room Modal */}
+            {showCreateRoom && (
+                <div className="modal-overlay">
+                    <div className="modal-content">
+                        <div className="modal-header">
+                            <h3>Create Topic Room</h3>
+                            <button className="close-btn" onClick={() => setShowCreateRoom(false)}>×</button>
+                        </div>
+                        <CreateRoomForm 
+                            onSubmit={handleCreateRoom}
+                            onCancel={() => setShowCreateRoom(false)}
+                        />
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+
+    const renderModerationTab = () => (
+        <div className="moderation-container">
+            <h3>Flagged Messages ({flaggedMessages.length})</h3>
+            
+            {flaggedMessages.length > 0 ? (
+                <div className="flagged-list">
+                    {flaggedMessages.map(message => (
+                        <div key={message.id} className="flagged-item">
+                            <div className="flagged-header">
+                                <span className="flagged-user">{message.userName || 'Unknown User'}</span>
+                                <span className="flagged-time">{formatTimeAgo(message.flaggedAt)}</span>
+                            </div>
+                            <div className="flagged-content">
+                                {message.content}
+                            </div>
+                            <div className="flagged-reason">
+                                Reason: {message.flagReason || 'No reason provided'}
+                            </div>
+                            <div className="flagged-actions">
+                                <button 
+                                    className="btn btn-sm btn-danger"
+                                    onClick={() => handleFlagResolve(message.id, 'delete')}
+                                >
+                                    Delete Message
+                                </button>
+                                <button 
+                                    className="btn btn-sm btn-warning"
+                                    onClick={() => handleFlagResolve(message.id, 'unflag')}
+                                >
+                                    Unflag & Keep
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="empty-state">
+                    No flagged messages. Community is clean! 🎉
+                </div>
+            )}
+
+            <div className="moderation-stats">
+                <h4>Community Statistics</h4>
+                <div className="stats-grid">
+                    <div className="stat-card">
+                        <div className="stat-value">{stats.totalMessages}</div>
+                        <div className="stat-label">Recent Messages</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-value">{stats.activeUsers}</div>
+                        <div className="stat-label">Active Users</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-value">{stats.roomsCount}</div>
+                        <div className="stat-label">Topic Rooms</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-value">{stats.flaggedCount}</div>
+                        <div className="stat-label">Flagged Items</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    if (loading) {
+        return (
+            <div className="loading-container">
+                <div className="loading-spinner"></div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="community-view">
+            <div className="tab-nav">
+                <button 
+                    className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('chat')}
+                >
+                    Community Chat
+                </button>
+                <button 
+                    className={`tab-btn ${activeTab === 'rooms' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('rooms')}
+                >
+                    Topic Rooms ({topicRooms.length})
+                </button>
+                <button 
+                    className={`tab-btn ${activeTab === 'moderation' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('moderation')}
+                >
+                    Moderation {flaggedMessages.length > 0 && `(${flaggedMessages.length})`}
+                </button>
+            </div>
+
+            {activeTab === 'chat' && renderChatTab()}
+            {activeTab === 'rooms' && renderRoomsTab()}
+            {activeTab === 'moderation' && renderModerationTab()}
+        </div>
+    );
+}
+
+// Create Room Form Component
+function CreateRoomForm({ onSubmit, onCancel }) {
+    const [formData, setFormData] = useState({
+        name: '',
+        description: '',
+        icon: '💬',
+        rules: ''
+    });
+
+    const icons = ['💬', '🎯', '💪', '🧘', '📖', '🌟', '❤️', '🙏', '🎨', '🎵'];
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!formData.name || !formData.description) {
+            alert('Please fill in all required fields');
+            return;
+        }
+        onSubmit(formData);
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="create-room-form">
+            <div className="form-group">
+                <label>Room Name *</label>
+                <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({...formData, name: e.target.value})}
+                    placeholder="e.g., Daily Reflections"
+                    required
+                />
+            </div>
+
+            <div className="form-group">
+                <label>Description *</label>
+                <textarea
+                    value={formData.description}
+                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                    placeholder="What is this room about?"
+                    rows="3"
+                    required
+                />
+            </div>
+
+            <div className="form-group">
+                <label>Icon</label>
+                <div className="icon-picker">
+                    {icons.map(icon => (
+                        <button
+                            key={icon}
+                            type="button"
+                            className={`icon-option ${formData.icon === icon ? 'selected' : ''}`}
+                            onClick={() => setFormData({...formData, icon})}
+                        >
+                            {icon}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <div className="form-group">
+                <label>Room Rules (optional)</label>
+                <textarea
+                    value={formData.rules}
+                    onChange={(e) => setFormData({...formData, rules: e.target.value})}
+                    placeholder="Any specific guidelines for this room?"
+                    rows="2"
+                />
+            </div>
+
+            <div className="form-actions">
+                <button type="submit" className="btn btn-primary">Create Room</button>
+                <button type="button" className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+            </div>
+        </form>
+    );
+}
         // Profile View
         function ProfileView({ user }) {
             const [editing, setEditing] = useState(false);
