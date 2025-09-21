@@ -1136,157 +1136,196 @@
         }
 
         // Main App Component
-        function AdminApp() {
-            const [user, setUser] = useState(null);
-            const [loading, setLoading] = useState(true);
-            const [currentView, setCurrentView] = useState('dashboard');
-            const [searchQuery, setSearchQuery] = useState('');
-            const [notifications, setNotifications] = useState([]);
-            const [showNotifications, setShowNotifications] = useState(false);
-            const isOnline = useConnectionStatus();
-            
-            // Firestore listeners cleanup
-            const unsubscribers = useRef([]);
+function AdminApp() {
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [currentView, setCurrentView] = useState('dashboard');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [notifications, setNotifications] = useState([]);
+    const [showNotifications, setShowNotifications] = useState(false);
+    const isOnline = useConnectionStatus();
+    
+    // FIX: Move useDebounce here at component level
+    const debouncedSearchQuery = useDebounce(searchQuery, 300);
+    
+    // Firestore listeners cleanup
+    const unsubscribers = useRef([]);
 
-            useEffect(() => {
-                const unsubscribe = auth.onAuthStateChanged(async (authUser) => {
-                    if (authUser) {
-                        try {
-                            const userDoc = await db.collection('users').doc(authUser.uid).get();
-                            if (userDoc.exists) {
-                                const userData = userDoc.data();
-                                if (userData.role === 'admin') {
-                                    setUser({ uid: authUser.uid, ...userData });
-                                    setupRealtimeListeners(authUser.uid);
-                                } else {
-                                    auth.signOut();
-                                    alert('Access denied. Admin access required.');
-                                }
-                            } else {
-                                auth.signOut();
-                                alert('User profile not found.');
-                            }
-                        } catch (error) {
-                            console.error('Error loading user:', error);
+    useEffect(() => {
+        const unsubscribe = auth.onAuthStateChanged(async (authUser) => {
+            if (authUser) {
+                try {
+                    const userDoc = await db.collection('users').doc(authUser.uid).get();
+                    if (userDoc.exists) {
+                        const userData = userDoc.data();
+                        if (userData.role === 'admin') {
+                            setUser({ uid: authUser.uid, ...userData });
+                            setupRealtimeListeners(authUser.uid);
+                        } else {
                             auth.signOut();
+                            alert('Access denied. Admin access required.');
                         }
                     } else {
-                        setUser(null);
-                        cleanupListeners();
+                        auth.signOut();
+                        alert('User profile not found.');
                     }
-                    setLoading(false);
-                });
-
-                return () => {
-                    unsubscribe();
-                    cleanupListeners();
-                };
-            }, []);
-
-            const setupRealtimeListeners = (userId) => {
-                // Clean up existing listeners
+                } catch (error) {
+                    console.error('Error loading user:', error);
+                    auth.signOut();
+                }
+            } else {
+                setUser(null);
                 cleanupListeners();
-                
-                // Listen to notifications
-                try {
-                    const notifQuery = db.collection('notifications')
-                        .where('recipientId', '==', userId)
-                        .orderBy('createdAt', 'desc')
-                        .limit(50);
-                    
-                    const unsubNotif = notifQuery.onSnapshot(
-                        snapshot => {
-                            const notifs = [];
-                            snapshot.forEach(doc => {
-                                notifs.push({ id: doc.id, ...doc.data() });
-                            });
-                            setNotifications(notifs);
-                        },
-                        error => {
-                            console.error('Error loading notifications:', error);
-                        }
-                    );
-                    
-                    unsubscribers.current.push(unsubNotif);
-                } catch (error) {
-                    console.error('Error setting up listeners:', error);
-                }
-            };
-
-            const cleanupListeners = () => {
-                unsubscribers.current.forEach(unsub => {
-                    try {
-                        unsub();
-                    } catch (error) {
-                        console.error('Error cleaning up listener:', error);
-                    }
-                });
-                unsubscribers.current = [];
-            };
-
-            const handleLogout = async () => {
-                try {
-                    cleanupListeners();
-                    await auth.signOut();
-                    setUser(null);
-                    setCurrentView('dashboard');
-                } catch (error) {
-                    console.error('Logout error:', error);
-                    alert('Error logging out. Please try again.');
-                }
-            };
-
-            const handleImpersonate = (targetUser) => {
-                // Open PIR view in new tab/window
-                const pirViewUrl = `pir-view.html?userId=${targetUser.id}`;
-                window.open(pirViewUrl, '_blank');
-            };
-
-            if (loading) {
-                return (
-                    <div className="loading-container">
-                        <div className="loading-spinner"></div>
-                        <p style={{marginTop: '20px'}}>Loading Admin Portal...</p>
-                    </div>
-                );
             }
+            setLoading(false);
+        });
 
-            if (!user) {
-                return <LoginScreen />;
-            }
+        return () => {
+            unsubscribe();
+            cleanupListeners();
+        };
+    }, []);
 
-            return (
-                <>
-                    <div className={`connection-status ${isOnline ? 'online' : 'offline'}`}>
-                        {!isOnline && '⚠️ Offline - Some features may be limited'}
-                    </div>
-                    
-                    <div className="app-container">
-                        <Sidebar 
-                            currentView={currentView}
-                            setCurrentView={setCurrentView}
-                        />
-                        
-                        <div className="main-content">
-                            <Header 
-                                currentView={currentView}
-                                searchQuery={searchQuery}
-                                setSearchQuery={setSearchQuery}
-                                notifications={notifications}
-                                showNotifications={showNotifications}
-                                setShowNotifications={setShowNotifications}
-                                onLogout={handleLogout}
-                                user={user}
-                            />
-                            
-                            <div className="content">
-                                {renderView(currentView, searchQuery, user, handleImpersonate)}
-                            </div>
-                        </div>
-                    </div>
-                </>
+    const setupRealtimeListeners = (userId) => {
+        // Clean up existing listeners
+        cleanupListeners();
+        
+        // Listen to notifications
+        try {
+            const notifQuery = db.collection('notifications')
+                .where('recipientId', '==', userId)
+                .orderBy('createdAt', 'desc')
+                .limit(50);
+            
+            const unsubNotif = notifQuery.onSnapshot(
+                snapshot => {
+                    const notifs = [];
+                    snapshot.forEach(doc => {
+                        notifs.push({ id: doc.id, ...doc.data() });
+                    });
+                    setNotifications(notifs);
+                },
+                error => {
+                    console.error('Error loading notifications:', error);
+                }
             );
+            
+            unsubscribers.current.push(unsubNotif);
+        } catch (error) {
+            console.error('Error setting up listeners:', error);
         }
+    };
+
+    const cleanupListeners = () => {
+        unsubscribers.current.forEach(unsub => {
+            try {
+                unsub();
+            } catch (error) {
+                console.error('Error cleaning up listener:', error);
+            }
+        });
+        unsubscribers.current = [];
+    };
+
+    const handleLogout = async () => {
+        try {
+            cleanupListeners();
+            await auth.signOut();
+            setUser(null);
+            setCurrentView('dashboard');
+        } catch (error) {
+            console.error('Logout error:', error);
+            alert('Error logging out. Please try again.');
+        }
+    };
+
+    const handleImpersonate = (targetUser) => {
+        // Open PIR view in new tab/window
+        const pirViewUrl = `pir-view.html?userId=${targetUser.id}`;
+        window.open(pirViewUrl, '_blank');
+    };
+
+    if (loading) {
+        return (
+            <div className="loading-container">
+                <div className="loading-spinner"></div>
+                <p style={{marginTop: '20px'}}>Loading Admin Portal...</p>
+            </div>
+        );
+    }
+
+    if (!user) {
+        return <LoginScreen />;
+    }
+
+    return (
+        <>
+            <div className={`connection-status ${isOnline ? 'online' : 'offline'}`}>
+                {!isOnline && '⚠️ Offline - Some features may be limited'}
+            </div>
+            
+            <div className="app-container">
+                <Sidebar 
+                    currentView={currentView}
+                    setCurrentView={setCurrentView}
+                />
+                
+                <div className="main-content">
+                    <Header 
+                        currentView={currentView}
+                        searchQuery={searchQuery}
+                        setSearchQuery={setSearchQuery}
+                        notifications={notifications}
+                        showNotifications={showNotifications}
+                        setShowNotifications={setShowNotifications}
+                        onLogout={handleLogout}
+                        user={user}
+                    />
+                    
+                    <div className="content">
+                        {/* FIX: Pass debouncedSearchQuery instead of searchQuery */}
+                        {renderView(currentView, debouncedSearchQuery, user, handleImpersonate)}
+                    </div>
+                </div>
+            </div>
+        </>
+    );
+}
+
+// View Renderer - NO HOOKS HERE
+function renderView(view, searchQuery, user, onImpersonate) {
+    // REMOVED: const debouncedSearchQuery = useDebounce(searchQuery, 300);
+    // Now searchQuery is already debounced when passed in
+    
+    switch(view) {
+        case 'dashboard':
+            return <DashboardView user={user} />;
+        case 'users':
+            return <UsersView searchQuery={searchQuery} user={user} onImpersonate={onImpersonate} />;
+        case 'profile':
+            return <ProfileView user={user} />;
+        case 'messages':
+            return <MessagesView user={user} searchQuery={searchQuery} />;
+        case 'feedback':
+            return <FeedbackView searchQuery={searchQuery} user={user} />;
+        case 'resources':
+            return <ResourcesView user={user} searchQuery={searchQuery} />;
+        case 'groups':
+            return <GroupsView user={user} searchQuery={searchQuery} />;
+        case 'checkins':
+            return <CheckInsView searchQuery={searchQuery} />;
+        case 'assignments':
+            return <AssignmentsView searchQuery={searchQuery} user={user} />;
+        case 'alerts':
+            return <AlertsView searchQuery={searchQuery} user={user} />;
+        case 'reports':
+            return <ReportsView user={user} />;
+        case 'settings':
+            return <SettingsView user={user} />;
+        default:
+            return <div className="empty-state">View not found</div>;
+    }
+}
 
         // Sidebar Component
         function Sidebar({ currentView, setCurrentView }) {
@@ -1569,40 +1608,7 @@
             );
         }
 
-        // View Renderer
-        function renderView(view, searchQuery, user, onImpersonate) {
-            const debouncedSearchQuery = useDebounce(searchQuery, 300);
-            
-            switch(view) {
-                case 'dashboard':
-                    return <DashboardView user={user} />;
-                case 'users':
-                    return <UsersView searchQuery={debouncedSearchQuery} user={user} onImpersonate={onImpersonate} />;
-                case 'profile':
-                    return <ProfileView user={user} />;
-                case 'messages':
-                    return <MessagesView user={user} searchQuery={debouncedSearchQuery} />;
-                case 'feedback':
-                    return <FeedbackView searchQuery={debouncedSearchQuery} user={user} />;
-                case 'resources':
-                    return <ResourcesView user={user} searchQuery={debouncedSearchQuery} />;
-                case 'groups':
-                    return <GroupsView user={user} searchQuery={debouncedSearchQuery} />;
-                case 'checkins':
-                    return <CheckInsView searchQuery={debouncedSearchQuery} />;
-                case 'assignments':
-                    return <AssignmentsView searchQuery={debouncedSearchQuery} user={user} />;
-                case 'alerts':
-                    return <AlertsView searchQuery={debouncedSearchQuery} user={user} />;
-                case 'reports':
-                    return <ReportsView user={user} />;
-                case 'settings':
-                    return <SettingsView user={user} />;
-                default:
-                    return <div className="empty-state">View not found</div>;
-            }
-        }
-
+       
         // Dashboard View
         function DashboardView({ user }) {
             const [stats, setStats] = useState({
