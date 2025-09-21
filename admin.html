@@ -2188,6 +2188,458 @@ function UsersView({ searchQuery, user, onImpersonate }) {
         </div>
     );
 }
+        // My PIRs View - Admin's own caseload management
+function MyPIRsView({ searchQuery, user }) {
+    const [myPIRs, setMyPIRs] = useState([]);
+    const [filteredPIRs, setFilteredPIRs] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedPIR, setSelectedPIR] = useState(null);
+    const [activeFilter, setActiveFilter] = useState('all'); // all, needsAttention, compliant
+    const [recentCheckIns, setRecentCheckIns] = useState([]);
+    const [pendingAlerts, setPendingAlerts] = useState([]);
+    
+    useEffect(() => {
+        loadMyPIRs();
+    }, [user]);
+
+    useEffect(() => {
+        filterPIRs();
+    }, [searchQuery, myPIRs, activeFilter]);
+
+    const loadMyPIRs = async () => {
+        try {
+            setLoading(true);
+            
+            // Get PIRs assigned to current admin
+            const pirsSnap = await db.collection('users')
+                .where('assignedCoach', '==', user.uid)
+                .where('role', '==', 'pir')
+                .get();
+
+            const pirsData = [];
+            const pirIds = [];
+            
+            for (const doc of pirsSnap.docs) {
+                const pirData = { id: doc.id, ...doc.data() };
+                pirIds.push(doc.id);
+                
+                // Get last check-in for each PIR
+                const lastCheckInSnap = await db.collection('checkIns')
+                    .where('userId', '==', doc.id)
+                    .orderBy('createdAt', 'desc')
+                    .limit(1)
+                    .get();
+                
+                if (!lastCheckInSnap.empty) {
+                    pirData.lastCheckIn = lastCheckInSnap.docs[0].data();
+                    pirData.lastCheckInDate = lastCheckInSnap.docs[0].data().createdAt;
+                }
+                
+                // Calculate days clean
+                if (pirData.sobrietyDate) {
+                    const sobrietyDate = pirData.sobrietyDate.toDate ? 
+                        pirData.sobrietyDate.toDate() : new Date(pirData.sobrietyDate);
+                    pirData.daysClean = Math.floor((new Date() - sobrietyDate) / (1000 * 60 * 60 * 24));
+                } else {
+                    pirData.daysClean = 0;
+                }
+                
+                // Check compliance (last 7 days)
+                const sevenDaysAgo = new Date();
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                
+                const recentCheckInsSnap = await db.collection('checkIns')
+                    .where('userId', '==', doc.id)
+                    .where('createdAt', '>=', sevenDaysAgo)
+                    .get();
+                
+                pirData.weeklyCheckIns = recentCheckInsSnap.size;
+                pirData.complianceRate = Math.round((recentCheckInsSnap.size / 7) * 100);
+                
+                // Check for active alerts
+                const alertsSnap = await db.collection('alerts')
+                    .where('userId', '==', doc.id)
+                    .where('status', '==', 'active')
+                    .get();
+                
+                pirData.activeAlerts = alertsSnap.size;
+                
+                pirsData.push(pirData);
+            }
+            
+            // Load recent check-ins from all PIRs
+            if (pirIds.length > 0) {
+                const checkInsPromises = pirIds.map(id =>
+                    db.collection('checkIns')
+                        .where('userId', '==', id)
+                        .orderBy('createdAt', 'desc')
+                        .limit(3)
+                        .get()
+                );
+                
+                const checkInsSnapshots = await Promise.all(checkInsPromises);
+                const allCheckIns = [];
+                
+                checkInsSnapshots.forEach((snapshot, index) => {
+                    snapshot.forEach(doc => {
+                        const checkInData = { id: doc.id, ...doc.data() };
+                        const pir = pirsData.find(p => p.id === pirIds[index]);
+                        checkInData.pirName = pir?.displayName || pir?.email || 'Unknown';
+                        checkInData.pirId = pirIds[index];
+                        allCheckIns.push(checkInData);
+                    });
+                });
+                
+                // Sort by date
+                allCheckIns.sort((a, b) => {
+                    const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+                    const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+                    return dateB - dateA;
+                });
+                
+                setRecentCheckIns(allCheckIns.slice(0, 10));
+                
+                // Load pending alerts
+                const alertsPromises = pirIds.map(id =>
+                    db.collection('alerts')
+                        .where('userId', '==', id)
+                        .where('status', '==', 'active')
+                        .get()
+                );
+                
+                const alertsSnapshots = await Promise.all(alertsPromises);
+                const allAlerts = [];
+                
+                alertsSnapshots.forEach((snapshot, index) => {
+                    snapshot.forEach(doc => {
+                        const alertData = { id: doc.id, ...doc.data() };
+                        const pir = pirsData.find(p => p.id === pirIds[index]);
+                        alertData.pirName = pir?.displayName || pir?.email || 'Unknown';
+                        alertData.pirId = pirIds[index];
+                        allAlerts.push(alertData);
+                    });
+                });
+                
+                setPendingAlerts(allAlerts);
+            }
+            
+            setMyPIRs(pirsData);
+            setFilteredPIRs(pirsData);
+            
+        } catch (error) {
+            console.error('Error loading my PIRs:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const filterPIRs = () => {
+        let filtered = [...myPIRs];
+        
+        // Apply status filter
+        if (activeFilter === 'needsAttention') {
+            filtered = filtered.filter(pir => 
+                pir.complianceRate < 50 || 
+                pir.activeAlerts > 0 ||
+                !pir.lastCheckInDate ||
+                (pir.lastCheckInDate && daysSince(pir.lastCheckInDate) > 2)
+            );
+        } else if (activeFilter === 'compliant') {
+            filtered = filtered.filter(pir => 
+                pir.complianceRate >= 70 && 
+                pir.activeAlerts === 0
+            );
+        }
+        
+        // Apply search filter
+        if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            filtered = filtered.filter(pir =>
+                pir.email?.toLowerCase().includes(query) ||
+                pir.displayName?.toLowerCase().includes(query) ||
+                pir.firstName?.toLowerCase().includes(query) ||
+                pir.lastName?.toLowerCase().includes(query)
+            );
+        }
+        
+        setFilteredPIRs(filtered);
+    };
+
+    const daysSince = (date) => {
+        const checkDate = date?.toDate ? date.toDate() : new Date(date);
+        return Math.floor((new Date() - checkDate) / (1000 * 60 * 60 * 24));
+    };
+
+    const handleQuickAssignment = async (pirId) => {
+        const title = prompt('Assignment Title:');
+        if (title) {
+            const description = prompt('Assignment Description:');
+            const dueDate = prompt('Due Date (YYYY-MM-DD):');
+            
+            try {
+                await db.collection('assignments').add({
+                    userId: pirId,
+                    title: title,
+                    description: description || '',
+                    dueDate: dueDate || '',
+                    status: 'pending',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    createdBy: user.uid
+                });
+                
+                alert('Assignment created successfully!');
+            } catch (error) {
+                console.error('Error creating assignment:', error);
+                alert('Failed to create assignment');
+            }
+        }
+    };
+
+    const handleResolveAlert = async (alertId) => {
+        try {
+            await db.collection('alerts').doc(alertId).update({
+                status: 'resolved',
+                resolvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                resolvedBy: user.uid
+            });
+            
+            // Reload data
+            loadMyPIRs();
+        } catch (error) {
+            console.error('Error resolving alert:', error);
+            alert('Failed to resolve alert');
+        }
+    };
+
+    const getStatusColor = (pir) => {
+        if (pir.activeAlerts > 0) return '#ff4757';
+        if (pir.complianceRate < 50) return '#ff9800';
+        if (pir.complianceRate >= 70) return '#4CAF50';
+        return '#ffc107';
+    };
+
+    const getStatusLabel = (pir) => {
+        if (pir.activeAlerts > 0) return 'Alert';
+        if (!pir.lastCheckInDate) return 'No Check-in';
+        if (daysSince(pir.lastCheckInDate) > 2) return 'Overdue';
+        if (pir.complianceRate >= 70) return 'Good';
+        if (pir.complianceRate >= 50) return 'Fair';
+        return 'Needs Attention';
+    };
+
+    if (loading) {
+        return (
+            <div className="loading-container">
+                <div className="loading-spinner"></div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="my-pirs-container">
+            {/* Header Stats */}
+            <div className="stats-row">
+                <div className="stat-card">
+                    <div className="stat-value">{myPIRs.length}</div>
+                    <div className="stat-label">Total PIRs</div>
+                </div>
+                <div className="stat-card">
+                    <div className="stat-value" style={{color: '#ff4757'}}>
+                        {pendingAlerts.length}
+                    </div>
+                    <div className="stat-label">Active Alerts</div>
+                </div>
+                <div className="stat-card">
+                    <div className="stat-value">
+                        {myPIRs.filter(p => p.complianceRate >= 70).length}
+                    </div>
+                    <div className="stat-label">Compliant PIRs</div>
+                </div>
+                <div className="stat-card">
+                    <div className="stat-value">
+                        {Math.round(myPIRs.reduce((acc, p) => acc + p.daysClean, 0) / (myPIRs.length || 1))}
+                    </div>
+                    <div className="stat-label">Avg Days Clean</div>
+                </div>
+            </div>
+
+            {/* Alerts Section */}
+            {pendingAlerts.length > 0 && (
+                <div className="alerts-section" style={{marginBottom: '20px'}}>
+                    <h3 style={{color: '#ff4757', marginBottom: '15px'}}>⚠️ Pending Alerts</h3>
+                    {pendingAlerts.map(alert => (
+                        <div key={alert.id} className="alert-item" style={{
+                            background: 'rgba(255, 71, 87, 0.1)',
+                            border: '1px solid #ff4757',
+                            borderRadius: '10px',
+                            padding: '15px',
+                            marginBottom: '10px'
+                        }}>
+                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                                <div>
+                                    <strong>{alert.pirName}</strong> - {alert.type}
+                                    <div style={{fontSize: '14px', opacity: 0.8}}>
+                                        {alert.message}
+                                    </div>
+                                    <div style={{fontSize: '12px', opacity: 0.6}}>
+                                        {formatTimeAgo(alert.timestamp)}
+                                    </div>
+                                </div>
+                                <button 
+                                    className="btn btn-sm btn-primary"
+                                    onClick={() => handleResolveAlert(alert.id)}
+                                >
+                                    Resolve
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Filter Buttons */}
+            <div className="filter-row" style={{marginBottom: '20px'}}>
+                <button 
+                    className={`filter-btn ${activeFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => setActiveFilter('all')}
+                >
+                    All ({myPIRs.length})
+                </button>
+                <button 
+                    className={`filter-btn ${activeFilter === 'needsAttention' ? 'active' : ''}`}
+                    onClick={() => setActiveFilter('needsAttention')}
+                >
+                    Needs Attention ({myPIRs.filter(p => 
+                        p.complianceRate < 50 || p.activeAlerts > 0 || daysSince(p.lastCheckInDate) > 2
+                    ).length})
+                </button>
+                <button 
+                    className={`filter-btn ${activeFilter === 'compliant' ? 'active' : ''}`}
+                    onClick={() => setActiveFilter('compliant')}
+                >
+                    Compliant ({myPIRs.filter(p => p.complianceRate >= 70 && p.activeAlerts === 0).length})
+                </button>
+            </div>
+
+            {/* PIRs Grid */}
+            <div className="pirs-grid">
+                {filteredPIRs.map(pir => (
+                    <div key={pir.id} className="pir-card" style={{
+                        borderLeft: `4px solid ${getStatusColor(pir)}`
+                    }}>
+                        <div className="pir-header">
+                            <div>
+                                <h4>{pir.displayName || pir.email}</h4>
+                                <span className="badge" style={{
+                                    backgroundColor: getStatusColor(pir)
+                                }}>
+                                    {getStatusLabel(pir)}
+                                </span>
+                            </div>
+                            {pir.activeAlerts > 0 && (
+                                <span className="alert-badge">
+                                    🚨 {pir.activeAlerts}
+                                </span>
+                            )}
+                        </div>
+                        
+                        <div className="pir-stats">
+                            <div className="stat-item">
+                                <span className="stat-label">Days Clean:</span>
+                                <span className="stat-value">{pir.daysClean}</span>
+                            </div>
+                            <div className="stat-item">
+                                <span className="stat-label">Weekly Compliance:</span>
+                                <span className="stat-value">{pir.complianceRate}%</span>
+                            </div>
+                            <div className="stat-item">
+                                <span className="stat-label">Last Check-in:</span>
+                                <span className="stat-value">
+                                    {pir.lastCheckInDate ? formatTimeAgo(pir.lastCheckInDate) : 'Never'}
+                                </span>
+                            </div>
+                            {pir.lastCheckIn && (
+                                <>
+                                    <div className="stat-item">
+                                        <span className="stat-label">Mood:</span>
+                                        <span className="stat-value">{pir.lastCheckIn.mood}/5</span>
+                                    </div>
+                                    <div className="stat-item">
+                                        <span className="stat-label">Cravings:</span>
+                                        <span className="stat-value">{pir.lastCheckIn.cravingIntensity}/5</span>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                        
+                        <div className="pir-actions">
+                            <button 
+                                className="action-btn btn-primary"
+                                onClick={() => setSelectedPIR(pir)}
+                            >
+                                View Details
+                            </button>
+                            <button 
+                                className="action-btn btn-secondary"
+                                onClick={() => handleQuickAssignment(pir.id)}
+                            >
+                                + Assignment
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {filteredPIRs.length === 0 && (
+                <div className="empty-state">
+                    {myPIRs.length === 0 ? 
+                        'You have no PIRs assigned to you.' : 
+                        'No PIRs match your filter criteria.'}
+                </div>
+            )}
+
+            {/* Recent Check-ins Section */}
+            {recentCheckIns.length > 0 && (
+                <div className="recent-section" style={{marginTop: '30px'}}>
+                    <h3>Recent Check-ins</h3>
+                    <div className="checkins-list">
+                        {recentCheckIns.map(checkIn => (
+                            <div key={checkIn.id} className="checkin-item">
+                                <div className="checkin-header">
+                                    <strong>{checkIn.pirName}</strong>
+                                    <span>{formatTimeAgo(checkIn.createdAt)}</span>
+                                </div>
+                                <div className="checkin-content">
+                                    <span>Mood: {checkIn.mood}/5</span>
+                                    <span>Cravings: {checkIn.cravingIntensity}/5</span>
+                                    {checkIn.attendedMeeting && <span>✓ Attended Meeting</span>}
+                                </div>
+                                {checkIn.notes && (
+                                    <div className="checkin-notes">
+                                        Notes: {checkIn.notes}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Show PIR Detail Modal if selected */}
+            {selectedPIR && (
+                <UserDetailModal
+                    user={selectedPIR}
+                    onClose={() => setSelectedPIR(null)}
+                    onUpdate={() => {
+                        setSelectedPIR(null);
+                        loadMyPIRs();
+                    }}
+                    currentUserId={user.uid}
+                />
+            )}
+        </div>
+    );
+}
         // Profile View
         function ProfileView({ user }) {
             const [editing, setEditing] = useState(false);
