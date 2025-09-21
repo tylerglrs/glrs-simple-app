@@ -6911,7 +6911,90 @@ function UserDetailModal({ user, onClose, onUpdate, currentUserId }) {
                 </div>
             );
         }
+// Temporary function to trigger index creation links
+async function triggerIndexCreation() {
+    const testUserId = user.uid; // Use current admin's ID for testing
+    
+    console.log('Starting index trigger queries...');
+    console.log('Check your browser console for Firebase index creation links');
+    console.log('Click each link to create the required indexes');
+    
+    const queries = [
+        // CheckIns indexes
+        {
+            name: 'CheckIns - userId + createdAt',
+            query: () => db.collection('checkIns')
+                .where('userId', '==', testUserId)
+                .orderBy('createdAt', 'desc')
+                .limit(1)
+                .get()
+        },
+        
+        // Assignments indexes
+        {
+            name: 'Assignments - userId + createdAt',
+            query: () => db.collection('assignments')
+                .where('userId', '==', testUserId)
+                .orderBy('createdAt', 'desc')
+                .limit(1)
+                .get()
+        },
+        
+        // Alerts indexes
+        {
+            name: 'Alerts - userId + timestamp',
+            query: () => db.collection('alerts')
+                .where('userId', '==', testUserId)
+                .orderBy('timestamp', 'desc')
+                .limit(1)
+                .get()
+        },
+        
+        // Feedback indexes
+        {
+            name: 'Feedback - userId + createdAt',
+            query: () => db.collection('feedback')
+                .where('userId', '==', testUserId)
+                .orderBy('createdAt', 'desc')
+                .limit(1)
+                .get()
+        },
+        
+        // Groups with members array-contains (if needed)
+        {
+            name: 'Groups - members array',
+            query: () => db.collection('groups')
+                .where('members', 'array-contains', testUserId)
+                .limit(1)
+                .get()
+        }
+    ];
+    
+    // Run each query to trigger index errors
+    for (const {name, query} of queries) {
+        try {
+            console.log(`Attempting: ${name}`);
+            await query();
+            console.log(`✓ ${name} - Index already exists or query succeeded`);
+        } catch (error) {
+            if (error.code === 'failed-precondition' && error.message.includes('index')) {
+                console.error(`✗ ${name} - INDEX NEEDED! Check error above for creation link ↑`);
+            } else {
+                console.log(`- ${name} - Other error: ${error.message}`);
+            }
+        }
+    }
+    
+    console.log('
+=================================');
+    console.log('Index trigger complete!');
+    console.log('Look above for any Firebase links and click them to create indexes');
+    console.log('After creating indexes, wait 2-3 minutes for them to build');
+    console.log('=================================');
+}
 
+// Add a button to trigger it (add this to your AdminApp where appropriate)
+// Or just run it from console
         // Initialize App
         ReactDOM.render(<AdminApp />, document.getElementById('root'));
     </script>
