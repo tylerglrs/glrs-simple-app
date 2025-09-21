@@ -2377,251 +2377,467 @@ function renderView(view, searchQuery, user, onImpersonate) {
             );
         }
 
-        // Messages View
-        function MessagesView({ user, searchQuery }) {
-            const [conversations, setConversations] = useState([]);
-            const [selectedConversation, setSelectedConversation] = useState(null);
-            const [messages, setMessages] = useState([]);
-            const [messageText, setMessageText] = useState('');
-            const [loading, setLoading] = useState(true);
-            const [sendingMessage, setSendingMessage] = useState(false);
+       // Messages View with New Message functionality
+function MessagesView({ user, searchQuery }) {
+    const [conversations, setConversations] = useState([]);
+    const [selectedConversation, setSelectedConversation] = useState(null);
+    const [messages, setMessages] = useState([]);
+    const [messageText, setMessageText] = useState('');
+    const [loading, setLoading] = useState(true);
+    const [sendingMessage, setSendingMessage] = useState(false);
+    const [showNewMessage, setShowNewMessage] = useState(false);
+    const [allUsers, setAllUsers] = useState([]);
+    const [selectedNewUser, setSelectedNewUser] = useState(null);
+    const [newMessageText, setNewMessageText] = useState('');
+    const [userSearch, setUserSearch] = useState('');
 
-            useEffect(() => {
-                loadConversations();
-            }, []);
+    useEffect(() => {
+        loadConversations();
+        loadAllUsers();
+    }, []);
 
-            useEffect(() => {
-                if (selectedConversation) {
-                    const unsubscribe = db.collection('messages')
-                        .where('conversationId', '==', selectedConversation.id)
-                        .orderBy('createdAt', 'asc')
-                        .onSnapshot(snapshot => {
-                            const msgs = [];
-                            snapshot.forEach(doc => {
-                                msgs.push({ id: doc.id, ...doc.data() });
-                            });
-                            setMessages(msgs);
-                            
-                            // Mark as read
-                            msgs.forEach(msg => {
-                                if (msg.recipientId === user.uid && !msg.read) {
-                                    db.collection('messages').doc(msg.id).update({ read: true });
-                                }
-                            });
-                        });
+    useEffect(() => {
+        if (selectedConversation) {
+            const unsubscribe = db.collection('messages')
+                .where('conversationId', '==', selectedConversation.id)
+                .orderBy('createdAt', 'asc')
+                .onSnapshot(snapshot => {
+                    const msgs = [];
+                    snapshot.forEach(doc => {
+                        msgs.push({ id: doc.id, ...doc.data() });
+                    });
+                    setMessages(msgs);
                     
-                    return () => unsubscribe();
+                    // Mark as read
+                    msgs.forEach(msg => {
+                        if (msg.recipientId === user.uid && !msg.read) {
+                            db.collection('messages').doc(msg.id).update({ read: true });
+                        }
+                    });
+                });
+            
+            return () => unsubscribe();
+        }
+    }, [selectedConversation]);
+
+    const loadAllUsers = async () => {
+        try {
+            const usersSnap = await db.collection('users')
+                .where('role', 'in', ['pir', 'coach'])
+                .get();
+            
+            const usersData = [];
+            usersSnap.forEach(doc => {
+                if (doc.id !== user.uid) { // Don't show current user
+                    usersData.push({ 
+                        id: doc.id, 
+                        ...doc.data(),
+                        displayText: `${doc.data().displayName || doc.data().email} (${doc.data().role.toUpperCase()})`
+                    });
                 }
-            }, [selectedConversation]);
+            });
+            
+            setAllUsers(usersData);
+        } catch (error) {
+            console.error('Error loading users:', error);
+        }
+    };
 
-            const loadConversations = async () => {
-                try {
-                    // Get all messages efficiently
-                    const [sentQuery, receivedQuery] = await Promise.all([
-                        db.collection('messages')
-                            .where('senderId', '==', user.uid)
-                            .orderBy('createdAt', 'desc')
-                            .get(),
-                        db.collection('messages')
-                            .where('recipientId', '==', user.uid)
-                            .orderBy('createdAt', 'desc')
-                            .get()
-                    ]);
-                    
-                    const conversationsMap = new Map();
-                    
-                    // Process messages to create conversations
-                    const processMessage = (msg, otherUserId, otherUserName) => {
-                        if (!conversationsMap.has(otherUserId)) {
-                            conversationsMap.set(otherUserId, {
-                                id: otherUserId,
-                                userId: otherUserId,
-                                userName: otherUserName,
-                                lastMessage: msg.text,
-                                lastMessageTime: msg.createdAt,
-                                unread: false
-                            });
-                        } else {
-                            const conv = conversationsMap.get(otherUserId);
-                            if (msg.createdAt > conv.lastMessageTime) {
-                                conv.lastMessage = msg.text;
-                                conv.lastMessageTime = msg.createdAt;
-                            }
-                        }
-                    };
-                    
-                    sentQuery.forEach(doc => {
-                        const msg = doc.data();
-                        processMessage(msg, msg.recipientId, msg.recipientName);
+    const loadConversations = async () => {
+        try {
+            // Get all messages efficiently
+            const [sentQuery, receivedQuery] = await Promise.all([
+                db.collection('messages')
+                    .where('senderId', '==', user.uid)
+                    .orderBy('createdAt', 'desc')
+                    .get(),
+                db.collection('messages')
+                    .where('recipientId', '==', user.uid)
+                    .orderBy('createdAt', 'desc')
+                    .get()
+            ]);
+            
+            const conversationsMap = new Map();
+            
+            // Process messages to create conversations
+            const processMessage = (msg, otherUserId, otherUserName) => {
+                if (!conversationsMap.has(otherUserId)) {
+                    conversationsMap.set(otherUserId, {
+                        id: otherUserId,
+                        userId: otherUserId,
+                        userName: otherUserName,
+                        lastMessage: msg.text,
+                        lastMessageTime: msg.createdAt,
+                        unread: false
                     });
-                    
-                    receivedQuery.forEach(doc => {
-                        const msg = doc.data();
-                        const conv = conversationsMap.get(msg.senderId);
-                        if (!msg.read) {
-                            if (conv) conv.unread = true;
-                        }
-                        processMessage(msg, msg.senderId, msg.senderName);
-                    });
-                    
-                    let convArray = Array.from(conversationsMap.values());
-                    convArray.sort((a, b) => b.lastMessageTime - a.lastMessageTime);
-                    
-                    // Filter by search
-                    if (searchQuery) {
-                        const query = searchQuery.toLowerCase();
-                        convArray = convArray.filter(conv => 
-                            conv.userName?.toLowerCase().includes(query) ||
-                            conv.lastMessage?.toLowerCase().includes(query)
-                        );
+                } else {
+                    const conv = conversationsMap.get(otherUserId);
+                    if (msg.createdAt > conv.lastMessageTime) {
+                        conv.lastMessage = msg.text;
+                        conv.lastMessageTime = msg.createdAt;
                     }
-                    
-                    setConversations(convArray);
-                } catch (error) {
-                    console.error('Error loading conversations:', error);
-                } finally {
-                    setLoading(false);
                 }
             };
-
-            const sendMessage = async () => {
-                if (!messageText.trim() || !selectedConversation) return;
-                
-                setSendingMessage(true);
-                try {
-                    const recipientDoc = await db.collection('users').doc(selectedConversation.userId).get();
-                    const recipientData = recipientDoc.data();
-                    
-                    await db.collection('messages').add({
-                        text: messageText,
-                        senderId: user.uid,
-                        senderName: user.displayName || user.email,
-                        recipientId: selectedConversation.userId,
-                        recipientName: recipientData.displayName || recipientData.email,
-                        conversationId: selectedConversation.id,
-                        type: 'direct',
-                        read: false,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    // Create notification
-                    await db.collection('notifications').add({
-                        type: 'message',
-                        message: `New message from ${user.displayName || user.email}`,
-                        recipientId: selectedConversation.userId,
-                        relatedId: user.uid,
-                        read: false,
-                        urgent: false,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    setMessageText('');
-                } catch (error) {
-                    console.error('Error sending message:', error);
-                    alert('Failed to send message');
-                } finally {
-                    setSendingMessage(false);
+            
+            sentQuery.forEach(doc => {
+                const msg = doc.data();
+                processMessage(msg, msg.recipientId, msg.recipientName);
+            });
+            
+            receivedQuery.forEach(doc => {
+                const msg = doc.data();
+                const conv = conversationsMap.get(msg.senderId);
+                if (!msg.read) {
+                    if (conv) conv.unread = true;
                 }
-            };
-
-            if (loading) {
-                return (
-                    <div className="loading-container">
-                        <div className="loading-spinner"></div>
-                    </div>
+                processMessage(msg, msg.senderId, msg.senderName);
+            });
+            
+            let convArray = Array.from(conversationsMap.values());
+            convArray.sort((a, b) => b.lastMessageTime - a.lastMessageTime);
+            
+            // Filter by search
+            if (searchQuery) {
+                const query = searchQuery.toLowerCase();
+                convArray = convArray.filter(conv => 
+                    conv.userName?.toLowerCase().includes(query) ||
+                    conv.lastMessage?.toLowerCase().includes(query)
                 );
             }
-
-            return (
-                <div style={{display: 'flex', gap: '20px', height: 'calc(100vh - 200px)'}}>
-                    <div style={{width: '300px', background: 'rgba(255,255,255,0.05)', borderRadius: '15px', padding: '20px', overflowY: 'auto'}}>
-                        <h3 style={{marginBottom: '20px'}}>Conversations</h3>
-                        {conversations.length === 0 ? (
-                            <div className="empty-state">
-                                <div className="empty-state-text">No conversations</div>
-                            </div>
-                        ) : (
-                            conversations.map(conv => (
-                                <div
-                                    key={conv.id}
-                                    onClick={() => setSelectedConversation(conv)}
-                                    style={{
-                                        padding: '15px',
-                                        margin: '10px 0',
-                                        background: selectedConversation?.id === conv.id ? 'rgba(244,196,48,0.2)' : 'rgba(255,255,255,0.05)',
-                                        borderRadius: '10px',
-                                        cursor: 'pointer',
-                                        borderLeft: conv.unread ? '3px solid #f4c430' : 'none'
-                                    }}
-                                >
-                                    <div style={{fontWeight: 'bold', marginBottom: '5px'}}>
-                                        {conv.userName}
-                                    </div>
-                                    <div style={{fontSize: '14px', opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
-                                        {conv.lastMessage}
-                                    </div>
-                                    <div style={{fontSize: '12px', opacity: 0.5, marginTop: '5px'}}>
-                                        {formatTimeAgo(conv.lastMessageTime)}
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                    
-                    <div style={{flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: '15px', padding: '20px', display: 'flex', flexDirection: 'column'}}>
-                        {selectedConversation ? (
-                            <>
-                                <h3 style={{marginBottom: '20px'}}>
-                                    {selectedConversation.userName}
-                                </h3>
-                                
-                                <div style={{flex: 1, overflowY: 'auto', marginBottom: '20px', display: 'flex', flexDirection: 'column'}}>
-                                    {messages.map(msg => (
-                                        <div
-                                            key={msg.id}
-                                            className={`message-bubble ${msg.senderId === user.uid ? 'sent' : 'received'}`}
-                                        >
-                                            <div>{msg.text}</div>
-                                            <div className="message-time">
-                                                {formatTimeAgo(msg.createdAt)}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                                
-                                <div style={{display: 'flex', gap: '10px'}}>
-                                    <input
-                                        type="text"
-                                        className="form-input"
-                                        placeholder="Type a message..."
-                                        value={messageText}
-                                        onChange={(e) => setMessageText(e.target.value)}
-                                        onKeyPress={(e) => {
-                                            if (e.key === 'Enter' && !e.shiftKey) {
-                                                e.preventDefault();
-                                                sendMessage();
-                                            }
-                                        }}
-                                    />
-                                    <button 
-                                        className="btn btn-primary"
-                                        onClick={sendMessage}
-                                        disabled={!messageText.trim() || sendingMessage}
-                                    >
-                                        {sendingMessage ? '...' : 'Send'}
-                                    </button>
-                                </div>
-                            </>
-                        ) : (
-                            <div className="empty-state">
-                                <div className="empty-state-icon">💬</div>
-                                <div className="empty-state-text">Select a conversation</div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
+            
+            setConversations(convArray);
+        } catch (error) {
+            console.error('Error loading conversations:', error);
+        } finally {
+            setLoading(false);
         }
+    };
+
+    const sendMessage = async () => {
+        if (!messageText.trim() || !selectedConversation) return;
+        
+        setSendingMessage(true);
+        try {
+            const recipientDoc = await db.collection('users').doc(selectedConversation.userId).get();
+            const recipientData = recipientDoc.data();
+            
+            await db.collection('messages').add({
+                text: messageText,
+                senderId: user.uid,
+                senderName: user.displayName || user.email,
+                recipientId: selectedConversation.userId,
+                recipientName: recipientData.displayName || recipientData.email,
+                conversationId: selectedConversation.id,
+                type: 'direct',
+                read: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Create notification
+            await db.collection('notifications').add({
+                type: 'message',
+                message: `New message from ${user.displayName || user.email}`,
+                recipientId: selectedConversation.userId,
+                relatedId: user.uid,
+                read: false,
+                urgent: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            setMessageText('');
+        } catch (error) {
+            console.error('Error sending message:', error);
+            alert('Failed to send message');
+        } finally {
+            setSendingMessage(false);
+        }
+    };
+
+    const startNewConversation = async () => {
+        if (!selectedNewUser || !newMessageText.trim()) {
+            alert('Please select a user and enter a message');
+            return;
+        }
+        
+        setSendingMessage(true);
+        try {
+            // Create the first message
+            await db.collection('messages').add({
+                text: newMessageText,
+                senderId: user.uid,
+                senderName: user.displayName || user.email,
+                recipientId: selectedNewUser.id,
+                recipientName: selectedNewUser.displayName || selectedNewUser.email,
+                conversationId: selectedNewUser.id, // Use recipient ID as conversation ID
+                type: 'direct',
+                read: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Create notification
+            await db.collection('notifications').add({
+                type: 'message',
+                message: `New message from ${user.displayName || user.email}`,
+                recipientId: selectedNewUser.id,
+                relatedId: user.uid,
+                read: false,
+                urgent: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Reset and reload
+            setShowNewMessage(false);
+            setSelectedNewUser(null);
+            setNewMessageText('');
+            setUserSearch('');
+            
+            // Select the new conversation
+            setSelectedConversation({
+                id: selectedNewUser.id,
+                userId: selectedNewUser.id,
+                userName: selectedNewUser.displayName || selectedNewUser.email,
+                lastMessage: newMessageText,
+                lastMessageTime: new Date(),
+                unread: false
+            });
+            
+            // Reload conversations
+            loadConversations();
+            
+            alert('Message sent successfully!');
+        } catch (error) {
+            console.error('Error starting conversation:', error);
+            alert('Failed to send message');
+        } finally {
+            setSendingMessage(false);
+        }
+    };
+
+    const filteredUsers = useMemo(() => {
+        if (!userSearch) return allUsers;
+        const query = userSearch.toLowerCase();
+        return allUsers.filter(u => 
+            u.displayName?.toLowerCase().includes(query) ||
+            u.email?.toLowerCase().includes(query) ||
+            u.role?.toLowerCase().includes(query)
+        );
+    }, [allUsers, userSearch]);
+
+    if (loading) {
+        return (
+            <div className="loading-container">
+                <div className="loading-spinner"></div>
+            </div>
+        );
+    }
+
+    return (
+        <div style={{display: 'flex', gap: '20px', height: 'calc(100vh - 200px)'}}>
+            <div style={{width: '300px', background: 'rgba(255,255,255,0.05)', borderRadius: '15px', padding: '20px', overflowY: 'auto'}}>
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
+                    <h3>Conversations</h3>
+                    <button 
+                        className="btn btn-primary"
+                        onClick={() => setShowNewMessage(true)}
+                        style={{padding: '8px 16px', fontSize: '14px'}}
+                    >
+                        + New
+                    </button>
+                </div>
+                
+                {conversations.length === 0 ? (
+                    <div className="empty-state">
+                        <div className="empty-state-text">No conversations</div>
+                        <button 
+                            className="btn btn-primary"
+                            onClick={() => setShowNewMessage(true)}
+                            style={{marginTop: '10px'}}
+                        >
+                            Start a Conversation
+                        </button>
+                    </div>
+                ) : (
+                    conversations.map(conv => (
+                        <div
+                            key={conv.id}
+                            onClick={() => {
+                                setSelectedConversation(conv);
+                                setShowNewMessage(false);
+                            }}
+                            style={{
+                                padding: '15px',
+                                margin: '10px 0',
+                                background: selectedConversation?.id === conv.id ? 'rgba(244,196,48,0.2)' : 'rgba(255,255,255,0.05)',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                borderLeft: conv.unread ? '3px solid #f4c430' : 'none'
+                            }}
+                        >
+                            <div style={{fontWeight: 'bold', marginBottom: '5px'}}>
+                                {conv.userName}
+                            </div>
+                            <div style={{fontSize: '14px', opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
+                                {conv.lastMessage}
+                            </div>
+                            <div style={{fontSize: '12px', opacity: 0.5, marginTop: '5px'}}>
+                                {formatTimeAgo(conv.lastMessageTime)}
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+            
+            <div style={{flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: '15px', padding: '20px', display: 'flex', flexDirection: 'column'}}>
+                {showNewMessage ? (
+                    <>
+                        <h3 style={{marginBottom: '20px'}}>New Message</h3>
+                        
+                        <div className="form-group">
+                            <label className="form-label">Search Users</label>
+                            <input
+                                type="text"
+                                className="form-input"
+                                placeholder="Search by name, email, or role..."
+                                value={userSearch}
+                                onChange={(e) => setUserSearch(e.target.value)}
+                            />
+                        </div>
+                        
+                        <div style={{
+                            maxHeight: '200px',
+                            overflowY: 'auto',
+                            marginBottom: '20px',
+                            border: '1px solid rgba(255,255,255,0.2)',
+                            borderRadius: '10px',
+                            padding: '10px'
+                        }}>
+                            {filteredUsers.length === 0 ? (
+                                <div style={{textAlign: 'center', padding: '20px', opacity: 0.5}}>
+                                    No users found
+                                </div>
+                            ) : (
+                                filteredUsers.map(u => (
+                                    <div
+                                        key={u.id}
+                                        onClick={() => setSelectedNewUser(u)}
+                                        style={{
+                                            padding: '10px',
+                                            margin: '5px 0',
+                                            background: selectedNewUser?.id === u.id ? 'rgba(244,196,48,0.2)' : 'rgba(255,255,255,0.05)',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                        }}
+                                    >
+                                        <span>{u.displayText}</span>
+                                        {selectedNewUser?.id === u.id && (
+                                            <span style={{color: '#f4c430'}}>✓</span>
+                                        )}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        
+                        {selectedNewUser && (
+                            <div style={{marginBottom: '20px', padding: '10px', background: 'rgba(244,196,48,0.1)', borderRadius: '10px'}}>
+                                <strong>To:</strong> {selectedNewUser.displayText}
+                            </div>
+                        )}
+                        
+                        <div className="form-group">
+                            <label className="form-label">Message</label>
+                            <textarea
+                                className="form-input"
+                                placeholder="Type your message..."
+                                value={newMessageText}
+                                onChange={(e) => setNewMessageText(e.target.value)}
+                                rows="4"
+                            />
+                        </div>
+                        
+                        <div style={{display: 'flex', gap: '10px'}}>
+                            <button 
+                                className="btn btn-primary"
+                                onClick={startNewConversation}
+                                disabled={!selectedNewUser || !newMessageText.trim() || sendingMessage}
+                            >
+                                {sendingMessage ? 'Sending...' : 'Send Message'}
+                            </button>
+                            <button 
+                                className="btn btn-secondary"
+                                onClick={() => {
+                                    setShowNewMessage(false);
+                                    setSelectedNewUser(null);
+                                    setNewMessageText('');
+                                    setUserSearch('');
+                                }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </>
+                ) : selectedConversation ? (
+                    <>
+                        <h3 style={{marginBottom: '20px'}}>
+                            {selectedConversation.userName}
+                        </h3>
+                        
+                        <div style={{flex: 1, overflowY: 'auto', marginBottom: '20px', display: 'flex', flexDirection: 'column'}}>
+                            {messages.map(msg => (
+                                <div
+                                    key={msg.id}
+                                    className={`message-bubble ${msg.senderId === user.uid ? 'sent' : 'received'}`}
+                                >
+                                    <div>{msg.text}</div>
+                                    <div className="message-time">
+                                        {formatTimeAgo(msg.createdAt)}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        
+                        <div style={{display: 'flex', gap: '10px'}}>
+                            <input
+                                type="text"
+                                className="form-input"
+                                placeholder="Type a message..."
+                                value={messageText}
+                                onChange={(e) => setMessageText(e.target.value)}
+                                onKeyPress={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        sendMessage();
+                                    }
+                                }}
+                            />
+                            <button 
+                                className="btn btn-primary"
+                                onClick={sendMessage}
+                                disabled={!messageText.trim() || sendingMessage}
+                            >
+                                {sendingMessage ? '...' : 'Send'}
+                            </button>
+                        </div>
+                    </>
+                ) : (
+                    <div className="empty-state">
+                        <div className="empty-state-icon">💬</div>
+                        <div className="empty-state-text">Select a conversation or start a new one</div>
+                        <button 
+                            className="btn btn-primary"
+                            onClick={() => setShowNewMessage(true)}
+                            style={{marginTop: '20px'}}
+                        >
+                            Start New Conversation
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
 
         // Groups View
         function GroupsView({ user, searchQuery }) {
