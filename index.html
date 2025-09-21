@@ -1851,6 +1851,79 @@ const [emergencyResources, setEmergencyResources] = useState([]);
                     return false;
                 }
             };
+            // Load daily inspiration from admin
+const loadDailyInspiration = async () => {
+    try {
+        const inspirationsSnap = await db.collection('dailyInspirations')
+            .where('active', '==', true)
+            .get();
+        
+        if (!inspirationsSnap.empty) {
+            // Get random inspiration from active ones
+            const inspirations = [];
+            inspirationsSnap.forEach(doc => {
+                inspirations.push({ id: doc.id, ...doc.data() });
+            });
+            
+            const randomIndex = Math.floor(Math.random() * inspirations.length);
+            setDailyQuote(inspirations[randomIndex]);
+        } else {
+            // Fallback quote if none from admin
+            setDailyQuote({
+                quote: "One day at a time.",
+                author: "Recovery Wisdom"
+            });
+        }
+    } catch (error) {
+        console.error('Error loading inspiration:', error);
+        setDailyQuote({
+            quote: "Progress, not perfection.",
+            author: "Recovery Wisdom"
+        });
+    }
+};
+
+// Load milestones from admin
+const loadMilestones = async () => {
+    try {
+        const milestonesSnap = await db.collection('milestones')
+            .orderBy('daysRequired', 'asc')
+            .get();
+        
+        const milestonesData = [];
+        milestonesSnap.forEach(doc => {
+            milestonesData.push({ id: doc.id, ...doc.data() });
+        });
+        setMilestones(milestonesData);
+        
+        // Calculate next milestone
+        if (userData?.sobrietyDate) {
+            const daysClean = Math.floor((new Date() - new Date(userData.sobrietyDate)) / (1000 * 60 * 60 * 24));
+            const nextMilestone = milestonesData.find(m => m.daysRequired > daysClean);
+            setNextMilestone(nextMilestone);
+        }
+    } catch (error) {
+        console.error('Error loading milestones:', error);
+    }
+};
+
+// Load broadcasts/announcements from admin
+const loadBroadcasts = async () => {
+    try {
+        const broadcastsSnap = await db.collection('broadcasts')
+            .where('active', '==', true)
+            .orderBy('createdAt', 'desc')
+            .limit(1)
+            .get();
+        
+        if (!broadcastsSnap.empty) {
+            const broadcast = broadcastsSnap.docs[0].data();
+            setActiveBroadcast(broadcast);
+        }
+    } catch (error) {
+        console.error('Error loading broadcasts:', error);
+    }
+};
             
             // Record milestone celebration
             const recordMilestoneCelebration = async (days) => {
