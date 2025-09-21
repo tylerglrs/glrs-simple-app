@@ -1789,15 +1789,18 @@ const [emergencyResources, setEmergencyResources] = useState([]);
                     checkForNewMilestones(sobrietyDays);
                 }
             }, [sobrietyDays]);
-            useEffect(() => {
+           useEffect(() => {
     if (user) {
         loadUserData();
-        // Add these new loads:
+        // Connect section loads:
         loadTopicRooms();
         loadMeetings(); 
         loadEmergencyResources();
-        loadGroupMessages('main'); // Load community messages
-        // ... rest of your existing loads
+        loadGroupMessages('main');
+        // Tasks section loads (ADD THESE):
+        loadGoals();
+        loadAssignments();
+        // ... any other existing loads you have
     }
 }, [user]);
             
@@ -2172,83 +2175,93 @@ new Chart(moodCtx, {
                 };
             };
             
-            // Load goals from Firestore
-const loadGoals = async (uid) => {
+            // Load goals assigned by admin/coach
+const loadGoals = async () => {
     try {
-        const snapshot = await db.collection('goals')
-            .where('pirId', '==', uid)
+        const goalsSnap = await db.collection('goals')
+            .where('userId', '==', user.uid)
             .where('status', '==', 'active')
             .get();
         
-        const goalsList = [];
-        snapshot.forEach(doc => {
-            goalsList.push({
-                id: doc.id,
-                ...doc.data()
+        const goalsData = [];
+        for (const doc of goalsSnap.docs) {
+            const goalData = { id: doc.id, ...doc.data() };
+            
+            // Load assignments for this goal
+            const assignmentsSnap = await db.collection('assignments')
+                .where('goalId', '==', doc.id)
+                .where('userId', '==', user.uid)
+                .get();
+            
+            const assignments = [];
+            assignmentsSnap.forEach(aDoc => {
+                assignments.push({ id: aDoc.id, ...aDoc.data() });
             });
-        });
+            
+            goalData.assignments = assignments;
+            goalsData.push(goalData);
+        }
         
-        // Just set whatever we get from Firebase, no fake data
-        setGoals(goalsList);
+        setGoals(goalsData);
     } catch (error) {
         console.error('Error loading goals:', error);
         setGoals([]);
     }
 };
-            
-            // Load assignments
-            const loadAssignments = async (uid) => {
-                try {
-                    const snapshot = await db.collection('assignments')
-                        .where('pirId', '==', uid)
-                        .orderBy('dueDate')
-                        .get();
-                    
-                    const assignmentsList = [];
-                    snapshot.forEach(doc => {
-                        const data = doc.data();
-                        assignmentsList.push({
-                            id: doc.id,
-                            ...data,
-                            dueDate: data.dueDate ? data.dueDate.toDate() : null,
-                            completedAt: data.completedAt ? data.completedAt.toDate() : null
-                        });
-                    });
-                    setAssignments(assignmentsList);
-                    
-                    // Calculate assignment streak
-                    const completedToday = assignmentsList.filter(a => {
-                        return a.completedAt && isToday(a.completedAt);
-                    }).length;
-                    setAssignmentStreak(completedToday);
-                } catch (error) {
-                    console.error('Error loading assignments:', error);
-                }
-            };
-            
-            // Load messages
-            const loadMessages = async (uid) => {
-                try {
-                    const snapshot = await db.collection('messages')
-                        .where('recipientId', '==', uid)
-                        .orderBy('createdAt', 'desc')
-                        .limit(20)
-                        .get();
-                    
-                    const messagesList = [];
-                    snapshot.forEach(doc => {
-                        const data = doc.data();
-                        messagesList.push({
-                            id: doc.id,
-                            ...data,
-                            createdAt: data.createdAt ? data.createdAt.toDate() : null
-                        });
-                    });
-                    setMessages(messagesList);
-                } catch (error) {
-                    console.error('Error loading messages:', error);
-                }
-            };
+
+// Load standalone assignments not tied to goals
+const loadAssignments = async () => {
+    try {
+        const assignmentsSnap = await db.collection('assignments')
+            .where('userId', '==', user.uid)
+            .where('goalId', '==', null)
+            .get();
+        
+        const assignmentsData = [];
+        assignmentsSnap.forEach(doc => {
+            assignmentsData.push({ id: doc.id, ...doc.data() });
+        });
+        
+        setAssignments(assignmentsData);
+    } catch (error) {
+        console.error('Error loading assignments:', error);
+        setAssignments([]);
+    }
+};
+
+// Update goal progress when assignment is completed
+const updateGoalProgress = async (goalId) => {
+    try {
+        // Get all assignments for this goal
+        const assignmentsSnap = await db.collection('assignments')
+            .where('goalId', '==', goalId)
+            .where('userId', '==', user.uid)
+            .get();
+        
+        let total = 0;
+        let completed = 0;
+        
+        assignmentsSnap.forEach(doc => {
+            total++;
+            if (doc.data().status === 'completed') {
+                completed++;
+            }
+        });
+        
+        const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+        
+        // Update goal progress
+        await db.collection('goals').doc(goalId).update({
+            progress: progress,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Reload goals to show updated progress
+        loadGoals();
+    } catch (error) {
+        console.error('Error updating goal progress:', error);
+    }
+};
             
             // Load resources
             const loadResources = async (uid) => {
@@ -3534,105 +3547,189 @@ const avgMoodDisplay = avgMood.toFixed(1);
                         )}
                         
                         {currentView === 'tasks' && (
-                            <>
-                                <h2 style={{color: 'white', marginBottom: '20px'}}>Recovery Plan</h2>
-                                
-                                {goals.length > 0 ? (
-                                    <div className="goals-section">
-                                        <h3 style={{color: '#f4c430', marginBottom: '15px'}}>
-                                            Goals & Objectives
-                                        </h3>
-                                        {goals.map(goal => {
-                                            const goalAssignments = assignments.filter(a => a.goalId === goal.id);
-                                            const progress = calculateGoalProgress(goal.id);
-                                            
-                                            return (
-                                                <div key={goal.id} className="goal-item">
-                                                    <div className="goal-header">
-                                                        <div className="goal-title">
-                                                            📍 {goal.title}
-                                                        </div>
-                                                        <div className="goal-progress">
-                                                            {progress}% Complete
-                                                        </div>
-                                                    </div>
-                                                    
-                                                    {goal.objectives && goal.objectives.length > 0 && (
-                                                        <div style={{marginTop: '15px'}}>
-                                                            <h4 style={{color: 'rgba(255,255,255,0.8)', fontSize: '14px', marginBottom: '10px'}}>
-                                                                Objectives:
-                                                            </h4>
-                                                            {goal.objectives.map((objective, objIdx) => {
-                                                                const objAssignments = goalAssignments.filter(a => a.objectiveId === objective.id || a.objectiveIndex === objIdx);
-                                                                
-                                                                return (
-                                                                    <div key={objIdx} className="objective-item">
-                                                                        <div className="objective-title">
-                                                                            📌 {typeof objective === 'string' ? objective : objective.title}
-                                                                        </div>
-                                                                        
-                                                                        {objAssignments.length > 0 && (
-                                                                            <div className="assignment-group">
-                                                                                {objAssignments.map(assignment => (
-                                                                                    <div key={assignment.id} className="assignment-item">
-                                                                                        <div className="assignment-header">
-                                                                                            <div className="assignment-title">
-                                                                                                {assignment.title}
-                                                                                            </div>
-                                                                                            <div className={`assignment-status ${assignment.status}`}>
-                                                                                                {assignment.status === 'completed' ? 'Completed' : 
-                                                                                                 assignment.dueDate && new Date(assignment.dueDate) < new Date() ? 'Overdue' : 
-                                                                                                 'Pending'}
-                                                                                            </div>
-                                                                                        </div>
-                                                                                        
-                                                                                        {assignment.dueDate && (
-                                                                                            <div className="assignment-due">
-                                                                                                Due: {new Date(assignment.dueDate).toLocaleDateString()}
-                                                                                            </div>
-                                                                                        )}
-                                                                                        
-                                                                                        {assignment.status === 'completed' ? (
-                                                                                            <>
-                                                                                                <div className="assignment-completed-info">
-                                                                                                    ✅ Completed on {assignment.completedAt ? new Date(assignment.completedAt).toLocaleDateString() : 'Unknown date'}
-                                                                                                </div>
-                                                                                                {assignment.reflection && (
-                                                                                                    <div className="assignment-reflection">
-                                                                                                        <div className="reflection-label">Your Reflection:</div>
-                                                                                                        <div className="reflection-text">{assignment.reflection}</div>
-                                                                                                        </div>
-                                                                                                )}
-                                                                                            </>
-                                                                                        ) : (
-                                                                                            <div className="assignment-actions">
-                                                                                                <button 
-                                                                                                    className="complete-assignment-btn"
-                                                                                                    onClick={() => handleAssignmentComplete(assignment.id)}
-                                                                                                >
-                                                                                                    Complete Assignment
-                                                                                                </button>
-                                                                                                <textarea
-                                                                                                    className="reflection-input"
-                                                                                                    placeholder="Add reflection (optional)..."
-                                                                                                    style={{marginTop: '10px'}}
-                                                                                                />
-                                                                                            </div>
-                                                                                        )}
-                                                                                    </div>
-                                                                                ))}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
+    <div className="section-content">
+        <h2 style={{color: 'white', marginBottom: '20px'}}>My Recovery Plan</h2>
+        
+        {/* Daily Tasks Card - Keep existing */}
+        <div className="daily-tasks-card" style={{
+            background: 'linear-gradient(135deg, rgba(76, 175, 80, 0.1) 0%, rgba(67, 160, 71, 0.1) 100%)',
+            border: '1px solid rgba(76, 175, 80, 0.3)',
+            borderRadius: '15px',
+            padding: '20px',
+            marginBottom: '20px'
+        }}>
+            <h3 style={{color: '#4CAF50', marginBottom: '15px'}}>📅 Daily Tasks</h3>
+            <div className="task-list">
+                <div 
+                    className="task-item"
+                    onClick={() => setShowModal('checkIn')}
+                    style={{cursor: 'pointer'}}
+                >
+                    <span>☀️ Morning Check-in</span>
+                    <span className={checkInStatus.morning ? 'completed' : 'pending'}>
+                        {checkInStatus.morning ? '✓' : 'Pending'}
+                    </span>
+                </div>
+                <div 
+                    className="task-item"
+                    onClick={() => setShowModal('reflection')}
+                    style={{cursor: 'pointer'}}
+                >
+                    <span>🌙 Evening Reflection</span>
+                    <span className={checkInStatus.evening ? 'completed' : 'pending'}>
+                        {checkInStatus.evening ? '✓' : 'Pending'}
+                    </span>
+                </div>
+            </div>
+        </div>
+        
+        {/* Active Goals from Admin */}
+        <div className="goals-section">
+            <h3 style={{color: '#f4c430', marginBottom: '15px'}}>🎯 My Goals</h3>
+            
+            {goals.length > 0 ? (
+                goals.map(goal => (
+                    <div key={goal.id} className="goal-card" style={{
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        borderRadius: '15px',
+                        padding: '20px',
+                        marginBottom: '20px'
+                    }}>
+                        <div className="goal-header" style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: '15px'
+                        }}>
+                            <h4 style={{color: 'white'}}>{goal.title}</h4>
+                            <span className="progress-badge" style={{
+                                background: 'linear-gradient(135deg, #f4c430 0%, #ff9500 100%)',
+                                padding: '5px 15px',
+                                borderRadius: '20px',
+                                fontSize: '14px'
+                            }}>
+                                {goal.progress || 0}% Complete
+                            </span>
+                        </div>
+                        
+                        <p style={{color: 'rgba(255,255,255,0.7)', marginBottom: '15px'}}>
+                            {goal.description}
+                        </p>
+                        
+                        {/* Progress Bar */}
+                        <div className="progress-bar" style={{
+                            background: 'rgba(255, 255, 255, 0.1)',
+                            borderRadius: '10px',
+                            height: '10px',
+                            marginBottom: '15px'
+                        }}>
+                            <div className="progress-fill" style={{
+                                width: `${goal.progress || 0}%`,
+                                background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                                borderRadius: '10px',
+                                height: '100%',
+                                transition: 'width 0.3s ease'
+                            }}></div>
+                        </div>
+                        
+                        {/* Goal Objectives/Assignments */}
+                        {goal.assignments && goal.assignments.length > 0 && (
+                            <div className="assignments-list">
+                                <h5 style={{color: '#f4c430', marginBottom: '10px'}}>Tasks:</h5>
+                                {goal.assignments.map(assignment => (
+                                    <div key={assignment.id} className="assignment-item" style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        padding: '10px',
+                                        background: 'rgba(255, 255, 255, 0.03)',
+                                        borderRadius: '10px',
+                                        marginBottom: '10px'
+                                    }}>
+                                        <div>
+                                            <span style={{
+                                                textDecoration: assignment.status === 'completed' ? 'line-through' : 'none',
+                                                color: assignment.status === 'completed' ? 'rgba(255,255,255,0.5)' : 'white'
+                                            }}>
+                                                {assignment.title}
+                                            </span>
+                                            {assignment.dueDate && (
+                                                <small style={{
+                                                    display: 'block',
+                                                    color: 'rgba(255,255,255,0.5)',
+                                                    marginTop: '5px'
+                                                }}>
+                                                    Due: {new Date(assignment.dueDate).toLocaleDateString()}
+                                                </small>
+                                            )}
+                                        </div>
+                                        {assignment.status !== 'completed' && (
+                                            <button 
+                                                className="btn-complete"
+                                                onClick={() => completeAssignment(assignment.id, goal.id)}
+                                                style={{
+                                                    padding: '5px 15px',
+                                                    background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                                                    border: 'none',
+                                                    borderRadius: '15px',
+                                                    color: 'white',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                Complete
+                                            </button>
+                                        )}
+                                        {assignment.status === 'completed' && (
+                                            <span style={{color: '#4CAF50'}}>✓</span>
+                                        )}
                                     </div>
-                                ) : (
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                ))
+            ) : (
+                <div className="empty-state">
+                    <div className="empty-state-icon">🎯</div>
+                    <div className="empty-state-text">
+                        No active goals yet. Your coach will assign goals to help guide your recovery journey.
+                    </div>
+                </div>
+            )}
+        </div>
+        
+        {/* Standalone Assignments */}
+        {assignments.length > 0 && (
+            <div className="assignments-section">
+                <h3 style={{color: '#f4c430', marginBottom: '15px'}}>📝 Assignments</h3>
+                {assignments.map(assignment => (
+                    <div key={assignment.id} className="assignment-card" style={{
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        borderRadius: '15px',
+                        padding: '15px',
+                        marginBottom: '15px'
+                    }}>
+                        <h4>{assignment.title}</h4>
+                        <p style={{color: 'rgba(255,255,255,0.7)'}}>
+                            {assignment.description}
+                        </p>
+                        {assignment.dueDate && (
+                            <small>Due: {new Date(assignment.dueDate).toLocaleDateString()}</small>
+                        )}
+                        {assignment.status !== 'completed' && (
+                            <button 
+                                onClick={() => completeAssignment(assignment.id)}
+                                className="btn-complete"
+                            >
+                                Mark Complete
+                            </button>
+                        )}
+                    </div>
+                ))}
+            </div>
+        )}
+    </div>
+)}
                                     <div className="empty-state">
                                         <div className="empty-state-icon">🎯</div>
                                         <div className="empty-state-text">
