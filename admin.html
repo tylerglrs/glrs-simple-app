@@ -1912,137 +1912,100 @@
             };
             
             // Load all system data
-            const loadSystemData = async () => {
-                try {
-                    // Load all users
-                    const usersSnapshot = await db.collection('users').get();
-                    const usersList = [];
-                    const pirsList = [];
-                    const coachesList = [];
-                    
-                    for (const doc of usersSnapshot.docs) {
-                        const userData = { id: doc.id, ...doc.data() };
-                        usersList.push(userData);
-                        
-                        if (userData.role === 'pir') {
-                            // Get latest check-in for PIR
-                            const checkInSnapshot = await db.collection('checkIns')
-                                .where('userId', '==', doc.id)
-                                .orderBy('createdAt', 'desc')
-                                .limit(1)
-                                .get();
-                            
-                            const lastCheckIn = !checkInSnapshot.empty ? 
-                                checkInSnapshot.docs[0].data() : null;
-                            
-                            pirsList.push({ ...userData, lastCheckIn });
-                        } else if (userData.role === 'coach') {
-                            // Get coach stats
-                            const assignedPirsSnapshot = await db.collection('users')
-                                .where('assignedCoach', '==', doc.id)
-                                .where('role', '==', 'pir')
-                                .get();
-                            
-                            coachesList.push({
-                                ...userData,
-                                assignedPirsCount: assignedPirsSnapshot.size
-                            });
-                        }
-                    }
-                    
-                    setAllUsers(usersList);
-                    setPirs(pirsList);
-                    setCoaches(coachesList);
-                    
-                    // Load all check-ins
-                    const checkInsSnapshot = await db.collection('checkIns')
-                        .orderBy('createdAt', 'desc')
-                        .limit(100)
-                        .get();
-                    const checkInsList = checkInsSnapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    }));
-                    setCheckIns(checkInsList);
-                    
-                    // Load all assignments
-                    const assignmentsSnapshot = await db.collection('assignments')
-                        .orderBy('createdAt', 'desc')
-                        .get();
-                    const assignmentsList = assignmentsSnapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    }));
-                    setAssignments(assignmentsList);
-                    
-                    // Load activities
-                    const activitiesSnapshot = await db.collection('activities')
-                        .orderBy('createdAt', 'desc')
-                        .limit(50)
-                        .get();
-                    
-                    const activitiesList = activitiesSnapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    }));
-                    setActivities(activitiesList);
-                    
-                    // Load alerts
-                    const alertsSnapshot = await db.collection('alerts')
-                        .where('status', '==', 'active')
-                        .get();
-                    
-                    const alertsList = alertsSnapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    }));
-                    setAlerts(alertsList);
-                    
-                    // Load feedback
-                    const feedbackSnapshot = await db.collection('feedback')
-                        .orderBy('createdAt', 'desc')
-                        .get();
-                    
-                    const feedbackList = feedbackSnapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    }));
-                    setFeedback(feedbackList);
-                    
-                    // Load resources
-                    const resourcesSnapshot = await db.collection('resources').get();
-                    const resourcesList = resourcesSnapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    }));
-                    setResources(resourcesList);
-                    
-                    // Load support groups
-                    const groupsSnapshot = await db.collection('supportGroups').get();
-                    const groupsList = groupsSnapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    }));
-                    setSupportGroups(groupsList);
-                    
-                    // Load messages
-                    const messagesSnapshot = await db.collection('messages')
-                        .orderBy('createdAt', 'desc')
-                        .limit(200)
-                        .get();
-                    const messagesList = messagesSnapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    }));
-                    setMessages(messagesList);
-                    
-                    // Calculate system stats
-                    calculateSystemStats(pirsList, coachesList, alertsList, feedbackList, assignmentsList);
-                    
-                } catch (error) {
-                    console.error('Error loading system data:', error);
+const loadSystemData = async () => {
+    try {
+        // Load all users first
+        const usersSnapshot = await db.collection('users').get();
+        const usersList = [];
+        const pirsList = [];
+        const coachesList = [];
+        
+        // First pass: Build all user lists
+        usersSnapshot.forEach(doc => {
+            const userData = { id: doc.id, ...doc.data() };
+            usersList.push(userData);
+            
+            if (userData.role === 'pir') {
+                pirsList.push({
+                    ...userData,
+                    lastCheckIn: 'Never',
+                    checkInStatus: 'pending'
+                });
+            } else if (userData.role === 'coach') {
+                coachesList.push({
+                    ...userData,
+                    assignedPIRs: 0  // Will calculate after
+                });
+            }
+        });
+        
+        // Second pass: Calculate relationships now that all users are loaded
+        coachesList.forEach(coach => {
+            coach.assignedPIRs = pirsList.filter(pir => 
+                pir.assignedCoach === coach.id
+            ).length;
+        });
+        
+        // Now try to get check-in data (but don't let it break everything)
+        for (const pir of pirsList) {
+            try {
+                const checkInSnapshot = await db.collection('checkIns')
+                    .where('userId', '==', pir.id)
+                    .orderBy('createdAt', 'desc')
+                    .limit(1)
+                    .get();
+                
+                if (!checkInSnapshot.empty) {
+                    const lastCheckIn = checkInSnapshot.docs[0].data();
+                    pir.lastCheckIn = formatTimeAgo(lastCheckIn.createdAt);
+                    pir.checkInStatus = isToday(lastCheckIn.createdAt) ? 'completed' : 'pending';
                 }
-            };
+            } catch (e) {
+                // Check-in query failed, but continue loading users
+                console.log('Could not load check-ins for', pir.email);
+            }
+        }
+        
+        setAllUsers(usersList);
+        setPirs(pirsList);
+        setCoaches(coachesList);
+        
+        // Update system stats
+        setSystemStats(prev => ({
+            ...prev,
+            totalPirs: pirsList.length,
+            activePirs: pirsList.filter(p => p.active !== false).length,
+            totalCoaches: coachesList.length
+        }));
+        
+        // Load other data collections
+        const checkInsSnapshot = await db.collection('checkIns').get();
+        const assignmentsSnapshot = await db.collection('assignments').get();
+        const messagesSnapshot = await db.collection('messages').get();
+        
+        const checkInsList = [];
+        checkInsSnapshot.forEach(doc => {
+            checkInsList.push({ id: doc.id, ...doc.data() });
+        });
+        
+        const assignmentsList = [];
+        assignmentsSnapshot.forEach(doc => {
+            assignmentsList.push({ id: doc.id, ...doc.data() });
+        });
+        
+        const messagesList = [];
+        messagesSnapshot.forEach(doc => {
+            messagesList.push({ id: doc.id, ...doc.data() });
+        });
+        
+        setCheckIns(checkInsList);
+        setAssignments(assignmentsList);
+        setMessages(messagesList);
+        
+    } catch (error) {
+        console.error('Error loading system data:', error);
+    }
+};
             
             // Calculate system statistics
             const calculateSystemStats = (pirs, coaches, alerts, feedback, assignments) => {
@@ -4377,11 +4340,21 @@ function UserDetailView({ user, checkIns, assignments, messages, onBack, onShowM
                     return titles[type] || 'Modal';
                 };
                 
-                const handleCreateUser = async () => {
+               const handleCreateUser = async () => {
     setLoading(true);
+    let secondaryApp;
+    
     try {
-        // Create a secondary Firebase app to prevent signing out the admin
-        const secondaryApp = firebase.initializeApp(firebaseConfig, 'SecondaryApp');
+        // Check if secondary app already exists and delete it
+        try {
+            secondaryApp = firebase.app('SecondaryApp');
+            await secondaryApp.delete();
+        } catch (e) {
+            // App doesn't exist, that's fine
+        }
+        
+        // Create a fresh secondary app
+        secondaryApp = firebase.initializeApp(firebaseConfig, 'SecondaryApp');
         const secondaryAuth = secondaryApp.auth();
         
         // Create the user account with the secondary app
@@ -4403,7 +4376,7 @@ function UserDetailView({ user, checkIns, assignments, messages, onBack, onShowM
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        // Send password reset email using main auth instance
+        // Send password reset email
         await auth.sendPasswordResetEmail(formData.email);
         
         // Delete the secondary app to clean up
@@ -4416,11 +4389,13 @@ function UserDetailView({ user, checkIns, assignments, messages, onBack, onShowM
         console.error('Error creating user:', error);
         alert('Error creating user: ' + error.message);
         
-        // Clean up secondary app if it still exists
-        try {
-            await firebase.app('SecondaryApp').delete();
-        } catch (e) {
-            // App already deleted or doesn't exist
+        // Clean up secondary app if it exists
+        if (secondaryApp) {
+            try {
+                await secondaryApp.delete();
+            } catch (e) {
+                // Ignore cleanup errors
+            }
         }
     } finally {
         setLoading(false);
