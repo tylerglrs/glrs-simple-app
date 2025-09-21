@@ -2447,76 +2447,122 @@ function MessagesView({ user, searchQuery }) {
     };
 
     const loadConversations = async () => {
-        try {
-            // Get all messages efficiently
-            const [sentQuery, receivedQuery] = await Promise.all([
-                db.collection('messages')
-                    .where('senderId', '==', user.uid)
-                    .where('type', '==', 'direct')
-                    .orderBy('createdAt', 'desc')
-                    .get(),
-                db.collection('messages')
-                    .where('recipientId', '==', user.uid)
-                    .where('type', '==', 'direct')
-                    .orderBy('createdAt', 'desc')
-                    .get()
-            ]);
+    try {
+        // Get ALL messages (both direct and broadcast)
+        const [sentQuery, receivedQuery] = await Promise.all([
+            db.collection('messages')
+                .where('senderId', '==', user.uid)
+                .orderBy('createdAt', 'desc')
+                .get(),
+            db.collection('messages')
+                .where('recipientId', '==', user.uid)
+                .orderBy('createdAt', 'desc')
+                .get()
+        ]);
+        
+        const conversationsMap = new Map();
+        
+        // Process sent messages
+        sentQuery.forEach(doc => {
+            const msg = doc.data();
             
-            const conversationsMap = new Map();
-            
-            // Process messages to create conversations
-            const processMessage = (msg, otherUserId, otherUserName) => {
-                if (!conversationsMap.has(otherUserId)) {
-                    conversationsMap.set(otherUserId, {
-                        id: otherUserId,
-                        userId: otherUserId,
-                        userName: otherUserName,
-                        lastMessage: msg.text,
+            // For broadcast messages sent by admin
+            if (msg.type === 'broadcast') {
+                // Group by recipient for broadcast
+                const convId = msg.recipientId;
+                if (!conversationsMap.has(convId)) {
+                    conversationsMap.set(convId, {
+                        id: convId,
+                        userId: convId,
+                        userName: `📢 ${msg.recipientName}`,
+                        lastMessage: msg.text.substring(0, 100),
                         lastMessageTime: msg.createdAt,
-                        unread: false
+                        unread: false,
+                        isBroadcast: true
                     });
                 } else {
-                    const conv = conversationsMap.get(otherUserId);
-                    if (msg.createdAt > conv.lastMessageTime) {
+                    const conv = conversationsMap.get(convId);
+                    if (!msg.createdAt || !conv.lastMessageTime || msg.createdAt > conv.lastMessageTime) {
+                        conv.lastMessage = msg.text.substring(0, 100);
+                        conv.lastMessageTime = msg.createdAt;
+                    }
+                }
+            } else {
+                // Regular direct message
+                const convId = msg.recipientId;
+                if (!conversationsMap.has(convId)) {
+                    conversationsMap.set(convId, {
+                        id: convId,
+                        userId: convId,
+                        userName: msg.recipientName,
+                        lastMessage: msg.text,
+                        lastMessageTime: msg.createdAt,
+                        unread: false,
+                        isBroadcast: false
+                    });
+                } else {
+                    const conv = conversationsMap.get(convId);
+                    if (!conv.isBroadcast && (!msg.createdAt || !conv.lastMessageTime || msg.createdAt > conv.lastMessageTime)) {
                         conv.lastMessage = msg.text;
                         conv.lastMessageTime = msg.createdAt;
                     }
                 }
-            };
+            }
+        });
+        
+        // Process received messages
+        receivedQuery.forEach(doc => {
+            const msg = doc.data();
             
-            sentQuery.forEach(doc => {
-                const msg = doc.data();
-                processMessage(msg, msg.recipientId, msg.recipientName);
-            });
-            
-            receivedQuery.forEach(doc => {
-                const msg = doc.data();
-                const conv = conversationsMap.get(msg.senderId);
-                if (!msg.read) {
-                    if (conv) conv.unread = true;
-                }
-                processMessage(msg, msg.senderId, msg.senderName);
-            });
-            
-            let convArray = Array.from(conversationsMap.values());
-            convArray.sort((a, b) => b.lastMessageTime - a.lastMessageTime);
-            
-            // Filter by search
-            if (searchQuery) {
-                const query = searchQuery.toLowerCase();
-                convArray = convArray.filter(conv => 
-                    conv.userName?.toLowerCase().includes(query) ||
-                    conv.lastMessage?.toLowerCase().includes(query)
-                );
+            // Skip broadcast messages in received (they're one-way)
+            if (msg.type === 'broadcast') {
+                return;
             }
             
-            setConversations(convArray);
-        } catch (error) {
-            console.error('Error loading conversations:', error);
-        } finally {
-            setLoading(false);
+            const convId = msg.senderId;
+            if (!conversationsMap.has(convId)) {
+                conversationsMap.set(convId, {
+                    id: convId,
+                    userId: convId,
+                    userName: msg.senderName,
+                    lastMessage: msg.text,
+                    lastMessageTime: msg.createdAt,
+                    unread: !msg.read,
+                    isBroadcast: false
+                });
+            } else {
+                const conv = conversationsMap.get(convId);
+                if (!msg.read) conv.unread = true;
+                if (!msg.createdAt || !conv.lastMessageTime || msg.createdAt > conv.lastMessageTime) {
+                    conv.lastMessage = msg.text;
+                    conv.lastMessageTime = msg.createdAt;
+                }
+            }
+        });
+        
+        let convArray = Array.from(conversationsMap.values());
+        convArray.sort((a, b) => {
+            const timeA = a.lastMessageTime?.toDate ? a.lastMessageTime.toDate() : new Date(a.lastMessageTime || 0);
+            const timeB = b.lastMessageTime?.toDate ? b.lastMessageTime.toDate() : new Date(b.lastMessageTime || 0);
+            return timeB - timeA;
+        });
+        
+        // Filter by search
+        if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            convArray = convArray.filter(conv => 
+                conv.userName?.toLowerCase().includes(query) ||
+                conv.lastMessage?.toLowerCase().includes(query)
+            );
         }
-    };
+        
+        setConversations(convArray);
+    } catch (error) {
+        console.error('Error loading conversations:', error);
+    } finally {
+        setLoading(false);
+    }
+};
 
     const sendMessage = async () => {
         if (!messageText.trim() || !selectedConversation) return;
