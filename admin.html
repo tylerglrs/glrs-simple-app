@@ -2377,7 +2377,7 @@ function renderView(view, searchQuery, user, onImpersonate) {
             );
         }
 
-       // Messages View with New Message functionality
+      // Messages View with New Message and Broadcast functionality
 function MessagesView({ user, searchQuery }) {
     const [conversations, setConversations] = useState([]);
     const [selectedConversation, setSelectedConversation] = useState(null);
@@ -2390,6 +2390,9 @@ function MessagesView({ user, searchQuery }) {
     const [selectedNewUser, setSelectedNewUser] = useState(null);
     const [newMessageText, setNewMessageText] = useState('');
     const [userSearch, setUserSearch] = useState('');
+    const [messageMode, setMessageMode] = useState('direct'); // 'direct' or 'broadcast'
+    const [broadcastRecipients, setBroadcastRecipients] = useState([]);
+    const [broadcastType, setBroadcastType] = useState('custom'); // 'custom', 'all-pirs', 'all-coaches', 'all-users'
 
     useEffect(() => {
         loadConversations();
@@ -2449,10 +2452,12 @@ function MessagesView({ user, searchQuery }) {
             const [sentQuery, receivedQuery] = await Promise.all([
                 db.collection('messages')
                     .where('senderId', '==', user.uid)
+                    .where('type', '==', 'direct')
                     .orderBy('createdAt', 'desc')
                     .get(),
                 db.collection('messages')
                     .where('recipientId', '==', user.uid)
+                    .where('type', '==', 'direct')
                     .orderBy('createdAt', 'desc')
                     .get()
             ]);
@@ -2554,63 +2559,171 @@ function MessagesView({ user, searchQuery }) {
     };
 
     const startNewConversation = async () => {
-        if (!selectedNewUser || !newMessageText.trim()) {
-            alert('Please select a user and enter a message');
+        if (messageMode === 'direct') {
+            if (!selectedNewUser || !newMessageText.trim()) {
+                alert('Please select a user and enter a message');
+                return;
+            }
+            
+            setSendingMessage(true);
+            try {
+                // Create the first message
+                await db.collection('messages').add({
+                    text: newMessageText,
+                    senderId: user.uid,
+                    senderName: user.displayName || user.email,
+                    recipientId: selectedNewUser.id,
+                    recipientName: selectedNewUser.displayName || selectedNewUser.email,
+                    conversationId: selectedNewUser.id, // Use recipient ID as conversation ID
+                    type: 'direct',
+                    read: false,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                // Create notification
+                await db.collection('notifications').add({
+                    type: 'message',
+                    message: `New message from ${user.displayName || user.email}`,
+                    recipientId: selectedNewUser.id,
+                    relatedId: user.uid,
+                    read: false,
+                    urgent: false,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                // Reset and reload
+                setShowNewMessage(false);
+                setSelectedNewUser(null);
+                setNewMessageText('');
+                setUserSearch('');
+                
+                // Select the new conversation
+                setSelectedConversation({
+                    id: selectedNewUser.id,
+                    userId: selectedNewUser.id,
+                    userName: selectedNewUser.displayName || selectedNewUser.email,
+                    lastMessage: newMessageText,
+                    lastMessageTime: new Date(),
+                    unread: false
+                });
+                
+                // Reload conversations
+                loadConversations();
+                
+                alert('Message sent successfully!');
+            } catch (error) {
+                console.error('Error starting conversation:', error);
+                alert('Failed to send message');
+            } finally {
+                setSendingMessage(false);
+            }
+        } else {
+            // Broadcast message
+            sendBroadcastMessage();
+        }
+    };
+
+    const sendBroadcastMessage = async () => {
+        if (!newMessageText.trim()) {
+            alert('Please enter a message');
             return;
         }
         
+        let recipients = [];
+        
+        // Determine recipients based on broadcast type
+        if (broadcastType === 'all-users') {
+            recipients = allUsers;
+        } else if (broadcastType === 'all-pirs') {
+            recipients = allUsers.filter(u => u.role === 'pir');
+        } else if (broadcastType === 'all-coaches') {
+            recipients = allUsers.filter(u => u.role === 'coach');
+        } else if (broadcastType === 'custom') {
+            recipients = broadcastRecipients;
+        }
+        
+        if (recipients.length === 0) {
+            alert('Please select at least one recipient');
+            return;
+        }
+        
+        const confirmMessage = `Send broadcast message to ${recipients.length} recipient(s)?`;
+        if (!confirm(confirmMessage)) return;
+        
         setSendingMessage(true);
         try {
-            // Create the first message
-            await db.collection('messages').add({
+            const batch = db.batch();
+            const timestamp = firebase.firestore.FieldValue.serverTimestamp();
+            const broadcastId = db.collection('broadcasts').doc().id;
+            
+            // Create broadcast record
+            batch.set(db.collection('broadcasts').doc(broadcastId), {
                 text: newMessageText,
                 senderId: user.uid,
                 senderName: user.displayName || user.email,
-                recipientId: selectedNewUser.id,
-                recipientName: selectedNewUser.displayName || selectedNewUser.email,
-                conversationId: selectedNewUser.id, // Use recipient ID as conversation ID
-                type: 'direct',
-                read: false,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                recipientCount: recipients.length,
+                broadcastType: broadcastType,
+                createdAt: timestamp
             });
             
-            // Create notification
-            await db.collection('notifications').add({
-                type: 'message',
-                message: `New message from ${user.displayName || user.email}`,
-                recipientId: selectedNewUser.id,
-                relatedId: user.uid,
-                read: false,
-                urgent: false,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            // Create individual messages for each recipient
+            recipients.forEach(recipient => {
+                const messageRef = db.collection('messages').doc();
+                batch.set(messageRef, {
+                    text: `📢 BROADCAST MESSAGE:\n\n${newMessageText}`,
+                    senderId: user.uid,
+                    senderName: `${user.displayName || user.email} (Admin Broadcast)`,
+                    recipientId: recipient.id,
+                    recipientName: recipient.displayName || recipient.email,
+                    conversationId: user.uid, // Use admin's ID for broadcast conversations
+                    type: 'broadcast',
+                    broadcastId: broadcastId,
+                    read: false,
+                    createdAt: timestamp
+                });
+                
+                const notificationRef = db.collection('notifications').doc();
+                batch.set(notificationRef, {
+                    type: 'broadcast',
+                    message: `📢 Broadcast message from Admin`,
+                    recipientId: recipient.id,
+                    relatedId: broadcastId,
+                    read: false,
+                    urgent: true,
+                    createdAt: timestamp
+                });
             });
             
-            // Reset and reload
+            await batch.commit();
+            
+            alert(`Broadcast sent successfully to ${recipients.length} recipient(s)!`);
+            
+            // Reset form
             setShowNewMessage(false);
-            setSelectedNewUser(null);
             setNewMessageText('');
-            setUserSearch('');
-            
-            // Select the new conversation
-            setSelectedConversation({
-                id: selectedNewUser.id,
-                userId: selectedNewUser.id,
-                userName: selectedNewUser.displayName || selectedNewUser.email,
-                lastMessage: newMessageText,
-                lastMessageTime: new Date(),
-                unread: false
-            });
+            setBroadcastRecipients([]);
+            setBroadcastType('custom');
+            setMessageMode('direct');
             
             // Reload conversations
             loadConversations();
-            
-            alert('Message sent successfully!');
         } catch (error) {
-            console.error('Error starting conversation:', error);
-            alert('Failed to send message');
+            console.error('Error sending broadcast:', error);
+            alert('Failed to send broadcast message');
         } finally {
             setSendingMessage(false);
         }
+    };
+
+    const toggleRecipient = (user) => {
+        setBroadcastRecipients(prev => {
+            const exists = prev.find(r => r.id === user.id);
+            if (exists) {
+                return prev.filter(r => r.id !== user.id);
+            } else {
+                return [...prev, user];
+            }
+        });
     };
 
     const filteredUsers = useMemo(() => {
@@ -2635,14 +2748,31 @@ function MessagesView({ user, searchQuery }) {
         <div style={{display: 'flex', gap: '20px', height: 'calc(100vh - 200px)'}}>
             <div style={{width: '300px', background: 'rgba(255,255,255,0.05)', borderRadius: '15px', padding: '20px', overflowY: 'auto'}}>
                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
-                    <h3>Conversations</h3>
-                    <button 
-                        className="btn btn-primary"
-                        onClick={() => setShowNewMessage(true)}
-                        style={{padding: '8px 16px', fontSize: '14px'}}
-                    >
-                        + New
-                    </button>
+                    <h3>Messages</h3>
+                    <div style={{display: 'flex', gap: '5px'}}>
+                        <button 
+                            className="btn btn-primary"
+                            onClick={() => {
+                                setShowNewMessage(true);
+                                setMessageMode('direct');
+                            }}
+                            style={{padding: '8px 12px', fontSize: '12px'}}
+                            title="New Direct Message"
+                        >
+                            + Direct
+                        </button>
+                        <button 
+                            className="btn btn-primary"
+                            onClick={() => {
+                                setShowNewMessage(true);
+                                setMessageMode('broadcast');
+                            }}
+                            style={{padding: '8px 12px', fontSize: '12px', background: 'linear-gradient(135deg, #ff6b44, #ff9500)'}}
+                            title="New Broadcast"
+                        >
+                            📢
+                        </button>
+                    </div>
                 </div>
                 
                 {conversations.length === 0 ? (
@@ -2650,7 +2780,10 @@ function MessagesView({ user, searchQuery }) {
                         <div className="empty-state-text">No conversations</div>
                         <button 
                             className="btn btn-primary"
-                            onClick={() => setShowNewMessage(true)}
+                            onClick={() => {
+                                setShowNewMessage(true);
+                                setMessageMode('direct');
+                            }}
                             style={{marginTop: '10px'}}
                         >
                             Start a Conversation
@@ -2690,59 +2823,123 @@ function MessagesView({ user, searchQuery }) {
             <div style={{flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: '15px', padding: '20px', display: 'flex', flexDirection: 'column'}}>
                 {showNewMessage ? (
                     <>
-                        <h3 style={{marginBottom: '20px'}}>New Message</h3>
+                        <h3 style={{marginBottom: '20px'}}>
+                            {messageMode === 'direct' ? 'New Direct Message' : '📢 New Broadcast Message'}
+                        </h3>
                         
-                        <div className="form-group">
-                            <label className="form-label">Search Users</label>
-                            <input
-                                type="text"
-                                className="form-input"
-                                placeholder="Search by name, email, or role..."
-                                value={userSearch}
-                                onChange={(e) => setUserSearch(e.target.value)}
-                            />
-                        </div>
-                        
-                        <div style={{
-                            maxHeight: '200px',
-                            overflowY: 'auto',
-                            marginBottom: '20px',
-                            border: '1px solid rgba(255,255,255,0.2)',
-                            borderRadius: '10px',
-                            padding: '10px'
-                        }}>
-                            {filteredUsers.length === 0 ? (
-                                <div style={{textAlign: 'center', padding: '20px', opacity: 0.5}}>
-                                    No users found
-                                </div>
-                            ) : (
-                                filteredUsers.map(u => (
-                                    <div
-                                        key={u.id}
-                                        onClick={() => setSelectedNewUser(u)}
-                                        style={{
-                                            padding: '10px',
-                                            margin: '5px 0',
-                                            background: selectedNewUser?.id === u.id ? 'rgba(244,196,48,0.2)' : 'rgba(255,255,255,0.05)',
-                                            borderRadius: '8px',
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center'
-                                        }}
+                        {messageMode === 'broadcast' && (
+                            <div className="form-group">
+                                <label className="form-label">Broadcast Type</label>
+                                <div style={{display: 'flex', gap: '10px', marginBottom: '15px'}}>
+                                    <button
+                                        className={`btn ${broadcastType === 'all-users' ? 'btn-primary' : 'btn-secondary'}`}
+                                        onClick={() => setBroadcastType('all-users')}
+                                        style={{fontSize: '14px'}}
                                     >
-                                        <span>{u.displayText}</span>
-                                        {selectedNewUser?.id === u.id && (
-                                            <span style={{color: '#f4c430'}}>✓</span>
-                                        )}
-                                    </div>
-                                ))
-                            )}
-                        </div>
+                                        All Users ({allUsers.length})
+                                    </button>
+                                    <button
+                                        className={`btn ${broadcastType === 'all-pirs' ? 'btn-primary' : 'btn-secondary'}`}
+                                        onClick={() => setBroadcastType('all-pirs')}
+                                        style={{fontSize: '14px'}}
+                                    >
+                                        All PIRs ({allUsers.filter(u => u.role === 'pir').length})
+                                    </button>
+                                    <button
+                                        className={`btn ${broadcastType === 'all-coaches' ? 'btn-primary' : 'btn-secondary'}`}
+                                        onClick={() => setBroadcastType('all-coaches')}
+                                        style={{fontSize: '14px'}}
+                                    >
+                                        All Coaches ({allUsers.filter(u => u.role === 'coach').length})
+                                    </button>
+                                    <button
+                                        className={`btn ${broadcastType === 'custom' ? 'btn-primary' : 'btn-secondary'}`}
+                                        onClick={() => setBroadcastType('custom')}
+                                        style={{fontSize: '14px'}}
+                                    >
+                                        Custom Selection
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                         
-                        {selectedNewUser && (
+                        {(messageMode === 'direct' || broadcastType === 'custom') && (
+                            <>
+                                <div className="form-group">
+                                    <label className="form-label">
+                                        {messageMode === 'direct' ? 'Select User' : 'Select Recipients'}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        placeholder="Search by name, email, or role..."
+                                        value={userSearch}
+                                        onChange={(e) => setUserSearch(e.target.value)}
+                                    />
+                                </div>
+                                
+                                <div style={{
+                                    maxHeight: '200px',
+                                    overflowY: 'auto',
+                                    marginBottom: '20px',
+                                    border: '1px solid rgba(255,255,255,0.2)',
+                                    borderRadius: '10px',
+                                    padding: '10px'
+                                }}>
+                                    {filteredUsers.length === 0 ? (
+                                        <div style={{textAlign: 'center', padding: '20px', opacity: 0.5}}>
+                                            No users found
+                                        </div>
+                                    ) : (
+                                        filteredUsers.map(u => (
+                                            <div
+                                                key={u.id}
+                                                onClick={() => {
+                                                    if (messageMode === 'direct') {
+                                                        setSelectedNewUser(u);
+                                                    } else {
+                                                        toggleRecipient(u);
+                                                    }
+                                                }}
+                                                style={{
+                                                    padding: '10px',
+                                                    margin: '5px 0',
+                                                    background: messageMode === 'direct' 
+                                                        ? (selectedNewUser?.id === u.id ? 'rgba(244,196,48,0.2)' : 'rgba(255,255,255,0.05)')
+                                                        : (broadcastRecipients.find(r => r.id === u.id) ? 'rgba(244,196,48,0.2)' : 'rgba(255,255,255,0.05)'),
+                                                    borderRadius: '8px',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center'
+                                                }}
+                                            >
+                                                <span>{u.displayText}</span>
+                                                {messageMode === 'direct' 
+                                                    ? (selectedNewUser?.id === u.id && <span style={{color: '#f4c430'}}>✓</span>)
+                                                    : (broadcastRecipients.find(r => r.id === u.id) && <span style={{color: '#f4c430'}}>✓</span>)
+                                                }
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </>
+                        )}
+                        
+                        {messageMode === 'direct' && selectedNewUser && (
                             <div style={{marginBottom: '20px', padding: '10px', background: 'rgba(244,196,48,0.1)', borderRadius: '10px'}}>
                                 <strong>To:</strong> {selectedNewUser.displayText}
+                            </div>
+                        )}
+                        
+                        {messageMode === 'broadcast' && (
+                            <div style={{marginBottom: '20px', padding: '10px', background: 'rgba(244,196,48,0.1)', borderRadius: '10px'}}>
+                                <strong>Recipients:</strong> {
+                                    broadcastType === 'all-users' ? `All Users (${allUsers.length})` :
+                                    broadcastType === 'all-pirs' ? `All PIRs (${allUsers.filter(u => u.role === 'pir').length})` :
+                                    broadcastType === 'all-coaches' ? `All Coaches (${allUsers.filter(u => u.role === 'coach').length})` :
+                                    `${broadcastRecipients.length} Selected`
+                                }
                             </div>
                         )}
                         
@@ -2750,10 +2947,10 @@ function MessagesView({ user, searchQuery }) {
                             <label className="form-label">Message</label>
                             <textarea
                                 className="form-input"
-                                placeholder="Type your message..."
+                                placeholder={messageMode === 'direct' ? "Type your message..." : "Type your broadcast message..."}
                                 value={newMessageText}
                                 onChange={(e) => setNewMessageText(e.target.value)}
-                                rows="4"
+                                rows="6"
                             />
                         </div>
                         
@@ -2761,9 +2958,14 @@ function MessagesView({ user, searchQuery }) {
                             <button 
                                 className="btn btn-primary"
                                 onClick={startNewConversation}
-                                disabled={!selectedNewUser || !newMessageText.trim() || sendingMessage}
+                                disabled={
+                                    messageMode === 'direct' 
+                                        ? (!selectedNewUser || !newMessageText.trim() || sendingMessage)
+                                        : (!newMessageText.trim() || sendingMessage || (broadcastType === 'custom' && broadcastRecipients.length === 0))
+                                }
+                                style={messageMode === 'broadcast' ? {background: 'linear-gradient(135deg, #ff6b44, #ff9500)'} : {}}
                             >
-                                {sendingMessage ? 'Sending...' : 'Send Message'}
+                                {sendingMessage ? 'Sending...' : messageMode === 'direct' ? 'Send Message' : '📢 Send Broadcast'}
                             </button>
                             <button 
                                 className="btn btn-secondary"
@@ -2772,6 +2974,9 @@ function MessagesView({ user, searchQuery }) {
                                     setSelectedNewUser(null);
                                     setNewMessageText('');
                                     setUserSearch('');
+                                    setBroadcastRecipients([]);
+                                    setMessageMode('direct');
+                                    setBroadcastType('custom');
                                 }}
                             >
                                 Cancel
@@ -2825,13 +3030,27 @@ function MessagesView({ user, searchQuery }) {
                     <div className="empty-state">
                         <div className="empty-state-icon">💬</div>
                         <div className="empty-state-text">Select a conversation or start a new one</div>
-                        <button 
-                            className="btn btn-primary"
-                            onClick={() => setShowNewMessage(true)}
-                            style={{marginTop: '20px'}}
-                        >
-                            Start New Conversation
-                        </button>
+                        <div style={{display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '20px'}}>
+                            <button 
+                                className="btn btn-primary"
+                                onClick={() => {
+                                    setShowNewMessage(true);
+                                    setMessageMode('direct');
+                                }}
+                            >
+                                Start Direct Message
+                            </button>
+                            <button 
+                                className="btn btn-primary"
+                                onClick={() => {
+                                    setShowNewMessage(true);
+                                    setMessageMode('broadcast');
+                                }}
+                                style={{background: 'linear-gradient(135deg, #ff6b44, #ff9500)'}}
+                            >
+                                📢 Send Broadcast
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>
