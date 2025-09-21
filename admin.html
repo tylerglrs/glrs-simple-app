@@ -4543,149 +4543,956 @@ function CreateGoalModal({ type, template, pirs, onSubmit, onClose }) {
             );
         }
 
-        // Resources View with Firebase Storage
-        function ResourcesView({ user, searchQuery }) {
-            const [resources, setResources] = useState([]);
-            const [filteredResources, setFilteredResources] = useState([]);
-            const [loading, setLoading] = useState(true);
-            const [showCreateModal, setShowCreateModal] = useState(false);
-            const [selectedResource, setSelectedResource] = useState(null);
-            const [filterCategory, setFilterCategory] = useState('all');
+        // Enhanced Resources Management View
+function ResourcesView({ user, searchQuery }) {
+    const [activeTab, setActiveTab] = useState('resources');
+    const [loading, setLoading] = useState(true);
+    const [resources, setResources] = useState([]);
+    const [meetings, setMeetings] = useState([]);
+    const [emergencyContacts, setEmergencyContacts] = useState([]);
+    const [filteredItems, setFilteredItems] = useState([]);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [modalType, setModalType] = useState(''); // resource, meeting, emergency
+    const [selectedItem, setSelectedItem] = useState(null);
+    const [filterCategory, setFilterCategory] = useState('all');
+    const [stats, setStats] = useState({
+        totalResources: 0,
+        totalMeetings: 0,
+        featuredCount: 0,
+        totalViews: 0
+    });
+
+    useEffect(() => {
+        loadResourcesData();
+    }, []);
+
+    useEffect(() => {
+        filterItems();
+    }, [searchQuery, resources, meetings, emergencyContacts, activeTab, filterCategory]);
+
+    const loadResourcesData = async () => {
+        try {
+            setLoading(true);
+
+            // Load resources
+            const resourcesSnap = await db.collection('resources')
+                .orderBy('createdAt', 'desc')
+                .get();
             
-            const categories = ['All', 'PDF', 'Video', 'Link', 'Article', 'Audio', 'Other'];
+            const resourcesData = [];
+            let totalViews = 0;
+            let featuredCount = 0;
+            
+            resourcesSnap.forEach(doc => {
+                const data = { id: doc.id, ...doc.data() };
+                resourcesData.push(data);
+                totalViews += data.viewCount || 0;
+                if (data.featured) featuredCount++;
+            });
+            setResources(resourcesData);
 
-            useEffect(() => {
-                loadResources();
-            }, []);
+            // Load meetings
+            const meetingsSnap = await db.collection('meetings')
+                .orderBy('createdAt', 'desc')
+                .get();
+            
+            const meetingsData = [];
+            meetingsSnap.forEach(doc => {
+                meetingsData.push({ id: doc.id, ...doc.data() });
+            });
+            setMeetings(meetingsData);
 
-            useEffect(() => {
-                filterResources();
-            }, [resources, filterCategory, searchQuery]);
+            // Load emergency contacts
+            const emergencySnap = await db.collection('resources')
+                .where('category', '==', 'emergency')
+                .get();
+            
+            const emergencyData = [];
+            emergencySnap.forEach(doc => {
+                emergencyData.push({ id: doc.id, ...doc.data() });
+            });
+            setEmergencyContacts(emergencyData);
 
-            const loadResources = async () => {
-                try {
-                    const snapshot = await db.collection('resources')
-                        .orderBy('createdAt', 'desc')
-                        .get();
-                    
-                    const resourcesData = [];
-                    snapshot.forEach(doc => {
-                        resourcesData.push({ id: doc.id, ...doc.data() });
-                    });
-                    
-                    setResources(resourcesData);
-                    setFilteredResources(resourcesData);
-                } catch (error) {
-                    console.error('Error loading resources:', error);
-                } finally {
-                    setLoading(false);
-                }
-            };
+            setStats({
+                totalResources: resourcesData.length,
+                totalMeetings: meetingsData.length,
+                featuredCount: featuredCount,
+                totalViews: totalViews
+            });
 
-            const filterResources = () => {
-                let filtered = resources;
-                
-                if (filterCategory !== 'all') {
-                    filtered = filtered.filter(resource => 
-                        resource.type?.toLowerCase() === filterCategory.toLowerCase()
-                    );
-                }
-                
-                if (searchQuery) {
-                    const query = searchQuery.toLowerCase();
-                    filtered = filtered.filter(resource =>
-                        resource.title?.toLowerCase().includes(query) ||
-                        resource.description?.toLowerCase().includes(query) ||
-                        resource.category?.toLowerCase().includes(query)
-                    );
-                }
-                
-                setFilteredResources(filtered);
-            };
+        } catch (error) {
+            console.error('Error loading resources:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-            const handleResourceClick = async (resource) => {
-                if (resource.type === 'Link' && resource.url) {
-                    window.open(resource.url, '_blank');
-                } else if (resource.fileURL) {
-                    window.open(resource.fileURL, '_blank');
-                } else {
-                    setSelectedResource(resource);
-                }
-            };
+    const filterItems = () => {
+        let items = [];
+        
+        if (activeTab === 'resources') {
+            items = filterCategory === 'all' ? 
+                resources : 
+                resources.filter(r => r.category === filterCategory);
+        } else if (activeTab === 'meetings') {
+            items = meetings;
+        } else if (activeTab === 'emergency') {
+            items = emergencyContacts;
+        }
 
-            if (loading) {
-                return (
-                    <div className="loading-container">
-                        <div className="loading-spinner"></div>
-                    </div>
-                );
-            }
-
-            return (
-                <div>
-                    <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '20px'}}>
-                        <div className="tab-nav">
-                            {categories.map(cat => (
-                                <button
-                                    key={cat}
-                                    className={`tab-btn ${filterCategory === cat.toLowerCase() ? 'active' : ''}`}
-                                    onClick={() => setFilterCategory(cat.toLowerCase())}
-                                >
-                                    {cat}
-                                </button>
-                            ))}
-                        </div>
-                        
-                        <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-                            + Add Resource
-                        </button>
-                    </div>
-                    
-                    <div className="resource-grid">
-                        {filteredResources.length === 0 ? (
-                            <div className="empty-state" style={{gridColumn: '1/-1'}}>
-                                <div className="empty-state-icon">📚</div>
-                                <div className="empty-state-text">
-                                    {filterCategory === 'all' ? 'No resources available' : `No ${filterCategory} resources`}
-                                </div>
-                            </div>
-                        ) : (
-                            filteredResources.map(resource => (
-                                <div 
-                                    key={resource.id}
-                                    className="resource-card"
-                                    onClick={() => handleResourceClick(resource)}
-                                >
-                                    <div className="resource-type">{resource.type}</div>
-                                    <div className="resource-title">{resource.title}</div>
-                                    <div className="resource-description">{resource.description}</div>
-                                    <div style={{fontSize: '12px', opacity: 0.7}}>
-                                        {resource.isGlobal ? '🌍 Global' : `👤 ${resource.assignedTo?.length || 0} PIRs`}
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                    
-                    {showCreateModal && (
-                        <CreateResourceModal 
-                            onClose={() => setShowCreateModal(false)}
-                            onSuccess={() => {
-                                setShowCreateModal(false);
-                                loadResources();
-                            }}
-                        />
-                    )}
-                    
-                    {selectedResource && (
-                        <ResourceDetailModal 
-                            resource={selectedResource}
-                            onClose={() => setSelectedResource(null)}
-                        />
-                    )}
-                </div>
+        if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            items = items.filter(item =>
+                item.title?.toLowerCase().includes(query) ||
+                item.name?.toLowerCase().includes(query) ||
+                item.description?.toLowerCase().includes(query) ||
+                item.tags?.some(tag => tag.toLowerCase().includes(query))
             );
         }
+
+        setFilteredItems(items);
+    };
+
+    const handleCreateResource = async (resourceData) => {
+        try {
+            await db.collection('resources').add({
+                ...resourceData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: user.uid,
+                viewCount: 0,
+                active: true
+            });
+
+            alert('Resource created successfully!');
+            setShowCreateModal(false);
+            loadResourcesData();
+        } catch (error) {
+            console.error('Error creating resource:', error);
+            alert('Failed to create resource');
+        }
+    };
+
+    const handleCreateMeeting = async (meetingData) => {
+        try {
+            await db.collection('meetings').add({
+                ...meetingData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: user.uid,
+                active: true
+            });
+
+            alert('Meeting created successfully!');
+            setShowCreateModal(false);
+            loadResourcesData();
+        } catch (error) {
+            console.error('Error creating meeting:', error);
+            alert('Failed to create meeting');
+        }
+    };
+
+    const handleToggleFeatured = async (resourceId, currentStatus) => {
+        try {
+            await db.collection('resources').doc(resourceId).update({
+                featured: !currentStatus
+            });
+            loadResourcesData();
+        } catch (error) {
+            console.error('Error updating resource:', error);
+        }
+    };
+
+    const handleToggleActive = async (collection, itemId, currentStatus) => {
+        try {
+            await db.collection(collection).doc(itemId).update({
+                active: !currentStatus
+            });
+            loadResourcesData();
+        } catch (error) {
+            console.error('Error updating status:', error);
+        }
+    };
+
+    const handleDelete = async (collection, itemId, itemName) => {
+        if (confirm(`Delete "${itemName}"? This cannot be undone.`)) {
+            try {
+                await db.collection(collection).doc(itemId).delete();
+                alert('Item deleted successfully');
+                loadResourcesData();
+            } catch (error) {
+                console.error('Error deleting item:', error);
+                alert('Failed to delete item');
+            }
+        }
+    };
+
+    const handleEdit = (item, type) => {
+        setSelectedItem(item);
+        setModalType(type);
+        setShowCreateModal(true);
+    };
+
+    const renderResourcesTab = () => (
+        <div className="resources-container">
+            <div className="resources-header">
+                <h3>Recovery Resources</h3>
+                <button 
+                    className="btn btn-primary"
+                    onClick={() => {
+                        setModalType('resource');
+                        setSelectedItem(null);
+                        setShowCreateModal(true);
+                    }}
+                >
+                    + Add Resource
+                </button>
+            </div>
+
+            <div className="filter-row">
+                <button 
+                    className={`filter-btn ${filterCategory === 'all' ? 'active' : ''}`}
+                    onClick={() => setFilterCategory('all')}
+                >
+                    All ({resources.length})
+                </button>
+                <button 
+                    className={`filter-btn ${filterCategory === 'video' ? 'active' : ''}`}
+                    onClick={() => setFilterCategory('video')}
+                >
+                    Videos
+                </button>
+                <button 
+                    className={`filter-btn ${filterCategory === 'article' ? 'active' : ''}`}
+                    onClick={() => setFilterCategory('article')}
+                >
+                    Articles
+                </button>
+                <button 
+                    className={`filter-btn ${filterCategory === 'tool' ? 'active' : ''}`}
+                    onClick={() => setFilterCategory('tool')}
+                >
+                    Tools
+                </button>
+                <button 
+                    className={`filter-btn ${filterCategory === 'worksheet' ? 'active' : ''}`}
+                    onClick={() => setFilterCategory('worksheet')}
+                >
+                    Worksheets
+                </button>
+            </div>
+
+            <div className="resources-grid">
+                {filteredItems.map(resource => (
+                    <div key={resource.id} className="resource-card">
+                        <div className="resource-header">
+                            <div className="resource-title-row">
+                                <h4>{resource.title}</h4>
+                                {resource.featured && (
+                                    <span className="featured-badge">⭐ Featured</span>
+                                )}
+                            </div>
+                            <span className={`badge ${
+                                resource.category === 'video' ? 'badge-primary' :
+                                resource.category === 'article' ? 'badge-info' :
+                                resource.category === 'tool' ? 'badge-success' :
+                                'badge-secondary'
+                            }`}>
+                                {resource.category}
+                            </span>
+                        </div>
+
+                        <p className="resource-description">{resource.description}</p>
+
+                        {resource.url && (
+                            <div className="resource-link">
+                                <a href={resource.url} target="_blank" rel="noopener noreferrer">
+                                    🔗 {resource.url.substring(0, 50)}...
+                                </a>
+                            </div>
+                        )}
+
+                        <div className="resource-meta">
+                            <span className="meta-item">
+                                <span className="meta-icon">👁️</span> {resource.viewCount || 0} views
+                            </span>
+                            <span className="meta-item">
+                                <span className="meta-icon">📅</span> {formatDate(resource.createdAt)}
+                            </span>
+                        </div>
+
+                        {resource.tags && resource.tags.length > 0 && (
+                            <div className="resource-tags">
+                                {resource.tags.map((tag, idx) => (
+                                    <span key={idx} className="tag">{tag}</span>
+                                ))}
+                            </div>
+                        )}
+
+                        <div className="resource-actions">
+                            <button 
+                                className={`btn btn-sm ${resource.featured ? 'btn-warning' : 'btn-secondary'}`}
+                                onClick={() => handleToggleFeatured(resource.id, resource.featured)}
+                            >
+                                {resource.featured ? 'Unfeature' : 'Feature'}
+                            </button>
+                            <button 
+                                className={`btn btn-sm ${resource.active ? 'btn-success' : 'btn-warning'}`}
+                                onClick={() => handleToggleActive('resources', resource.id, resource.active)}
+                            >
+                                {resource.active ? 'Active' : 'Inactive'}
+                            </button>
+                            <button 
+                                className="btn btn-sm btn-info"
+                                onClick={() => handleEdit(resource, 'resource')}
+                            >
+                                Edit
+                            </button>
+                            <button 
+                                className="btn btn-sm btn-danger"
+                                onClick={() => handleDelete('resources', resource.id, resource.title)}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {filteredItems.length === 0 && (
+                <div className="empty-state">
+                    {resources.length === 0 ? 
+                        'No resources added yet. Add resources to help PIRs in their recovery.' : 
+                        'No resources match your filter.'}
+                </div>
+            )}
+        </div>
+    );
+
+    const renderMeetingsTab = () => (
+        <div className="meetings-container">
+            <div className="meetings-header">
+                <h3>Meeting Schedule</h3>
+                <button 
+                    className="btn btn-primary"
+                    onClick={() => {
+                        setModalType('meeting');
+                        setSelectedItem(null);
+                        setShowCreateModal(true);
+                    }}
+                >
+                    + Add Meeting
+                </button>
+            </div>
+
+            <div className="meetings-list">
+                {filteredItems.map(meeting => (
+                    <div key={meeting.id} className="meeting-card">
+                        <div className="meeting-header">
+                            <div>
+                                <h4>{meeting.name}</h4>
+                                <span className={`badge ${
+                                    meeting.type === 'AA' ? 'badge-primary' :
+                                    meeting.type === 'NA' ? 'badge-warning' :
+                                    meeting.type === 'Group Therapy' ? 'badge-success' :
+                                    'badge-secondary'
+                                }`}>
+                                    {meeting.type}
+                                </span>
+                            </div>
+                            <span className={`status-badge ${meeting.active ? 'active' : 'inactive'}`}>
+                                {meeting.active ? '🟢 Active' : '🔴 Inactive'}
+                            </span>
+                        </div>
+
+                        <div className="meeting-details">
+                            <div className="detail-row">
+                                <span className="detail-icon">📅</span>
+                                <span>{meeting.schedule}</span>
+                            </div>
+                            <div className="detail-row">
+                                <span className="detail-icon">🕐</span>
+                                <span>{meeting.time}</span>
+                            </div>
+                            <div className="detail-row">
+                                <span className="detail-icon">📍</span>
+                                <span>{meeting.location || 'Online'}</span>
+                            </div>
+                            {meeting.meetingUrl && (
+                                <div className="detail-row">
+                                    <span className="detail-icon">🔗</span>
+                                    <a href={meeting.meetingUrl} target="_blank" rel="noopener noreferrer">
+                                        Join Online
+                                    </a>
+                                </div>
+                            )}
+                        </div>
+
+                        <p className="meeting-description">{meeting.description}</p>
+
+                        <div className="meeting-actions">
+                            <button 
+                                className={`btn btn-sm ${meeting.active ? 'btn-warning' : 'btn-success'}`}
+                                onClick={() => handleToggleActive('meetings', meeting.id, meeting.active)}
+                            >
+                                {meeting.active ? 'Deactivate' : 'Activate'}
+                            </button>
+                            <button 
+                                className="btn btn-sm btn-info"
+                                onClick={() => handleEdit(meeting, 'meeting')}
+                            >
+                                Edit
+                            </button>
+                            <button 
+                                className="btn btn-sm btn-danger"
+                                onClick={() => handleDelete('meetings', meeting.id, meeting.name)}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {filteredItems.length === 0 && (
+                <div className="empty-state">
+                    No meetings scheduled. Add meetings to help PIRs find support groups.
+                </div>
+            )}
+        </div>
+    );
+
+    const renderEmergencyTab = () => (
+        <div className="emergency-container">
+            <div className="emergency-header">
+                <h3>Emergency Resources</h3>
+                <button 
+                    className="btn btn-primary"
+                    onClick={() => {
+                        setModalType('emergency');
+                        setSelectedItem(null);
+                        setShowCreateModal(true);
+                    }}
+                >
+                    + Add Emergency Contact
+                </button>
+            </div>
+
+            <div className="emergency-notice">
+                <span className="notice-icon">⚠️</span>
+                These resources are displayed prominently to PIRs in crisis situations.
+            </div>
+
+            <div className="emergency-grid">
+                {filteredItems.map(contact => (
+                    <div key={contact.id} className="emergency-card">
+                        <div className="emergency-header">
+                            <h4>{contact.title}</h4>
+                            <span className={`badge ${contact.active ? 'badge-success' : 'badge-danger'}`}>
+                                {contact.active ? 'Active' : 'Inactive'}
+                            </span>
+                        </div>
+
+                        <div className="emergency-details">
+                            {contact.phone && (
+                                <div className="detail-row">
+                                    <span className="detail-icon">📞</span>
+                                    <a href={`tel:${contact.phone}`}>{contact.phone}</a>
+                                </div>
+                            )}
+                            {contact.url && (
+                                <div className="detail-row">
+                                    <span className="detail-icon">🌐</span>
+                                    <a href={contact.url} target="_blank" rel="noopener noreferrer">
+                                        {contact.url}
+                                    </a>
+                                </div>
+                            )}
+                            {contact.available && (
+                                <div className="detail-row">
+                                    <span className="detail-icon">🕐</span>
+                                    <span>{contact.available}</span>
+                                </div>
+                            )}
+                        </div>
+
+                        <p className="emergency-description">{contact.description}</p>
+
+                        <div className="emergency-actions">
+                            <button 
+                                className={`btn btn-sm ${contact.active ? 'btn-warning' : 'btn-success'}`}
+                                onClick={() => handleToggleActive('resources', contact.id, contact.active)}
+                            >
+                                {contact.active ? 'Deactivate' : 'Activate'}
+                            </button>
+                            <button 
+                                className="btn btn-sm btn-info"
+                                onClick={() => handleEdit(contact, 'emergency')}
+                            >
+                                Edit
+                            </button>
+                            <button 
+                                className="btn btn-sm btn-danger"
+                                onClick={() => handleDelete('resources', contact.id, contact.title)}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {filteredItems.length === 0 && (
+                <div className="empty-state">
+                    No emergency resources configured. Add crisis hotlines and emergency contacts.
+                </div>
+            )}
+        </div>
+    );
+
+    if (loading) {
+        return (
+            <div className="loading-container">
+                <div className="loading-spinner"></div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="resources-view">
+            {/* Stats Row */}
+            <div className="stats-row">
+                <div className="stat-card">
+                    <div className="stat-value">{stats.totalResources}</div>
+                    <div className="stat-label">Total Resources</div>
+                </div>
+                <div className="stat-card">
+                    <div className="stat-value">{stats.totalMeetings}</div>
+                    <div className="stat-label">Meetings</div>
+                </div>
+                <div className="stat-card">
+                    <div className="stat-value">{stats.featuredCount}</div>
+                    <div className="stat-label">Featured</div>
+                </div>
+                <div className="stat-card">
+                    <div className="stat-value">{stats.totalViews}</div>
+                    <div className="stat-label">Total Views</div>
+                </div>
+            </div>
+
+            {/* Tab Navigation */}
+            <div className="tab-nav">
+                <button 
+                    className={`tab-btn ${activeTab === 'resources' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('resources')}
+                >
+                    Resources ({resources.filter(r => r.category !== 'emergency').length})
+                </button>
+                <button 
+                    className={`tab-btn ${activeTab === 'meetings' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('meetings')}
+                >
+                    Meetings ({meetings.length})
+                </button>
+                <button 
+                    className={`tab-btn ${activeTab === 'emergency' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('emergency')}
+                >
+                    Emergency ({emergencyContacts.length})
+                </button>
+            </div>
+
+            {/* Tab Content */}
+            {activeTab === 'resources' && renderResourcesTab()}
+            {activeTab === 'meetings' && renderMeetingsTab()}
+            {activeTab === 'emergency' && renderEmergencyTab()}
+
+            {/* Create/Edit Modal */}
+            {showCreateModal && (
+                <ResourceModal
+                    type={modalType}
+                    item={selectedItem}
+                    onSubmit={(data) => {
+                        if (modalType === 'meeting') {
+                            handleCreateMeeting(data);
+                        } else {
+                            handleCreateResource(data);
+                        }
+                    }}
+                    onClose={() => {
+                        setShowCreateModal(false);
+                        setSelectedItem(null);
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+
+// Resource Modal Component
+function ResourceModal({ type, item, onSubmit, onClose }) {
+    const [formData, setFormData] = useState(() => {
+        if (item) return item;
+        
+        if (type === 'resource') {
+            return {
+                title: '',
+                description: '',
+                category: 'article',
+                type: 'link',
+                url: '',
+                content: '',
+                tags: [],
+                featured: false
+            };
+        } else if (type === 'meeting') {
+            return {
+                name: '',
+                type: 'AA',
+                schedule: '',
+                time: '',
+                location: '',
+                meetingUrl: '',
+                description: ''
+            };
+        } else if (type === 'emergency') {
+            return {
+                title: '',
+                description: '',
+                category: 'emergency',
+                phone: '',
+                url: '',
+                available: '24/7',
+                priority: 1
+            };
+        }
+    });
+
+    const [tagInput, setTagInput] = useState('');
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        
+        if (type === 'resource' && (!formData.title || !formData.description)) {
+            alert('Please fill in required fields');
+            return;
+        }
+        
+        if (type === 'meeting' && (!formData.name || !formData.schedule || !formData.time)) {
+            alert('Please fill in required fields');
+            return;
+        }
+        
+        if (type === 'emergency' && (!formData.title || (!formData.phone && !formData.url))) {
+            alert('Please provide title and at least one contact method');
+            return;
+        }
+        
+        onSubmit(formData);
+    };
+
+    const addTag = () => {
+        if (tagInput && !formData.tags?.includes(tagInput)) {
+            setFormData({
+                ...formData,
+                tags: [...(formData.tags || []), tagInput]
+            });
+            setTagInput('');
+        }
+    };
+
+    const removeTag = (tag) => {
+        setFormData({
+            ...formData,
+            tags: formData.tags.filter(t => t !== tag)
+        });
+    };
+
+    return (
+        <div className="modal-overlay">
+            <div className="modal-content" style={{maxWidth: '600px'}}>
+                <div className="modal-header">
+                    <h3>
+                        {item ? 'Edit' : 'Create'} 
+                        {type === 'resource' && ' Resource'}
+                        {type === 'meeting' && ' Meeting'}
+                        {type === 'emergency' && ' Emergency Contact'}
+                    </h3>
+                    <button className="close-btn" onClick={onClose}>×</button>
+                </div>
+                
+                <form onSubmit={handleSubmit} className="modal-body">
+                    {type === 'resource' && (
+                        <>
+                            <div className="form-group">
+                                <label>Title *</label>
+                                <input
+                                    type="text"
+                                    value={formData.title}
+                                    onChange={(e) => setFormData({...formData, title: e.target.value})}
+                                    placeholder="Resource title"
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Description *</label>
+                                <textarea
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                    placeholder="Describe this resource"
+                                    rows="3"
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Category</label>
+                                    <select
+                                        value={formData.category}
+                                        onChange={(e) => setFormData({...formData, category: e.target.value})}
+                                    >
+                                        <option value="article">Article</option>
+                                        <option value="video">Video</option>
+                                        <option value="tool">Tool</option>
+                                        <option value="worksheet">Worksheet</option>
+                                    </select>
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label>Type</label>
+                                    <select
+                                        value={formData.type}
+                                        onChange={(e) => setFormData({...formData, type: e.target.value})}
+                                    >
+                                        <option value="link">External Link</option>
+                                        <option value="pdf">PDF</option>
+                                        <option value="text">Text Content</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            {formData.type === 'link' && (
+                                <div className="form-group">
+                                    <label>URL</label>
+                                    <input
+                                        type="url"
+                                        value={formData.url}
+                                        onChange={(e) => setFormData({...formData, url: e.target.value})}
+                                        placeholder="https://..."
+                                    />
+                                </div>
+                            )}
+                            
+                            {formData.type === 'text' && (
+                                <div className="form-group">
+                                    <label>Content</label>
+                                    <textarea
+                                        value={formData.content}
+                                        onChange={(e) => setFormData({...formData, content: e.target.value})}
+                                        placeholder="Enter content"
+                                        rows="5"
+                                    />
+                                </div>
+                            )}
+                            
+                            <div className="form-group">
+                                <label>Tags</label>
+                                <div className="tag-input-container">
+                                    <input
+                                        type="text"
+                                        value={tagInput}
+                                        onChange={(e) => setTagInput(e.target.value)}
+                                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                                        placeholder="Add tag and press Enter"
+                                    />
+                                    <button type="button" className="btn btn-sm" onClick={addTag}>Add</button>
+                                </div>
+                                <div className="tags-display">
+                                    {formData.tags?.map((tag, idx) => (
+                                        <span key={idx} className="tag">
+                                            {tag}
+                                            <button type="button" onClick={() => removeTag(tag)}>×</button>
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        checked={formData.featured}
+                                        onChange={(e) => setFormData({...formData, featured: e.target.checked})}
+                                    />
+                                    Feature this resource
+                                </label>
+                            </div>
+                        </>
+                    )}
+                    
+                    {type === 'meeting' && (
+                        <>
+                            <div className="form-group">
+                                <label>Meeting Name *</label>
+                                <input
+                                    type="text"
+                                    value={formData.name}
+                                    onChange={(e) => setFormData({...formData, name: e.target.value})}
+                                    placeholder="e.g., Downtown AA Meeting"
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Type</label>
+                                    <select
+                                        value={formData.type}
+                                        onChange={(e) => setFormData({...formData, type: e.target.value})}
+                                    >
+                                        <option value="AA">AA</option>
+                                        <option value="NA">NA</option>
+                                        <option value="Group Therapy">Group Therapy</option>
+                                        <option value="Support Group">Support Group</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label>Time *</label>
+                                    <input
+                                        type="time"
+                                        value={formData.time}
+                                        onChange={(e) => setFormData({...formData, time: e.target.value})}
+                                        required
+                                    />
+                                </div>
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Schedule *</label>
+                                <input
+                                    type="text"
+                                    value={formData.schedule}
+                                    onChange={(e) => setFormData({...formData, schedule: e.target.value})}
+                                    placeholder="e.g., Every Monday and Thursday"
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Location</label>
+                                <input
+                                    type="text"
+                                    value={formData.location}
+                                    onChange={(e) => setFormData({...formData, location: e.target.value})}
+                                    placeholder="Address or 'Online'"
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Meeting URL (if online)</label>
+                                <input
+                                    type="url"
+                                    value={formData.meetingUrl}
+                                    onChange={(e) => setFormData({...formData, meetingUrl: e.target.value})}
+                                    placeholder="https://zoom.us/..."
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Description</label>
+                                <textarea
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                    placeholder="Meeting details, requirements, etc."
+                                    rows="3"
+                                />
+                            </div>
+                        </>
+                    )}
+                    
+                    {type === 'emergency' && (
+                        <>
+                            <div className="form-group">
+                                <label>Contact Name *</label>
+                                <input
+                                    type="text"
+                                    value={formData.title}
+                                    onChange={(e) => setFormData({...formData, title: e.target.value})}
+                                    placeholder="e.g., National Suicide Prevention Lifeline"
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Phone Number</label>
+                                <input
+                                    type="tel"
+                                    value={formData.phone}
+                                    onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                                    placeholder="1-800-123-4567"
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Website</label>
+                                <input
+                                    type="url"
+                                    value={formData.url}
+                                    onChange={(e) => setFormData({...formData, url: e.target.value})}
+                                    placeholder="https://..."
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Availability</label>
+                                <input
+                                    type="text"
+                                    value={formData.available}
+                                    onChange={(e) => setFormData({...formData, available: e.target.value})}
+                                    placeholder="e.g., 24/7 or Mon-Fri 9am-5pm"
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Description *</label>
+                                <textarea
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                    placeholder="What kind of help this resource provides"
+                                    rows="3"
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Priority (1-5)</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="5"
+                                    value={formData.priority || 1}
+                                    onChange={(e) => setFormData({...formData, priority: parseInt(e.target.value)})}
+                                />
+                                <small>1 = Highest priority (shown first)</small>
+                            </div>
+                        </>
+                    )}
+                    
+                    <div className="modal-footer">
+                        <button type="submit" className="btn btn-primary">
+                            {item ? 'Update' : 'Create'}
+                        </button>
+                        <button type="button" className="btn btn-secondary" onClick={onClose}>
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
 
         // FULLY FUNCTIONAL CheckInsView 
         function CheckInsView({ searchQuery }) {
