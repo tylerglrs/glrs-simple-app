@@ -3225,6 +3225,908 @@ function CreateRoomForm({ onSubmit, onCancel }) {
         </form>
     );
 }
+        // Goals & Objectives Management View
+function GoalsView({ searchQuery, user }) {
+    const [activeTab, setActiveTab] = useState('templates');
+    const [loading, setLoading] = useState(true);
+    const [goalTemplates, setGoalTemplates] = useState([]);
+    const [assignedGoals, setAssignedGoals] = useState([]);
+    const [milestones, setMilestones] = useState([]);
+    const [inspirations, setInspirations] = useState([]);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [modalType, setModalType] = useState(''); // template, goal, milestone, inspiration
+    const [selectedPIR, setSelectedPIR] = useState(null);
+    const [pirs, setPirs] = useState([]);
+    const [stats, setStats] = useState({
+        activeGoals: 0,
+        completedGoals: 0,
+        avgProgress: 0,
+        totalMilestones: 0
+    });
+
+    useEffect(() => {
+        loadGoalsData();
+    }, []);
+
+    useEffect(() => {
+        filterData();
+    }, [searchQuery, activeTab]);
+
+    const loadGoalsData = async () => {
+        try {
+            setLoading(true);
+
+            // Load goal templates
+            const templatesSnap = await db.collection('goalTemplates').get();
+            const templatesData = [];
+            templatesSnap.forEach(doc => {
+                templatesData.push({ id: doc.id, ...doc.data() });
+            });
+            setGoalTemplates(templatesData);
+
+            // Load assigned goals
+            const goalsSnap = await db.collection('goals')
+                .orderBy('createdAt', 'desc')
+                .get();
+
+            const goalsData = [];
+            let activeCount = 0;
+            let completedCount = 0;
+            let totalProgress = 0;
+
+            for (const doc of goalsSnap.docs) {
+                const goalData = { id: doc.id, ...doc.data() };
+                
+                // Get PIR info
+                if (goalData.userId) {
+                    const userDoc = await db.collection('users').doc(goalData.userId).get();
+                    if (userDoc.exists) {
+                        const userData = userDoc.data();
+                        goalData.userName = userData.displayName || userData.email;
+                    }
+                }
+                
+                goalsData.push(goalData);
+                
+                if (goalData.status === 'active') activeCount++;
+                if (goalData.status === 'completed') completedCount++;
+                totalProgress += goalData.progress || 0;
+            }
+            setAssignedGoals(goalsData);
+
+            // Load milestones
+            const milestonesSnap = await db.collection('milestones')
+                .orderBy('daysRequired', 'asc')
+                .get();
+            
+            const milestonesData = [];
+            milestonesSnap.forEach(doc => {
+                milestonesData.push({ id: doc.id, ...doc.data() });
+            });
+            setMilestones(milestonesData);
+
+            // Load daily inspirations
+            const inspirationsSnap = await db.collection('dailyInspirations').get();
+            const inspirationsData = [];
+            inspirationsSnap.forEach(doc => {
+                inspirationsData.push({ id: doc.id, ...doc.data() });
+            });
+            setInspirations(inspirationsData);
+
+            // Load PIRs for assignment
+            const pirsSnap = await db.collection('users')
+                .where('role', '==', 'pir')
+                .get();
+            
+            const pirsData = [];
+            pirsSnap.forEach(doc => {
+                pirsData.push({ id: doc.id, ...doc.data() });
+            });
+            setPirs(pirsData);
+
+            // Calculate stats
+            setStats({
+                activeGoals: activeCount,
+                completedGoals: completedCount,
+                avgProgress: goalsData.length > 0 ? Math.round(totalProgress / goalsData.length) : 0,
+                totalMilestones: milestonesData.length
+            });
+
+        } catch (error) {
+            console.error('Error loading goals data:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const filterData = () => {
+        // Search filtering would be implemented here
+        // For now, we'll just use the loaded data
+    };
+
+    const handleCreateTemplate = async (templateData) => {
+        try {
+            await db.collection('goalTemplates').add({
+                ...templateData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: user.uid,
+                active: true
+            });
+            
+            alert('Goal template created successfully!');
+            setShowCreateModal(false);
+            loadGoalsData();
+        } catch (error) {
+            console.error('Error creating template:', error);
+            alert('Failed to create template');
+        }
+    };
+
+    const handleAssignGoal = async (goalData) => {
+        try {
+            await db.collection('goals').add({
+                ...goalData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                assignedBy: user.uid,
+                status: 'active',
+                progress: 0
+            });
+
+            // Create notification for PIR
+            await db.collection('notifications').add({
+                userId: goalData.userId,
+                type: 'goal_assigned',
+                message: `New goal assigned: ${goalData.title}`,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                read: false
+            });
+            
+            alert('Goal assigned successfully!');
+            setShowCreateModal(false);
+            loadGoalsData();
+        } catch (error) {
+            console.error('Error assigning goal:', error);
+            alert('Failed to assign goal');
+        }
+    };
+
+    const handleCreateMilestone = async (milestoneData) => {
+        try {
+            await db.collection('milestones').add({
+                ...milestoneData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: user.uid,
+                active: true
+            });
+            
+            alert('Milestone created successfully!');
+            setShowCreateModal(false);
+            loadGoalsData();
+        } catch (error) {
+            console.error('Error creating milestone:', error);
+            alert('Failed to create milestone');
+        }
+    };
+
+    const handleCreateInspiration = async (inspirationData) => {
+        try {
+            await db.collection('dailyInspirations').add({
+                ...inspirationData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: user.uid,
+                active: true
+            });
+            
+            alert('Daily inspiration created successfully!');
+            setShowCreateModal(false);
+            loadGoalsData();
+        } catch (error) {
+            console.error('Error creating inspiration:', error);
+            alert('Failed to create inspiration');
+        }
+    };
+
+    const handleUpdateGoalStatus = async (goalId, newStatus) => {
+        try {
+            await db.collection('goals').doc(goalId).update({
+                status: newStatus,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            loadGoalsData();
+        } catch (error) {
+            console.error('Error updating goal:', error);
+            alert('Failed to update goal status');
+        }
+    };
+
+    const handleDeleteItem = async (collection, itemId, itemName) => {
+        if (confirm(`Delete "${itemName}"?`)) {
+            try {
+                await db.collection(collection).doc(itemId).delete();
+                alert('Item deleted successfully');
+                loadGoalsData();
+            } catch (error) {
+                console.error('Error deleting item:', error);
+                alert('Failed to delete item');
+            }
+        }
+    };
+
+    const renderTemplatesTab = () => (
+        <div className="templates-container">
+            <div className="templates-header">
+                <h3>Goal Templates</h3>
+                <button 
+                    className="btn btn-primary"
+                    onClick={() => {
+                        setModalType('template');
+                        setShowCreateModal(true);
+                    }}
+                >
+                    + Create Template
+                </button>
+            </div>
+
+            <div className="templates-grid">
+                {goalTemplates.map(template => (
+                    <div key={template.id} className="template-card">
+                        <div className="template-header">
+                            <h4>{template.title}</h4>
+                            <span className={`badge ${template.active ? 'badge-success' : 'badge-secondary'}`}>
+                                {template.active ? 'Active' : 'Inactive'}
+                            </span>
+                        </div>
+                        
+                        <p className="template-description">{template.description}</p>
+                        
+                        <div className="template-details">
+                            <div className="detail-item">
+                                <span className="detail-label">Category:</span>
+                                <span className="detail-value">{template.category}</span>
+                            </div>
+                            <div className="detail-item">
+                                <span className="detail-label">Duration:</span>
+                                <span className="detail-value">{template.duration} days</span>
+                            </div>
+                            <div className="detail-item">
+                                <span className="detail-label">Difficulty:</span>
+                                <span className="detail-value">{template.difficulty}</span>
+                            </div>
+                        </div>
+
+                        <div className="template-objectives">
+                            <h5>Objectives:</h5>
+                            <ul>
+                                {template.objectives && template.objectives.map((obj, idx) => (
+                                    <li key={idx}>{obj}</li>
+                                ))}
+                            </ul>
+                        </div>
+                        
+                        <div className="template-actions">
+                            <button 
+                                className="btn btn-sm btn-primary"
+                                onClick={() => {
+                                    setModalType('assign');
+                                    setSelectedPIR(template);
+                                    setShowCreateModal(true);
+                                }}
+                            >
+                                Assign to PIR
+                            </button>
+                            <button 
+                                className="btn btn-sm btn-danger"
+                                onClick={() => handleDeleteItem('goalTemplates', template.id, template.title)}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {goalTemplates.length === 0 && (
+                <div className="empty-state">
+                    No goal templates created yet. Create templates to quickly assign goals to PIRs.
+                </div>
+            )}
+        </div>
+    );
+
+    const renderGoalsTab = () => (
+        <div className="goals-container">
+            <div className="goals-header">
+                <h3>Assigned Goals</h3>
+                <button 
+                    className="btn btn-primary"
+                    onClick={() => {
+                        setModalType('goal');
+                        setShowCreateModal(true);
+                    }}
+                >
+                    + Assign Goal
+                </button>
+            </div>
+
+            <div className="goals-filters">
+                <button className="filter-btn active">All ({assignedGoals.length})</button>
+                <button className="filter-btn">Active ({stats.activeGoals})</button>
+                <button className="filter-btn">Completed ({stats.completedGoals})</button>
+            </div>
+
+            <div className="goals-list">
+                {assignedGoals.map(goal => (
+                    <div key={goal.id} className="goal-item">
+                        <div className="goal-header">
+                            <div>
+                                <h4>{goal.title}</h4>
+                                <span className="goal-pir">{goal.userName}</span>
+                            </div>
+                            <span className={`badge ${
+                                goal.status === 'completed' ? 'badge-success' :
+                                goal.status === 'active' ? 'badge-primary' :
+                                'badge-secondary'
+                            }`}>
+                                {goal.status}
+                            </span>
+                        </div>
+                        
+                        <p className="goal-description">{goal.description}</p>
+                        
+                        <div className="goal-progress">
+                            <div className="progress-bar-container">
+                                <div 
+                                    className="progress-bar-fill"
+                                    style={{width: `${goal.progress || 0}%`}}
+                                ></div>
+                            </div>
+                            <span className="progress-text">{goal.progress || 0}%</span>
+                        </div>
+                        
+                        <div className="goal-meta">
+                            <span>Created: {formatDate(goal.createdAt)}</span>
+                            <span>Due: {goal.dueDate || 'No due date'}</span>
+                        </div>
+                        
+                        <div className="goal-actions">
+                            {goal.status !== 'completed' && (
+                                <button 
+                                    className="btn btn-sm btn-success"
+                                    onClick={() => handleUpdateGoalStatus(goal.id, 'completed')}
+                                >
+                                    Mark Complete
+                                </button>
+                            )}
+                            <button 
+                                className="btn btn-sm btn-danger"
+                                onClick={() => handleDeleteItem('goals', goal.id, goal.title)}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {assignedGoals.length === 0 && (
+                <div className="empty-state">
+                    No goals assigned yet. Start by assigning goals to PIRs.
+                </div>
+            )}
+        </div>
+    );
+
+    const renderMilestonesTab = () => (
+        <div className="milestones-container">
+            <div className="milestones-header">
+                <h3>Recovery Milestones</h3>
+                <button 
+                    className="btn btn-primary"
+                    onClick={() => {
+                        setModalType('milestone');
+                        setShowCreateModal(true);
+                    }}
+                >
+                    + Create Milestone
+                </button>
+            </div>
+
+            <div className="milestones-timeline">
+                {milestones.map(milestone => (
+                    <div key={milestone.id} className="milestone-item">
+                        <div className="milestone-marker">
+                            <span className="milestone-days">{milestone.daysRequired}</span>
+                            <span className="milestone-label">days</span>
+                        </div>
+                        
+                        <div className="milestone-content">
+                            <h4>{milestone.title}</h4>
+                            <p>{milestone.description}</p>
+                            <div className="milestone-reward">
+                                <span className="reward-icon">{milestone.icon || '🏆'}</span>
+                                <span className="reward-text">{milestone.reward || 'Achievement Unlocked'}</span>
+                            </div>
+                        </div>
+                        
+                        <div className="milestone-actions">
+                            <button 
+                                className="btn btn-sm btn-danger"
+                                onClick={() => handleDeleteItem('milestones', milestone.id, milestone.title)}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {milestones.length === 0 && (
+                <div className="empty-state">
+                    No milestones created yet. Create milestones to celebrate recovery progress.
+                </div>
+            )}
+        </div>
+    );
+
+    const renderInspirationsTab = () => (
+        <div className="inspirations-container">
+            <div className="inspirations-header">
+                <h3>Daily Inspirations</h3>
+                <button 
+                    className="btn btn-primary"
+                    onClick={() => {
+                        setModalType('inspiration');
+                        setShowCreateModal(true);
+                    }}
+                >
+                    + Add Inspiration
+                </button>
+            </div>
+
+            <div className="inspirations-grid">
+                {inspirations.map(inspiration => (
+                    <div key={inspiration.id} className="inspiration-card">
+                        <div className="inspiration-quote">
+                            "{inspiration.quote}"
+                        </div>
+                        
+                        {inspiration.author && (
+                            <div className="inspiration-author">
+                                - {inspiration.author}
+                            </div>
+                        )}
+                        
+                        <div className="inspiration-meta">
+                            <span className="inspiration-category">
+                                {inspiration.category || 'General'}
+                            </span>
+                            <span className={`badge ${inspiration.active ? 'badge-success' : 'badge-secondary'}`}>
+                                {inspiration.active ? 'Active' : 'Inactive'}
+                            </span>
+                        </div>
+                        
+                        <div className="inspiration-actions">
+                            <button 
+                                className="btn btn-sm btn-danger"
+                                onClick={() => handleDeleteItem('dailyInspirations', inspiration.id, 'this inspiration')}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {inspirations.length === 0 && (
+                <div className="empty-state">
+                    No daily inspirations added yet. Add inspirational quotes to motivate PIRs.
+                </div>
+            )}
+        </div>
+    );
+
+    if (loading) {
+        return (
+            <div className="loading-container">
+                <div className="loading-spinner"></div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="goals-view">
+            {/* Stats Row */}
+            <div className="stats-row">
+                <div className="stat-card">
+                    <div className="stat-value">{stats.activeGoals}</div>
+                    <div className="stat-label">Active Goals</div>
+                </div>
+                <div className="stat-card">
+                    <div className="stat-value">{stats.completedGoals}</div>
+                    <div className="stat-label">Completed</div>
+                </div>
+                <div className="stat-card">
+                    <div className="stat-value">{stats.avgProgress}%</div>
+                    <div className="stat-label">Avg Progress</div>
+                </div>
+                <div className="stat-card">
+                    <div className="stat-value">{stats.totalMilestones}</div>
+                    <div className="stat-label">Milestones</div>
+                </div>
+            </div>
+
+            {/* Tab Navigation */}
+            <div className="tab-nav">
+                <button 
+                    className={`tab-btn ${activeTab === 'templates' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('templates')}
+                >
+                    Templates ({goalTemplates.length})
+                </button>
+                <button 
+                    className={`tab-btn ${activeTab === 'goals' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('goals')}
+                >
+                    Assigned Goals ({assignedGoals.length})
+                </button>
+                <button 
+                    className={`tab-btn ${activeTab === 'milestones' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('milestones')}
+                >
+                    Milestones ({milestones.length})
+                </button>
+                <button 
+                    className={`tab-btn ${activeTab === 'inspirations' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('inspirations')}
+                >
+                    Inspirations ({inspirations.length})
+                </button>
+            </div>
+
+            {/* Tab Content */}
+            {activeTab === 'templates' && renderTemplatesTab()}
+            {activeTab === 'goals' && renderGoalsTab()}
+            {activeTab === 'milestones' && renderMilestonesTab()}
+            {activeTab === 'inspirations' && renderInspirationsTab()}
+
+            {/* Create Modal */}
+            {showCreateModal && (
+                <CreateGoalModal
+                    type={modalType}
+                    template={selectedPIR}
+                    pirs={pirs}
+                    onSubmit={(data) => {
+                        if (modalType === 'template') handleCreateTemplate(data);
+                        else if (modalType === 'goal' || modalType === 'assign') handleAssignGoal(data);
+                        else if (modalType === 'milestone') handleCreateMilestone(data);
+                        else if (modalType === 'inspiration') handleCreateInspiration(data);
+                    }}
+                    onClose={() => {
+                        setShowCreateModal(false);
+                        setSelectedPIR(null);
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+
+// Create Goal Modal Component
+function CreateGoalModal({ type, template, pirs, onSubmit, onClose }) {
+    const [formData, setFormData] = useState(() => {
+        if (type === 'assign' && template) {
+            return {
+                title: template.title,
+                description: template.description,
+                category: template.category,
+                duration: template.duration,
+                objectives: template.objectives || [],
+                userId: ''
+            };
+        }
+        return {
+            title: '',
+            description: '',
+            category: 'general',
+            duration: 30,
+            objectives: [''],
+            userId: '',
+            daysRequired: 30,
+            quote: '',
+            author: '',
+            icon: '🏆',
+            reward: ''
+        };
+    });
+
+    const categories = ['general', 'sobriety', 'health', 'relationships', 'career', 'personal', 'spiritual'];
+    const difficulties = ['easy', 'medium', 'hard'];
+    const icons = ['🏆', '⭐', '🎯', '💪', '🌟', '✨', '🔥', '💎', '🎖️', '🏅'];
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        
+        if (type === 'template' && (!formData.title || !formData.description)) {
+            alert('Please fill in all required fields');
+            return;
+        }
+        
+        if ((type === 'goal' || type === 'assign') && (!formData.userId || !formData.title)) {
+            alert('Please select a PIR and provide a title');
+            return;
+        }
+        
+        if (type === 'milestone' && (!formData.title || !formData.daysRequired)) {
+            alert('Please provide a title and days required');
+            return;
+        }
+        
+        if (type === 'inspiration' && !formData.quote) {
+            alert('Please provide a quote');
+            return;
+        }
+        
+        onSubmit(formData);
+    };
+
+    const addObjective = () => {
+        setFormData({
+            ...formData,
+            objectives: [...formData.objectives, '']
+        });
+    };
+
+    const updateObjective = (index, value) => {
+        const newObjectives = [...formData.objectives];
+        newObjectives[index] = value;
+        setFormData({
+            ...formData,
+            objectives: newObjectives
+        });
+    };
+
+    return (
+        <div className="modal-overlay">
+            <div className="modal-content" style={{maxWidth: '600px'}}>
+                <div className="modal-header">
+                    <h3>
+                        {type === 'template' && 'Create Goal Template'}
+                        {type === 'goal' && 'Assign New Goal'}
+                        {type === 'assign' && `Assign: ${template.title}`}
+                        {type === 'milestone' && 'Create Milestone'}
+                        {type === 'inspiration' && 'Add Daily Inspiration'}
+                    </h3>
+                    <button className="close-btn" onClick={onClose}>×</button>
+                </div>
+                
+                <form onSubmit={handleSubmit} className="modal-body">
+                    {(type === 'goal' || type === 'assign') && (
+                        <div className="form-group">
+                            <label>Select PIR *</label>
+                            <select
+                                value={formData.userId}
+                                onChange={(e) => setFormData({...formData, userId: e.target.value})}
+                                required
+                            >
+                                <option value="">Select a PIR...</option>
+                                {pirs.map(pir => (
+                                    <option key={pir.id} value={pir.id}>
+                                        {pir.displayName || pir.email}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+                    
+                    {(type === 'template' || type === 'goal') && (
+                        <>
+                            <div className="form-group">
+                                <label>Title *</label>
+                                <input
+                                    type="text"
+                                    value={formData.title}
+                                    onChange={(e) => setFormData({...formData, title: e.target.value})}
+                                    placeholder="e.g., 30 Days of Sobriety"
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Description *</label>
+                                <textarea
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                    placeholder="Describe the goal..."
+                                    rows="3"
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Category</label>
+                                    <select
+                                        value={formData.category}
+                                        onChange={(e) => setFormData({...formData, category: e.target.value})}
+                                    >
+                                        {categories.map(cat => (
+                                            <option key={cat} value={cat}>
+                                                {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label>Duration (days)</label>
+                                    <input
+                                        type="number"
+                                        value={formData.duration}
+                                        onChange={(e) => setFormData({...formData, duration: e.target.value})}
+                                        min="1"
+                                        max="365"
+                                    />
+                                </div>
+                            </div>
+                            
+                            {type === 'template' && (
+                                <div className="form-group">
+                                    <label>Difficulty</label>
+                                    <select
+                                        value={formData.difficulty || 'medium'}
+                                        onChange={(e) => setFormData({...formData, difficulty: e.target.value})}
+                                    >
+                                        {difficulties.map(diff => (
+                                            <option key={diff} value={diff}>
+                                                {diff.charAt(0).toUpperCase() + diff.slice(1)}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                            
+                            <div className="form-group">
+                                <label>Objectives</label>
+                                {formData.objectives.map((obj, idx) => (
+                                    <input
+                                        key={idx}
+                                        type="text"
+                                        value={obj}
+                                        onChange={(e) => updateObjective(idx, e.target.value)}
+                                        placeholder={`Objective ${idx + 1}`}
+                                        style={{marginBottom: '5px'}}
+                                    />
+                                ))}
+                                <button 
+                                    type="button"
+                                    className="btn btn-sm btn-secondary"
+                                    onClick={addObjective}
+                                >
+                                    + Add Objective
+                                </button>
+                            </div>
+                        </>
+                    )}
+                    
+                    {type === 'milestone' && (
+                        <>
+                            <div className="form-group">
+                                <label>Title *</label>
+                                <input
+                                    type="text"
+                                    value={formData.title}
+                                    onChange={(e) => setFormData({...formData, title: e.target.value})}
+                                    placeholder="e.g., First Month Clean"
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Description</label>
+                                <textarea
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                    placeholder="Describe this milestone..."
+                                    rows="2"
+                                />
+                            </div>
+                            
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Days Required *</label>
+                                    <input
+                                        type="number"
+                                        value={formData.daysRequired}
+                                        onChange={(e) => setFormData({...formData, daysRequired: e.target.value})}
+                                        min="1"
+                                        max="3650"
+                                        required
+                                    />
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label>Icon</label>
+                                    <div className="icon-picker">
+                                        {icons.map(icon => (
+                                            <button
+                                                key={icon}
+                                                type="button"
+                                                className={`icon-option ${formData.icon === icon ? 'selected' : ''}`}
+                                                onClick={() => setFormData({...formData, icon})}
+                                            >
+                                                {icon}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Reward Message</label>
+                                <input
+                                    type="text"
+                                    value={formData.reward}
+                                    onChange={(e) => setFormData({...formData, reward: e.target.value})}
+                                    placeholder="e.g., You're doing amazing!"
+                                />
+                            </div>
+                        </>
+                    )}
+                    
+                    {type === 'inspiration' && (
+                        <>
+                            <div className="form-group">
+                                <label>Quote *</label>
+                                <textarea
+                                    value={formData.quote}
+                                    onChange={(e) => setFormData({...formData, quote: e.target.value})}
+                                    placeholder="Enter an inspirational quote..."
+                                    rows="4"
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Author</label>
+                                <input
+                                    type="text"
+                                    value={formData.author}
+                                    onChange={(e) => setFormData({...formData, author: e.target.value})}
+                                    placeholder="e.g., Unknown"
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Category</label>
+                                <select
+                                    value={formData.category || 'general'}
+                                    onChange={(e) => setFormData({...formData, category: e.target.value})}
+                                >
+                                    <option value="general">General</option>
+                                    <option value="motivation">Motivation</option>
+                                    <option value="recovery">Recovery</option>
+                                    <option value="strength">Strength</option>
+                                    <option value="hope">Hope</option>
+                                    <option value="wisdom">Wisdom</option>
+                                </select>
+                            </div>
+                        </>
+                    )}
+                    
+                    <div className="modal-footer">
+                        <button type="submit" className="btn btn-primary">
+                            {type === 'assign' ? 'Assign Goal' : 'Create'}
+                        </button>
+                        <button type="button" className="btn btn-secondary" onClick={onClose}>
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
         // Profile View
         function ProfileView({ user }) {
             const [editing, setEditing] = useState(false);
