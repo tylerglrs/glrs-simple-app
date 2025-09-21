@@ -3287,3 +3287,1587 @@
                     {reportData && (
                         <div className="table-container" style={{marginTop: '20px'}}>
                             <h3 style={{marginBottom: '20px'}}>Report Results</h3>
+                            <pre style={{
+                                background: 'rgba(0, 0, 0, 0.3)',
+                                padding: '20px',
+                                borderRadius: '10px',
+                                color: '#f4c430',
+                                fontFamily: 'monospace'
+                            }}>
+                                {JSON.stringify(reportData, null, 2)}
+                            </pre>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Settings View (Admin only)
+        function SettingsView() {
+            const [settings, setSettings] = useState({
+                emailNotifications: false,
+                autoAssignCoach: false,
+                checkInReminders: true,
+                dataRetention: '7years',
+                maxPIRsPerCoach: 20
+            });
+            const [saving, setSaving] = useState(false);
+
+            useEffect(() => {
+                loadSettings();
+            }, []);
+
+            const loadSettings = async () => {
+                try {
+                    const settingsDoc = await db.collection('settings').doc('system').get();
+                    if (settingsDoc.exists) {
+                        setSettings(settingsDoc.data());
+                    }
+                } catch (error) {
+                    console.error('Error loading settings:', error);
+                }
+            };
+
+            const saveSettings = async () => {
+                setSaving(true);
+                try {
+                    await db.collection('settings').doc('system').set(settings);
+                    alert('Settings saved successfully');
+                } catch (error) {
+                    console.error('Error saving settings:', error);
+                    alert('Failed to save settings');
+                } finally {
+                    setSaving(false);
+                }
+            };
+
+            const exportAllData = async () => {
+                if (!confirm('This will export all system data. Continue?')) return;
+                
+                try {
+                    const data = {
+                        users: [],
+                        checkIns: [],
+                        assignments: [],
+                        messages: [],
+                        groups: [],
+                        resources: [],
+                        exportDate: new Date().toISOString()
+                    };
+                    
+                    // Export all collections
+                    const collections = ['users', 'checkIns', 'assignments', 'messages', 'groups', 'resources'];
+                    
+                    for (const collection of collections) {
+                        const snapshot = await db.collection(collection).get();
+                        snapshot.forEach(doc => {
+                            data[collection].push({ id: doc.id, ...doc.data() });
+                        });
+                    }
+                    
+                    const jsonStr = JSON.stringify(data, null, 2);
+                    const blob = new Blob([jsonStr], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `glrs_full_export_${new Date().toISOString().split('T')[0]}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } catch (error) {
+                    console.error('Error exporting data:', error);
+                    alert('Failed to export data');
+                }
+            };
+
+            const clearOldNotifications = async () => {
+                if (!confirm('Clear notifications older than 30 days?')) return;
+                
+                try {
+                    const thirtyDaysAgo = new Date();
+                    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                    
+                    const snapshot = await db.collection('notifications')
+                        .where('createdAt', '<', thirtyDaysAgo)
+                        .get();
+                    
+                    const batch = db.batch();
+                    snapshot.forEach(doc => {
+                        batch.delete(doc.ref);
+                    });
+                    
+                    await batch.commit();
+                    alert(`Cleared ${snapshot.size} old notifications`);
+                } catch (error) {
+                    console.error('Error clearing notifications:', error);
+                    alert('Failed to clear notifications');
+                }
+            };
+
+            return (
+                <div>
+                    <div className="table-container">
+                        <h3 style={{marginBottom: '20px'}}>System Settings</h3>
+                        
+                        <div className="form-group">
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="emailNotifications"
+                                    checked={settings.emailNotifications}
+                                    onChange={(e) => setSettings({...settings, emailNotifications: e.target.checked})}
+                                />
+                                <label htmlFor="emailNotifications">Enable Email Notifications</label>
+                            </div>
+                        </div>
+                        
+                        <div className="form-group">
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="autoAssignCoach"
+                                    checked={settings.autoAssignCoach}
+                                    onChange={(e) => setSettings({...settings, autoAssignCoach: e.target.checked})}
+                                />
+                                <label htmlFor="autoAssignCoach">Auto-assign Coach to New PIRs</label>
+                            </div>
+                        </div>
+                        
+                        <div className="form-group">
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="checkInReminders"
+                                    checked={settings.checkInReminders}
+                                    onChange={(e) => setSettings({...settings, checkInReminders: e.target.checked})}
+                                />
+                                <label htmlFor="checkInReminders">Send Check-in Reminders</label>
+                            </div>
+                        </div>
+                        
+                        <div className="form-group">
+                            <label className="form-label">Data Retention Period</label>
+                            <select 
+                                className="form-input"
+                                value={settings.dataRetention}
+                                onChange={(e) => setSettings({...settings, dataRetention: e.target.value})}
+                            >
+                                <option value="1year">1 Year</option>
+                                <option value="3years">3 Years</option>
+                                <option value="7years">7 Years (HIPAA Compliant)</option>
+                                <option value="forever">Forever</option>
+                            </select>
+                        </div>
+                        
+                        <div className="form-group">
+                            <label className="form-label">Max PIRs per Coach</label>
+                            <input
+                                type="number"
+                                className="form-input"
+                                value={settings.maxPIRsPerCoach}
+                                onChange={(e) => setSettings({...settings, maxPIRsPerCoach: parseInt(e.target.value)})}
+                            />
+                        </div>
+                        
+                        <button 
+                            className="btn btn-primary"
+                            onClick={saveSettings}
+                            disabled={saving}
+                        >
+                            {saving ? 'Saving...' : 'Save Settings'}
+                        </button>
+                    </div>
+                    
+                    <div className="table-container" style={{marginTop: '20px'}}>
+                        <h3 style={{marginBottom: '20px'}}>System Actions</h3>
+                        
+                        <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                            <button className="btn btn-secondary" onClick={exportAllData}>
+                                Export All Data
+                            </button>
+                            
+                            <button className="btn btn-secondary" onClick={clearOldNotifications}>
+                                Clear Old Notifications
+                            </button>
+                            
+                            <button 
+                                className="btn btn-danger"
+                                onClick={() => {
+                                    if (confirm('This will check for missed check-ins and send notifications. Continue?')) {
+                                        checkMissedCheckIns();
+                                    }
+                                }}
+                            >
+                                Check Missed Check-ins
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Modals
+        function CreateUserModal({ onClose, onSuccess }) {
+            const [formData, setFormData] = useState({
+                email: '',
+                password: 'TempPassword123!',
+                firstName: '',
+                lastName: '',
+                role: 'pir',
+                assignedCoach: '',
+                phone: ''
+            });
+            const [coaches, setCoaches] = useState([]);
+            const [loading, setLoading] = useState(false);
+
+            useEffect(() => {
+                loadCoaches();
+            }, []);
+
+            const loadCoaches = async () => {
+                const coachesSnap = await db.collection('users')
+                    .where('role', '==', 'coach')
+                    .get();
+                
+                const coachesData = [];
+                coachesSnap.forEach(doc => {
+                    coachesData.push({ id: doc.id, ...doc.data() });
+                });
+                setCoaches(coachesData);
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                
+                let secondaryApp;
+                try {
+                    // Create secondary app to prevent signing out admin
+                    try {
+                        secondaryApp = firebase.app('SecondaryApp');
+                        await secondaryApp.delete();
+                    } catch (e) {
+                        // App doesn't exist, that's fine
+                    }
+                    
+                    secondaryApp = firebase.initializeApp(firebaseConfig, 'SecondaryApp');
+                    const secondaryAuth = secondaryApp.auth();
+                    
+                    // Create auth user
+                    const userCredential = await secondaryAuth.createUserWithEmailAndPassword(
+                        formData.email,
+                        formData.password
+                    );
+                    
+                    // Create Firestore profile
+                    await db.collection('users').doc(userCredential.user.uid).set({
+                        email: formData.email,
+                        displayName: `${formData.firstName} ${formData.lastName}`,
+                        firstName: formData.firstName,
+                        lastName: formData.lastName,
+                        phone: formData.phone,
+                        role: formData.role,
+                        assignedCoach: formData.role === 'pir' ? formData.assignedCoach : null,
+                        active: true,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // Send password reset email
+                    await auth.sendPasswordResetEmail(formData.email);
+                    
+                    // Create notification
+                    await db.collection('notifications').add({
+                        type: 'user-created',
+                        message: `New ${formData.role} created: ${formData.firstName} ${formData.lastName}`,
+                        recipientId: auth.currentUser.uid,
+                        read: false,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    await secondaryApp.delete();
+                    
+                    alert('User created successfully! Password reset email sent.');
+                    onSuccess();
+                } catch (error) {
+                    console.error('Error creating user:', error);
+                    alert('Error creating user: ' + error.message);
+                    
+                    if (secondaryApp) {
+                        try {
+                            await secondaryApp.delete();
+                        } catch (e) {
+                            // Ignore cleanup errors
+                        }
+                    }
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="modal-overlay">
+                    <div className="modal">
+                        <div className="modal-header">
+                            <div className="modal-title">Create New User</div>
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                        
+                        <form onSubmit={handleSubmit}>
+                            <div className="form-group">
+                                <label className="form-label">Email *</label>
+                                <input
+                                    type="email"
+                                    className="form-input"
+                                    value={formData.email}
+                                    onChange={(e) => setFormData({...formData, email: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            
+                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
+                                <div className="form-group">
+                                    <label className="form-label">First Name *</label>
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        value={formData.firstName}
+                                        onChange={(e) => setFormData({...formData, firstName: e.target.value})}
+                                        required
+                                    />
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label className="form-label">Last Name *</label>
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        value={formData.lastName}
+                                        onChange={(e) => setFormData({...formData, lastName: e.target.value})}
+                                        required
+                                    />
+                                </div>
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Phone</label>
+                                <input
+                                    type="tel"
+                                    className="form-input"
+                                    value={formData.phone}
+                                    onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Role *</label>
+                                <select 
+                                    className="form-input"
+                                    value={formData.role}
+                                    onChange={(e) => setFormData({...formData, role: e.target.value})}
+                                    required
+                                >
+                                    <option value="pir">PIR</option>
+                                    <option value="coach">Coach</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </div>
+                            
+                            {formData.role === 'pir' && (
+                                <div className="form-group">
+                                    <label className="form-label">Assigned Coach</label>
+                                    <select 
+                                        className="form-input"
+                                        value={formData.assignedCoach}
+                                        onChange={(e) => setFormData({...formData, assignedCoach: e.target.value})}
+                                    >
+                                        <option value="">Select Coach</option>
+                                        {coaches.map(coach => (
+                                            <option key={coach.id} value={coach.id}>
+                                                {coach.displayName || coach.email}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                            
+                            <div style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
+                                <button 
+                                    type="submit"
+                                    className="btn btn-primary"
+                                    disabled={loading}
+                                >
+                                    {loading ? 'Creating...' : 'Create User'}
+                                </button>
+                                <button 
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={onClose}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        }
+
+        function UserDetailModal({ user, onClose, onUpdate, currentUserId, userRole }) {
+            const [activeTab, setActiveTab] = useState('overview');
+            const [userCheckIns, setUserCheckIns] = useState([]);
+            const [userAssignments, setUserAssignments] = useState([]);
+            const [userMessages, setUserMessages] = useState([]);
+            const [messageText, setMessageText] = useState('');
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                loadUserData();
+            }, [user.id]);
+
+            const loadUserData = async () => {
+                try {
+                    // Load check-ins
+                    const checkInsSnap = await db.collection('checkIns')
+                        .where('userId', '==', user.id)
+                        .orderBy('createdAt', 'desc')
+                        .limit(50)
+                        .get();
+                    
+                    const checkInsData = [];
+                    checkInsSnap.forEach(doc => {
+                        checkInsData.push({ id: doc.id, ...doc.data() });
+                    });
+                    setUserCheckIns(checkInsData);
+
+                    // Load assignments
+                    const assignmentsSnap = await db.collection('assignments')
+                        .where('pirId', '==', user.id)
+                        .orderBy('createdAt', 'desc')
+                        .get();
+                    
+                    const assignmentsData = [];
+                    assignmentsSnap.forEach(doc => {
+                        assignmentsData.push({ id: doc.id, ...doc.data() });
+                    });
+                    setUserAssignments(assignmentsData);
+
+                    // Load messages
+                    const sentQuery = await db.collection('messages')
+                        .where('senderId', '==', user.id)
+                        .orderBy('createdAt', 'desc')
+                        .get();
+                    
+                    const receivedQuery = await db.collection('messages')
+                        .where('recipientId', '==', user.id)
+                        .orderBy('createdAt', 'desc')
+                        .get();
+                    
+                    const messagesData = [];
+                    sentQuery.forEach(doc => {
+                        messagesData.push({ id: doc.id, ...doc.data() });
+                    });
+                    receivedQuery.forEach(doc => {
+                        messagesData.push({ id: doc.id, ...doc.data() });
+                    });
+                    
+                    messagesData.sort((a, b) => b.createdAt - a.createdAt);
+                    setUserMessages(messagesData);
+
+                } catch (error) {
+                    console.error('Error loading user data:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const sendMessage = async () => {
+                if (!messageText.trim()) return;
+                
+                try {
+                    await db.collection('messages').add({
+                        text: messageText,
+                        senderId: currentUserId,
+                        senderName: 'Admin',
+                        recipientId: user.id,
+                        recipientName: user.displayName || user.email,
+                        type: 'direct',
+                        read: false,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    setMessageText('');
+                    loadUserData();
+                } catch (error) {
+                    console.error('Error sending message:', error);
+                    alert('Failed to send message');
+                }
+            };
+
+            const toggleUserStatus = async () => {
+                try {
+                    await db.collection('users').doc(user.id).update({
+                        active: !user.active
+                    });
+                    alert(`User ${user.active ? 'deactivated' : 'activated'} successfully`);
+                    onUpdate();
+                } catch (error) {
+                    console.error('Error updating user status:', error);
+                    alert('Failed to update user status');
+                }
+            };
+
+            const reassignCoach = async () => {
+                const newCoachId = prompt('Enter new coach user ID:');
+                if (newCoachId) {
+                    try {
+                        await db.collection('users').doc(user.id).update({
+                            assignedCoach: newCoachId
+                        });
+                        alert('Coach reassigned successfully');
+                        onUpdate();
+                    } catch (error) {
+                        console.error('Error reassigning coach:', error);
+                        alert('Failed to reassign coach');
+                    }
+                }
+            };
+
+            const exportUserData = () => {
+                const exportData = {
+                    profile: user,
+                    checkIns: userCheckIns,
+                    assignments: userAssignments,
+                    messages: userMessages,
+                    exportDate: new Date().toISOString()
+                };
+                
+                const jsonStr = JSON.stringify(exportData, null, 2);
+                const blob = new Blob([jsonStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `user_${user.id}_export.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+
+            if (loading) {
+                return (
+                    <div className="modal-overlay">
+                        <div className="modal">
+                            <div className="loading-spinner"></div>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="modal-overlay">
+                    <div className="modal" style={{maxWidth: '800px'}}>
+                        <div className="modal-header">
+                            <div className="modal-title">{user.displayName || user.email}</div>
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                        
+                        <div style={{marginBottom: '20px', display: 'flex', gap: '10px'}}>
+                            {userRole === 'admin' && (
+                                <>
+                                    <button 
+                                        className={`btn ${user.active !== false ? 'btn-danger' : 'btn-success'}`}
+                                        onClick={toggleUserStatus}
+                                    >
+                                        {user.active !== false ? 'Deactivate' : 'Activate'}
+                                    </button>
+                                    {user.role === 'pir' && (
+                                        <button className="btn btn-secondary" onClick={reassignCoach}>
+                                            Reassign Coach
+                                        </button>
+                                    )}
+                                </>
+                            )}
+                            <button className="btn btn-secondary" onClick={exportUserData}>
+                                Export Data
+                            </button>
+                        </div>
+                        
+                        <div className="tab-nav">
+                            <button 
+                                className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('overview')}
+                            >
+                                Overview
+                            </button>
+                            <button 
+                                className={`tab-btn ${activeTab === 'checkins' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('checkins')}
+                            >
+                                Check-ins ({userCheckIns.length})
+                            </button>
+                            <button 
+                                className={`tab-btn ${activeTab === 'assignments' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('assignments')}
+                            >
+                                Assignments ({userAssignments.length})
+                            </button>
+                            <button 
+                                className={`tab-btn ${activeTab === 'messages' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('messages')}
+                            >
+                                Messages
+                            </button>
+                        </div>
+                        
+                        {activeTab === 'overview' && (
+                            <div style={{marginTop: '20px'}}>
+                                <table>
+                                    <tbody>
+                                        <tr><td><strong>Email:</strong></td><td>{user.email}</td></tr>
+                                        <tr><td><strong>Name:</strong></td><td>{user.firstName} {user.lastName}</td></tr>
+                                        <tr><td><strong>Phone:</strong></td><td>{user.phone || 'Not provided'}</td></tr>
+                                        <tr><td><strong>Role:</strong></td><td>{user.role}</td></tr>
+                                        <tr><td><strong>Status:</strong></td><td>{user.active !== false ? 'Active' : 'Inactive'}</td></tr>
+                                        {user.assignedCoach && (
+                                            <tr><td><strong>Coach:</strong></td><td>{user.coachName || user.assignedCoach}</td></tr>
+                                        )}
+                                        {user.sobrietyDate && (
+                                            <tr><td><strong>Sobriety Date:</strong></td><td>{formatDate(user.sobrietyDate)}</td></tr>
+                                        )}
+                                        <tr><td><strong>Joined:</strong></td><td>{formatDate(user.createdAt)}</td></tr>
+                                    </tbody>
+                                </table>
+                                
+                                {user.role === 'pir' && userCheckIns.length > 0 && (
+                                    <div style={{marginTop: '30px'}}>
+                                        <h4 style={{marginBottom: '15px'}}>Progress Charts</h4>
+                                        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
+                                            <MoodChart checkIns={userCheckIns} />
+                                            <CravingChart checkIns={userCheckIns} />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        
+                        {activeTab === 'checkins' && (
+                            <div style={{marginTop: '20px', maxHeight: '400px', overflowY: 'auto'}}>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Type</th>
+                                            <th>Mood</th>
+                                            <th>Craving</th>
+                                            <th>Sleep</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {userCheckIns.map(checkIn => (
+                                            <tr key={checkIn.id}>
+                                                <td>{formatDate(checkIn.createdAt)}</td>
+                                                <td>{checkIn.type || 'Morning'}</td>
+                                                <td>{checkIn.morningData?.mood || checkIn.eveningData?.mood || '-'}</td>
+                                                <td>{checkIn.morningData?.craving || checkIn.eveningData?.craving || '-'}</td>
+                                                <td>{checkIn.morningData?.sleep || '-'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                {userCheckIns.length === 0 && (
+                                    <div className="empty-state">No check-ins yet</div>
+                                )}
+                            </div>
+                        )}
+                        
+                        {activeTab === 'assignments' && (
+                            <div style={{marginTop: '20px', maxHeight: '400px', overflowY: 'auto'}}>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Title</th>
+                                            <th>Due Date</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {userAssignments.map(assignment => (
+                                            <tr key={assignment.id}>
+                                                <td>{assignment.title}</td>
+                                                <td>{formatDate(assignment.dueDate)}</td>
+                                                <td>
+                                                    <span className={`badge ${
+                                                        assignment.status === 'completed' ? 'badge-success' :
+                                                        assignment.status === 'in-progress' ? 'badge-warning' :
+                                                        'badge-info'
+                                                    }`}>
+                                                        {assignment.status}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                {userAssignments.length === 0 && (
+                                    <div className="empty-state">No assignments yet</div>
+                                )}
+                            </div>
+                        )}
+                        
+                        {activeTab === 'messages' && (
+                            <div style={{marginTop: '20px'}}>
+                                <div style={{display: 'flex', gap: '10px', marginBottom: '20px'}}>
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        placeholder="Type a message..."
+                                        value={messageText}
+                                        onChange={(e) => setMessageText(e.target.value)}
+                                        onKeyPress={(e) => {
+                                            if (e.key === 'Enter') {
+                                                sendMessage();
+                                            }
+                                        }}
+                                    />
+                                    <button className="btn btn-primary" onClick={sendMessage}>
+                                        Send
+                                    </button>
+                                </div>
+                                
+                                <div style={{maxHeight: '300px', overflowY: 'auto'}}>
+                                    {userMessages.filter(m => m.senderId === currentUserId || m.recipientId === currentUserId).map(msg => (
+                                        <div 
+                                            key={msg.id}
+                                            className={`message-bubble ${msg.senderId === currentUserId ? 'sent' : 'received'}`}
+                                        >
+                                            <div>{msg.text}</div>
+                                            <div className="message-time">{formatTimeAgo(msg.createdAt)}</div>
+                                        </div>
+                                    ))}
+                                    {userMessages.length === 0 && (
+                                        <div className="empty-state">No messages yet</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function CreateGroupModal({ onClose, onSuccess, coachId, userRole }) {
+            const [formData, setFormData] = useState({
+                name: '',
+                description: '',
+                dayOfWeek: 'Monday',
+                time: '18:00',
+                recurring: true,
+                link: '',
+                members: []
+            });
+            const [loading, setLoading] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                
+                try {
+                    await db.collection('groups').add({
+                        ...formData,
+                        coachId: coachId,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        nextMeeting: calculateNextMeeting(formData.dayOfWeek, formData.time),
+                        attendance: {}
+                    });
+                    
+                    alert('Group created successfully!');
+                    onSuccess();
+                } catch (error) {
+                    console.error('Error creating group:', error);
+                    alert('Failed to create group');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const calculateNextMeeting = (dayOfWeek, time) => {
+                const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                const targetDay = days.indexOf(dayOfWeek);
+                const now = new Date();
+                const currentDay = now.getDay();
+                
+                let daysUntilTarget = targetDay - currentDay;
+                if (daysUntilTarget <= 0) {
+                    daysUntilTarget += 7;
+                }
+                
+                const nextMeeting = new Date();
+                nextMeeting.setDate(nextMeeting.getDate() + daysUntilTarget);
+                const [hours, minutes] = time.split(':');
+                nextMeeting.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+                
+                return nextMeeting;
+            };
+
+            return (
+                <div className="modal-overlay">
+                    <div className="modal">
+                        <div className="modal-header">
+                            <div className="modal-title">Create New Group</div>
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                        
+                        <form onSubmit={handleSubmit}>
+                            <div className="form-group">
+                                <label className="form-label">Group Name *</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={formData.name}
+                                    onChange={(e) => setFormData({...formData, name: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Description *</label>
+                                <textarea
+                                    className="form-input"
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            
+                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
+                                <div className="form-group">
+                                    <label className="form-label">Day of Week *</label>
+                                    <select 
+                                        className="form-input"
+                                        value={formData.dayOfWeek}
+                                        onChange={(e) => setFormData({...formData, dayOfWeek: e.target.value})}
+                                        required
+                                    >
+                                        <option value="Monday">Monday</option>
+                                        <option value="Tuesday">Tuesday</option>
+                                        <option value="Wednesday">Wednesday</option>
+                                        <option value="Thursday">Thursday</option>
+                                        <option value="Friday">Friday</option>
+                                        <option value="Saturday">Saturday</option>
+                                        <option value="Sunday">Sunday</option>
+                                    </select>
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label className="form-label">Time *</label>
+                                    <input
+                                        type="time"
+                                        className="form-input"
+                                        value={formData.time}
+                                        onChange={(e) => setFormData({...formData, time: e.target.value})}
+                                        required
+                                    />
+                                </div>
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Meeting Link (optional)</label>
+                                <input
+                                    type="url"
+                                    className="form-input"
+                                    placeholder="https://zoom.us/..."
+                                    value={formData.link}
+                                    onChange={(e) => setFormData({...formData, link: e.target.value})}
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <div className="checkbox-group">
+                                    <input
+                                        type="checkbox"
+                                        id="recurring"
+                                        checked={formData.recurring}
+                                        onChange={(e) => setFormData({...formData, recurring: e.target.checked})}
+                                    />
+                                    <label htmlFor="recurring">Recurring Weekly</label>
+                                </div>
+                            </div>
+                            
+                            <div style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
+                                <button 
+                                    type="submit"
+                                    className="btn btn-primary"
+                                    disabled={loading}
+                                >
+                                    {loading ? 'Creating...' : 'Create Group'}
+                                </button>
+                                <button 
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={onClose}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        }
+
+        function GroupDetailModal({ group, onClose, onUpdate, onMarkAttendance }) {
+            const [addingMember, setAddingMember] = useState(false);
+            const [newMemberEmail, setNewMemberEmail] = useState('');
+
+            const addMember = async () => {
+                if (!newMemberEmail) return;
+                
+                setAddingMember(true);
+                try {
+                    // Find user by email
+                    const userSnap = await db.collection('users')
+                        .where('email', '==', newMemberEmail)
+                        .get();
+                    
+                    if (userSnap.empty) {
+                        alert('User not found');
+                        return;
+                    }
+                    
+                    const userId = userSnap.docs[0].id;
+                    const members = group.members || [];
+                    
+                    if (members.includes(userId)) {
+                        alert('User is already a member');
+                        return;
+                    }
+                    
+                    members.push(userId);
+                    
+                    await db.collection('groups').doc(group.id).update({
+                        members: members
+                    });
+                    
+                    alert('Member added successfully');
+                    setNewMemberEmail('');
+                    onUpdate();
+                } catch (error) {
+                    console.error('Error adding member:', error);
+                    alert('Failed to add member');
+                } finally {
+                    setAddingMember(false);
+                }
+            };
+
+            return (
+                <div className="modal-overlay">
+                    <div className="modal">
+                        <div className="modal-header">
+                            <div className="modal-title">{group.name}</div>
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                        
+                        <p style={{marginBottom: '20px'}}>{group.description}</p>
+                        
+                        <div style={{marginBottom: '20px'}}>
+                            <strong>Schedule:</strong> {group.dayOfWeek} at {group.time}
+                            {group.recurring && ' (Recurring)'}
+                        </div>
+                        
+                        {group.link && (
+                            <div style={{marginBottom: '20px'}}>
+                                <strong>Meeting Link:</strong>{' '}
+                                <a href={group.link} target="_blank" rel="noopener noreferrer" style={{color: '#f4c430'}}>
+                                    {group.link}
+                                </a>
+                            </div>
+                        )}
+                        
+                        <div style={{marginBottom: '20px'}}>
+                            <h4 style={{marginBottom: '15px'}}>Members ({group.membersData?.length || 0})</h4>
+                            
+                            {group.membersData?.map(member => (
+                                <div key={member.id} style={{
+                                    padding: '10px',
+                                    background: 'rgba(255,255,255,0.05)',
+                                    borderRadius: '10px',
+                                    marginBottom: '10px',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center'
+                                }}>
+                                    <span>{member.name}</span>
+                                    <button 
+                                        className="btn btn-secondary"
+                                        style={{padding: '5px 10px', fontSize: '12px'}}
+                                        onClick={() => onMarkAttendance(group.id, member.id)}
+                                    >
+                                        Mark Attendance
+                                    </button>
+                                </div>
+                            ))}
+                            
+                            <div style={{display: 'flex', gap: '10px', marginTop: '15px'}}>
+                                <input
+                                    type="email"
+                                    className="form-input"
+                                    placeholder="Enter member email..."
+                                    value={newMemberEmail}
+                                    onChange={(e) => setNewMemberEmail(e.target.value)}
+                                />
+                                <button 
+                                    className="btn btn-primary"
+                                    onClick={addMember}
+                                    disabled={addingMember}
+                                >
+                                    {addingMember ? 'Adding...' : 'Add Member'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function CreateResourceModal({ onClose, onSuccess }) {
+            const [formData, setFormData] = useState({
+                title: '',
+                description: '',
+                type: 'Link',
+                url: '',
+                content: '',
+                category: 'General',
+                isGlobal: true,
+                assignedTo: []
+            });
+            const [loading, setLoading] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                
+                try {
+                    await db.collection('resources').add({
+                        ...formData,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        createdBy: auth.currentUser.uid
+                    });
+                    
+                    alert('Resource created successfully!');
+                    onSuccess();
+                } catch (error) {
+                    console.error('Error creating resource:', error);
+                    alert('Failed to create resource');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="modal-overlay">
+                    <div className="modal">
+                        <div className="modal-header">
+                            <div className="modal-title">Add New Resource</div>
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                        
+                        <form onSubmit={handleSubmit}>
+                            <div className="form-group">
+                                <label className="form-label">Title *</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={formData.title}
+                                    onChange={(e) => setFormData({...formData, title: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Description *</label>
+                                <textarea
+                                    className="form-input"
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            
+                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
+                                <div className="form-group">
+                                    <label className="form-label">Type *</label>
+                                    <select 
+                                        className="form-input"
+                                        value={formData.type}
+                                        onChange={(e) => setFormData({...formData, type: e.target.value})}
+                                        required
+                                    >
+                                        <option value="Link">Link</option>
+                                        <option value="PDF">PDF</option>
+                                        <option value="Video">Video</option>
+                                        <option value="Article">Article</option>
+                                        <option value="Audio">Audio</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label className="form-label">Category</label>
+                                    <select 
+                                        className="form-input"
+                                        value={formData.category}
+                                        onChange={(e) => setFormData({...formData, category: e.target.value})}
+                                    >
+                                        <option value="General">General</option>
+                                        <option value="Educational">Educational</option>
+                                        <option value="Motivational">Motivational</option>
+                                        <option value="Tools">Tools</option>
+                                        <option value="Exercises">Exercises</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            {formData.type === 'Link' && (
+                                <div className="form-group">
+                                    <label className="form-label">URL *</label>
+                                    <input
+                                        type="url"
+                                        className="form-input"
+                                        value={formData.url}
+                                        onChange={(e) => setFormData({...formData, url: e.target.value})}
+                                        required={formData.type === 'Link'}
+                                    />
+                                </div>
+                            )}
+                            
+                            {formData.type !== 'Link' && (
+                                <div className="form-group">
+                                    <label className="form-label">Content</label>
+                                    <textarea
+                                        className="form-input"
+                                        value={formData.content}
+                                        onChange={(e) => setFormData({...formData, content: e.target.value})}
+                                        placeholder="Paste content here or provide instructions..."
+                                        rows="5"
+                                    />
+                                </div>
+                            )}
+                            
+                            <div className="form-group">
+                                <div className="checkbox-group">
+                                    <input
+                                        type="checkbox"
+                                        id="isGlobal"
+                                        checked={formData.isGlobal}
+                                        onChange={(e) => setFormData({...formData, isGlobal: e.target.checked})}
+                                    />
+                                    <label htmlFor="isGlobal">Available to all PIRs</label>
+                                </div>
+                            </div>
+                            
+                            <div style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
+                                <button 
+                                    type="submit"
+                                    className="btn btn-primary"
+                                    disabled={loading}
+                                >
+                                    {loading ? 'Creating...' : 'Create Resource'}
+                                </button>
+                                <button 
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={onClose}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        }
+
+        function ResourceDetailModal({ resource, onClose }) {
+            return (
+                <div className="modal-overlay">
+                    <div className="modal">
+                        <div className="modal-header">
+                            <div className="modal-title">{resource.title}</div>
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                        
+                        <div style={{marginBottom: '20px'}}>
+                            <span className="badge badge-info">{resource.type}</span>
+                            <span className="badge badge-info" style={{marginLeft: '10px'}}>{resource.category}</span>
+                        </div>
+                        
+                        <p style={{marginBottom: '20px'}}>{resource.description}</p>
+                        
+                        {resource.url && (
+                            <div style={{marginBottom: '20px'}}>
+                                <a 
+                                    href={resource.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="btn btn-primary"
+                                >
+                                    Open Resource
+                                </a>
+                            </div>
+                        )}
+                        
+                        {resource.content && (
+                            <div style={{
+                                padding: '20px',
+                                background: 'rgba(255,255,255,0.05)',
+                                borderRadius: '10px',
+                                whiteSpace: 'pre-wrap'
+                            }}>
+                                {resource.content}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function CreateAssignmentModal({ onClose, onSuccess, users }) {
+            const [formData, setFormData] = useState({
+                title: '',
+                description: '',
+                pirId: '',
+                dueDate: '',
+                status: 'pending'
+            });
+            const [loading, setLoading] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                
+                try {
+                    await db.collection('assignments').add({
+                        ...formData,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        createdBy: auth.currentUser.uid
+                    });
+                    
+                    // Create notification for PIR
+                    await db.collection('notifications').add({
+                        type: 'assignment',
+                        message: `New assignment: ${formData.title}`,
+                        recipientId: formData.pirId,
+                        relatedId: formData.pirId,
+                        read: false,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    alert('Assignment created successfully!');
+                    onSuccess();
+                } catch (error) {
+                    console.error('Error creating assignment:', error);
+                    alert('Failed to create assignment');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="modal-overlay">
+                    <div className="modal">
+                        <div className="modal-header">
+                            <div className="modal-title">Create Assignment</div>
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                        
+                        <form onSubmit={handleSubmit}>
+                            <div className="form-group">
+                                <label className="form-label">PIR *</label>
+                                <select 
+                                    className="form-input"
+                                    value={formData.pirId}
+                                    onChange={(e) => setFormData({...formData, pirId: e.target.value})}
+                                    required
+                                >
+                                    <option value="">Select PIR</option>
+                                    {users.map(user => (
+                                        <option key={user.id} value={user.id}>
+                                            {user.displayName || user.email}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Title *</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={formData.title}
+                                    onChange={(e) => setFormData({...formData, title: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Description *</label>
+                                <textarea
+                                    className="form-input"
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Due Date *</label>
+                                <input
+                                    type="date"
+                                    className="form-input"
+                                    value={formData.dueDate}
+                                    onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            
+                            <div style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
+                                <button 
+                                    type="submit"
+                                    className="btn btn-primary"
+                                    disabled={loading}
+                                >
+                                    {loading ? 'Creating...' : 'Create Assignment'}
+                                </button>
+                                <button 
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={onClose}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        }
+
+        // Chart Components
+        function MoodChart({ checkIns }) {
+            const canvasRef = useRef(null);
+            
+            useEffect(() => {
+                if (!canvasRef.current || checkIns.length === 0) return;
+                
+                const ctx = canvasRef.current.getContext('2d');
+                const last30Days = checkIns.slice(0, 30).reverse();
+                
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: last30Days.map(c => formatDate(c.createdAt)),
+                        datasets: [{
+                            label: 'Mood',
+                            data: last30Days.map(c => c.morningData?.mood || c.eveningData?.mood || 0),
+                            borderColor: '#f4c430',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 10
+                            }
+                        }
+                    }
+                });
+            }, [checkIns]);
+            
+            return (
+                <div style={{height: '200px'}}>
+                    <canvas ref={canvasRef}></canvas>
+                </div>
+            );
+        }
+
+        function CravingChart({ checkIns }) {
+            const canvasRef = useRef(null);
+            
+            useEffect(() => {
+                if (!canvasRef.current || checkIns.length === 0) return;
+                
+                const ctx = canvasRef.current.getContext('2d');
+                const last30Days = checkIns.slice(0, 30).reverse();
+                
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: last30Days.map(c => formatDate(c.createdAt)),
+                        datasets: [{
+                            label: 'Craving',
+                            data: last30Days.map(c => c.morningData?.craving || c.eveningData?.craving || 0),
+                            borderColor: '#ff4444',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 10
+                            }
+                        }
+                    }
+                });
+            }, [checkIns]);
+            
+            return (
+                <div style={{height: '200px'}}>
+                    <canvas ref={canvasRef}></canvas>
+                </div>
+            );
+        }
+
+        // Pagination Component
+        function Pagination({ currentPage, totalPages, onPageChange }) {
+            return (
+                <div className="pagination">
+                    <button 
+                        className="page-btn"
+                        onClick={() => onPageChange(currentPage - 1)}
+                        disabled={currentPage === 1}
+                    >
+                        Previous
+                    </button>
+                    
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        let pageNum;
+                        if (totalPages <= 5) {
+                            pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                            pageNum = i + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                            pageNum = totalPages - 4 + i;
+                        } else {
+                            pageNum = currentPage - 2 + i;
+                        }
+                        
+                        return (
+                            <button
+                                key={pageNum}
+                                className={`page-btn ${currentPage === pageNum ? 'active' : ''}`}
+                                onClick={() => onPageChange(pageNum)}
+                            >
+                                {pageNum}
+                            </button>
+                        );
+                    })}
+                    
+                    <button 
+                        className="page-btn"
+                        onClick={() => onPageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                    >
+                        Next
+                    </button>
+                </div>
+            );
+        }
+
+        // Helper Functions
+        function formatDate(date) {
+            if (!date) return '-';
+            const d = date.toDate ? date.toDate() : new Date(date);
+            return d.toLocaleDateString();
+        }
+
+        function formatTimeAgo(date) {
+            if (!date) return '-';
+            const d = date.toDate ? date.toDate() : new Date(date);
+            const now = new Date();
+            const seconds = Math.floor((now - d) / 1000);
+            
+            if (seconds < 60) return 'Just now';
+            if (seconds < 3600) return `${Math.floor(seconds / 60)} mins ago`;
+            if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+            if (seconds < 604800) return `${Math.floor(seconds / 86400)} days ago`;
+            return d.toLocaleDateString();
+        }
+
+        async function checkMissedCheckIns() {
+            try {
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                yesterday.setHours(0, 0, 0, 0);
+                
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                
+                // Get all active PIRs
+                const pirsSnap = await db.collection('users')
+                    .where('role', '==', 'pir')
+                    .where('active', '==', true)
+                    .get();
+                
+                const missedPIRs = [];
+                
+                for (const doc of pirsSnap.docs) {
+                    const checkInSnap = await db.collection('checkIns')
+                        .where('userId', '==', doc.id)
+                        .where('createdAt', '>=', yesterday)
+                        .where('createdAt', '<', today)
+                        .get();
+                    
+                    if (checkInSnap.empty) {
+                        missedPIRs.push({
+                            id: doc.id,
+                            ...doc.data()
+                        });
+                    }
+                }
+                
+                // Create notifications for missed check-ins
+                for (const pir of missedPIRs) {
+                    // Notify coach
+                    if (pir.assignedCoach) {
+                        await db.collection('notifications').add({
+                            type: 'missed-checkin',
+                            message: `${pir.displayName || pir.email} missed yesterday's check-in`,
+                            recipientId: pir.assignedCoach,
+                            relatedId: pir.id,
+                            read: false,
+                            urgent: false,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                    
+                    // Create alert
+                    await db.collection('alerts').add({
+                        type: 'missed-checkin',
+                        userId: pir.id,
+                        userName: pir.displayName || pir.email,
+                        userEmail: pir.email,
+                        message: 'Missed daily check-in',
+                        resolved: false,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+                
+                alert(`Found ${missedPIRs.length} missed check-ins. Notifications sent.`);
+            } catch (error) {
+                console.error('Error checking missed check-ins:', error);
+                alert('Failed to check missed check-ins');
+            }
+        }
+
+        // Initialize App
+        ReactDOM.render(<AdminApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
