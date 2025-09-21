@@ -3887,6 +3887,362 @@
                                 </div>
                             </div>
                         );
+                        <!-- Continue from the Modal Container section -->
+                    case 'account':
+                        return (
+                            <div>
+                                <h3 style={{marginBottom: '20px'}}>Account Settings</h3>
+                                <div className="form-group">
+                                    <label className="form-label">First Name</label>
+                                    <input 
+                                        type="text"
+                                        className="form-input"
+                                        value={formData.firstName || data.userData?.firstName || ''}
+                                        onChange={(e) => setFormData({...formData, firstName: e.target.value})}
+                                        placeholder="Enter first name"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Last Name</label>
+                                    <input 
+                                        type="text"
+                                        className="form-input"
+                                        value={formData.lastName || data.userData?.lastName || ''}
+                                        onChange={(e) => setFormData({...formData, lastName: e.target.value})}
+                                        placeholder="Enter last name"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Phone</label>
+                                    <input 
+                                        type="tel"
+                                        className="form-input"
+                                        value={formData.phone || data.userData?.phone || ''}
+                                        onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                                        placeholder="Enter phone number"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Sobriety Date</label>
+                                    <input 
+                                        type="date"
+                                        className="form-input"
+                                        value={formData.sobrietyDate || (data.userData?.sobrietyDate ? new Date(data.userData.sobrietyDate).toISOString().split('T')[0] : '')}
+                                        onChange={(e) => setFormData({...formData, sobrietyDate: e.target.value})}
+                                    />
+                                </div>
+                                <button 
+                                    className="btn-primary"
+                                    onClick={async () => {
+                                        try {
+                                            await db.collection('users').doc(data.userData.id).update(formData);
+                                            alert('Account settings updated');
+                                            onClose();
+                                        } catch (error) {
+                                            alert('Failed to update settings');
+                                        }
+                                    }}
+                                >
+                                    Save Changes
+                                </button>
+                            </div>
+                        );
+                        
+                    case 'password':
+                        return (
+                            <div>
+                                <h3 style={{marginBottom: '20px'}}>Change Password</h3>
+                                <div className="form-group">
+                                    <label className="form-label">Current Password</label>
+                                    <input 
+                                        type="password"
+                                        className="form-input"
+                                        value={formData.currentPassword || ''}
+                                        onChange={(e) => setFormData({...formData, currentPassword: e.target.value})}
+                                        placeholder="Enter current password"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">New Password</label>
+                                    <input 
+                                        type="password"
+                                        className="form-input"
+                                        value={formData.newPassword || ''}
+                                        onChange={(e) => setFormData({...formData, newPassword: e.target.value})}
+                                        placeholder="Enter new password"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Confirm New Password</label>
+                                    <input 
+                                        type="password"
+                                        className="form-input"
+                                        value={formData.confirmPassword || ''}
+                                        onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
+                                        placeholder="Confirm new password"
+                                    />
+                                </div>
+                                <button 
+                                    className="btn-primary"
+                                    onClick={async () => {
+                                        if (formData.newPassword !== formData.confirmPassword) {
+                                            alert('Passwords do not match');
+                                            return;
+                                        }
+                                        try {
+                                            const user = auth.currentUser;
+                                            const credential = firebase.auth.EmailAuthProvider.credential(
+                                                user.email,
+                                                formData.currentPassword
+                                            );
+                                            await user.reauthenticateWithCredential(credential);
+                                            await user.updatePassword(formData.newPassword);
+                                            alert('Password updated successfully');
+                                            onClose();
+                                        } catch (error) {
+                                            alert('Failed to update password: ' + error.message);
+                                        }
+                                    }}
+                                >
+                                    Update Password
+                                </button>
+                            </div>
+                        );
+                        
+                    case 'emergency':
+                        return (
+                            <div>
+                                <h3 style={{marginBottom: '20px'}}>Emergency Contacts</h3>
+                                <div className="emergency-contacts-list">
+                                    {data.userData?.emergencyContacts?.map((contact, index) => (
+                                        <div key={index} className="contact-item">
+                                            <div className="contact-name">{contact.name}</div>
+                                            <div className="contact-phone">{contact.phone}</div>
+                                            <div className="contact-relationship">{contact.relationship}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="add-contact-form">
+                                    <h4>Add New Contact</h4>
+                                    <div className="form-group">
+                                        <input 
+                                            type="text"
+                                            className="form-input"
+                                            placeholder="Name"
+                                            value={formData.contactName || ''}
+                                            onChange={(e) => setFormData({...formData, contactName: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <input 
+                                            type="tel"
+                                            className="form-input"
+                                            placeholder="Phone"
+                                            value={formData.contactPhone || ''}
+                                            onChange={(e) => setFormData({...formData, contactPhone: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <input 
+                                            type="text"
+                                            className="form-input"
+                                            placeholder="Relationship"
+                                            value={formData.contactRelationship || ''}
+                                            onChange={(e) => setFormData({...formData, contactRelationship: e.target.value})}
+                                        />
+                                    </div>
+                                    <button 
+                                        className="btn-primary"
+                                        onClick={async () => {
+                                            const newContact = {
+                                                name: formData.contactName,
+                                                phone: formData.contactPhone,
+                                                relationship: formData.contactRelationship
+                                            };
+                                            const contacts = data.userData?.emergencyContacts || [];
+                                            contacts.push(newContact);
+                                            try {
+                                                await db.collection('users').doc(data.userData.id).update({
+                                                    emergencyContacts: contacts
+                                                });
+                                                alert('Emergency contact added');
+                                                onClose();
+                                            } catch (error) {
+                                                alert('Failed to add contact');
+                                            }
+                                        }}
+                                    >
+                                        Add Contact
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                        
+                    case 'notifications':
+                        return (
+                            <div>
+                                <h3 style={{marginBottom: '20px'}}>Notification Settings</h3>
+                                <div className="settings-section">
+                                    <div className="settings-title">Daily Reminders</div>
+                                    <div className="settings-item">
+                                        <div className="settings-label">Morning Check-in</div>
+                                        <input 
+                                            type="time"
+                                            className="time-input"
+                                            value={formData.morningTime || '09:00'}
+                                            onChange={(e) => setFormData({...formData, morningTime: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="settings-item">
+                                        <div className="settings-label">Evening Reflection</div>
+                                        <input 
+                                            type="time"
+                                            className="time-input"
+                                            value={formData.eveningTime || '20:00'}
+                                            onChange={(e) => setFormData({...formData, eveningTime: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="settings-item">
+                                        <div className="settings-label">Daily Pledge</div>
+                                        <input 
+                                            type="time"
+                                            className="time-input"
+                                            value={formData.pledgeTime || '08:00'}
+                                            onChange={(e) => setFormData({...formData, pledgeTime: e.target.value})}
+                                        />
+                                    </div>
+                                </div>
+                                <button 
+                                    className="btn-primary"
+                                    onClick={async () => {
+                                        try {
+                                            await db.collection('users').doc(data.userData.id).update({
+                                                notifications: {
+                                                    morningCheckIn: formData.morningTime,
+                                                    eveningReflection: formData.eveningTime,
+                                                    dailyPledge: formData.pledgeTime
+                                                }
+                                            });
+                                            alert('Notification settings updated');
+                                            onClose();
+                                        } catch (error) {
+                                            alert('Failed to update settings');
+                                        }
+                                    }}
+                                >
+                                    Save Settings
+                                </button>
+                            </div>
+                        );
+                        
+                    case 'feedback':
+                        return (
+                            <div>
+                                <h3 style={{marginBottom: '20px'}}>Send Feedback</h3>
+                                <div className="form-group">
+                                    <label className="form-label">Feedback Type</label>
+                                    <select 
+                                        className="form-input"
+                                        value={formData.feedbackType || 'general'}
+                                        onChange={(e) => setFormData({...formData, feedbackType: e.target.value})}
+                                    >
+                                        <option value="general">General Feedback</option>
+                                        <option value="bug">Bug Report</option>
+                                        <option value="feature">Feature Request</option>
+                                        <option value="compliment">Compliment</option>
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Your Feedback</label>
+                                    <textarea 
+                                        className="textarea"
+                                        placeholder="Share your thoughts..."
+                                        value={formData.feedbackText || ''}
+                                        onChange={(e) => setFormData({...formData, feedbackText: e.target.value})}
+                                        rows="6"
+                                    />
+                                </div>
+                                <button 
+                                    className="btn-primary"
+                                    onClick={async () => {
+                                        try {
+                                            await db.collection('feedback').add({
+                                                userId: data.userData.id,
+                                                type: formData.feedbackType,
+                                                message: formData.feedbackText,
+                                                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                                                status: 'new'
+                                            });
+                                            alert('Thank you for your feedback!');
+                                            onClose();
+                                        } catch (error) {
+                                            alert('Failed to send feedback');
+                                        }
+                                    }}
+                                >
+                                    Send Feedback
+                                </button>
+                            </div>
+                        );
+                        
+                    case 'allResources':
+                        return (
+                            <div>
+                                <h3 style={{marginBottom: '20px'}}>All Recovery Resources</h3>
+                                {data.resources?.videos?.length > 0 && (
+                                    <div className="resource-section">
+                                        <h4>Videos</h4>
+                                        {data.resources.videos.map(video => (
+                                            <div key={video.id} className="resource-item" style={{marginBottom: '10px'}}>
+                                                <a href={video.url} target="_blank" rel="noopener noreferrer">
+                                                    {video.featured && '⭐ '}{video.title}
+                                                </a>
+                                                <p style={{fontSize: '14px', opacity: 0.8}}>{video.description}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {data.resources?.articles?.length > 0 && (
+                                    <div className="resource-section">
+                                        <h4>Articles</h4>
+                                        {data.resources.articles.map(article => (
+                                            <div key={article.id} className="resource-item" style={{marginBottom: '10px'}}>
+                                                <a href={article.url} target="_blank" rel="noopener noreferrer">
+                                                    {article.featured && '⭐ '}{article.title}
+                                                </a>
+                                                <p style={{fontSize: '14px', opacity: 0.8}}>{article.description}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {data.resources?.tools?.length > 0 && (
+                                    <div className="resource-section">
+                                        <h4>Tools</h4>
+                                        {data.resources.tools.map(tool => (
+                                            <div key={tool.id} className="resource-item" style={{marginBottom: '10px'}}>
+                                                <a href={tool.url} target="_blank" rel="noopener noreferrer">
+                                                    {tool.featured && '⭐ '}{tool.title}
+                                                </a>
+                                                <p style={{fontSize: '14px', opacity: 0.8}}>{tool.description}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {data.resources?.worksheets?.length > 0 && (
+                                    <div className="resource-section">
+                                        <h4>Worksheets</h4>
+                                        {data.resources.worksheets.map(worksheet => (
+                                            <div key={worksheet.id} className="resource-item" style={{marginBottom: '10px'}}>
+                                                <a href={worksheet.url} target="_blank" rel="noopener noreferrer">
+                                                    {worksheet.featured && '⭐ '}{worksheet.title}
+                                                </a>
+                                                <p style={{fontSize: '14px', opacity: 0.8}}>{worksheet.description}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        );
                         
                     default:
                         return <div>Content not available</div>;
