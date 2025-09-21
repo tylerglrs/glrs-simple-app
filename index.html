@@ -1790,6 +1790,7 @@ const [emergencyResources, setEmergencyResources] = useState([]);
                 }
             }, [sobrietyDays]);
            useEffect(() => {
+   useEffect(() => {
     if (user) {
         loadUserData();
         // Connect section loads:
@@ -1797,10 +1798,15 @@ const [emergencyResources, setEmergencyResources] = useState([]);
         loadMeetings(); 
         loadEmergencyResources();
         loadGroupMessages('main');
-        // Tasks section loads (ADD THESE):
+        // Tasks section loads:
         loadGoals();
         loadAssignments();
-        // ... any other existing loads you have
+        // Home section loads (ADD THESE TOO):
+        loadDailyInspiration();
+        loadMilestones();
+        loadBroadcasts();
+        // Profile section loads (ADD THIS):
+        loadResources();
     }
 }, [user]);
             
@@ -2333,6 +2339,62 @@ const updateGoalProgress = async (goalId) => {
         loadGoals();
     } catch (error) {
         console.error('Error updating goal progress:', error);
+    }
+};
+            // Load resources from admin
+const loadResources = async () => {
+    try {
+        const resourcesSnap = await db.collection('resources')
+            .where('active', '==', true)
+            .where('category', '!=', 'emergency') // Exclude emergency (those go in Connect)
+            .get();
+        
+        const resourcesData = {
+            videos: [],
+            articles: [],
+            tools: [],
+            worksheets: []
+        };
+        
+        resourcesSnap.forEach(doc => {
+            const resource = { id: doc.id, ...doc.data() };
+            
+            // Categorize resources
+            if (resource.category === 'video') {
+                resourcesData.videos.push(resource);
+            } else if (resource.category === 'article') {
+                resourcesData.articles.push(resource);
+            } else if (resource.category === 'tool') {
+                resourcesData.tools.push(resource);
+            } else if (resource.category === 'worksheet') {
+                resourcesData.worksheets.push(resource);
+            }
+            
+            // Track view count
+            if (resource.featured) {
+                // Featured resources show at top
+                resource.priority = 1;
+            }
+        });
+        
+        // Sort by priority (featured first) and then by title
+        Object.keys(resourcesData).forEach(key => {
+            resourcesData[key].sort((a, b) => {
+                if (a.priority && !b.priority) return -1;
+                if (!a.priority && b.priority) return 1;
+                return a.title.localeCompare(b.title);
+            });
+        });
+        
+        setResources(resourcesData);
+    } catch (error) {
+        console.error('Error loading resources:', error);
+        setResources({
+            videos: [],
+            articles: [],
+            tools: [],
+            worksheets: []
+        });
     }
 };
             
