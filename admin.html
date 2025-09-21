@@ -5749,147 +5749,625 @@ function UsersView({ searchQuery, user, onImpersonate }) {
             );
         }
 
-        // Additional Modal Components (continued)
-        function UserDetailModal({ user, onClose, onUpdate, currentUserId }) {
-            const [editing, setEditing] = useState(false);
-            const [formData, setFormData] = useState({...user});
+       // Enhanced User Detail Modal with Tabs for PIR comprehensive view
+function UserDetailModal({ user, onClose, onUpdate, currentUserId }) {
+    const [activeTab, setActiveTab] = useState('overview');
+    const [loading, setLoading] = useState(true);
+    const [editing, setEditing] = useState(false);
+    const [editData, setEditData] = useState({...user});
+    const [pirData, setPirData] = useState({
+        checkIns: [],
+        assignments: [],
+        groups: [],
+        alerts: [],
+        feedback: [],
+        resources: [],
+        stats: {
+            checkInRate: 0,
+            avgMood: 0,
+            avgCravings: 0,
+            daysClean: 0,
+            assignmentCompletion: 0,
+            totalCheckIns: 0,
+            missedCheckIns: 0,
+            lastCheckIn: null
+        }
+    });
 
-            const handleSave = async () => {
-                try {
-                    await db.collection('users').doc(user.id).update({
-                        displayName: `${formData.firstName} ${formData.lastName}`,
-                        firstName: formData.firstName,
-                        lastName: formData.lastName,
-                        phone: formData.phone,
-                        active: formData.active,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    alert('User updated successfully');
-                    onUpdate();
-                } catch (error) {
-                    console.error('Error updating user:', error);
-                    alert('Failed to update user');
-                }
+    useEffect(() => {
+        if (user.role === 'pir') {
+            loadPirData();
+        } else {
+            setLoading(false);
+        }
+    }, [user]);
+
+    const loadPirData = async () => {
+        try {
+            setLoading(true);
+
+            // Parallel load all PIR data
+            const [
+                checkInsSnap,
+                assignmentsSnap,
+                groupsSnap,
+                alertsSnap,
+                feedbackSnap,
+                resourcesSnap
+            ] = await Promise.all([
+                db.collection('checkIns')
+                    .where('userId', '==', user.id)
+                    .orderBy('createdAt', 'desc')
+                    .limit(30)
+                    .get(),
+                db.collection('assignments')
+                    .where('userId', '==', user.id)
+                    .orderBy('createdAt', 'desc')
+                    .get(),
+                db.collection('groups')
+                    .where('members', 'array-contains', user.id)
+                    .get(),
+                db.collection('alerts')
+                    .where('userId', '==', user.id)
+                    .orderBy('createdAt', 'desc')
+                    .limit(20)
+                    .get(),
+                db.collection('feedback')
+                    .where('userId', '==', user.id)
+                    .orderBy('createdAt', 'desc')
+                    .get(),
+                db.collection('resources')
+                    .get()
+            ]);
+
+            // Process check-ins
+            const checkIns = [];
+            let totalMood = 0;
+            let totalCravings = 0;
+            checkInsSnap.forEach(doc => {
+                const data = { id: doc.id, ...doc.data() };
+                checkIns.push(data);
+                if (data.mood) totalMood += data.mood;
+                if (data.cravingIntensity) totalCravings += data.cravingIntensity;
+            });
+
+            // Process assignments
+            const assignments = [];
+            let completedAssignments = 0;
+            assignmentsSnap.forEach(doc => {
+                const data = { id: doc.id, ...doc.data() };
+                assignments.push(data);
+                if (data.status === 'completed') completedAssignments++;
+            });
+
+            // Process groups
+            const groups = [];
+            groupsSnap.forEach(doc => {
+                groups.push({ id: doc.id, ...doc.data() });
+            });
+
+            // Process alerts
+            const alerts = [];
+            alertsSnap.forEach(doc => {
+                alerts.push({ id: doc.id, ...doc.data() });
+            });
+
+            // Process feedback
+            const feedback = [];
+            feedbackSnap.forEach(doc => {
+                feedback.push({ id: doc.id, ...doc.data() });
+            });
+
+            // Process resources
+            const resources = [];
+            resourcesSnap.forEach(doc => {
+                resources.push({ id: doc.id, ...doc.data() });
+            });
+
+            // Calculate stats
+            const now = new Date();
+            const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
+            const expectedCheckIns = 30; // Daily for 30 days
+            
+            const recentCheckIns = checkIns.filter(ci => {
+                const checkInDate = ci.createdAt?.toDate ? ci.createdAt.toDate() : new Date(ci.createdAt);
+                return checkInDate >= thirtyDaysAgo;
+            });
+
+            const daysClean = user.sobrietyDate ? 
+                Math.floor((now - new Date(user.sobrietyDate)) / (1000 * 60 * 60 * 24)) : 0;
+
+            const stats = {
+                checkInRate: Math.round((recentCheckIns.length / expectedCheckIns) * 100),
+                avgMood: checkIns.length > 0 ? (totalMood / checkIns.length).toFixed(1) : 0,
+                avgCravings: checkIns.length > 0 ? (totalCravings / checkIns.length).toFixed(1) : 0,
+                daysClean: daysClean,
+                assignmentCompletion: assignments.length > 0 ? 
+                    Math.round((completedAssignments / assignments.length) * 100) : 0,
+                totalCheckIns: checkIns.length,
+                missedCheckIns: expectedCheckIns - recentCheckIns.length,
+                lastCheckIn: checkIns[0]?.createdAt
             };
 
-            return (
-                <div className="modal-overlay">
-                    <div className="modal">
-                        <div className="modal-header">
-                            <div className="modal-title">{user.displayName || user.email}</div>
-                            <button className="modal-close" onClick={onClose}>×</button>
+            setPirData({
+                checkIns,
+                assignments,
+                groups,
+                alerts,
+                feedback,
+                resources,
+                stats
+            });
+
+        } catch (error) {
+            console.error('Error loading PIR data:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleUpdate = async () => {
+        try {
+            await db.collection('users').doc(user.id).update(editData);
+            alert('User updated successfully!');
+            setEditing(false);
+            onUpdate();
+        } catch (error) {
+            console.error('Error updating user:', error);
+            alert('Failed to update user. Please try again.');
+        }
+    };
+
+    const handleResetPassword = async () => {
+        if (confirm('Send password reset email to ' + user.email + '?')) {
+            try {
+                await firebase.auth().sendPasswordResetEmail(user.email);
+                alert('Password reset email sent successfully!');
+            } catch (error) {
+                console.error('Error sending password reset:', error);
+                alert('Failed to send password reset email.');
+            }
+        }
+    };
+
+    const handleAssignCoach = async () => {
+        const coachId = prompt('Enter coach user ID:');
+        if (coachId) {
+            try {
+                await db.collection('users').doc(user.id).update({
+                    assignedCoach: coachId
+                });
+                alert('Coach assigned successfully!');
+                onUpdate();
+            } catch (error) {
+                console.error('Error assigning coach:', error);
+                alert('Failed to assign coach.');
+            }
+        }
+    };
+
+    const handleCreateAssignment = () => {
+        const title = prompt('Assignment Title:');
+        if (title) {
+            const description = prompt('Assignment Description:');
+            const dueDate = prompt('Due Date (YYYY-MM-DD):');
+            
+            db.collection('assignments').add({
+                userId: user.id,
+                title: title,
+                description: description || '',
+                dueDate: dueDate || '',
+                status: 'pending',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: currentUserId
+            }).then(() => {
+                alert('Assignment created successfully!');
+                loadPirData();
+            }).catch(error => {
+                console.error('Error creating assignment:', error);
+                alert('Failed to create assignment.');
+            });
+        }
+    };
+
+    const handleExportReport = () => {
+        const report = {
+            user: {
+                name: user.displayName || 'N/A',
+                email: user.email,
+                phone: user.phone || 'N/A',
+                sobrietyDate: user.sobrietyDate || 'N/A',
+                daysClean: pirData.stats.daysClean
+            },
+            stats: pirData.stats,
+            recentCheckIns: pirData.checkIns.slice(0, 10).map(ci => ({
+                date: formatDate(ci.createdAt),
+                mood: ci.mood,
+                cravings: ci.cravingIntensity,
+                notes: ci.notes
+            })),
+            assignments: pirData.assignments.map(a => ({
+                title: a.title,
+                status: a.status,
+                dueDate: a.dueDate,
+                createdAt: formatDate(a.createdAt)
+            })),
+            alerts: pirData.alerts.slice(0, 5).map(a => ({
+                type: a.type,
+                message: a.message,
+                date: formatDate(a.timestamp)
+            }))
+        };
+
+        const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `pir-report-${user.email}-${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const renderOverviewTab = () => (
+        <div className="tab-content">
+            <div className="stats-grid">
+                <div className="stat-card">
+                    <div className="stat-label">Days Clean</div>
+                    <div className="stat-value" style={{fontSize: '2em', color: '#4CAF50'}}>
+                        {pirData.stats.daysClean}
+                    </div>
+                    {user.sobrietyDate && (
+                        <div className="stat-sublabel">Since {formatDate(user.sobrietyDate)}</div>
+                    )}
+                </div>
+                
+                <div className="stat-card">
+                    <div className="stat-label">Check-in Compliance</div>
+                    <div className="stat-value" style={{fontSize: '2em', 
+                        color: pirData.stats.checkInRate >= 70 ? '#4CAF50' : '#ff9800'}}>
+                        {pirData.stats.checkInRate}%
+                    </div>
+                    <div className="stat-sublabel">Last 30 days</div>
+                </div>
+                
+                <div className="stat-card">
+                    <div className="stat-label">Average Mood</div>
+                    <div className="stat-value" style={{fontSize: '2em'}}>
+                        {pirData.stats.avgMood}/5
+                    </div>
+                    <div className="stat-sublabel">Last 30 check-ins</div>
+                </div>
+                
+                <div className="stat-card">
+                    <div className="stat-label">Average Cravings</div>
+                    <div className="stat-value" style={{fontSize: '2em'}}>
+                        {pirData.stats.avgCravings}/5
+                    </div>
+                    <div className="stat-sublabel">Last 30 check-ins</div>
+                </div>
+            </div>
+
+            <div className="info-section">
+                <h4>Contact Information</h4>
+                {editing ? (
+                    <div className="edit-form">
+                        <input
+                            type="text"
+                            placeholder="First Name"
+                            value={editData.firstName || ''}
+                            onChange={(e) => setEditData({...editData, firstName: e.target.value})}
+                        />
+                        <input
+                            type="text"
+                            placeholder="Last Name"
+                            value={editData.lastName || ''}
+                            onChange={(e) => setEditData({...editData, lastName: e.target.value})}
+                        />
+                        <input
+                            type="tel"
+                            placeholder="Phone"
+                            value={editData.phone || ''}
+                            onChange={(e) => setEditData({...editData, phone: e.target.value})}
+                        />
+                        <input
+                            type="date"
+                            placeholder="Sobriety Date"
+                            value={editData.sobrietyDate || ''}
+                            onChange={(e) => setEditData({...editData, sobrietyDate: e.target.value})}
+                        />
+                        <select
+                            value={editData.active !== false ? 'active' : 'inactive'}
+                            onChange={(e) => setEditData({...editData, active: e.target.value === 'active'})}
+                        >
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                        <button className="btn btn-primary" onClick={handleUpdate}>Save Changes</button>
+                        <button className="btn btn-secondary" onClick={() => setEditing(false)}>Cancel</button>
+                    </div>
+                ) : (
+                    <div className="info-grid">
+                        <div><strong>Email:</strong> {user.email}</div>
+                        <div><strong>Name:</strong> {user.firstName} {user.lastName}</div>
+                        <div><strong>Phone:</strong> {user.phone || '-'}</div>
+                        <div><strong>Status:</strong> 
+                            <span className={`badge ${user.active !== false ? 'badge-success' : 'badge-danger'}`}>
+                                {user.active !== false ? 'Active' : 'Inactive'}
+                            </span>
+                        </div>
+                        <div><strong>Assigned Coach:</strong> {user.coachName || '-'}</div>
+                        <div><strong>Last Check-in:</strong> {pirData.stats.lastCheckIn ? 
+                            formatTimeAgo(pirData.stats.lastCheckIn) : 'Never'}</div>
+                        <div><strong>Joined:</strong> {formatDate(user.createdAt)}</div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+
+    const renderProgressTab = () => (
+        <div className="tab-content">
+            <h4>Check-in History (Last 30 Days)</h4>
+            <div className="progress-chart">
+                <canvas id="progressChart" width="400" height="200"></canvas>
+            </div>
+            
+            <div className="checkins-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Mood</th>
+                            <th>Cravings</th>
+                            <th>Attended Meeting</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {pirData.checkIns.slice(0, 10).map(checkIn => (
+                            <tr key={checkIn.id}>
+                                <td>{formatDate(checkIn.createdAt)}</td>
+                                <td>{checkIn.mood}/5</td>
+                                <td>{checkIn.cravingIntensity}/5</td>
+                                <td>{checkIn.attendedMeeting ? 'Yes' : 'No'}</td>
+                                <td>{checkIn.notes || '-'}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+
+    const renderAssignmentsTab = () => (
+        <div className="tab-content">
+            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '20px'}}>
+                <h4>Assignments ({pirData.assignments.length})</h4>
+                <button className="btn btn-primary" onClick={handleCreateAssignment}>
+                    + Create Assignment
+                </button>
+            </div>
+            
+            <div className="assignments-grid">
+                {pirData.assignments.map(assignment => (
+                    <div key={assignment.id} className="assignment-card">
+                        <div className="assignment-header">
+                            <h5>{assignment.title}</h5>
+                            <span className={`badge ${
+                                assignment.status === 'completed' ? 'badge-success' :
+                                assignment.status === 'in_progress' ? 'badge-warning' :
+                                'badge-secondary'
+                            }`}>
+                                {assignment.status}
+                            </span>
+                        </div>
+                        <p>{assignment.description}</p>
+                        <div className="assignment-meta">
+                            <span>Due: {assignment.dueDate || 'No due date'}</span>
+                            <span>Created: {formatDate(assignment.createdAt)}</span>
+                        </div>
+                    </div>
+                ))}
+                {pirData.assignments.length === 0 && (
+                    <div className="empty-state">No assignments found</div>
+                )}
+            </div>
+        </div>
+    );
+
+    const renderGroupsTab = () => (
+        <div className="tab-content">
+            <h4>Groups & Resources</h4>
+            <div className="groups-section">
+                <h5>Enrolled Groups ({pirData.groups.length})</h5>
+                {pirData.groups.map(group => (
+                    <div key={group.id} className="group-card">
+                        <h6>{group.name}</h6>
+                        <p>{group.description}</p>
+                        <div>Schedule: {group.schedule}</div>
+                    </div>
+                ))}
+                {pirData.groups.length === 0 && (
+                    <div className="empty-state">Not enrolled in any groups</div>
+                )}
+            </div>
+            
+            <div className="resources-section">
+                <h5>Available Resources</h5>
+                {pirData.resources.map(resource => (
+                    <div key={resource.id} className="resource-item">
+                        <a href={resource.link} target="_blank" rel="noopener noreferrer">
+                            {resource.title}
+                        </a>
+                        <span className="badge badge-info">{resource.category}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+
+    const renderAlertsTab = () => (
+        <div className="tab-content">
+            <h4>Alerts & Communication</h4>
+            
+            <div className="alerts-section">
+                <h5>Recent Alerts</h5>
+                {pirData.alerts.map(alert => (
+                    <div key={alert.id} className={`alert alert-${alert.type}`}>
+                        <div className="alert-header">
+                            <span className="alert-type">{alert.type.toUpperCase()}</span>
+                            <span className="alert-time">{formatTimeAgo(alert.timestamp)}</span>
+                        </div>
+                        <div className="alert-message">{alert.message}</div>
+                    </div>
+                ))}
+                {pirData.alerts.length === 0 && (
+                    <div className="empty-state">No alerts found</div>
+                )}
+            </div>
+            
+            <div className="feedback-section">
+                <h5>Feedback Submitted</h5>
+                {pirData.feedback.map(fb => (
+                    <div key={fb.id} className="feedback-item">
+                        <div className="feedback-header">
+                            <span>{fb.type}</span>
+                            <span>{formatDate(fb.createdAt)}</span>
+                        </div>
+                        <p>{fb.message}</p>
+                    </div>
+                ))}
+                {pirData.feedback.length === 0 && (
+                    <div className="empty-state">No feedback submitted</div>
+                )}
+            </div>
+        </div>
+    );
+
+    const renderActionsTab = () => (
+        <div className="tab-content">
+            <h4>Quick Actions</h4>
+            <div className="actions-grid">
+                <button className="action-card" onClick={handleCreateAssignment}>
+                    <span className="action-icon">📝</span>
+                    <span>Create Assignment</span>
+                </button>
+                
+                <button className="action-card" onClick={handleAssignCoach}>
+                    <span className="action-icon">👥</span>
+                    <span>Assign Coach</span>
+                </button>
+                
+                <button className="action-card" onClick={handleResetPassword}>
+                    <span className="action-icon">🔐</span>
+                    <span>Reset Password</span>
+                </button>
+                
+                <button className="action-card" onClick={handleExportReport}>
+                    <span className="action-icon">📊</span>
+                    <span>Export Report</span>
+                </button>
+                
+                <button className="action-card" onClick={() => setEditing(true)}>
+                    <span className="action-icon">✏️</span>
+                    <span>Edit Profile</span>
+                </button>
+                
+                <button className="action-card" onClick={() => onUpdate()}>
+                    <span className="action-icon">🔄</span>
+                    <span>Refresh Data</span>
+                </button>
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="modal-overlay">
+            <div className="modal-content" style={{maxWidth: '900px', maxHeight: '80vh', overflowY: 'auto'}}>
+                <div className="modal-header">
+                    <h3>{user.displayName || user.email}</h3>
+                    <button className="close-btn" onClick={onClose}>×</button>
+                </div>
+                
+                {user.role === 'pir' ? (
+                    <>
+                        <div className="tab-nav">
+                            <button 
+                                className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('overview')}
+                            >
+                                Overview
+                            </button>
+                            <button 
+                                className={`tab-btn ${activeTab === 'progress' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('progress')}
+                            >
+                                Progress
+                            </button>
+                            <button 
+                                className={`tab-btn ${activeTab === 'assignments' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('assignments')}
+                            >
+                                Assignments
+                            </button>
+                            <button 
+                                className={`tab-btn ${activeTab === 'groups' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('groups')}
+                            >
+                                Groups
+                            </button>
+                            <button 
+                                className={`tab-btn ${activeTab === 'alerts' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('alerts')}
+                            >
+                                Alerts
+                            </button>
+                            <button 
+                                className={`tab-btn ${activeTab === 'actions' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('actions')}
+                            >
+                                Actions
+                            </button>
                         </div>
                         
-                        {!editing ? (
-                            <div>
-                                <table style={{width: '100%'}}>
-                                    <tbody>
-                                        <tr>
-                                            <td><strong>Email:</strong></td>
-                                            <td>{user.email}</td>
-                                        </tr>
-                                        <tr>
-                                            <td><strong>First Name:</strong></td>
-                                            <td>{user.firstName || '-'}</td>
-                                        </tr>
-                                        <tr>
-                                            <td><strong>Last Name:</strong></td>
-                                            <td>{user.lastName || '-'}</td>
-                                        </tr>
-                                        <tr>
-                                            <td><strong>Phone:</strong></td>
-                                            <td>{user.phone || '-'}</td>
-                                        </tr>
-                                        <tr>
-                                            <td><strong>Role:</strong></td>
-                                            <td><span className="badge badge-info">{user.role}</span></td>
-                                        </tr>
-                                        <tr>
-                                            <td><strong>Status:</strong></td>
-                                            <td>
-                                                <span className={`badge ${user.active !== false ? 'badge-success' : 'badge-danger'}`}>
-                                                    {user.active !== false ? 'Active' : 'Inactive'}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                        {user.assignedCoach && (
-                                            <tr>
-                                                <td><strong>Assigned Coach:</strong></td>
-                                                <td>{user.coachName || user.assignedCoach}</td>
-                                            </tr>
-                                        )}
-                                        <tr>
-                                            <td><strong>Joined:</strong></td>
-                                            <td>{formatDate(user.createdAt)}</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                
-                                <div style={{marginTop: '20px', display: 'flex', gap: '10px'}}>
-                                    <button className="btn btn-primary" onClick={() => setEditing(true)}>
-                                        Edit User
-                                    </button>
-                                    <button className="btn btn-secondary" onClick={onClose}>
-                                        Close
-                                    </button>
-                                </div>
+                        {loading ? (
+                            <div className="loading-container">
+                                <div className="loading-spinner"></div>
                             </div>
                         ) : (
-                            <div>
-                                <div className="form-group">
-                                    <label className="form-label">First Name</label>
-                                    <input
-                                        type="text"
-                                        className="form-input"
-                                        value={formData.firstName || ''}
-                                        onChange={(e) => setFormData({...formData, firstName: e.target.value})}
-                                    />
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label className="form-label">Last Name</label>
-                                    <input
-                                        type="text"
-                                        className="form-input"
-                                        value={formData.lastName || ''}
-                                        onChange={(e) => setFormData({...formData, lastName: e.target.value})}
-                                    />
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label className="form-label">Phone</label>
-                                    <input
-                                        type="tel"
-                                        className="form-input"
-                                        value={formData.phone || ''}
-                                        onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                                    />
-                                </div>
-                                
-                                <div className="checkbox-group">
-                                    <input
-                                        type="checkbox"
-                                        id="activeStatus"
-                                        checked={formData.active !== false}
-                                        onChange={(e) => setFormData({...formData, active: e.target.checked})}
-                                    />
-                                    <label htmlFor="activeStatus">Active</label>
-                                </div>
-                                
-                                <div style={{marginTop: '20px', display: 'flex', gap: '10px'}}>
-                                    <button className="btn btn-primary" onClick={handleSave}>
-                                        Save Changes
-                                    </button>
-                                    <button className="btn btn-secondary" onClick={() => setEditing(false)}>
-                                        Cancel
-                                    </button>
-                                </div>
-                            </div>
+                            <>
+                                {activeTab === 'overview' && renderOverviewTab()}
+                                {activeTab === 'progress' && renderProgressTab()}
+                                {activeTab === 'assignments' && renderAssignmentsTab()}
+                                {activeTab === 'groups' && renderGroupsTab()}
+                                {activeTab === 'alerts' && renderAlertsTab()}
+                                {activeTab === 'actions' && renderActionsTab()}
+                            </>
                         )}
+                    </>
+                ) : (
+                    // Non-PIR users get the basic view
+                    <div className="modal-body">
+                        <div className="user-details">
+                            <p><strong>Email:</strong> {user.email}</p>
+                            <p><strong>First Name:</strong> {user.firstName || '-'}</p>
+                            <p><strong>Last Name:</strong> {user.lastName || '-'}</p>
+                            <p><strong>Phone:</strong> {user.phone || '-'}</p>
+                            <p><strong>Role:</strong> {user.role}</p>
+                            <p><strong>Status:</strong> {user.active !== false ? 'Active' : 'Inactive'}</p>
+                            <p><strong>Joined:</strong> {formatDate(user.createdAt)}</p>
+                        </div>
+                        <div className="modal-footer">
+                            <button className="btn btn-primary" onClick={() => setEditing(!editing)}>
+                                {editing ? 'Save' : 'Edit User'}
+                            </button>
+                        </div>
                     </div>
-                </div>
-            );
-        }
+                )}
+            </div>
+        </div>
+    );
+}
 
         function CreateGroupModal({ onClose, onSuccess, adminId }) {
             const [formData, setFormData] = useState({
