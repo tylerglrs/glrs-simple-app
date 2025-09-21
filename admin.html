@@ -4381,17 +4381,17 @@ function UserDetailView({ user, checkIns, assignments, messages, onBack, onShowM
 const handleCreateUser = async () => {
     setLoading(true);
     try {
-        // Create a secondary Firebase app instance to avoid signing out admin
-        const secondaryApp = firebase.initializeApp(firebaseConfig, 'Secondary');
+        // Create a secondary Firebase app to prevent signing out the admin
+        const secondaryApp = firebase.initializeApp(firebaseConfig, 'SecondaryApp');
         const secondaryAuth = secondaryApp.auth();
         
-        // Create auth account with secondary app
+        // Create the user account with the secondary app
         const userCredential = await secondaryAuth.createUserWithEmailAndPassword(
             formData.email,
             formData.password || 'TempPassword123!'
         );
         
-        // Create Firestore profile (using main db instance)
+        // Create the Firestore profile document
         await db.collection('users').doc(userCredential.user.uid).set({
             email: formData.email,
             displayName: `${formData.firstName} ${formData.lastName}`,
@@ -4404,6 +4404,29 @@ const handleCreateUser = async () => {
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
+        // Send password reset email
+        await auth.sendPasswordResetEmail(formData.email);
+        
+        // Delete the secondary app to clean up
+        await secondaryApp.delete();
+        
+        alert('User created successfully! Password reset email sent.');
+        onRefresh();
+        onClose();
+    } catch (error) {
+        console.error('Error creating user:', error);
+        alert('Error creating user: ' + error.message);
+        
+        // Clean up secondary app if it still exists
+        try {
+            await firebase.app('SecondaryApp').delete();
+        } catch (e) {
+            // App already deleted or doesn't exist
+        }
+    } finally {
+        setLoading(false);
+    }
+};
         // Send password reset email using main auth instance
         await auth.sendPasswordResetEmail(formData.email);
         
