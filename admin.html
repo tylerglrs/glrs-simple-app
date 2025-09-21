@@ -1889,259 +1889,290 @@ function renderView(view, searchQuery, user, onImpersonate) {
             );
         }
 
-        // Users View - Optimized with batch loading
-        function UsersView({ searchQuery, user, onImpersonate }) {
-            const [users, setUsers] = useState([]);
-            const [coaches, setCoaches] = useState({});
-            const [filteredUsers, setFilteredUsers] = useState([]);
-            const [loading, setLoading] = useState(true);
-            const [currentPage, setCurrentPage] = useState(1);
-            const [showCreateModal, setShowCreateModal] = useState(false);
-            const [selectedUser, setSelectedUser] = useState(null);
-            const [lastDoc, setLastDoc] = useState(null);
-            const [hasMore, setHasMore] = useState(true);
-            const itemsPerPage = 20;
+       // Users View - Optimized with tabs for role separation
+function UsersView({ searchQuery, user, onImpersonate }) {
+    const [users, setUsers] = useState([]);
+    const [filteredUsers, setFilteredUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [selectedUser, setSelectedUser] = useState(null);
+    const [activeTab, setActiveTab] = useState('pir'); // 'pir', 'coach', 'admin'
+    const itemsPerPage = 20;
 
-            useEffect(() => {
-                loadUsers();
-            }, []);
+    // Separate users by role
+    const pirUsers = useMemo(() => users.filter(u => u.role === 'pir'), [users]);
+    const coachUsers = useMemo(() => users.filter(u => u.role === 'coach'), [users]);
+    const adminUsers = useMemo(() => users.filter(u => u.role === 'admin'), [users]);
 
-            useEffect(() => {
-                filterUsers();
-            }, [users, searchQuery]);
+    useEffect(() => {
+        loadUsers();
+    }, []);
 
-            const loadUsers = async () => {
-                try {
-                    setLoading(true);
-                    
-                    // Load all users first
-                    const usersSnap = await db.collection('users')
-                        .orderBy('createdAt', 'desc')
-                        .get();
-                    
-                    const usersData = [];
-                    const coachIds = new Set();
-                    
-                    usersSnap.forEach(doc => {
-                        const userData = { id: doc.id, ...doc.data() };
-                        usersData.push(userData);
-                        if (userData.assignedCoach) {
-                            coachIds.add(userData.assignedCoach);
-                        }
-                    });
-                    
-                    // Batch load coaches if needed
-                    const coachesMap = {};
-                    if (coachIds.size > 0) {
-                        const coachResults = await batchQuery('users', 
-                            firebase.firestore.FieldPath.documentId(), 
-                            Array.from(coachIds)
-                        );
-                        
-                        coachResults.forEach(coach => {
-                            coachesMap[coach.id] = coach.displayName || coach.email;
-                        });
-                    }
-                    
-                    // Add coach names to users
-                    usersData.forEach(user => {
-                        if (user.assignedCoach && coachesMap[user.assignedCoach]) {
-                            user.coachName = coachesMap[user.assignedCoach];
-                        }
-                    });
-                    
-                    setCoaches(coachesMap);
-                    setUsers(usersData);
-                    setFilteredUsers(usersData);
-                    
-                } catch (error) {
-                    console.error('Error loading users:', error);
-                    alert('Failed to load users. Please refresh the page.');
-                } finally {
-                    setLoading(false);
+    useEffect(() => {
+        filterUsers();
+        setCurrentPage(1); // Reset to first page when tab changes
+    }, [users, searchQuery, activeTab]);
+
+    const loadUsers = async () => {
+        try {
+            setLoading(true);
+            
+            // Load all users first
+            const usersSnap = await db.collection('users')
+                .orderBy('createdAt', 'desc')
+                .get();
+            
+            const usersData = [];
+            const coachIds = new Set();
+            
+            usersSnap.forEach(doc => {
+                const userData = { id: doc.id, ...doc.data() };
+                usersData.push(userData);
+                if (userData.assignedCoach) {
+                    coachIds.add(userData.assignedCoach);
                 }
-            };
-
-            const filterUsers = () => {
-                if (!searchQuery) {
-                    setFilteredUsers(users);
-                    return;
-                }
+            });
+            
+            // Batch load coaches if needed
+            const coachesMap = {};
+            if (coachIds.size > 0) {
+                const coachResults = await batchQuery('users', 
+                    firebase.firestore.FieldPath.documentId(), 
+                    Array.from(coachIds)
+                );
                 
-                const query = searchQuery.toLowerCase();
-                const filtered = users.filter(user => 
-                    user.email?.toLowerCase().includes(query) ||
-                    user.displayName?.toLowerCase().includes(query) ||
-                    user.firstName?.toLowerCase().includes(query) ||
-                    user.lastName?.toLowerCase().includes(query) ||
-                    user.phone?.toLowerCase().includes(query) ||
-                    user.coachName?.toLowerCase().includes(query)
-                );
-                setFilteredUsers(filtered);
-                setCurrentPage(1);
-            };
-
-            const paginatedUsers = useMemo(() => {
-                const start = (currentPage - 1) * itemsPerPage;
-                const end = start + itemsPerPage;
-                return filteredUsers.slice(start, end);
-            }, [filteredUsers, currentPage]);
-
-            const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
-
-            const handleExport = (format) => {
-                const exportData = filteredUsers.map(user => ({
-                    name: user.displayName || 'N/A',
-                    email: user.email,
-                    role: user.role,
-                    status: user.active !== false ? 'Active' : 'Inactive',
-                    coach: user.coachName || 'N/A',
-                    phone: user.phone || 'N/A',
-                    joined: formatDate(user.createdAt)
-                }));
-
-                if (format === 'json') {
-                    exportToJSON(exportData, 'users');
-                } else if (format === 'csv') {
-                    exportToCSV(exportData, 'users');
-                } else if (format === 'pdf') {
-                    exportToPDF(exportData, 'User Report');
-                }
-            };
-
-            if (loading) {
-                return (
-                    <div className="loading-container">
-                        <div className="loading-spinner"></div>
-                    </div>
-                );
+                coachResults.forEach(coach => {
+                    coachesMap[coach.id] = coach.displayName || coach.email;
+                });
             }
+            
+            // Add coach names to users
+            usersData.forEach(user => {
+                if (user.assignedCoach && coachesMap[user.assignedCoach]) {
+                    user.coachName = coachesMap[user.assignedCoach];
+                }
+            });
+            
+            setUsers(usersData);
+            
+        } catch (error) {
+            console.error('Error loading users:', error);
+            alert('Failed to load users. Please refresh the page.');
+        } finally {
+            setLoading(false);
+        }
+    };
 
-            return (
-                <div>
-                    <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '20px'}}>
-                        <div>
-                            Showing {paginatedUsers.length} of {filteredUsers.length} users
-                        </div>
-                        <div style={{display: 'flex', gap: '10px'}}>
-                            <button className="btn btn-secondary" onClick={() => handleExport('csv')}>
-                                Export CSV
-                            </button>
-                            <button className="btn btn-secondary" onClick={() => handleExport('json')}>
-                                Export JSON
-                            </button>
-                            <button className="btn btn-secondary" onClick={() => handleExport('pdf')}>
-                                Export PDF
-                            </button>
-                            <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-                                + Create User
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div className="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Email</th>
-                                    <th>Role</th>
-                                    <th>Status</th>
-                                    <th>Assigned Coach</th>
-                                    <th>Phone</th>
-                                    <th>Joined</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {paginatedUsers.map(user => (
-                                    <tr key={user.id}>
-                                        <td>
-                                            <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                                                <div className="user-avatar">
-                                                    {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
-                                                </div>
-                                                <span>{user.displayName || 'N/A'}</span>
-                                            </div>
-                                        </td>
-                                        <td>{user.email}</td>
-                                        <td>
-                                            <span className="badge badge-info">{user.role}</span>
-                                        </td>
-                                        <td>
-                                            <span className={`badge ${user.active !== false ? 'badge-success' : 'badge-danger'}`}>
-                                                {user.active !== false ? 'Active' : 'Inactive'}
-                                            </span>
-                                        </td>
-                                        <td>{user.coachName || '-'}</td>
-                                        <td>{user.phone || '-'}</td>
-                                        <td>{formatDate(user.createdAt)}</td>
-                                        <td>
-                                            <div className="action-buttons">
-                                                <button 
-                                                    className="action-btn"
-                                                    onClick={() => setSelectedUser(user)}
-                                                >
-                                                    View
-                                                </button>
-                                                {user.role === 'pir' && (
-                                                    <button 
-                                                        className="action-btn"
-                                                        onClick={() => onImpersonate(user)}
-                                                    >
-                                                        View As
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                        
-                        {filteredUsers.length === 0 && (
-                            <div className="empty-state">
-                                <div className="empty-state-text">
-                                    {searchQuery ? 'No users found matching your search' : 'No users found'}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                    
-                    {totalPages > 1 && (
-                        <Pagination 
-                            currentPage={currentPage}
-                            totalPages={totalPages}
-                            onPageChange={setCurrentPage}
-                        />
-                    )}
-                    
-                    {showCreateModal && (
-                        <CreateUserModal 
-                            onClose={() => setShowCreateModal(false)}
-                            onSuccess={() => {
-                                setShowCreateModal(false);
-                                loadUsers();
-                            }}
-                            coaches={coaches}
-                        />
-                    )}
-                    
-                    {selectedUser && (
-                        <UserDetailModal 
-                            user={selectedUser}
-                            onClose={() => setSelectedUser(null)}
-                            onUpdate={() => {
-                                setSelectedUser(null);
-                                loadUsers();
-                            }}
-                            currentUserId={user.uid}
-                        />
-                    )}
-                </div>
-            );
+    const filterUsers = () => {
+        // Start with users filtered by active tab
+        let tabFiltered = [];
+        if (activeTab === 'pir') {
+            tabFiltered = pirUsers;
+        } else if (activeTab === 'coach') {
+            tabFiltered = coachUsers;
+        } else if (activeTab === 'admin') {
+            tabFiltered = adminUsers;
         }
 
+        // Then apply search filter
+        if (!searchQuery) {
+            setFilteredUsers(tabFiltered);
+            return;
+        }
+        
+        const query = searchQuery.toLowerCase();
+        const filtered = tabFiltered.filter(user => 
+            user.email?.toLowerCase().includes(query) ||
+            user.displayName?.toLowerCase().includes(query) ||
+            user.firstName?.toLowerCase().includes(query) ||
+            user.lastName?.toLowerCase().includes(query) ||
+            user.phone?.toLowerCase().includes(query) ||
+            user.coachName?.toLowerCase().includes(query)
+        );
+        setFilteredUsers(filtered);
+    };
+
+    const paginatedUsers = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        const end = start + itemsPerPage;
+        return filteredUsers.slice(start, end);
+    }, [filteredUsers, currentPage]);
+
+    const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
+
+    const handleExport = (format) => {
+        const exportData = filteredUsers.map(user => ({
+            name: user.displayName || 'N/A',
+            email: user.email,
+            role: user.role,
+            status: user.active !== false ? 'Active' : 'Inactive',
+            coach: user.coachName || 'N/A',
+            phone: user.phone || 'N/A',
+            joined: formatDate(user.createdAt)
+        }));
+
+        if (format === 'json') {
+            exportToJSON(exportData, `${activeTab}_users`);
+        } else if (format === 'csv') {
+            exportToCSV(exportData, `${activeTab}_users`);
+        } else if (format === 'pdf') {
+            exportToPDF(exportData, `${activeTab.toUpperCase()} Users Report`);
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="loading-container">
+                <div className="loading-spinner"></div>
+            </div>
+        );
+    }
+
+    return (
+        <div>
+            {/* Tab Navigation */}
+            <div className="tab-nav">
+                <button 
+                    className={`tab-btn ${activeTab === 'pir' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('pir')}
+                >
+                    PIRs ({pirUsers.length})
+                </button>
+                <button 
+                    className={`tab-btn ${activeTab === 'coach' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('coach')}
+                >
+                    Coaches ({coachUsers.length})
+                </button>
+                <button 
+                    className={`tab-btn ${activeTab === 'admin' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('admin')}
+                >
+                    Admins ({adminUsers.length})
+                </button>
+            </div>
+
+            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '20px'}}>
+                <div>
+                    Showing {paginatedUsers.length} of {filteredUsers.length} {activeTab}s
+                    {searchQuery && ` (filtered)`}
+                </div>
+                <div style={{display: 'flex', gap: '10px'}}>
+                    <button className="btn btn-secondary" onClick={() => handleExport('csv')}>
+                        Export CSV
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => handleExport('json')}>
+                        Export JSON
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => handleExport('pdf')}>
+                        Export PDF
+                    </button>
+                    <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+                        + Create User
+                    </button>
+                </div>
+            </div>
+            
+            <div className="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Status</th>
+                            {activeTab === 'pir' && <th>Assigned Coach</th>}
+                            {activeTab === 'pir' && <th>Last Check-in</th>}
+                            <th>Phone</th>
+                            <th>Joined</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {paginatedUsers.map(user => (
+                            <tr key={user.id}>
+                                <td>
+                                    <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                        <div className="user-avatar">
+                                            {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
+                                        </div>
+                                        <span>{user.displayName || 'N/A'}</span>
+                                    </div>
+                                </td>
+                                <td>{user.email}</td>
+                                <td>
+                                    <span className={`badge ${user.active !== false ? 'badge-success' : 'badge-danger'}`}>
+                                        {user.active !== false ? 'Active' : 'Inactive'}
+                                    </span>
+                                </td>
+                                {activeTab === 'pir' && <td>{user.coachName || '-'}</td>}
+                                {activeTab === 'pir' && <td>{user.lastCheckIn ? formatTimeAgo(user.lastCheckIn) : 'Never'}</td>}
+                                <td>{user.phone || '-'}</td>
+                                <td>{formatDate(user.createdAt)}</td>
+                                <td>
+                                    <div className="action-buttons">
+                                        <button 
+                                            className="action-btn"
+                                            onClick={() => setSelectedUser(user)}
+                                        >
+                                            View
+                                        </button>
+                                        {user.role === 'pir' && (
+                                            <button 
+                                                className="action-btn"
+                                                onClick={() => onImpersonate(user)}
+                                            >
+                                                View As
+                                            </button>
+                                        )}
+                                    </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+                
+                {filteredUsers.length === 0 && (
+                    <div className="empty-state">
+                        <div className="empty-state-text">
+                            {searchQuery ? `No ${activeTab}s found matching your search` : `No ${activeTab}s found`}
+                        </div>
+                    </div>
+                )}
+            </div>
+            
+            {totalPages > 1 && (
+                <Pagination 
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={setCurrentPage}
+                />
+            )}
+            
+            {showCreateModal && (
+                <CreateUserModal 
+                    onClose={() => setShowCreateModal(false)}
+                    onSuccess={() => {
+                        setShowCreateModal(false);
+                        loadUsers();
+                    }}
+                />
+            )}
+            
+            {selectedUser && (
+                <EnhancedUserDetailModal 
+                    user={selectedUser}
+                    onClose={() => setSelectedUser(null)}
+                    onUpdate={() => {
+                        setSelectedUser(null);
+                        loadUsers();
+                    }}
+                    currentUserId={user.uid}
+                />
+            )}
+        </div>
+    );
+}
         // Profile View
         function ProfileView({ user }) {
             const [editing, setEditing] = useState(false);
