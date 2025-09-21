@@ -48,6 +48,9 @@
             align-items: center;
             min-height: 100vh;
             padding: 20px;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%),
+                        url('sunset1.jpg') center/cover;
+            background-blend-mode: overlay;
         }
         
         .login-card {
@@ -96,7 +99,7 @@
             opacity: 0.9;
         }
         
-        .form-input {
+        .form-input, .form-select {
             width: 100%;
             padding: 12px;
             border: none;
@@ -158,6 +161,9 @@
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%),
+                        url('sunset2.jpg') center/cover;
+            background-blend-mode: overlay;
         }
         
         .header {
@@ -166,6 +172,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            backdrop-filter: blur(10px);
         }
         
         .header-title {
@@ -292,6 +299,14 @@
             font-style: italic;
         }
         
+        .coach-info-card {
+            background: linear-gradient(135deg, rgba(76, 175, 80, 0.1) 0%, rgba(67, 160, 71, 0.1) 100%);
+            border: 1px solid rgba(76, 175, 80, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
@@ -384,6 +399,22 @@
             border-radius: 15px;
             padding: 15px;
             margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .broadcast-content {
+            flex: 1;
+        }
+        
+        .broadcast-dismiss {
+            background: none;
+            border: none;
+            color: white;
+            opacity: 0.6;
+            cursor: pointer;
+            font-size: 20px;
         }
         
         .daily-tasks-card {
@@ -427,6 +458,10 @@
             color: #ff9800;
         }
         
+        .overdue {
+            color: #ff4757;
+        }
+        
         .goal-card {
             background: rgba(255, 255, 255, 0.05);
             border-radius: 15px;
@@ -460,6 +495,24 @@
             border-radius: 10px;
             height: 100%;
             transition: width 0.3s ease;
+        }
+        
+        .objectives-list {
+            margin-top: 15px;
+            padding-left: 20px;
+        }
+        
+        .objective-item {
+            margin-bottom: 10px;
+            list-style-type: none;
+            position: relative;
+        }
+        
+        .objective-item:before {
+            content: "→";
+            position: absolute;
+            left: -20px;
+            color: #f4c430;
         }
         
         .assignments-list {
@@ -534,6 +587,14 @@
         .milestone-achieved {
             opacity: 0.5;
             text-decoration: line-through;
+        }
+        
+        .compliance-card {
+            background: linear-gradient(135deg, rgba(156, 39, 176, 0.1) 0%, rgba(103, 58, 183, 0.1) 100%);
+            border: 1px solid rgba(156, 39, 176, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
         }
         
         .chat-tabs {
@@ -652,6 +713,14 @@
         .room-icon {
             font-size: 32px;
             margin-bottom: 10px;
+        }
+        
+        .support-group-card {
+            background: linear-gradient(135deg, rgba(156, 39, 176, 0.1) 0%, rgba(103, 58, 183, 0.1) 100%);
+            border: 1px solid rgba(156, 39, 176, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 15px;
         }
         
         .meeting-card {
@@ -1120,11 +1189,27 @@
                                     role: 'pir',
                                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                                     active: true,
-                                    sobrietyDate: new Date().toISOString()
+                                    sobrietyDate: new Date().toISOString(),
+                                    profileComplete: false
                                 });
                             }
                             
-                            setUser(firebaseUser);
+                            const userData = userDoc.data();
+                            if (userData && userData.role !== 'pir') {
+                                await auth.signOut();
+                                alert('This portal is for PIRs only. Coaches should use admin.html');
+                                setUser(null);
+                            } else {
+                                setUser(firebaseUser);
+                                
+                                // Create login activity
+                                await db.collection('activities').add({
+                                    userId: firebaseUser.uid,
+                                    type: 'login',
+                                    description: 'User logged in',
+                                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                                });
+                            }
                         } catch (error) {
                             console.error('Error verifying user:', error);
                         }
@@ -1154,10 +1239,12 @@
             const [password, setPassword] = useState('');
             const [error, setError] = useState('');
             const [loading, setLoading] = useState(false);
+            const [success, setSuccess] = useState('');
 
             const handleLogin = async (e) => {
                 e.preventDefault();
                 setError('');
+                setSuccess('');
                 
                 if (!email || !password) {
                     setError('Please enter both email and password');
@@ -1178,8 +1265,19 @@
                             setLoading(false);
                             return;
                         }
+                        
+                        if (!userData.active) {
+                            await auth.signOut();
+                            setError('Your account is inactive. Please contact your coach.');
+                            setLoading(false);
+                            return;
+                        }
                     }
+                    
+                    setSuccess('Login successful! Redirecting...');
                 } catch (error) {
+                    console.error('Login error:', error);
+                    
                     switch(error.code) {
                         case 'auth/user-not-found':
                             setError('No account found with this email');
@@ -1187,8 +1285,11 @@
                         case 'auth/wrong-password':
                             setError('Incorrect password');
                             break;
+                        case 'auth/invalid-email':
+                            setError('Invalid email address');
+                            break;
                         default:
-                            setError('Failed to sign in');
+                            setError('Failed to sign in. Please try again.');
                     }
                 } finally {
                     setLoading(false);
@@ -1214,6 +1315,7 @@
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
                                     disabled={loading}
+                                    autoComplete="email"
                                 />
                             </div>
                             
@@ -1226,6 +1328,7 @@
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                     disabled={loading}
+                                    autoComplete="current-password"
                                 />
                             </div>
                             
@@ -1234,6 +1337,7 @@
                             </button>
                             
                             {error && <div className="error-message">{error}</div>}
+                            {success && <div className="success-message">{success}</div>}
                         </form>
                     </div>
                 </div>
@@ -1242,13 +1346,14 @@
 
         // Main PIR App Component
         function PIRApp({ user }) {
-            // Navigation State - CORRECTED ORDER: Tasks-Home-Progress-Connect-Profile
+            // CORRECTED NAVIGATION ORDER: Tasks-Home-Progress-Connect-Profile
             const [currentView, setCurrentView] = useState('home');
             const [loading, setLoading] = useState(true);
             
             // User Data States
             const [userData, setUserData] = useState(null);
             const [profileImage, setProfileImage] = useState(null);
+            const [coachInfo, setCoachInfo] = useState(null);
             
             // Home Section States
             const [sobrietyDays, setSobrietyDays] = useState(0);
@@ -1259,7 +1364,10 @@
             const [milestones, setMilestones] = useState([]);
             const [nextMilestone, setNextMilestone] = useState(null);
             const [activeBroadcast, setActiveBroadcast] = useState(null);
+            const [broadcastDismissed, setBroadcastDismissed] = useState(false);
             const [checkInStatus, setCheckInStatus] = useState({ morning: false, evening: false });
+            const [checkInStreak, setCheckInStreak] = useState(0);
+            const [complianceRate, setComplianceRate] = useState({ checkIn: 0, assignment: 0 });
             
             // Progress States
             const [checkIns, setCheckIns] = useState([]);
@@ -1277,7 +1385,10 @@
             const [communityMessages, setCommunityMessages] = useState([]);
             const [topicRooms, setTopicRooms] = useState([]);
             const [meetings, setMeetings] = useState([]);
+            const [supportGroups, setSupportGroups] = useState([]);
             const [emergencyResources, setEmergencyResources] = useState([]);
+            const [activeTopicRoom, setActiveTopicRoom] = useState(null);
+            const [topicRoomMessages, setTopicRoomMessages] = useState([]);
             
             // Profile States
             const [resources, setResources] = useState({
@@ -1293,17 +1404,91 @@
             const [showModal, setShowModal] = useState(null);
             const fileInputRef = useRef(null);
 
+            // Real-time listeners references
+            const listenersRef = useRef([]);
+
             // Load all data on mount
             useEffect(() => {
                 if (user) {
                     loadAllData();
+                    setupRealtimeListeners();
                 }
+
+                return () => {
+                    // Cleanup listeners
+                    listenersRef.current.forEach(unsubscribe => unsubscribe());
+                };
             }, [user]);
 
-            // Calculate sobriety days
+            // Setup real-time listeners
+            const setupRealtimeListeners = () => {
+                // Notifications listener
+                const notifListener = db.collection('notifications')
+                    .where('userId', '==', user.uid)
+                    .orderBy('createdAt', 'desc')
+                    .limit(20)
+                    .onSnapshot(snapshot => {
+                        const notificationsList = [];
+                        let unread = 0;
+                        snapshot.forEach(doc => {
+                            const notification = { id: doc.id, ...doc.data() };
+                            notificationsList.push(notification);
+                            if (!notification.read) unread++;
+                        });
+                        setNotifications(notificationsList);
+                        setUnreadCount(unread);
+                    });
+                listenersRef.current.push(notifListener);
+
+                // Community messages listener
+                const messagesListener = db.collection('messages')
+                    .where('roomId', '==', 'main')
+                    .orderBy('createdAt', 'desc')
+                    .limit(50)
+                    .onSnapshot(snapshot => {
+                        const messages = [];
+                        snapshot.forEach(doc => {
+                            messages.push({ id: doc.id, ...doc.data() });
+                        });
+                        setCommunityMessages(messages.reverse());
+                    });
+                listenersRef.current.push(messagesListener);
+
+                // Goals listener
+                const goalsListener = db.collection('goals')
+                    .where('userId', '==', user.uid)
+                    .where('status', '==', 'active')
+                    .onSnapshot(snapshot => {
+                        loadGoals();
+                    });
+                listenersRef.current.push(goalsListener);
+
+                // Assignments listener
+                const assignmentsListener = db.collection('assignments')
+                    .where('userId', '==', user.uid)
+                    .onSnapshot(snapshot => {
+                        loadAssignments();
+                    });
+                listenersRef.current.push(assignmentsListener);
+
+                // Broadcasts listener
+                const broadcastsListener = db.collection('broadcasts')
+                    .where('active', '==', true)
+                    .orderBy('createdAt', 'desc')
+                    .limit(1)
+                    .onSnapshot(snapshot => {
+                        if (!snapshot.empty && !broadcastDismissed) {
+                            const broadcast = snapshot.docs[0].data();
+                            setActiveBroadcast(broadcast);
+                        }
+                    });
+                listenersRef.current.push(broadcastsListener);
+            };
+
+            // Calculate sobriety days and stats
             useEffect(() => {
                 if (userData?.sobrietyDate) {
-                    const calculateDays = () => {
+                    const calculateStats = () => {
                         const sobrietyDate = new Date(userData.sobrietyDate);
                         const today = new Date();
                         const diffTime = Math.abs(today - sobrietyDate);
@@ -1312,8 +1497,8 @@
                         setMoneySaved(diffDays * 20);
                     };
                     
-                    calculateDays();
-                    const interval = setInterval(calculateDays, 60000);
+                    calculateStats();
+                    const interval = setInterval(calculateStats, 60000);
                     return () => clearInterval(interval);
                 }
             }, [userData]);
@@ -1325,7 +1510,15 @@
                         const moodCanvas = document.getElementById('moodChart');
                         const cravingCanvas = document.getElementById('cravingChart');
                         
-                        if (moodCanvas && !chartRef.current) {
+                        // Destroy existing charts
+                        if (chartRef.current) {
+                            chartRef.current.destroy();
+                        }
+                        if (cravingChartRef.current) {
+                            cravingChartRef.current.destroy();
+                        }
+                        
+                        if (moodCanvas) {
                             const ctx = moodCanvas.getContext('2d');
                             chartRef.current = new Chart(ctx, {
                                 type: 'line',
@@ -1343,7 +1536,7 @@
                             });
                         }
                         
-                        if (cravingCanvas && !cravingChartRef.current) {
+                        if (cravingCanvas) {
                             const ctx = cravingCanvas.getContext('2d');
                             cravingChartRef.current = new Chart(ctx, {
                                 type: 'line',
@@ -1364,6 +1557,27 @@
                 }
             }, [currentView, moodChartData, cravingChartData]);
 
+            // Check profile completion
+            useEffect(() => {
+                if (userData && !userData.profileComplete) {
+                    const checkProfileCompletion = () => {
+                        if (userData.firstName && userData.lastName && userData.phone) {
+                            db.collection('users').doc(user.uid).update({
+                                profileComplete: true
+                            });
+                        } else if (!showModal) {
+                            setTimeout(() => {
+                                if (!localStorage.getItem('profilePromptShown')) {
+                                    setShowModal('profilePrompt');
+                                    localStorage.setItem('profilePromptShown', 'true');
+                                }
+                            }, 5000);
+                        }
+                    };
+                    checkProfileCompletion();
+                }
+            }, [userData, showModal]);
+
             // Load all data
             const loadAllData = async () => {
                 try {
@@ -1379,10 +1593,11 @@
                         loadMilestones(),
                         loadBroadcasts(),
                         loadResources(),
-                        loadCommunityMessages(),
-                        loadNotifications(),
+                        loadSupportGroups(),
+                        loadCheckIns(),
                         loadTodaysPledge(),
-                        loadCheckIns()
+                        loadStreak(),
+                        loadComplianceRates()
                     ]);
                 } catch (error) {
                     console.error('Error loading data:', error);
@@ -1391,15 +1606,24 @@
                 }
             };
 
-            // Load user data
+            // Load user data and coach info
             const loadUserData = async () => {
                 try {
                     const userDoc = await db.collection('users').doc(user.uid).get();
                     if (userDoc.exists) {
                         const data = userDoc.data();
                         setUserData(data);
+                        
                         if (data.profileImageUrl) {
                             setProfileImage(data.profileImageUrl);
+                        }
+                        
+                        // Load coach info
+                        if (data.assignedCoach) {
+                            const coachDoc = await db.collection('users').doc(data.assignedCoach).get();
+                            if (coachDoc.exists) {
+                                setCoachInfo(coachDoc.data());
+                            }
                         }
                     }
                 } catch (error) {
@@ -1407,7 +1631,7 @@
                 }
             };
 
-            // Load topic rooms from admin
+            // Load topic rooms
             const loadTopicRooms = async () => {
                 try {
                     const roomsSnap = await db.collection('topicRooms')
@@ -1424,7 +1648,7 @@
                 }
             };
 
-            // Load meetings from admin
+            // Load meetings
             const loadMeetings = async () => {
                 try {
                     const meetingsSnap = await db.collection('meetings')
@@ -1438,6 +1662,24 @@
                     setMeetings(meetingsData);
                 } catch (error) {
                     console.error('Error loading meetings:', error);
+                }
+            };
+
+            // Load support groups user is assigned to
+            const loadSupportGroups = async () => {
+                try {
+                    const groupsSnap = await db.collection('supportGroups')
+                        .where('assignedPIRs', 'array-contains', user.uid)
+                        .where('active', '==', true)
+                        .get();
+                    
+                    const groupsData = [];
+                    groupsSnap.forEach(doc => {
+                        groupsData.push({ id: doc.id, ...doc.data() });
+                    });
+                    setSupportGroups(groupsData);
+                } catch (error) {
+                    console.error('Error loading support groups:', error);
                 }
             };
 
@@ -1459,7 +1701,7 @@
                 }
             };
 
-            // Load goals from admin
+            // Load goals with objectives
             const loadGoals = async () => {
                 try {
                     const goalsSnap = await db.collection('goals')
@@ -1483,6 +1725,12 @@
                         });
                         
                         goalData.assignments = assignments;
+                        
+                        // Calculate goal progress
+                        const completed = assignments.filter(a => a.status === 'completed').length;
+                        goalData.progress = assignments.length > 0 ? 
+                            Math.round((completed / assignments.length) * 100) : 0;
+                        
                         goalsData.push(goalData);
                     }
                     
@@ -1513,7 +1761,7 @@
                 }
             };
 
-            // Load daily inspiration from admin
+            // Load daily inspiration (rotates by day of year)
             const loadDailyInspiration = async () => {
                 try {
                     const inspirationsSnap = await db.collection('dailyInspirations')
@@ -1526,8 +1774,10 @@
                             inspirations.push({ id: doc.id, ...doc.data() });
                         });
                         
-                        const randomIndex = Math.floor(Math.random() * inspirations.length);
-                        setDailyQuote(inspirations[randomIndex]);
+                        // Use day of year for consistent daily rotation
+                        const dayOfYear = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+                        const index = dayOfYear % inspirations.length;
+                        setDailyQuote(inspirations[index]);
                     } else {
                         setDailyQuote({
                             quote: "One day at a time.",
@@ -1543,7 +1793,7 @@
                 }
             };
 
-            // Load milestones from admin
+            // Load milestones
             const loadMilestones = async () => {
                 try {
                     const milestonesSnap = await db.collection('milestones')
@@ -1567,7 +1817,7 @@
                 }
             };
 
-            // Load broadcasts from admin
+            // Load broadcasts
             const loadBroadcasts = async () => {
                 try {
                     const broadcastsSnap = await db.collection('broadcasts')
@@ -1576,7 +1826,7 @@
                         .limit(1)
                         .get();
                     
-                    if (!broadcastsSnap.empty) {
+                    if (!broadcastsSnap.empty && !broadcastDismissed) {
                         const broadcast = broadcastsSnap.docs[0].data();
                         setActiveBroadcast(broadcast);
                     }
@@ -1585,7 +1835,7 @@
                 }
             };
 
-            // Load resources from admin - FIXED QUERY
+            // Load resources - FIXED QUERY
             const loadResources = async () => {
                 try {
                     const resourcesSnap = await db.collection('resources')
@@ -1620,69 +1870,6 @@
                     setResources(resourcesData);
                 } catch (error) {
                     console.error('Error loading resources:', error);
-                }
-            };
-
-            // Load community messages
-            const loadCommunityMessages = async () => {
-                try {
-                    const messagesSnap = await db.collection('messages')
-                        .where('roomId', '==', 'main')
-                        .orderBy('createdAt', 'desc')
-                        .limit(50)
-                        .get();
-                    
-                    const messages = [];
-                    messagesSnap.forEach(doc => {
-                        messages.push({ id: doc.id, ...doc.data() });
-                    });
-                    setCommunityMessages(messages.reverse());
-                } catch (error) {
-                    console.error('Error loading messages:', error);
-                }
-            };
-
-            // Load notifications
-            const loadNotifications = async () => {
-                try {
-                    const notificationsSnap = await db.collection('notifications')
-                        .where('userId', '==', user.uid)
-                        .orderBy('createdAt', 'desc')
-                        .limit(20)
-                        .get();
-                    
-                    const notificationsList = [];
-                    let unread = 0;
-                    notificationsSnap.forEach(doc => {
-                        const notification = { id: doc.id, ...doc.data() };
-                        notificationsList.push(notification);
-                        if (!notification.read) unread++;
-                    });
-                    
-                    setNotifications(notificationsList);
-                    setUnreadCount(unread);
-                } catch (error) {
-                    console.error('Error loading notifications:', error);
-                }
-            };
-
-            // Load today's pledge status
-            const loadTodaysPledge = async () => {
-                try {
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    const tomorrow = new Date(today);
-                    tomorrow.setDate(tomorrow.getDate() + 1);
-                    
-                    const pledgeSnapshot = await db.collection('pledges')
-                        .where('userId', '==', user.uid)
-                        .where('createdAt', '>=', today)
-                        .where('createdAt', '<', tomorrow)
-                        .get();
-                    
-                    setPledgeMade(!pledgeSnapshot.empty);
-                } catch (error) {
-                    console.error('Error loading pledge:', error);
                 }
             };
 
@@ -1780,6 +1967,79 @@
                 });
             };
 
+            // Load today's pledge status
+            const loadTodaysPledge = async () => {
+                try {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const tomorrow = new Date(today);
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    
+                    const pledgeSnapshot = await db.collection('pledges')
+                        .where('userId', '==', user.uid)
+                        .where('createdAt', '>=', today)
+                        .where('createdAt', '<', tomorrow)
+                        .get();
+                    
+                    setPledgeMade(!pledgeSnapshot.empty);
+                } catch (error) {
+                    console.error('Error loading pledge:', error);
+                }
+            };
+
+            // Load check-in streak
+            const loadStreak = async () => {
+                try {
+                    const streakDoc = await db.collection('streaks').doc(user.uid).get();
+                    if (streakDoc.exists) {
+                        setCheckInStreak(streakDoc.data().currentStreak || 0);
+                    }
+                } catch (error) {
+                    console.error('Error loading streak:', error);
+                }
+            };
+
+            // Load compliance rates
+            const loadComplianceRates = async () => {
+                try {
+                    // Calculate check-in compliance (last 30 days)
+                    const thirtyDaysAgo = new Date();
+                    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                    
+                    const checkInsSnap = await db.collection('checkIns')
+                        .where('userId', '==', user.uid)
+                        .where('createdAt', '>=', thirtyDaysAgo)
+                        .get();
+                    
+                    const checkInRate = Math.round((checkInsSnap.size / 30) * 100);
+                    
+                    // Calculate assignment completion rate
+                    const assignmentsSnap = await db.collection('assignments')
+                        .where('userId', '==', user.uid)
+                        .get();
+                    
+                    let totalAssignments = 0;
+                    let completedAssignments = 0;
+                    
+                    assignmentsSnap.forEach(doc => {
+                        totalAssignments++;
+                        if (doc.data().status === 'completed') {
+                            completedAssignments++;
+                        }
+                    });
+                    
+                    const assignmentRate = totalAssignments > 0 ? 
+                        Math.round((completedAssignments / totalAssignments) * 100) : 0;
+                    
+                    setComplianceRate({
+                        checkIn: checkInRate,
+                        assignment: assignmentRate
+                    });
+                } catch (error) {
+                    console.error('Error loading compliance rates:', error);
+                }
+            };
+
             // Handle daily pledge
             const handlePledge = async () => {
                 if (pledgeMade) return;
@@ -1800,12 +2060,20 @@
                         read: false,
                         createdAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
+                    
+                    // Create activity log
+                    await db.collection('activities').add({
+                        userId: user.uid,
+                        type: 'pledge',
+                        description: 'Made daily pledge',
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
                 } catch (error) {
                     console.error('Error making pledge:', error);
                 }
             };
 
-            // Handle morning check-in - ACTUALLY SAVES DATA
+            // Handle morning check-in - SAVES REAL DATA AND CREATES ALERTS
             const handleMorningCheckIn = async (data) => {
                 try {
                     const today = new Date();
@@ -1836,6 +2104,55 @@
                     }
                     
                     setCheckInStatus(prev => ({ ...prev, morning: true }));
+                    
+                    // Update streak
+                    await updateStreak();
+                    
+                    // Check for auto-triggered alerts
+                    if (data.mood <= 2) {
+                        await db.collection('alerts').add({
+                            userId: user.uid,
+                            type: 'low_mood',
+                            status: 'active',
+                            severity: 'high',
+                            message: `Low mood detected (${data.mood}/5)`,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                    
+                    if (data.craving >= 4) {
+                        await db.collection('alerts').add({
+                            userId: user.uid,
+                            type: 'high_craving',
+                            status: 'active',
+                            severity: 'high',
+                            message: `High craving intensity detected (${data.craving}/5)`,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                    
+                    // Create activity log
+                    await db.collection('activities').add({
+                        userId: user.uid,
+                        type: 'check_in',
+                        description: 'Completed morning check-in',
+                        data: data,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // Create notification for coach
+                    if (userData?.assignedCoach) {
+                        await db.collection('notifications').add({
+                            userId: userData.assignedCoach,
+                            type: 'check_in',
+                            title: 'Morning Check-in Completed',
+                            message: `${userData.displayName || user.email} completed morning check-in`,
+                            pirId: user.uid,
+                            read: false,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                    
                     await loadCheckIns();
                     alert('Morning check-in complete!');
                 } catch (error) {
@@ -1844,7 +2161,7 @@
                 }
             };
 
-            // Handle evening reflection - ACTUALLY SAVES DATA
+            // Handle evening reflection - SAVES REAL DATA
             const handleEveningReflection = async (data) => {
                 try {
                     const today = new Date();
@@ -1872,6 +2189,16 @@
                     }
                     
                     setCheckInStatus(prev => ({ ...prev, evening: true }));
+                    
+                    // Create activity log
+                    await db.collection('activities').add({
+                        userId: user.uid,
+                        type: 'reflection',
+                        description: 'Completed evening reflection',
+                        data: data,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
                     await loadCheckIns();
                     alert('Evening reflection complete!');
                 } catch (error) {
@@ -1880,31 +2207,73 @@
                 }
             };
 
-            // Send community message
-            const sendCommunityMessage = async (content) => {
-                if (!content || !content.trim()) return;
-                
+            // Update check-in streak
+            const updateStreak = async () => {
                 try {
-                    await db.collection('messages').add({
-                        roomId: 'main',
-                        userId: user.uid,
-                        senderName: userData?.displayName || userData?.firstName || 'Anonymous',
-                        content: content,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
+                    const streakDoc = await db.collection('streaks').doc(user.uid).get();
                     
-                    await loadCommunityMessages();
+                    if (streakDoc.exists) {
+                        const data = streakDoc.data();
+                        const lastCheckIn = data.lastCheckIn?.toDate ? 
+                            data.lastCheckIn.toDate() : new Date(data.lastCheckIn);
+                        const today = new Date();
+                        const daysDiff = Math.floor((today - lastCheckIn) / (1000 * 60 * 60 * 24));
+                        
+                        if (daysDiff === 1) {
+                            // Continue streak
+                            await db.collection('streaks').doc(user.uid).update({
+                                currentStreak: data.currentStreak + 1,
+                                lastCheckIn: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                            setCheckInStreak(data.currentStreak + 1);
+                        } else if (daysDiff > 1) {
+                            // Reset streak
+                            await db.collection('streaks').doc(user.uid).update({
+                                currentStreak: 1,
+                                lastCheckIn: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                            setCheckInStreak(1);
+                        }
+                    } else {
+                        // Create new streak
+                        await db.collection('streaks').doc(user.uid).set({
+                            currentStreak: 1,
+                            lastCheckIn: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        setCheckInStreak(1);
+                    }
                 } catch (error) {
-                    console.error('Error sending message:', error);
+                    console.error('Error updating streak:', error);
                 }
             };
 
-            // Complete assignment
-            const completeAssignment = async (assignmentId, goalId) => {
+            // Complete assignment WITH REFLECTION
+            const completeAssignment = async (assignmentId, goalId, reflection) => {
                 try {
                     await db.collection('assignments').doc(assignmentId).update({
                         status: 'completed',
-                        completedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        completedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        reflection: reflection || ''
+                    });
+                    
+                    // Create activity log
+                    await db.collection('activities').add({
+                        userId: user.uid,
+                        type: 'assignment_completion',
+                        description: 'Completed assignment',
+                        assignmentId: assignmentId,
+                        reflection: reflection,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // Create notification
+                    await db.collection('notifications').add({
+                        userId: user.uid,
+                        type: 'assignment',
+                        title: 'Assignment Completed',
+                        message: 'Great job completing your assignment!',
+                        read: false,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
                     
                     if (goalId) {
@@ -1913,6 +2282,7 @@
                     
                     await loadAssignments();
                     await loadGoals();
+                    await loadComplianceRates();
                 } catch (error) {
                     console.error('Error completing assignment:', error);
                 }
@@ -1947,9 +2317,67 @@
                 }
             };
 
+            // Send community message
+            const sendCommunityMessage = async (content) => {
+                if (!content || !content.trim()) return;
+                
+                try {
+                    await db.collection('messages').add({
+                        roomId: 'main',
+                        userId: user.uid,
+                        senderName: userData?.displayName || userData?.firstName || 'Anonymous',
+                        content: content,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                } catch (error) {
+                    console.error('Error sending message:', error);
+                }
+            };
+
+            // Send topic room message
+            const sendTopicRoomMessage = async (roomId, content) => {
+                if (!content || !content.trim()) return;
+                
+                try {
+                    await db.collection('messages').add({
+                        roomId: roomId,
+                        userId: user.uid,
+                        senderName: userData?.displayName || userData?.firstName || 'Anonymous',
+                        content: content,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                } catch (error) {
+                    console.error('Error sending message:', error);
+                }
+            };
+
+            // Enter topic room
+            const enterTopicRoom = async (room) => {
+                setActiveTopicRoom(room);
+                
+                // Load room messages
+                try {
+                    const messagesSnap = await db.collection('messages')
+                        .where('roomId', '==', room.id)
+                        .orderBy('createdAt', 'desc')
+                        .limit(50)
+                        .get();
+                    
+                    const messages = [];
+                    messagesSnap.forEach(doc => {
+                        messages.push({ id: doc.id, ...doc.data() });
+                    });
+                    setTopicRoomMessages(messages.reverse());
+                } catch (error) {
+                    console.error('Error loading room messages:', error);
+                }
+                
+                setShowModal('topicRoom');
+            };
+
             // Handle SOS trigger
             const triggerSOS = async () => {
-                if (confirm('This will send an emergency alert. Continue?')) {
+                if (confirm('This will send an emergency alert to your coach. Continue?')) {
                     try {
                         await db.collection('alerts').add({
                             userId: user.uid,
@@ -1960,7 +2388,21 @@
                             createdAt: firebase.firestore.FieldValue.serverTimestamp()
                         });
                         
-                        alert('Emergency alert sent. Help is on the way.');
+                        // Create notification for coach
+                        if (userData?.assignedCoach) {
+                            await db.collection('notifications').add({
+                                userId: userData.assignedCoach,
+                                type: 'emergency',
+                                title: '🚨 EMERGENCY SOS',
+                                message: `${userData.displayName || user.email} has triggered an emergency alert!`,
+                                pirId: user.uid,
+                                severity: 'critical',
+                                read: false,
+                                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                        }
+                        
+                        alert('Emergency alert sent. Your coach has been notified.');
                     } catch (error) {
                         console.error('Error triggering SOS:', error);
                         alert('Failed to send alert. Please call 988 for immediate help.');
@@ -2000,6 +2442,8 @@
                     goals: goals,
                     assignments: assignments,
                     sobrietyDays: sobrietyDays,
+                    streak: checkInStreak,
+                    complianceRates: complianceRate,
                     exportedAt: new Date().toISOString()
                 };
                 
@@ -2012,7 +2456,7 @@
                 linkElement.click();
             };
 
-            // Export data as PDF
+            // Export data as PDF with comprehensive data
             const exportDataAsPDF = () => {
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF();
@@ -2024,16 +2468,29 @@
                 doc.text(`Name: ${userData?.displayName || userData?.firstName || user.email}`, 20, 40);
                 doc.text(`Days Clean: ${sobrietyDays}`, 20, 50);
                 doc.text(`Money Saved: $${moneySaved.toLocaleString()}`, 20, 60);
-                doc.text(`Export Date: ${new Date().toLocaleDateString()}`, 20, 70);
+                doc.text(`Check-in Streak: ${checkInStreak} days`, 20, 70);
+                doc.text(`Check-in Compliance: ${complianceRate.checkIn}%`, 20, 80);
+                doc.text(`Assignment Completion: ${complianceRate.assignment}%`, 20, 90);
+                doc.text(`Export Date: ${new Date().toLocaleDateString()}`, 20, 100);
                 
-                // Add check-in summary
+                // Add recent check-ins
                 if (checkIns.length > 0) {
-                    doc.text('Recent Check-ins:', 20, 90);
+                    doc.text('Recent Check-ins:', 20, 120);
                     checkIns.slice(0, 5).forEach((checkIn, index) => {
                         const date = checkIn.createdAt?.toDate ? 
                             checkIn.createdAt.toDate().toLocaleDateString() : 'Unknown';
                         const mood = checkIn.morningData?.mood || 'N/A';
-                        doc.text(`${date} - Mood: ${mood}/5`, 30, 100 + (index * 10));
+                        const craving = checkIn.morningData?.craving || 'N/A';
+                        doc.text(`${date} - Mood: ${mood}/5, Craving: ${craving}/5`, 30, 130 + (index * 10));
+                    });
+                }
+                
+                // Add goals summary
+                if (goals.length > 0) {
+                    doc.addPage();
+                    doc.text('Active Goals:', 20, 20);
+                    goals.forEach((goal, index) => {
+                        doc.text(`${goal.title} - ${goal.progress}% complete`, 30, 30 + (index * 10));
                     });
                 }
                 
@@ -2054,8 +2511,6 @@
                         read: true,
                         readAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
-                    
-                    await loadNotifications();
                 } catch (error) {
                     console.error('Error marking notification as read:', error);
                 }
@@ -2077,10 +2532,15 @@
                     });
                     
                     await batch.commit();
-                    await loadNotifications();
                 } catch (error) {
                     console.error('Error marking all as read:', error);
                 }
+            };
+
+            // Dismiss broadcast
+            const dismissBroadcast = () => {
+                setBroadcastDismissed(true);
+                setActiveBroadcast(null);
             };
 
             if (loading) {
@@ -2112,14 +2572,47 @@
                     <div className="content">
                         {currentView === 'home' && (
                             <>
-                                {activeBroadcast && (
+                                {activeBroadcast && !broadcastDismissed && (
                                     <div className="broadcast-banner">
-                                        <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                                            <span style={{fontSize: '20px'}}>📢</span>
-                                            <div>
-                                                <div style={{fontWeight: 'bold', color: '#f4c430'}}>Announcement</div>
-                                                <div style={{color: 'white', marginTop: '5px'}}>{activeBroadcast.message}</div>
+                                        <div className="broadcast-content">
+                                            <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                                <span style={{fontSize: '20px'}}>📢</span>
+                                                <div>
+                                                    <div style={{fontWeight: 'bold', color: '#f4c430'}}>Announcement</div>
+                                                    <div style={{color: 'white', marginTop: '5px'}}>{activeBroadcast.message}</div>
+                                                </div>
                                             </div>
+                                        </div>
+                                        <button className="broadcast-dismiss" onClick={dismissBroadcast}>×</button>
+                                    </div>
+                                )}
+
+                                {coachInfo && (
+                                    <div className="coach-info-card">
+                                        <h3 style={{color: '#4CAF50', marginBottom: '10px'}}>Your Recovery Coach</h3>
+                                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                                            <div>
+                                                <div style={{fontSize: '18px', fontWeight: 'bold', color: 'white'}}>
+                                                    {coachInfo.displayName || coachInfo.firstName + ' ' + coachInfo.lastName}
+                                                </div>
+                                                {coachInfo.credentials && (
+                                                    <div style={{fontSize: '14px', opacity: 0.8, marginTop: '5px'}}>
+                                                        {coachInfo.credentials}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {coachInfo.phone && (
+                                                <a href={`tel:${coachInfo.phone}`} style={{
+                                                    background: 'rgba(255, 255, 255, 0.1)',
+                                                    padding: '8px 15px',
+                                                    borderRadius: '20px',
+                                                    color: 'white',
+                                                    textDecoration: 'none',
+                                                    fontSize: '14px'
+                                                }}>
+                                                    📞 Contact
+                                                </a>
+                                            )}
                                         </div>
                                     </div>
                                 )}
@@ -2203,14 +2696,26 @@
                                         <div className="stat-label">Total Days</div>
                                     </div>
                                     <div className="stat-card">
+                                        <div className="stat-icon">🔥</div>
+                                        <div className="stat-value">{checkInStreak}</div>
+                                        <div className="stat-label">Day Streak</div>
+                                    </div>
+                                    <div className="stat-card">
                                         <div className="stat-icon">🎯</div>
                                         <div className="stat-value">{goals.length}</div>
                                         <div className="stat-label">Active Goals</div>
                                     </div>
                                     <div className="stat-card">
                                         <div className="stat-icon">✅</div>
-                                        <div className="stat-value">{assignments.filter(a => a.status === 'completed').length}/{assignments.length}</div>
+                                        <div className="stat-value">
+                                            {assignments.filter(a => a.status === 'completed').length}/{assignments.length}
+                                        </div>
                                         <div className="stat-label">Tasks Done</div>
+                                    </div>
+                                    <div className="stat-card">
+                                        <div className="stat-icon">📊</div>
+                                        <div className="stat-value">{complianceRate.checkIn}%</div>
+                                        <div className="stat-label">Check-in Rate</div>
                                     </div>
                                 </div>
                             </>
@@ -2267,6 +2772,17 @@
                                                     }}></div>
                                                 </div>
                                                 
+                                                {goal.objectives && goal.objectives.length > 0 && (
+                                                    <div className="objectives-list">
+                                                        <h5 style={{color: '#f4c430', marginBottom: '10px'}}>Objectives:</h5>
+                                                        {goal.objectives.map((objective, index) => (
+                                                            <div key={index} className="objective-item">
+                                                                {objective}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                
                                                 {goal.assignments && goal.assignments.length > 0 && (
                                                     <div className="assignments-list">
                                                         <h5 style={{color: '#f4c430', marginBottom: '10px'}}>Tasks:</h5>
@@ -2279,11 +2795,23 @@
                                                                     }}>
                                                                         {assignment.title}
                                                                     </span>
+                                                                    {assignment.dueDate && (
+                                                                        <small style={{
+                                                                            display: 'block',
+                                                                            color: new Date(assignment.dueDate) < new Date() ? '#ff4757' : 'rgba(255,255,255,0.5)',
+                                                                            marginTop: '5px'
+                                                                        }}>
+                                                                            Due: {new Date(assignment.dueDate).toLocaleDateString()}
+                                                                        </small>
+                                                                    )}
                                                                 </div>
                                                                 {assignment.status !== 'completed' && (
                                                                     <button 
                                                                         className="btn-complete"
-                                                                        onClick={() => completeAssignment(assignment.id, goal.id)}
+                                                                        onClick={() => {
+                                                                            const reflection = prompt('Add a reflection (optional):');
+                                                                            completeAssignment(assignment.id, goal.id, reflection);
+                                                                        }}
                                                                     >
                                                                         Complete
                                                                     </button>
@@ -2309,6 +2837,26 @@
                         {currentView === 'progress' && (
                             <>
                                 <h2 style={{color: 'white', marginBottom: '20px'}}>My Progress</h2>
+                                
+                                <div className="compliance-card">
+                                    <h3 style={{color: '#9c27b0', marginBottom: '15px'}}>Compliance Metrics</h3>
+                                    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
+                                        <div>
+                                            <div style={{fontSize: '14px', opacity: 0.8}}>Check-in Compliance</div>
+                                            <div style={{fontSize: '24px', fontWeight: 'bold', color: '#f4c430'}}>
+                                                {complianceRate.checkIn}%
+                                            </div>
+                                            <small style={{opacity: 0.6}}>Last 30 days</small>
+                                        </div>
+                                        <div>
+                                            <div style={{fontSize: '14px', opacity: 0.8}}>Assignment Completion</div>
+                                            <div style={{fontSize: '24px', fontWeight: 'bold', color: '#4CAF50'}}>
+                                                {complianceRate.assignment}%
+                                            </div>
+                                            <small style={{opacity: 0.6}}>All time</small>
+                                        </div>
+                                    </div>
+                                </div>
                                 
                                 {moodChartData && (
                                     <div className="chart-container">
@@ -2389,6 +2937,12 @@
                                     >
                                         Support Groups
                                     </button>
+                                    <button 
+                                        className={`tab-btn ${activeChat === 'meetings' ? 'active' : ''}`}
+                                        onClick={() => setActiveChat('meetings')}
+                                    >
+                                        Meetings
+                                    </button>
                                 </div>
 
                                 {activeChat === 'main' && (
@@ -2404,7 +2958,11 @@
                                         <h3 style={{color: '#f4c430', marginBottom: '20px'}}>Recovery Topic Rooms</h3>
                                         {topicRooms.length > 0 ? (
                                             topicRooms.map(room => (
-                                                <div key={room.id} className="room-card">
+                                                <div 
+                                                    key={room.id} 
+                                                    className="room-card"
+                                                    onClick={() => enterTopicRoom(room)}
+                                                >
                                                     <div className="room-icon">{room.icon || '💬'}</div>
                                                     <h4>{room.name}</h4>
                                                     <p style={{color: 'rgba(255,255,255,0.7)'}}>{room.description}</p>
@@ -2421,7 +2979,44 @@
 
                                 {activeChat === 'groups' && (
                                     <>
-                                        <h3 style={{color: '#f4c430', marginBottom: '20px'}}>Support Group Meetings</h3>
+                                        <h3 style={{color: '#f4c430', marginBottom: '20px'}}>My Support Groups</h3>
+                                        {supportGroups.length > 0 ? (
+                                            supportGroups.map(group => (
+                                                <div key={group.id} className="support-group-card">
+                                                    <h4 style={{color: 'white'}}>{group.name}</h4>
+                                                    <p style={{color: 'rgba(255,255,255,0.7)', marginBottom: '10px'}}>
+                                                        {group.description}
+                                                    </p>
+                                                    <div style={{fontSize: '14px', opacity: 0.8}}>
+                                                        <div>📅 {group.schedule}</div>
+                                                        <div>⏰ {group.time}</div>
+                                                        <div>📍 {group.location || 'Virtual'}</div>
+                                                        <div>👥 {group.assignedPIRs?.length || 0} members</div>
+                                                    </div>
+                                                    {group.meetingUrl && (
+                                                        <button 
+                                                            className="join-btn" 
+                                                            onClick={() => window.open(group.meetingUrl, '_blank')}
+                                                        >
+                                                            Join Virtual Meeting
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="empty-state">
+                                                <div className="empty-state-icon">👥</div>
+                                                <div className="empty-state-text">
+                                                    You haven't been assigned to any support groups yet.
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+
+                                {activeChat === 'meetings' && (
+                                    <>
+                                        <h3 style={{color: '#f4c430', marginBottom: '20px'}}>Available Meetings</h3>
                                         {meetings.length > 0 ? (
                                             meetings.map(meeting => (
                                                 <div key={meeting.id} className="meeting-card">
@@ -2442,8 +3037,8 @@
                                             ))
                                         ) : (
                                             <div className="empty-state">
-                                                <div className="empty-state-icon">👥</div>
-                                                <div className="empty-state-text">No support groups scheduled.</div>
+                                                <div className="empty-state-icon">📅</div>
+                                                <div className="empty-state-text">No meetings scheduled.</div>
                                             </div>
                                         )}
                                     </>
@@ -2498,11 +3093,12 @@
                                 onLogout={handleLogout}
                                 onImageUpload={handleProfileImageUpload}
                                 fileInputRef={fileInputRef}
+                                coachInfo={coachInfo}
                             />
                         )}
                     </div>
                     
-                    {/* CORRECTED NAV ORDER: Tasks-Home-Progress-Connect-Profile */}
+                    {/* CORRECTED NAVIGATION ORDER: Tasks-Home-Progress-Connect-Profile */}
                     <div className="bottom-nav">
                         <div 
                             className={`nav-item ${currentView === 'tasks' ? 'active' : ''}`}
@@ -2549,13 +3145,17 @@
                                 notifications,
                                 userData,
                                 user,
-                                resources
+                                resources,
+                                activeTopicRoom,
+                                topicRoomMessages,
+                                coachInfo
                             }}
                             handlers={{
                                 markNotificationAsRead,
                                 markAllNotificationsAsRead,
                                 handleMorningCheckIn,
                                 handleEveningReflection,
+                                sendTopicRoomMessage,
                                 exportDataAsJSON,
                                 exportDataAsPDF
                             }}
@@ -2566,7 +3166,7 @@
         }
         
         // Profile View Component
-        function ProfileView({ user, userData, profileImage, resources, onShowModal, onLogout, onImageUpload, fileInputRef }) {
+        function ProfileView({ user, userData, profileImage, resources, onShowModal, onLogout, onImageUpload, fileInputRef, coachInfo }) {
             const handleImageSelect = (e) => {
                 const file = e.target.files[0];
                 if (file) {
@@ -2601,6 +3201,36 @@
                             <div className="profile-email">{user.email}</div>
                         </div>
                         
+                        {coachInfo && (
+                            <div className="menu-section">
+                                <div className="menu-title">My Coach</div>
+                                <div style={{background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '15px', margin: '0 10px'}}>
+                                    <div style={{fontWeight: 'bold', marginBottom: '5px'}}>
+                                        {coachInfo.displayName || coachInfo.firstName + ' ' + coachInfo.lastName}
+                                    </div>
+                                    {coachInfo.credentials && (
+                                        <div style={{fontSize: '14px', opacity: 0.8, marginBottom: '5px'}}>
+                                            {coachInfo.credentials}
+                                        </div>
+                                    )}
+                                    {coachInfo.phone && (
+                                        <div style={{fontSize: '14px'}}>
+                                            📞 <a href={`tel:${coachInfo.phone}`} style={{color: '#f4c430', textDecoration: 'none'}}>
+                                                {coachInfo.phone}
+                                            </a>
+                                        </div>
+                                    )}
+                                    {coachInfo.email && (
+                                        <div style={{fontSize: '14px'}}>
+                                            ✉️ <a href={`mailto:${coachInfo.email}`} style={{color: '#f4c430', textDecoration: 'none'}}>
+                                                {coachInfo.email}
+                                            </a>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        
                         <div className="menu-section">
                             <div className="menu-title">Account</div>
                             <button className="menu-item" onClick={() => onShowModal('account')}>
@@ -2610,516 +3240,10 @@
                                 </div>
                                 <span className="menu-arrow">›</span>
                             </button>
-                        </div>
-                        
-                        <div className="menu-section">
-                            <div className="menu-title">Recovery Resources</div>
-                            
-                            {resources?.videos?.length > 0 && (
-                                <>
-                                    <div style={{fontSize: '14px', opacity: 0.7, marginLeft: '15px', marginBottom: '10px'}}>
-                                        Videos ({resources.videos.length})
-                                    </div>
-                                    {resources.videos.slice(0, 3).map(video => (
-                                        <a 
-                                            key={video.id}
-                                            href={video.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="menu-item"
-                                            style={{textDecoration: 'none'}}
-                                        >
-                                            <div className="menu-item-left">
-                                                <span className="menu-icon">🎥</span>
-                                                <span>{video.title}</span>
-                                            </div>
-                                            <span className="menu-arrow">›</span>
-                                        </a>
-                                    ))}
-                                </>
-                            )}
-                            
-                            {resources?.articles?.length > 0 && (
-                                <>
-                                    <div style={{fontSize: '14px', opacity: 0.7, marginLeft: '15px', marginBottom: '10px'}}>
-                                        Articles ({resources.articles.length})
-                                    </div>
-                                    {resources.articles.slice(0, 3).map(article => (
-                                        <a 
-                                            key={article.id}
-                                            href={article.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="menu-item"
-                                            style={{textDecoration: 'none'}}
-                                        >
-                                            <div className="menu-item-left">
-                                                <span className="menu-icon">📄</span>
-                                                <span>{article.title}</span>
-                                            </div>
-                                            <span className="menu-arrow">›</span>
-                                        </a>
-                                    ))}
-                                </>
-                            )}
-                            
-                            {resources?.tools?.length > 0 && (
-                                <>
-                                    <div style={{fontSize: '14px', opacity: 0.7, marginLeft: '15px', marginBottom: '10px'}}>
-                                        Tools ({resources.tools.length})
-                                    </div>
-                                    {resources.tools.slice(0, 3).map(tool => (
-                                        <a 
-                                            key={tool.id}
-                                            href={tool.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="menu-item"
-                                            style={{textDecoration: 'none'}}
-                                        >
-                                            <div className="menu-item-left">
-                                                <span className="menu-icon">🛠️</span>
-                                                <span>{tool.title}</span>
-                                            </div>
-                                            <span className="menu-arrow">›</span>
-                                        </a>
-                                    ))}
-                                </>
-                            )}
-                            
-                            {resources?.worksheets?.length > 0 && (
-                                <>
-                                    <div style={{fontSize: '14px', opacity: 0.7, marginLeft: '15px', marginBottom: '10px'}}>
-                                        Worksheets ({resources.worksheets.length})
-                                    </div>
-                                    {resources.worksheets.slice(0, 3).map(worksheet => (
-                                        <a 
-                                            key={worksheet.id}
-                                            href={worksheet.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="menu-item"
-                                            style={{textDecoration: 'none'}}
-                                        >
-                                            <div className="menu-item-left">
-                                                <span className="menu-icon">📝</span>
-                                                <span>{worksheet.title}</span>
-                                            </div>
-                                            <span className="menu-arrow">›</span>
-                                        </a>
-                                    ))}
-                                </>
-                            )}
-                            
-                            {(!resources?.videos?.length && !resources?.articles?.length && 
-  !resources?.tools?.length && !resources?.worksheets?.length) && (
-    <div style={{padding: '15px', textAlign: 'center', opacity: 0.6}}>
-        No resources available yet
-    </div>
-)}
-                        </div>
-                        
-                        <div className="menu-section">
-                            <button className="btn-danger" onClick={onLogout}>
-                                Sign Out
-                            </button>
-                        </div>
-                    </div>
-                </>
-            );
-        }
-        
-        // Community Chat Component
-        function CommunityChat({ messages, onSendMessage, currentUserId }) {
-            const [message, setMessage] = useState('');
-            const messagesEndRef = useRef(null);
-            
-            useEffect(() => {
-                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-            }, [messages]);
-            
-            const handleSend = () => {
-                if (message.trim()) {
-                    onSendMessage(message);
-                    setMessage('');
-                }
-            };
-            
-            return (
-                <div className="community-chat-container">
-                    <div className="messages-container">
-                        {messages.length > 0 ? (
-                            messages.map(msg => (
-                                <div key={msg.id} className="community-message">
-                                    <div className="message-header">
-                                        <span className="message-author">
-                                            {msg.senderName || 'Anonymous'}
-                                        </span>
-                                        <span className="message-time">
-                                            {msg.createdAt?.toDate ? 
-                                                new Date(msg.createdAt.toDate()).toLocaleTimeString() :
-                                                'now'}
-                                        </span>
-                                    </div>
-                                    <div className="message-content">
-                                        {msg.content}
-                                    </div>
+                            <button className="menu-item" onClick={() => onShowModal('emergency')}>
+                                <div className="menu-item-left">
+                                    <span className="menu-icon">🆘</span>
+                                    <span>Emergency Contacts</span>
                                 </div>
-                            ))
-                        ) : (
-                            <div style={{textAlign: 'center', opacity: 0.6, padding: '40px'}}>
-                                No messages yet. Start the conversation!
-                            </div>
-                        )}
-                        <div ref={messagesEndRef} />
-                    </div>
-                    
-                    <div className="chat-input-group">
-                        <input
-                            type="text"
-                            className="chat-input"
-                            placeholder="Type your message..."
-                            value={message}
-                            onChange={(e) => setMessage(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                        />
-                        <button className="send-btn" onClick={handleSend}>
-                            Send
-                        </button>
-                    </div>
-                </div>
-            );
-        }
-        
-        // Modal Container Component with ALL modals
-        function ModalContainer({ type, onClose, data, handlers }) {
-            const [formData, setFormData] = useState({});
-            const [morningData, setMorningData] = useState({
-                mood: 3,
-                craving: 1,
-                sleepQuality: 3,
-                anxietyLevel: 2,
-                notes: ''
-            });
-            const [eveningData, setEveningData] = useState({
-                gratitude: '',
-                challenges: '',
-                tomorrowGoal: '',
-                overallDay: 3
-            });
-            
-            const renderModalContent = () => {
-                switch(type) {
-                    case 'notifications':
-                        return (
-                            <div className="notification-panel">
-                                <h3 style={{marginBottom: '20px'}}>Notifications</h3>
-                                {data.notifications.length > 0 ? (
-                                    <>
-                                        {data.notifications.map(notification => (
-                                            <div 
-                                                key={notification.id}
-                                                className={`notification-item ${!notification.read ? 'unread' : ''}`}
-                                                onClick={() => handlers.markNotificationAsRead(notification.id)}
-                                            >
-                                                <div className="notification-header">
-                                                    <span className="notification-type">{notification.type}</span>
-                                                    <span className="notification-time">
-                                                        {notification.createdAt?.toDate ? 
-                                                            new Date(notification.createdAt.toDate()).toLocaleTimeString() :
-                                                            'now'}
-                                                    </span>
-                                                </div>
-                                                <div className="notification-message">
-                                                    <strong>{notification.title}</strong>
-                                                    <div>{notification.message}</div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                        {data.notifications.some(n => !n.read) && (
-                                            <button 
-                                                className="btn-primary"
-                                                onClick={handlers.markAllNotificationsAsRead}
-                                                style={{marginTop: '15px'}}
-                                            >
-                                                Mark All as Read
-                                            </button>
-                                        )}
-                                    </>
-                                ) : (
-                                    <div style={{textAlign: 'center', opacity: 0.6, padding: '40px'}}>
-                                        No notifications
-                                    </div>
-                                )}
-                            </div>
-                        );
-                        
-                    case 'checkIn':
-                        return (
-                            <div>
-                                <h3 style={{marginBottom: '20px'}}>Morning Check-in</h3>
-                                <div className="slider-group">
-                                    <div className="slider-label">
-                                        <span>Overall Mood</span>
-                                        <span className="slider-value">{morningData.mood}</span>
-                                    </div>
-                                    <input 
-                                        type="range"
-                                        className="slider"
-                                        min="1" max="5"
-                                        value={morningData.mood}
-                                        onChange={(e) => setMorningData({...morningData, mood: parseInt(e.target.value)})}
-                                    />
-                                </div>
+                                <span className="menu-arrow">›</span>
                                 
-                                <div className="slider-group">
-                                    <div className="slider-label">
-                                        <span>Craving Intensity</span>
-                                        <span className="slider-value">{morningData.craving}</span>
-                                    </div>
-                                    <input 
-                                        type="range"
-                                        className="slider"
-                                        min="1" max="5"
-                                        value={morningData.craving}
-                                        onChange={(e) => setMorningData({...morningData, craving: parseInt(e.target.value)})}
-                                    />
-                                </div>
-                                
-                                <div className="slider-group">
-                                    <div className="slider-label">
-                                        <span>Sleep Quality</span>
-                                        <span className="slider-value">{morningData.sleepQuality}</span>
-                                    </div>
-                                    <input 
-                                        type="range"
-                                        className="slider"
-                                        min="1" max="5"
-                                        value={morningData.sleepQuality}
-                                        onChange={(e) => setMorningData({...morningData, sleepQuality: parseInt(e.target.value)})}
-                                    />
-                                </div>
-                                
-                                <div className="slider-group">
-                                    <div className="slider-label">
-                                        <span>Anxiety Level</span>
-                                        <span className="slider-value">{morningData.anxietyLevel}</span>
-                                    </div>
-                                    <input 
-                                        type="range"
-                                        className="slider"
-                                        min="1" max="5"
-                                        value={morningData.anxietyLevel}
-                                        onChange={(e) => setMorningData({...morningData, anxietyLevel: parseInt(e.target.value)})}
-                                    />
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label className="form-label">Notes (Optional)</label>
-                                    <textarea 
-                                        className="textarea"
-                                        placeholder="Any thoughts or feelings you'd like to share?"
-                                        value={morningData.notes}
-                                        onChange={(e) => setMorningData({...morningData, notes: e.target.value})}
-                                    />
-                                </div>
-                                
-                                <button 
-                                    className="btn-primary"
-                                    onClick={async () => {
-                                        await handlers.handleMorningCheckIn(morningData);
-                                        onClose();
-                                    }}
-                                >
-                                    Submit Check-in
-                                </button>
-                            </div>
-                        );
-                        
-                    case 'reflection':
-                        return (
-                            <div>
-                                <h3 style={{marginBottom: '20px'}}>Evening Reflection</h3>
-                                <div className="form-group">
-                                    <label className="form-label">What are you grateful for today?</label>
-                                    <textarea 
-                                        className="textarea"
-                                        placeholder="List 3 things you're grateful for..."
-                                        value={eveningData.gratitude}
-                                        onChange={(e) => setEveningData({...eveningData, gratitude: e.target.value})}
-                                    />
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label className="form-label">What challenges did you face?</label>
-                                    <textarea 
-                                        className="textarea"
-                                        placeholder="Describe any difficulties..."
-                                        value={eveningData.challenges}
-                                        onChange={(e) => setEveningData({...eveningData, challenges: e.target.value})}
-                                    />
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label className="form-label">What's one goal for tomorrow?</label>
-                                    <textarea 
-                                        className="textarea"
-                                        placeholder="Set an intention..."
-                                        value={eveningData.tomorrowGoal}
-                                        onChange={(e) => setEveningData({...eveningData, tomorrowGoal: e.target.value})}
-                                    />
-                                </div>
-                                
-                                <div className="slider-group">
-                                    <div className="slider-label">
-                                        <span>Overall Day Rating</span>
-                                        <span className="slider-value">{eveningData.overallDay}</span>
-                                    </div>
-                                    <input 
-                                        type="range"
-                                        className="slider"
-                                        min="1" max="5"
-                                        value={eveningData.overallDay}
-                                        onChange={(e) => setEveningData({...eveningData, overallDay: parseInt(e.target.value)})}
-                                    />
-                                </div>
-                                
-                                <button 
-                                    className="btn-primary"
-                                    onClick={async () => {
-                                        await handlers.handleEveningReflection(eveningData);
-                                        onClose();
-                                    }}
-                                >
-                                    Submit Reflection
-                                </button>
-                            </div>
-                        );
-                        
-                    case 'account':
-                        return (
-                            <div>
-                                <h3 style={{marginBottom: '20px'}}>Account Settings</h3>
-                                <div className="form-group">
-                                    <label className="form-label">Display Name</label>
-                                    <input 
-                                        type="text"
-                                        className="form-input"
-                                        value={formData.displayName || data.userData?.displayName || ''}
-                                        onChange={(e) => setFormData({...formData, displayName: e.target.value})}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">First Name</label>
-                                    <input 
-                                        type="text"
-                                        className="form-input"
-                                        value={formData.firstName || data.userData?.firstName || ''}
-                                        onChange={(e) => setFormData({...formData, firstName: e.target.value})}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Last Name</label>
-                                    <input 
-                                        type="text"
-                                        className="form-input"
-                                        value={formData.lastName || data.userData?.lastName || ''}
-                                        onChange={(e) => setFormData({...formData, lastName: e.target.value})}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Phone</label>
-                                    <input 
-                                        type="tel"
-                                        className="form-input"
-                                        value={formData.phone || data.userData?.phone || ''}
-                                        onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Street Address</label>
-                                    <input 
-                                        type="text"
-                                        className="form-input"
-                                        value={formData.street || data.userData?.address?.street || ''}
-                                        onChange={(e) => setFormData({...formData, street: e.target.value})}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">City</label>
-                                    <input 
-                                        type="text"
-                                        className="form-input"
-                                        value={formData.city || data.userData?.address?.city || ''}
-                                        onChange={(e) => setFormData({...formData, city: e.target.value})}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">State</label>
-                                    <input 
-                                        type="text"
-                                        className="form-input"
-                                        value={formData.state || data.userData?.address?.state || ''}
-                                        onChange={(e) => setFormData({...formData, state: e.target.value})}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">ZIP</label>
-                                    <input 
-                                        type="text"
-                                        className="form-input"
-                                        value={formData.zip || data.userData?.address?.zip || ''}
-                                        onChange={(e) => setFormData({...formData, zip: e.target.value})}
-                                    />
-                                </div>
-                                <button 
-                                    className="btn-primary"
-                                    onClick={async () => {
-                                        try {
-                                            const updates = {
-                                                ...formData,
-                                                address: {
-                                                    street: formData.street,
-                                                    city: formData.city,
-                                                    state: formData.state,
-                                                    zip: formData.zip
-                                                }
-                                            };
-                                            await db.collection('users').doc(data.user.uid).update(updates);
-                                            alert('Settings updated!');
-                                            onClose();
-                                        } catch (error) {
-                                            alert('Failed to update settings');
-                                        }
-                                    }}
-                                >
-                                    Save Changes
-                                </button>
-                            </div>
-                        );
-                        
-                    default:
-                        return <div>Content not available</div>;
-                }
-            };
-            
-            return (
-                <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-                    <div className="modal-content">
-                        <div className="modal-header">
-                            <h2 className="modal-title">{type === 'notifications' ? 'Notifications' : ''}</h2>
-                            <button className="close-btn" onClick={onClose}>×</button>
-                        </div>
-                        <div className="modal-body">
-                            {renderModalContent()}
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-        
-        // Render the app
-        ReactDOM.render(<App />, document.getElementById('root'));
-    </script>
-</body>
-</html>
