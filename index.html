@@ -1684,6 +1684,10 @@
             const [profileImage, setProfileImage] = useState(null);
             const [confirmationModal, setConfirmationModal] = useState(null);
             const [celebrationModal, setCelebrationModal] = useState(null);
+            const [activeChat, setActiveChat] = useState('main');
+const [communityMessages, setCommunityMessages] = useState([]);
+const [meetings, setMeetings] = useState([]);
+const [emergencyResources, setEmergencyResources] = useState([]);
             
             // Firebase data states
             const [goals, setGoals] = useState([]);
@@ -1785,6 +1789,17 @@
                     checkForNewMilestones(sobrietyDays);
                 }
             }, [sobrietyDays]);
+            useEffect(() => {
+    if (user) {
+        loadUserData();
+        // Add these new loads:
+        loadTopicRooms();
+        loadMeetings(); 
+        loadEmergencyResources();
+        loadGroupMessages('main'); // Load community messages
+        // ... rest of your existing loads
+    }
+}, [user]);
             
             // Helper function to check if date is today
             const isToday = (date) => {
@@ -2302,25 +2317,82 @@ const loadGoals = async (uid) => {
                 }
             };
             
-            // Load topic rooms
-            const loadTopicRooms = async (uid) => {
-                try {
-                    const snapshot = await db.collection('topicRooms')
-                        .where('active', '==', true)
-                        .get();
-                    
-                    const roomsList = [];
-                    snapshot.forEach(doc => {
-                        roomsList.push({
-                            id: doc.id,
-                            ...doc.data()
-                        });
-                    });
-                    setTopicRooms(roomsList);
-                } catch (error) {
-                    console.error('Error loading topic rooms:', error);
-                }
-            };
+           // Load topic rooms from Firestore
+const loadTopicRooms = async () => {
+    try {
+        const roomsSnap = await db.collection('topicRooms')
+            .where('active', '==', true)
+            .get();
+        
+        const roomsData = [];
+        roomsSnap.forEach(doc => {
+            roomsData.push({ id: doc.id, ...doc.data() });
+        });
+        setTopicRooms(roomsData);
+    } catch (error) {
+        console.error('Error loading topic rooms:', error);
+        setTopicRooms([]); // Set empty array on error
+    }
+};
+
+// Load meetings from admin
+const loadMeetings = async () => {
+    try {
+        const meetingsSnap = await db.collection('meetings')
+            .where('active', '==', true)
+            .get();
+        
+        const meetingsData = [];
+        meetingsSnap.forEach(doc => {
+            meetingsData.push({ id: doc.id, ...doc.data() });
+        });
+        setMeetings(meetingsData);
+    } catch (error) {
+        console.error('Error loading meetings:', error);
+        setMeetings([]);
+    }
+};
+
+// Load emergency resources
+const loadEmergencyResources = async () => {
+    try {
+        const emergencySnap = await db.collection('resources')
+            .where('category', '==', 'emergency')
+            .where('active', '==', true)
+            .get();
+        
+        const emergencyData = [];
+        emergencySnap.forEach(doc => {
+            emergencyData.push({ id: doc.id, ...doc.data() });
+        });
+        setEmergencyResources(emergencyData);
+    } catch (error) {
+        console.error('Error loading emergency resources:', error);
+        setEmergencyResources([]);
+    }
+};
+
+// Update sendCommunityMessage for the main chat
+const sendCommunityMessage = async (content) => {
+    if (!content || !content.trim()) return;
+    
+    try {
+        await db.collection('messages').add({
+            roomId: 'main',
+            userId: user.uid,
+            senderName: userData?.displayName || 'Anonymous',
+            content: content,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            flagged: false,
+            edited: false
+        });
+        
+        // Reload messages
+        loadGroupMessages('main');
+    } catch (error) {
+        console.error('Error sending message:', error);
+    }
+};
             
             // Load next session
             const loadNextSession = async (uid) => {
@@ -2803,29 +2875,33 @@ const loadGoals = async (uid) => {
                 }
             };
             
-            // Load group messages
             const loadGroupMessages = async (groupId) => {
-                try {
-                    const snapshot = await db.collection('messages')
-                        .where('groupId', '==', groupId)
-                        .orderBy('createdAt', 'desc')
-                        .limit(50)
-                        .get();
-                    
-                    const messagesList = [];
-                    snapshot.forEach(doc => {
-                        const data = doc.data();
-                        messagesList.push({
-                            id: doc.id,
-                            ...data,
-                            createdAt: data.createdAt ? data.createdAt.toDate() : null
-                        });
-                    });
-                    setGroupMessages(messagesList.reverse());
-                } catch (error) {
-                    console.error('Error loading group messages:', error);
-                }
-            };
+    try {
+        const snapshot = await db.collection('messages')
+            .where(groupId === 'main' ? 'roomId' : 'groupId', '==', groupId)
+            .orderBy('createdAt', 'desc')
+            .limit(50)
+            .get();
+        
+        const messagesList = [];
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            messagesList.push({
+                id: doc.id,
+                ...data,
+                createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date()
+            });
+        });
+        
+        if (groupId === 'main') {
+            setCommunityMessages(messagesList.reverse());
+        } else {
+            setGroupMessages(messagesList.reverse());
+        }
+    } catch (error) {
+        console.error('Error loading messages:', error);
+    }
+};
             
             // Handle emergency SOS
             const handleEmergency = async () => {
@@ -4577,60 +4653,7 @@ const avgMoodDisplay = avgMood.toFixed(1);
             );
         }
         
-        function MessageInterface({ messages, coachInfo, onSendMessage, currentUserId }) {
-            const [messageText, setMessageText] = useState('');
-            
-            const handleSend = () => {
-                if (messageText.trim()) {
-                    onSendMessage(messageText);
-                    setMessageText('');
-                }
-            };
-            
-            return (
-                <div style={{marginBottom: '20px'}}>
-                    <h3 style={{color: '#f4c430', marginBottom: '15px'}}>
-                        Messages with {coachInfo?.displayName || 'Coach'}
-                    </h3>
-                    
-                    <div className="messages-container">
-                        {messages.map(msg => (
-                            <div 
-                                key={msg.id} 
-                                className={`message-item ${msg.senderId === currentUserId ? 'sent' : 'received'}`}
-                            >
-                                <div className={`message-bubble ${msg.senderId === currentUserId ? 'sent' : 'received'}`}>
-                                    {msg.content}
-                                </div>
-                                <div className="message-time">
-                                    {msg.createdAt ? msg.createdAt.toLocaleString() : 'Just now'}
-                                </div>
-                            </div>
-                        ))}
-                        
-                        {messages.length === 0 && (
-                            <div style={{color: 'rgba(255,255,255,0.6)', textAlign: 'center', padding: '20px'}}>
-                                No messages yet. Start a conversation with your coach!
-                            </div>
-                        )}
-                    </div>
-                    
-                    <div className="message-input-container">
-                        <input
-                            type="text"
-                            className="message-input"
-                            placeholder="Type a message..."
-                            value={messageText}
-                            onChange={(e) => setMessageText(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                        />
-                        <button className="send-btn" onClick={handleSend}>
-                            Send
-                        </button>
-                    </div>
-                </div>
-            );
-        }
+        
         
         function GroupChat({ groupId, groupMessages, onSendMessage, currentUserId }) {
             const [messageText, setMessageText] = useState('');
