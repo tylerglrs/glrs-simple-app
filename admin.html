@@ -2567,16 +2567,16 @@ function MyPIRsView({ searchQuery, user }) {
                             {pir.lastCheckIn && (
                                 <>
                                     <div className="stat-item">
-                                        <span className="stat-label">Mood:</span>
-                                        <span className="stat-value">{pir.lastCheckIn.mood}/5</span>
-                                    </div>
-                                    <div className="stat-item">
-                                        <span className="stat-label">Cravings:</span>
-                                        <span className="stat-value">{pir.lastCheckIn.cravingIntensity}/5</span>
-                                    </div>
-                                </>
-                            )}
-                        </div>
+    <span className="stat-label">Mood:</span>
+    <span className="stat-value">{pir.lastCheckIn.morningData?.mood || '--'}/5</span>
+</div>
+<div className="stat-item">
+    <span className="stat-label">Cravings:</span>
+    <span className="stat-value">{pir.lastCheckIn.morningData?.craving || '--'}/5</span>
+</div>
+</>
+)}
+</div>
                         
                         <div className="pir-actions">
                             <button 
@@ -2604,33 +2604,32 @@ function MyPIRsView({ searchQuery, user }) {
                 </div>
             )}
 
-            {/* Recent Check-ins Section */}
-            {recentCheckIns.length > 0 && (
-                <div className="recent-section" style={{marginTop: '30px'}}>
-                    <h3>Recent Check-ins</h3>
-                    <div className="checkins-list">
-                        {recentCheckIns.map(checkIn => (
-                            <div key={checkIn.id} className="checkin-item">
-                                <div className="checkin-header">
-                                    <strong>{checkIn.pirName}</strong>
-                                    <span>{formatTimeAgo(checkIn.createdAt)}</span>
-                                </div>
-                                <div className="checkin-content">
-                                    <span>Mood: {checkIn.mood}/5</span>
-                                    <span>Cravings: {checkIn.cravingIntensity}/5</span>
-                                    {checkIn.attendedMeeting && <span>✓ Attended Meeting</span>}
-                                </div>
-                                {checkIn.notes && (
-                                    <div className="checkin-notes">
-                                        Notes: {checkIn.notes}
-                                    </div>
-                                )}
-                            </div>
-                        ))}
+           {/* Recent Check-ins Section */}
+{recentCheckIns.length > 0 && (
+    <div className="recent-section" style={{marginTop: '30px'}}>
+        <h3>Recent Check-ins</h3>
+        <div className="checkins-list">
+            {recentCheckIns.map(checkIn => (
+                <div key={checkIn.id} className="checkin-item">
+                    <div className="checkin-header">
+                        <strong>{checkIn.pirName}</strong>
+                        <span>{formatTimeAgo(checkIn.createdAt)}</span>
                     </div>
+                    <div className="checkin-content">
+                        <span>Mood: {checkIn.morningData?.mood || '--'}/5</span>
+                        <span>Cravings: {checkIn.morningData?.craving || '--'}/5</span>
+                        {checkIn.attendedMeeting && <span>✓ Attended Meeting</span>}
+                    </div>
+                    {checkIn.morningData?.notes && (
+                        <div className="checkin-notes">
+                            Notes: {checkIn.morningData.notes}
+                        </div>
+                    )}
                 </div>
-            )}
-
+            ))}
+        </div>
+    </div>
+)}
             {/* Show PIR Detail Modal if selected */}
             {selectedPIR && (
                 <UserDetailModal
@@ -8580,16 +8579,16 @@ function UserDetailModal({ user, onClose, onUpdate, currentUserId }) {
                     .get()
             ]);
 
-            // Process check-ins
-            const checkIns = [];
-            let totalMood = 0;
-            let totalCravings = 0;
-            checkInsSnap.forEach(doc => {
-                const data = { id: doc.id, ...doc.data() };
-                checkIns.push(data);
-                if (data.mood) totalMood += data.mood;
-                if (data.cravingIntensity) totalCravings += data.cravingIntensity;
-            });
+           // Process check-ins
+const checkIns = [];
+let totalMood = 0;
+let totalCravings = 0;
+checkInsSnap.forEach(doc => {
+    const data = { id: doc.id, ...doc.data() };
+    checkIns.push(data);
+    if (data.morningData?.mood) totalMood += data.morningData.mood;
+    if (data.morningData?.craving) totalCravings += data.morningData.craving;
+});
 
             // Process assignments
             const assignments = [];
@@ -8731,21 +8730,21 @@ function UserDetailModal({ user, onClose, onUpdate, currentUserId }) {
     };
 
     const handleExportReport = () => {
-        const report = {
-            user: {
-                name: user.displayName || 'N/A',
-                email: user.email,
-                phone: user.phone || 'N/A',
-                sobrietyDate: user.sobrietyDate || 'N/A',
-                daysClean: pirData.stats.daysClean
-            },
-            stats: pirData.stats,
-            recentCheckIns: pirData.checkIns.slice(0, 10).map(ci => ({
-                date: formatDate(ci.createdAt),
-                mood: ci.mood,
-                cravings: ci.cravingIntensity,
-                notes: ci.notes
-            })),
+    const report = {
+        user: {
+            name: user.displayName || 'N/A',
+            email: user.email,
+            phone: user.phone || 'N/A',
+            sobrietyDate: user.sobrietyDate || 'N/A',
+            daysClean: pirData.stats.daysClean
+        },
+        stats: pirData.stats,
+        recentCheckIns: pirData.checkIns.slice(0, 10).map(ci => ({
+            date: formatDate(ci.createdAt),
+            mood: ci.morningData?.mood || '--',
+            cravings: ci.morningData?.craving || '--',
+            notes: ci.morningData?.notes || ''
+        })),
             assignments: pirData.assignments.map(a => ({
                 title: a.title,
                 status: a.status,
