@@ -1174,33 +1174,79 @@
 
         // Main App Component
         function App() {
-            const [user, setUser] = useState(null);
-            const [loading, setLoading] = useState(true);
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+    
+    useEffect(() => {
+        const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
+            if (firebaseUser) {
+                try {
+                    let userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+                    
+                    if (!userDoc.exists) {
+                        // Create new user document with timestamps
+                        await db.collection('users').doc(firebaseUser.uid).set({
+                            email: firebaseUser.email,
+                            role: 'pir',
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            active: true,
+                            sobrietyDate: new Date().toISOString(),
+                            profileComplete: false
+                        });
+                        
+                        // Re-fetch the document after creating it
+                        userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+                    }
+                    
+                    const userData = userDoc.data();
+                    
+                    // Check for existing users without createdAt
+                    if (userData && !userData.createdAt) {
+                        await db.collection('users').doc(firebaseUser.uid).update({
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                    
+                    // Verify role
+                    if (userData && userData.role !== 'pir') {
+                        await auth.signOut();
+                        alert('This portal is for PIRs only. Coaches should use admin.html');
+                        setUser(null);
+                    } else {
+                        setUser(firebaseUser);
+                        
+                        // Create login activity
+                        await db.collection('activities').add({
+                            userId: firebaseUser.uid,
+                            type: 'login',
+                            description: 'User logged in',
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error verifying user:', error);
+                    setUser(null);
+                }
+            } else {
+                setUser(null);
+            }
+            setLoading(false);
+        });
 
-            useEffect(() => {
-                const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
-                    if (firebaseUser) {
-                        try {
-                            const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
-                            
-                            if (!userDoc.exists) {
-                                await db.collection('users').doc(firebaseUser.uid).set({
-                                    email: firebaseUser.email,
-                                    role: 'pir',
-                                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                                    active: true,
-                                    sobrietyDate: new Date().toISOString(),
-                                    profileComplete: false
-                                });
-                            }
-                            
-                            const userData = userDoc.data();
-                            if (userData && userData.role !== 'pir') {
-                                await auth.signOut();
-                                alert('This portal is for PIRs only. Coaches should use admin.html');
-                                setUser(null);
-                            } else {
-                                setUser(firebaseUser);
+        return () => unsubscribe();
+    }, []);
+
+    if (loading) {
+        return (
+            <div className="loading-container">
+                <div className="loading-spinner"></div>
+            </div>
+        );
+    }
+
+    return user ? <PIRApp user={user} /> : <LoginScreen />;
+}
                                 
                                 // Create login activity
                                 await db.collection('activities').add({
@@ -3212,68 +3258,91 @@ function ProfileView({ user, userData, profileImage, resources, onShowModal, onL
     }, [user]);
     
     const loadProfileStats = async () => {
-        try {
-            // Calculate check-in rate (last 30 days)
-            const thirtyDaysAgo = new Date();
-            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-            
-            const checkInsSnap = await db.collection('checkIns')
-                .where('userId', '==', user.uid)
-                .where('createdAt', '>=', thirtyDaysAgo)
-                .get();
-            
-            const checkInRate = Math.round((checkInsSnap.size / 30) * 100);
-            
-            // Calculate assignment completion rate
-            const assignmentsSnap = await db.collection('assignments')
-                .where('userId', '==', user.uid)
-                .get();
-            
-            let totalAssignments = 0;
-            let completedAssignments = 0;
-            let totalMood = 0;
-            let totalCraving = 0;
-            let moodCount = 0;
-            
-            assignmentsSnap.forEach(doc => {
-                totalAssignments++;
-                if (doc.data().status === 'completed') {
-                    completedAssignments++;
-                }
-            });
-            
-            // Calculate average mood and craving
-            checkInsSnap.forEach(doc => {
-                const data = doc.data();
-                if (data.morningData) {
-                    if (data.morningData.mood) {
-                        totalMood += data.morningData.mood;
-                        moodCount++;
-                    }
-                    if (data.morningData.craving) {
-                        totalCraving += data.morningData.craving;
-                    }
-                }
-            });
-            
-            // Get current streak
-            const streakDoc = await db.collection('streaks').doc(user.uid).get();
-            const currentStreak = streakDoc.exists ? streakDoc.data().currentStreak || 0 : 0;
-            
-            const assignmentRate = totalAssignments > 0 ? 
-                Math.round((completedAssignments / totalAssignments) * 100) : 0;
-            
+    try {
+        // Get user's account creation date
+        const userDoc = await db.collection('users').doc(user.uid).get();
+        const accountCreatedDate = userDoc.data()?.createdAt?.toDate() || new Date();
+        
+        // Calculate days since account creation (max 30 days for recent performance)
+        const today = new Date();
+        const daysSinceCreation = Math.floor((today - accountCreatedDate) / (1000 * 60 * 60 * 24));
+        const daysToCheck = Math.min(daysSinceCreation, 30); // Cap at 30 days
+        
+        // Skip calculation if account is less than 1 day old
+        if (daysToCheck < 1) {
             setProfileStats({
-                checkInRate,
-                assignmentRate,
-                currentStreak,
-                avgMood: moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 0,
-                avgCraving: moodCount > 0 ? (totalCraving / moodCount).toFixed(1) : 0
+                checkInRate: 0,
+                assignmentRate: 0,
+                currentStreak: 0,
+                avgMood: 0,
+                avgCraving: 0
             });
-        } catch (error) {
-            console.error('Error loading profile stats:', error);
+            return;
         }
-    };
+        
+        // Calculate check-in rate based on days since joining
+        const dateToCheckFrom = new Date();
+        dateToCheckFrom.setDate(dateToCheckFrom.getDate() - daysToCheck);
+        
+        const checkInsSnap = await db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .where('createdAt', '>=', dateToCheckFrom)
+            .get();
+        
+        // Calculate rate based on actual days they've been a member
+        const checkInRate = Math.round((checkInsSnap.size / daysToCheck) * 100);
+        
+        // Calculate assignment completion rate
+        const assignmentsSnap = await db.collection('assignments')
+            .where('userId', '==', user.uid)
+            .get();
+        
+        let totalAssignments = 0;
+        let completedAssignments = 0;
+        let totalMood = 0;
+        let totalCraving = 0;
+        let moodCount = 0;
+        
+        assignmentsSnap.forEach(doc => {
+            totalAssignments++;
+            if (doc.data().status === 'completed') {
+                completedAssignments++;
+            }
+        });
+        
+        // Calculate average mood and craving
+        checkInsSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.morningData) {
+                if (data.morningData.mood) {
+                    totalMood += data.morningData.mood;
+                    moodCount++;
+                }
+                if (data.morningData.craving) {
+                    totalCraving += data.morningData.craving;
+                }
+            }
+        });
+        
+        // Get current streak
+        const streakDoc = await db.collection('streaks').doc(user.uid).get();
+        const currentStreak = streakDoc.exists ? streakDoc.data().currentStreak || 0 : 0;
+        
+        const assignmentRate = totalAssignments > 0 ? 
+            Math.round((completedAssignments / totalAssignments) * 100) : 0;
+        
+        setProfileStats({
+            checkInRate,
+            assignmentRate,
+            currentStreak,
+            avgMood: moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 0,
+            avgCraving: moodCount > 0 ? (totalCraving / moodCount).toFixed(1) : 0,
+            daysActive: daysToCheck // Optional: show how many days they've been active
+        });
+    } catch (error) {
+        console.error('Error loading profile stats:', error);
+    }
+};
     
     const handleImageSelect = (e) => {
         const file = e.target.files[0];
