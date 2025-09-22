@@ -1835,44 +1835,52 @@
                 }
             };
 
-            // Load resources - FIXED QUERY
-            const loadResources = async () => {
-                try {
-                    const resourcesSnap = await db.collection('resources')
-                        .where('active', '==', true)
-                        .get();
-                    
-                    const resourcesData = {
-                        videos: [],
-                        articles: [],
-                        tools: [],
-                        worksheets: []
-                    };
-                    
-                    resourcesSnap.forEach(doc => {
-                        const resource = { id: doc.id, ...doc.data() };
-                        
-                        // Skip emergency resources
-                        if (resource.category === 'emergency') return;
-                        
-                        // Categorize resources
-                        if (resource.category === 'video') {
-                            resourcesData.videos.push(resource);
-                        } else if (resource.category === 'article') {
-                            resourcesData.articles.push(resource);
-                        } else if (resource.category === 'tool') {
-                            resourcesData.tools.push(resource);
-                        } else if (resource.category === 'worksheet') {
-                            resourcesData.worksheets.push(resource);
-                        }
-                    });
-                    
-                    setResources(resourcesData);
-                } catch (error) {
-                    console.error('Error loading resources:', error);
-                }
-            };
-
+            // Add this to your PIRApp component's loadResources function - REPLACE the existing loadResources function
+const loadResources = async () => {
+    try {
+        // Get ALL resources that are either global OR specifically assigned to this PIR
+        const resourcesSnap = await db.collection('resources')
+            .where('active', '==', true)
+            .get();
+        
+        const resourcesData = {
+            videos: [],
+            articles: [], 
+            tools: [],
+            worksheets: []
+        };
+        
+        resourcesSnap.forEach(doc => {
+            const resource = { id: doc.id, ...doc.data() };
+            
+            // Skip emergency resources - they're handled separately
+            if (resource.category === 'emergency') return;
+            
+            // Check if PIR should see this resource
+            const shouldShowResource = 
+                resource.isGlobal === true || // Global resource
+                (resource.assignedPIRs && resource.assignedPIRs.includes(user.uid)) || // Specifically assigned
+                resource.userId === user.uid; // Created for this PIR
+            
+            if (!shouldShowResource) return;
+            
+            // Categorize by type
+            if (resource.type === 'video') {
+                resourcesData.videos.push(resource);
+            } else if (resource.type === 'article') {
+                resourcesData.articles.push(resource);
+            } else if (resource.type === 'tool') {
+                resourcesData.tools.push(resource);
+            } else if (resource.type === 'worksheet') {
+                resourcesData.worksheets.push(resource);
+            }
+        });
+        
+        setResources(resourcesData);
+    } catch (error) {
+        console.error('Error loading resources:', error);
+    }
+};
             // Load check-ins and prepare chart data
             const loadCheckIns = async () => {
                 try {
@@ -3494,6 +3502,215 @@ function ProfileView({ user, userData, profileImage, resources, onShowModal, onL
                 </div>
                 
                 {/* Resources Section (existing) */}
+                // In ProfileView component, replace the existing Resources Section with this:
+{/* Resources Section */}
+<div className="menu-section">
+    <div className="menu-title">Recovery Resources</div>
+    
+    {/* Videos */}
+    {resources?.videos?.length > 0 && (
+        <>
+            <div style={{fontSize: '14px', opacity: 0.7, marginLeft: '15px', marginBottom: '10px'}}>
+                📹 Videos ({resources.videos.length})
+            </div>
+            {resources.videos.map(video => (
+                <a 
+                    key={video.id}
+                    href={video.url || video.fileURL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="menu-item"
+                    style={{textDecoration: 'none'}}
+                    onClick={async () => {
+                        // Track resource view
+                        await db.collection('activities').add({
+                            userId: user.uid,
+                            type: 'resource_view',
+                            resourceId: video.id,
+                            resourceType: 'video',
+                            resourceTitle: video.title,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }}
+                >
+                    <div className="menu-item-left">
+                        <span className="menu-icon">🎥</span>
+                        <div style={{flex: 1}}>
+                            <div>{video.title}</div>
+                            {video.description && (
+                                <div style={{fontSize: '12px', opacity: 0.6, marginTop: '2px'}}>
+                                    {video.description}
+                                </div>
+                            )}
+                            {!video.isGlobal && (
+                                <span style={{fontSize: '11px', background: 'rgba(244,196,48,0.2)', 
+                                    padding: '2px 6px', borderRadius: '10px', marginTop: '4px', 
+                                    display: 'inline-block'}}>
+                                    Assigned to you
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                    <span className="menu-arrow">›</span>
+                </a>
+            ))}
+        </>
+    )}
+    
+    {/* Articles */}
+    {resources?.articles?.length > 0 && (
+        <>
+            <div style={{fontSize: '14px', opacity: 0.7, marginLeft: '15px', marginBottom: '10px', marginTop: '15px'}}>
+                📚 Articles ({resources.articles.length})
+            </div>
+            {resources.articles.map(article => (
+                <a 
+                    key={article.id}
+                    href={article.url || article.fileURL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="menu-item"
+                    style={{textDecoration: 'none'}}
+                    onClick={async () => {
+                        await db.collection('activities').add({
+                            userId: user.uid,
+                            type: 'resource_view',
+                            resourceId: article.id,
+                            resourceType: 'article',
+                            resourceTitle: article.title,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }}
+                >
+                    <div className="menu-item-left">
+                        <span className="menu-icon">📄</span>
+                        <div style={{flex: 1}}>
+                            <div>{article.title}</div>
+                            {article.description && (
+                                <div style={{fontSize: '12px', opacity: 0.6, marginTop: '2px'}}>
+                                    {article.description}
+                                </div>
+                            )}
+                            {!article.isGlobal && (
+                                <span style={{fontSize: '11px', background: 'rgba(244,196,48,0.2)', 
+                                    padding: '2px 6px', borderRadius: '10px', marginTop: '4px', 
+                                    display: 'inline-block'}}>
+                                    Assigned to you
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                    <span className="menu-arrow">›</span>
+                </a>
+            ))}
+        </>
+    )}
+    
+    {/* Tools */}
+    {resources?.tools?.length > 0 && (
+        <>
+            <div style={{fontSize: '14px', opacity: 0.7, marginLeft: '15px', marginBottom: '10px', marginTop: '15px'}}>
+                🛠️ Tools ({resources.tools.length})
+            </div>
+            {resources.tools.map(tool => (
+                <a 
+                    key={tool.id}
+                    href={tool.url || tool.fileURL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="menu-item"
+                    style={{textDecoration: 'none'}}
+                    onClick={async () => {
+                        await db.collection('activities').add({
+                            userId: user.uid,
+                            type: 'resource_view',
+                            resourceId: tool.id,
+                            resourceType: 'tool',
+                            resourceTitle: tool.title,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }}
+                >
+                    <div className="menu-item-left">
+                        <span className="menu-icon">🛠️</span>
+                        <div style={{flex: 1}}>
+                            <div>{tool.title}</div>
+                            {tool.description && (
+                                <div style={{fontSize: '12px', opacity: 0.6, marginTop: '2px'}}>
+                                    {tool.description}
+                                </div>
+                            )}
+                            {!tool.isGlobal && (
+                                <span style={{fontSize: '11px', background: 'rgba(244,196,48,0.2)', 
+                                    padding: '2px 6px', borderRadius: '10px', marginTop: '4px', 
+                                    display: 'inline-block'}}>
+                                    Assigned to you
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                    <span className="menu-arrow">›</span>
+                </a>
+            ))}
+        </>
+    )}
+    
+    {/* Worksheets */}
+    {resources?.worksheets?.length > 0 && (
+        <>
+            <div style={{fontSize: '14px', opacity: 0.7, marginLeft: '15px', marginBottom: '10px', marginTop: '15px'}}>
+                📝 Worksheets ({resources.worksheets.length})
+            </div>
+            {resources.worksheets.map(worksheet => (
+                <a 
+                    key={worksheet.id}
+                    href={worksheet.url || worksheet.fileURL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="menu-item"
+                    style={{textDecoration: 'none'}}
+                    onClick={async () => {
+                        await db.collection('activities').add({
+                            userId: user.uid,
+                            type: 'resource_view',
+                            resourceId: worksheet.id,
+                            resourceType: 'worksheet',
+                            resourceTitle: worksheet.title,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }}
+                >
+                    <div className="menu-item-left">
+                        <span className="menu-icon">📝</span>
+                        <div style={{flex: 1}}>
+                            <div>{worksheet.title}</div>
+                            {worksheet.description && (
+                                <div style={{fontSize: '12px', opacity: 0.6, marginTop: '2px'}}>
+                                    {worksheet.description}
+                                </div>
+                            )}
+                            {!worksheet.isGlobal && (
+                                <span style={{fontSize: '11px', background: 'rgba(244,196,48,0.2)', 
+                                    padding: '2px 6px', borderRadius: '10px', marginTop: '4px', 
+                                    display: 'inline-block'}}>
+                                    Assigned to you
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                    <span className="menu-arrow">›</span>
+                </a>
+            ))}
+        </>
+    )}
+    
+    {(!resources?.videos?.length && !resources?.articles?.length && 
+      !resources?.tools?.length && !resources?.worksheets?.length) && (
+        <div style={{padding: '15px', textAlign: 'center', opacity: 0.6}}>
+            No resources available yet. Check back soon!
+        </div>
+    )}
+</div>
                 {/* ... existing resources code ... */}
                 
                 {/* About Section */}
