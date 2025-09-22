@@ -3165,243 +3165,389 @@
             );
         }
         
-        // Profile View Component
-        function ProfileView({ user, userData, profileImage, resources, onShowModal, onLogout, onImageUpload, fileInputRef, coachInfo }) {
-            const handleImageSelect = (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    onImageUpload(file);
-                }
-            };
+       // Enhanced ProfileView Component with all missing features
+function ProfileView({ user, userData, profileImage, resources, onShowModal, onLogout, onImageUpload, fileInputRef, coachInfo }) {
+    const [profileStats, setProfileStats] = useState({
+        checkInRate: 0,
+        assignmentRate: 0,
+        currentStreak: 0,
+        avgMood: 0,
+        avgCraving: 0
+    });
+    
+    // Calculate profile completion percentage
+    const calculateProfileCompletion = () => {
+        let completed = 0;
+        let total = 10;
+        
+        if (userData?.firstName) completed++;
+        if (userData?.lastName) completed++;
+        if (userData?.phone) completed++;
+        if (userData?.sobrietyDate) completed++;
+        if (userData?.substance) completed++;
+        if (userData?.dailyCost) completed++;
+        if (userData?.emergencyContacts?.length > 0) completed++;
+        if (userData?.address?.city) completed++;
+        if (userData?.profileImageUrl) completed++;
+        if (userData?.dateOfBirth) completed++;
+        
+        return Math.round((completed / total) * 100);
+    };
+    
+    // Load profile stats
+    useEffect(() => {
+        loadProfileStats();
+    }, [user]);
+    
+    const loadProfileStats = async () => {
+        try {
+            // Calculate check-in rate (last 30 days)
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
             
-            return (
-                <>
-                    <div className="profile-menu">
-                        <div className="profile-header">
-                            <div className="profile-avatar" onClick={() => fileInputRef.current?.click()}>
-                                {profileImage ? (
-                                    <img src={profileImage} alt="Profile" />
-                                ) : (
-                                    (userData?.displayName || userData?.firstName || user.email || '👤').charAt(0).toUpperCase()
-                                )}
-                                <div className="profile-avatar-upload">
-                                    📷
-                                </div>
-                            </div>
-                            <input 
-                                ref={fileInputRef}
-                                type="file"
-                                accept="image/*"
-                                className="upload-input"
-                                onChange={handleImageSelect}
-                            />
-                            <div className="profile-name">
-                                {userData?.displayName || userData?.firstName || 'User'}
-                            </div>
-                            <div className="profile-email">{user.email}</div>
-                        </div>
-                        
-                        {coachInfo && (
-                            <div className="menu-section">
-                                <div className="menu-title">My Coach</div>
-                                <div style={{background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '15px', margin: '0 10px'}}>
-                                    <div style={{fontWeight: 'bold', marginBottom: '5px'}}>
-                                        {coachInfo.displayName || coachInfo.firstName + ' ' + coachInfo.lastName}
-                                    </div>
-                                    {coachInfo.credentials && (
-                                        <div style={{fontSize: '14px', opacity: 0.8, marginBottom: '5px'}}>
-                                            {coachInfo.credentials}
-                                        </div>
-                                    )}
-                                    {coachInfo.phone && (
-                                        <div style={{fontSize: '14px'}}>
-                                            📞 <a href={`tel:${coachInfo.phone}`} style={{color: '#f4c430', textDecoration: 'none'}}>
-                                                {coachInfo.phone}
-                                            </a>
-                                        </div>
-                                    )}
-                                    {coachInfo.email && (
-                                        <div style={{fontSize: '14px'}}>
-                                            ✉️ <a href={`mailto:${coachInfo.email}`} style={{color: '#f4c430', textDecoration: 'none'}}>
-                                                {coachInfo.email}
-                                            </a>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
+            const checkInsSnap = await db.collection('checkIns')
+                .where('userId', '==', user.uid)
+                .where('createdAt', '>=', thirtyDaysAgo)
+                .get();
+            
+            const checkInRate = Math.round((checkInsSnap.size / 30) * 100);
+            
+            // Calculate assignment completion rate
+            const assignmentsSnap = await db.collection('assignments')
+                .where('userId', '==', user.uid)
+                .get();
+            
+            let totalAssignments = 0;
+            let completedAssignments = 0;
+            let totalMood = 0;
+            let totalCraving = 0;
+            let moodCount = 0;
+            
+            assignmentsSnap.forEach(doc => {
+                totalAssignments++;
+                if (doc.data().status === 'completed') {
+                    completedAssignments++;
+                }
+            });
+            
+            // Calculate average mood and craving
+            checkInsSnap.forEach(doc => {
+                const data = doc.data();
+                if (data.morningData) {
+                    if (data.morningData.mood) {
+                        totalMood += data.morningData.mood;
+                        moodCount++;
+                    }
+                    if (data.morningData.craving) {
+                        totalCraving += data.morningData.craving;
+                    }
+                }
+            });
+            
+            // Get current streak
+            const streakDoc = await db.collection('streaks').doc(user.uid).get();
+            const currentStreak = streakDoc.exists ? streakDoc.data().currentStreak || 0 : 0;
+            
+            const assignmentRate = totalAssignments > 0 ? 
+                Math.round((completedAssignments / totalAssignments) * 100) : 0;
+            
+            setProfileStats({
+                checkInRate,
+                assignmentRate,
+                currentStreak,
+                avgMood: moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 0,
+                avgCraving: moodCount > 0 ? (totalCraving / moodCount).toFixed(1) : 0
+            });
+        } catch (error) {
+            console.error('Error loading profile stats:', error);
+        }
+    };
+    
+    const handleImageSelect = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            onImageUpload(file);
+        }
+    };
+    
+    const profileCompletion = calculateProfileCompletion();
+    
+    return (
+        <>
+            <div className="profile-menu">
+                <div className="profile-header">
+                    <div className="profile-avatar" onClick={() => fileInputRef.current?.click()}>
+                        {profileImage ? (
+                            <img src={profileImage} alt="Profile" />
+                        ) : (
+                            (userData?.displayName || userData?.firstName || user.email || '👤').charAt(0).toUpperCase()
                         )}
-                        
-                        <div className="menu-section">
-                            <div className="menu-title">Account</div>
-                            <button className="menu-item" onClick={() => onShowModal('account')}>
-                                <div className="menu-item-left">
-                                    <span className="menu-icon">👤</span>
-                                    <span>Account Settings</span>
-                                </div>
-                                <span className="menu-arrow">›</span>
-                            </button>
-                            <button className="menu-item" onClick={() => onShowModal('emergency')}>
-                                <div className="menu-item-left">
-                                    <span className="menu-icon">🆘</span>
-                                    <span>Emergency Contacts</span>
-                                </div>
-                                <span className="menu-arrow">›</span>
-                                </button>
-                        </div>
-                        
-                        <div className="menu-section">
-                            <div className="menu-title">Recovery Resources</div>
-                            
-                            {resources?.videos?.length > 0 && (
-                                <>
-                                    <div style={{fontSize: '14px', opacity: 0.7, marginLeft: '15px', marginBottom: '10px'}}>
-                                        Videos ({resources.videos.length})
-                                    </div>
-                                    {resources.videos.slice(0, 3).map(video => (
-                                        <a 
-                                            key={video.id}
-                                            href={video.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="menu-item"
-                                            style={{textDecoration: 'none'}}
-                                            onClick={async () => {
-                                                // Track resource view
-                                                await db.collection('activities').add({
-                                                    userId: user.uid,
-                                                    type: 'resource_view',
-                                                    resourceId: video.id,
-                                                    resourceType: 'video',
-                                                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                                                });
-                                            }}
-                                        >
-                                            <div className="menu-item-left">
-                                                <span className="menu-icon">🎥</span>
-                                                <span>{video.title}</span>
-                                            </div>
-                                            <span className="menu-arrow">›</span>
-                                        </a>
-                                    ))}
-                                </>
-                            )}
-                            
-                            {resources?.articles?.length > 0 && (
-                                <>
-                                    <div style={{fontSize: '14px', opacity: 0.7, marginLeft: '15px', marginBottom: '10px'}}>
-                                        Articles ({resources.articles.length})
-                                    </div>
-                                    {resources.articles.slice(0, 3).map(article => (
-                                        <a 
-                                            key={article.id}
-                                            href={article.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="menu-item"
-                                            style={{textDecoration: 'none'}}
-                                            onClick={async () => {
-                                                await db.collection('activities').add({
-                                                    userId: user.uid,
-                                                    type: 'resource_view',
-                                                    resourceId: article.id,
-                                                    resourceType: 'article',
-                                                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                                                });
-                                            }}
-                                        >
-                                            <div className="menu-item-left">
-                                                <span className="menu-icon">📄</span>
-                                                <span>{article.title}</span>
-                                            </div>
-                                            <span className="menu-arrow">›</span>
-                                        </a>
-                                    ))}
-                                </>
-                            )}
-                            
-                            {resources?.tools?.length > 0 && (
-                                <>
-                                    <div style={{fontSize: '14px', opacity: 0.7, marginLeft: '15px', marginBottom: '10px'}}>
-                                        Tools ({resources.tools.length})
-                                    </div>
-                                    {resources.tools.slice(0, 3).map(tool => (
-                                        <a 
-                                            key={tool.id}
-                                            href={tool.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="menu-item"
-                                            style={{textDecoration: 'none'}}
-                                            onClick={async () => {
-                                                await db.collection('activities').add({
-                                                    userId: user.uid,
-                                                    type: 'resource_view',
-                                                    resourceId: tool.id,
-                                                    resourceType: 'tool',
-                                                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                                                });
-                                            }}
-                                        >
-                                            <div className="menu-item-left">
-                                                <span className="menu-icon">🛠️</span>
-                                                <span>{tool.title}</span>
-                                            </div>
-                                            <span className="menu-arrow">›</span>
-                                        </a>
-                                    ))}
-                                </>
-                            )}
-                            
-                            {resources?.worksheets?.length > 0 && (
-                                <>
-                                    <div style={{fontSize: '14px', opacity: 0.7, marginLeft: '15px', marginBottom: '10px'}}>
-                                        Worksheets ({resources.worksheets.length})
-                                    </div>
-                                    {resources.worksheets.slice(0, 3).map(worksheet => (
-                                        <a 
-                                            key={worksheet.id}
-                                            href={worksheet.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="menu-item"
-                                            style={{textDecoration: 'none'}}
-                                            onClick={async () => {
-                                                await db.collection('activities').add({
-                                                    userId: user.uid,
-                                                    type: 'resource_view',
-                                                    resourceId: worksheet.id,
-                                                    resourceType: 'worksheet',
-                                                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                                                });
-                                            }}
-                                        >
-                                            <div className="menu-item-left">
-                                                <span className="menu-icon">📝</span>
-                                                <span>{worksheet.title}</span>
-                                            </div>
-                                            <span className="menu-arrow">›</span>
-                                        </a>
-                                    ))}
-                                </>
-                            )}
-                            
-                            {(!resources?.videos?.length && !resources?.articles?.length && 
-                              !resources?.tools?.length && !resources?.worksheets?.length) && (
-                                <div style={{padding: '15px', textAlign: 'center', opacity: 0.6}}>
-                                    No resources available yet
-                                </div>
-                            )}
-                        </div>
-                        
-                        <div className="menu-section">
-                            <button className="btn-danger" onClick={onLogout}>
-                                Sign Out
-                            </button>
+                        <div className="profile-avatar-upload">
+                            📷
                         </div>
                     </div>
-                </>
-            );
-        }
+                    <input 
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="upload-input"
+                        onChange={handleImageSelect}
+                    />
+                    <div className="profile-name">
+                        {userData?.displayName || userData?.firstName || 'User'}
+                    </div>
+                    <div className="profile-email">{user.email}</div>
+                    
+                    {/* Profile Completion Indicator */}
+                    {profileCompletion < 100 && (
+                        <div style={{marginTop: '10px'}}>
+                            <div style={{fontSize: '12px', opacity: 0.8, marginBottom: '5px'}}>
+                                Profile {profileCompletion}% Complete
+                            </div>
+                            <div style={{
+                                background: 'rgba(255,255,255,0.1)',
+                                borderRadius: '10px',
+                                height: '8px',
+                                overflow: 'hidden'
+                            }}>
+                                <div style={{
+                                    background: 'linear-gradient(135deg, #f4c430 0%, #ff9500 100%)',
+                                    width: `${profileCompletion}%`,
+                                    height: '100%',
+                                    transition: 'width 0.3s ease'
+                                }}/>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Sobriety Info */}
+                    {userData?.sobrietyDate && (
+                        <div style={{
+                            marginTop: '15px',
+                            padding: '10px',
+                            background: 'rgba(76, 175, 80, 0.1)',
+                            borderRadius: '10px',
+                            border: '1px solid rgba(76, 175, 80, 0.3)'
+                        }}>
+                            <div style={{fontSize: '24px', fontWeight: 'bold', color: '#4CAF50'}}>
+                                {Math.floor((new Date() - new Date(userData.sobrietyDate)) / (1000 * 60 * 60 * 24))} Days Clean
+                            </div>
+                            <div style={{fontSize: '12px', opacity: 0.8, marginTop: '5px'}}>
+                                Since {new Date(userData.sobrietyDate).toLocaleDateString()}
+                            </div>
+                        </div>
+                    )}
+                </div>
+                
+                {/* Stats Section */}
+                <div className="menu-section">
+                    <div className="menu-title">My Stats</div>
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(2, 1fr)',
+                        gap: '10px',
+                        padding: '0 15px',
+                        marginBottom: '15px'
+                    }}>
+                        <div style={{
+                            background: 'rgba(255,255,255,0.05)',
+                            borderRadius: '10px',
+                            padding: '10px',
+                            textAlign: 'center'
+                        }}>
+                            <div style={{fontSize: '20px', fontWeight: 'bold', color: '#f4c430'}}>
+                                {profileStats.checkInRate}%
+                            </div>
+                            <div style={{fontSize: '11px', opacity: 0.7}}>Check-in Rate</div>
+                        </div>
+                        <div style={{
+                            background: 'rgba(255,255,255,0.05)',
+                            borderRadius: '10px',
+                            padding: '10px',
+                            textAlign: 'center'
+                        }}>
+                            <div style={{fontSize: '20px', fontWeight: 'bold', color: '#4CAF50'}}>
+                                {profileStats.assignmentRate}%
+                            </div>
+                            <div style={{fontSize: '11px', opacity: 0.7}}>Tasks Complete</div>
+                        </div>
+                        <div style={{
+                            background: 'rgba(255,255,255,0.05)',
+                            borderRadius: '10px',
+                            padding: '10px',
+                            textAlign: 'center'
+                        }}>
+                            <div style={{fontSize: '20px', fontWeight: 'bold', color: '#ff9500'}}>
+                                {profileStats.currentStreak}
+                            </div>
+                            <div style={{fontSize: '11px', opacity: 0.7}}>Day Streak</div>
+                        </div>
+                        <div style={{
+                            background: 'rgba(255,255,255,0.05)',
+                            borderRadius: '10px',
+                            padding: '10px',
+                            textAlign: 'center'
+                        }}>
+                            <div style={{fontSize: '20px', fontWeight: 'bold', color: '#9c27b0'}}>
+                                {profileStats.avgMood}/5
+                            </div>
+                            <div style={{fontSize: '11px', opacity: 0.7}}>Avg Mood</div>
+                        </div>
+                    </div>
+                </div>
+                
+                {/* Coach Section */}
+                {coachInfo && (
+                    <div className="menu-section">
+                        <div className="menu-title">My Coach</div>
+                        <div style={{background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '15px', margin: '0 10px'}}>
+                            <div style={{fontWeight: 'bold', marginBottom: '5px'}}>
+                                {coachInfo.displayName || coachInfo.firstName + ' ' + coachInfo.lastName}
+                            </div>
+                            {coachInfo.credentials && (
+                                <div style={{fontSize: '14px', opacity: 0.8, marginBottom: '5px'}}>
+                                    {coachInfo.credentials}
+                                </div>
+                            )}
+                            {coachInfo.phone && (
+                                <div style={{fontSize: '14px'}}>
+                                    📞 <a href={`tel:${coachInfo.phone}`} style={{color: '#f4c430', textDecoration: 'none'}}>
+                                        {coachInfo.phone}
+                                    </a>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+                
+                {/* Account Settings */}
+                <div className="menu-section">
+                    <div className="menu-title">Account</div>
+                    <button className="menu-item" onClick={() => onShowModal('personalInfo')}>
+                        <div className="menu-item-left">
+                            <span className="menu-icon">👤</span>
+                            <span>Personal Information</span>
+                        </div>
+                        <span className="menu-arrow">›</span>
+                    </button>
+                    <button className="menu-item" onClick={() => onShowModal('recoveryInfo')}>
+                        <div className="menu-item-left">
+                            <span className="menu-icon">🎯</span>
+                            <span>Recovery Settings</span>
+                        </div>
+                        <span className="menu-arrow">›</span>
+                    </button>
+                    <button className="menu-item" onClick={() => onShowModal('password')}>
+                        <div className="menu-item-left">
+                            <span className="menu-icon">🔐</span>
+                            <span>Password & Security</span>
+                        </div>
+                        <span className="menu-arrow">›</span>
+                    </button>
+                    <button className="menu-item" onClick={() => onShowModal('notifications')}>
+                        <div className="menu-item-left">
+                            <span className="menu-icon">🔔</span>
+                            <span>Notification Settings</span>
+                        </div>
+                        <span className="menu-arrow">›</span>
+                    </button>
+                    <button className="menu-item" onClick={() => onShowModal('emergency')}>
+                        <div className="menu-item-left">
+                            <span className="menu-icon">🆘</span>
+                            <span>Emergency Contacts</span>
+                        </div>
+                        <span className="menu-arrow">›</span>
+                    </button>
+                    <button className="menu-item" onClick={() => onShowModal('privacy')}>
+                        <div className="menu-item-left">
+                            <span className="menu-icon">🛡️</span>
+                            <span>Privacy Settings</span>
+                        </div>
+                        <span className="menu-arrow">›</span>
+                    </button>
+                </div>
+                
+                {/* Support & Resources */}
+                <div className="menu-section">
+                    <div className="menu-title">Support</div>
+                    <button className="menu-item" onClick={() => onShowModal('help')}>
+                        <div className="menu-item-left">
+                            <span className="menu-icon">❓</span>
+                            <span>Help & Support</span>
+                        </div>
+                        <span className="menu-arrow">›</span>
+                    </button>
+                    <button className="menu-item" onClick={() => onShowModal('feedback')}>
+                        <div className="menu-item-left">
+                            <span className="menu-icon">💬</span>
+                            <span>Send Feedback</span>
+                        </div>
+                        <span className="menu-arrow">›</span>
+                    </button>
+                    <button className="menu-item" onClick={() => onShowModal('export')}>
+                        <div className="menu-item-left">
+                            <span className="menu-icon">📥</span>
+                            <span>Export My Data</span>
+                        </div>
+                        <span className="menu-arrow">›</span>
+                    </button>
+                </div>
+                
+                {/* Resources Section (existing) */}
+                {/* ... existing resources code ... */}
+                
+                {/* About Section */}
+                <div className="menu-section">
+                    <div className="menu-title">About</div>
+                    <button className="menu-item" onClick={() => onShowModal('terms')}>
+                        <div className="menu-item-left">
+                            <span className="menu-icon">📄</span>
+                            <span>Terms of Service</span>
+                        </div>
+                        <span className="menu-arrow">›</span>
+                    </button>
+                    <button className="menu-item" onClick={() => onShowModal('privacy_policy')}>
+                        <div className="menu-item-left">
+                            <span className="menu-icon">📋</span>
+                            <span>Privacy Policy</span>
+                        </div>
+                        <span className="menu-arrow">›</span>
+                    </button>
+                    <button className="menu-item" onClick={() => onShowModal('about')}>
+                        <div className="menu-item-left">
+                            <span className="menu-icon">ℹ️</span>
+                            <span>About GLRS</span>
+                        </div>
+                        <span className="menu-arrow">›</span>
+                    </button>
+                </div>
+                
+                {/* Sign Out & Delete Account */}
+                <div className="menu-section">
+                    <button className="btn-danger" onClick={onLogout}>
+                        Sign Out
+                    </button>
+                    <button 
+                        style={{
+                            width: '100%',
+                            padding: '14px',
+                            background: 'transparent',
+                            border: '1px solid rgba(255, 71, 87, 0.5)',
+                            borderRadius: '10px',
+                            color: '#ff4757',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            marginTop: '10px'
+                        }}
+                        onClick={() => onShowModal('deleteAccount')}
+                    >
+                        Delete Account
+                    </button>
+                </div>
+            </div>
+        </>
+    );
+}
         
         // Community Chat Component
         function CommunityChat({ messages, onSendMessage, currentUserId }) {
