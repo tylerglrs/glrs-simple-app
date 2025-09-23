@@ -3251,8 +3251,31 @@ function ProfileView({ user, userData, profileImage, resources, onShowModal, onL
             .where('createdAt', '>=', dateToCheckFrom)
             .get();
         
-        // Calculate rate based on actual days they've been a member
-        const checkInRate = Math.round((checkInsSnap.size / daysToCheck) * 100);
+        // FIXED: Count only morning check-ins
+        let morningCheckInCount = 0;
+        let totalMood = 0;
+        let totalCraving = 0;
+        let moodCount = 0;
+        
+        checkInsSnap.forEach(doc => {
+            const data = doc.data();
+            // Only count if it has morning data
+            if (data.morningData) {
+                morningCheckInCount++;
+                
+                // Calculate mood and craving averages from morning data
+                if (data.morningData.mood) {
+                    totalMood += data.morningData.mood;
+                    moodCount++;
+                }
+                if (data.morningData.craving) {
+                    totalCraving += data.morningData.craving;
+                }
+            }
+        });
+        
+        // Calculate rate: morning check-ins / days they've been a member
+        const checkInRate = Math.min(100, Math.round((morningCheckInCount / daysToCheck) * 100));
         
         // Calculate assignment completion rate
         const assignmentsSnap = await db.collection('assignments')
@@ -3261,28 +3284,11 @@ function ProfileView({ user, userData, profileImage, resources, onShowModal, onL
         
         let totalAssignments = 0;
         let completedAssignments = 0;
-        let totalMood = 0;
-        let totalCraving = 0;
-        let moodCount = 0;
         
         assignmentsSnap.forEach(doc => {
             totalAssignments++;
             if (doc.data().status === 'completed') {
                 completedAssignments++;
-            }
-        });
-        
-        // Calculate average mood and craving
-        checkInsSnap.forEach(doc => {
-            const data = doc.data();
-            if (data.morningData) {
-                if (data.morningData.mood) {
-                    totalMood += data.morningData.mood;
-                    moodCount++;
-                }
-                if (data.morningData.craving) {
-                    totalCraving += data.morningData.craving;
-                }
             }
         });
         
