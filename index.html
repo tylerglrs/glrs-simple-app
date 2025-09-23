@@ -2020,45 +2020,73 @@ const loadResources = async () => {
             };
 
             // Load compliance rates
-            const loadComplianceRates = async () => {
-                try {
-                    // Calculate check-in compliance (last 30 days)
-                    const thirtyDaysAgo = new Date();
-                    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-                    
-                    const checkInsSnap = await db.collection('checkIns')
-                        .where('userId', '==', user.uid)
-                        .where('createdAt', '>=', thirtyDaysAgo)
-                        .get();
-                    
-                    const checkInRate = Math.round((checkInsSnap.size / 30) * 100);
-                    
-                    // Calculate assignment completion rate
-                    const assignmentsSnap = await db.collection('assignments')
-                        .where('userId', '==', user.uid)
-                        .get();
-                    
-                    let totalAssignments = 0;
-                    let completedAssignments = 0;
-                    
-                    assignmentsSnap.forEach(doc => {
-                        totalAssignments++;
-                        if (doc.data().status === 'completed') {
-                            completedAssignments++;
-                        }
-                    });
-                    
-                    const assignmentRate = totalAssignments > 0 ? 
-                        Math.round((completedAssignments / totalAssignments) * 100) : 0;
-                    
-                    setComplianceRate({
-                        checkIn: checkInRate,
-                        assignment: assignmentRate
-                    });
-                } catch (error) {
-                    console.error('Error loading compliance rates:', error);
-                }
-            };
+const loadComplianceRates = async () => {
+    try {
+        // Get user's account creation date (same logic as loadProfileStats)
+        const userDoc = await db.collection('users').doc(user.uid).get();
+        const accountCreatedDate = userDoc.data()?.createdAt?.toDate() || new Date();
+        
+        // Calculate days since account creation (max 30 days for recent performance)
+        const today = new Date();
+        const daysSinceCreation = Math.floor((today - accountCreatedDate) / (1000 * 60 * 60 * 24));
+        const daysToCheck = Math.min(daysSinceCreation, 30); // Cap at 30 days
+        
+        // Skip calculation if account is less than 1 day old
+        if (daysToCheck < 1) {
+            setComplianceRate({
+                checkIn: 0,
+                assignment: 0
+            });
+            return;
+        }
+        
+        // Calculate check-in rate based on days since joining
+        const dateToCheckFrom = new Date();
+        dateToCheckFrom.setDate(dateToCheckFrom.getDate() - daysToCheck);
+        
+        const checkInsSnap = await db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .where('createdAt', '>=', dateToCheckFrom)
+            .get();
+        
+        // COUNT ONLY MORNING CHECK-INS (same as ProfileView)
+        let morningCheckInCount = 0;
+        checkInsSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.morningData) {
+                morningCheckInCount++;
+            }
+        });
+        
+        // Calculate rate: morning check-ins / days they've been a member (max 30)
+        const checkInRate = Math.min(100, Math.round((morningCheckInCount / daysToCheck) * 100));
+        
+        // Calculate assignment completion rate (keep existing logic)
+        const assignmentsSnap = await db.collection('assignments')
+            .where('userId', '==', user.uid)
+            .get();
+        
+        let totalAssignments = 0;
+        let completedAssignments = 0;
+        
+        assignmentsSnap.forEach(doc => {
+            totalAssignments++;
+            if (doc.data().status === 'completed') {
+                completedAssignments++;
+            }
+        });
+        
+        const assignmentRate = totalAssignments > 0 ? 
+            Math.round((completedAssignments / totalAssignments) * 100) : 0;
+        
+        setComplianceRate({
+            checkIn: checkInRate,
+            assignment: assignmentRate
+        });
+    } catch (error) {
+        console.error('Error loading compliance rates:', error);
+    }
+};
 
             // Handle daily pledge
             const handlePledge = async () => {
