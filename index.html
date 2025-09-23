@@ -3278,31 +3278,18 @@ function ProfileView({ user, userData, profileImage, resources, onShowModal, onL
             .where('createdAt', '>=', dateToCheckFrom)
             .get();
         
-        // Calculate rate based on actual days they've been a member
-        const checkInRate = Math.round((checkInsSnap.size / daysToCheck) * 100);
-        
-        // Calculate assignment completion rate
-        const assignmentsSnap = await db.collection('assignments')
-            .where('userId', '==', user.uid)
-            .get();
-        
-        let totalAssignments = 0;
-        let completedAssignments = 0;
+        // COUNT ONLY MORNING CHECK-INS
+        let morningCheckInCount = 0;
         let totalMood = 0;
         let totalCraving = 0;
         let moodCount = 0;
         
-        assignmentsSnap.forEach(doc => {
-            totalAssignments++;
-            if (doc.data().status === 'completed') {
-                completedAssignments++;
-            }
-        });
-        
-        // Calculate average mood and craving
         checkInsSnap.forEach(doc => {
             const data = doc.data();
             if (data.morningData) {
+                morningCheckInCount++;
+                
+                // Calculate average mood (and craving for potential future use)
                 if (data.morningData.mood) {
                     totalMood += data.morningData.mood;
                     moodCount++;
@@ -3313,6 +3300,42 @@ function ProfileView({ user, userData, profileImage, resources, onShowModal, onL
             }
         });
         
+        // Calculate check-in rate - CAPPED AT 100%
+        const checkInRate = Math.min(100, Math.round((morningCheckInCount / daysToCheck) * 100));
+        
+        // Calculate assignment completion rate
+        const assignmentsSnap = await db.collection('assignments')
+            .where('userId', '==', user.uid)
+            .get();
+        
+        let totalAssignments = 0;
+        let completedAssignments = 0;
+        
+        assignmentsSnap.forEach(doc => {
+            totalAssignments++;
+            if (doc.data().status === 'completed') {
+                completedAssignments++;
+            }
+        });
+        
+        // Get current streak
+        const streakDoc = await db.collection('streaks').doc(user.uid).get();
+        const currentStreak = streakDoc.exists ? streakDoc.data().currentStreak || 0 : 0;
+        
+        const assignmentRate = totalAssignments > 0 ? 
+            Math.round((completedAssignments / totalAssignments) * 100) : 0;
+        
+        setProfileStats({
+            checkInRate,
+            assignmentRate,
+            currentStreak,
+            avgMood: moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 0,
+            avgCraving: moodCount > 0 ? (totalCraving / moodCount).toFixed(1) : 0  // Calculated but not displayed
+        });
+    } catch (error) {
+        console.error('Error loading profile stats:', error);
+    }
+};
         // Get current streak
         const streakDoc = await db.collection('streaks').doc(user.uid).get();
         const currentStreak = streakDoc.exists ? streakDoc.data().currentStreak || 0 : 0;
