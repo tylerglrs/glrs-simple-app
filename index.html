@@ -3303,38 +3303,26 @@ function ProfileView({ user, userData, profileImage, resources, onShowModal, onL
         // Calculate check-in rate - CAPPED AT 100%
         const checkInRate = Math.min(100, Math.round((morningCheckInCount / daysToCheck) * 100));
         
-        // Calculate assignment completion rate
-        const assignmentsSnap = await db.collection('assignments')
-            .where('userId', '==', user.uid)
-            .get();
-        
-        let totalAssignments = 0;
-        let completedAssignments = 0;
-        
-        assignmentsSnap.forEach(doc => {
-            totalAssignments++;
-            if (doc.data().status === 'completed') {
-                completedAssignments++;
-            }
-        });
-        
-        // Get current streak
-        const streakDoc = await db.collection('streaks').doc(user.uid).get();
-        const currentStreak = streakDoc.exists ? streakDoc.data().currentStreak || 0 : 0;
-        
-        const assignmentRate = totalAssignments > 0 ? 
-            Math.round((completedAssignments / totalAssignments) * 100) : 0;
-        
-        setProfileStats({
-            checkInRate,
-            assignmentRate,
-            currentStreak,
-            avgMood: moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 0,
-            avgCraving: moodCount > 0 ? (totalCraving / moodCount).toFixed(1) : 0
-        });
-    } catch (error) {
-        console.error('Error loading profile stats:', error);
-    }
+        // Calculate LIFETIME task completion (all check-ins + reflections + assignments)
+const taskCompletion = await calculateLifetimeTaskCompletion(user.uid);
+
+// Get current streak
+const streakDoc = await db.collection('streaks').doc(user.uid).get();
+const currentStreak = streakDoc.exists ? streakDoc.data().currentStreak || 0 : 0;
+
+// Use the lifetime task completion rate instead of just assignment rate
+const assignmentRate = taskCompletion.completionRate; // This is now ALL tasks, not just assignments
+
+setProfileStats({
+    checkInRate,
+    assignmentRate,  // This now represents total task completion, not just assignments
+    currentStreak,
+    avgMood: moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 0,
+    avgCraving: moodCount > 0 ? (totalCraving / moodCount).toFixed(1) : 0
+});
+} catch (error) {
+    console.error('Error loading profile stats:', error);
+}
 };
     // Helper functions for task calculations - can be called by admin.html
 const calculateLifetimeTaskCompletion = async (userId) => {
