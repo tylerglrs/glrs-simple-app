@@ -3244,6 +3244,736 @@ const loadComplianceRates = async () => {
                 </div>
             );
         }
+        // Recovery Resources View Component with all enhanced features
+function ResourcesView({ user, userData, onBack }) {
+    const [selectedCategory, setSelectedCategory] = useState(null);
+    const [activeTab, setActiveTab] = useState('assigned'); // 'assigned' or 'global'
+    const [resources, setResources] = useState([]);
+    const [favorites, setFavorites] = useState([]);
+    const [notes, setNotes] = useState({});
+    const [progress, setProgress] = useState({});
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedResource, setSelectedResource] = useState(null);
+    const [loading, setLoading] = useState(false);
+
+    const categories = [
+        { id: 'coping', name: 'Coping Skills & Techniques', icon: '🧘', color: '#4CAF50' },
+        { id: 'relapse', name: 'Relapse Prevention', icon: '🛡️', color: '#ff9500' },
+        { id: 'daily', name: 'Daily Recovery Tools', icon: '📝', color: '#2196F3' },
+        { id: 'education', name: 'Education & Understanding', icon: '🎓', color: '#9c27b0' },
+        { id: 'support', name: 'Support & Connection', icon: '🤝', color: '#00bcd4' },
+        { id: 'life', name: 'Life Skills & Wellness', icon: '💪', color: '#ff5722' }
+    ];
+
+    // Load resources for selected category
+    useEffect(() => {
+        if (selectedCategory) {
+            loadCategoryResources();
+        }
+    }, [selectedCategory, activeTab]);
+
+    // Load user preferences (favorites, notes, progress)
+    useEffect(() => {
+        loadUserPreferences();
+    }, [user.uid]);
+
+    const loadUserPreferences = async () => {
+        try {
+            // Load favorites
+            const favDoc = await db.collection('users').doc(user.uid)
+                .collection('resourcePreferences').doc('favorites').get();
+            if (favDoc.exists) {
+                setFavorites(favDoc.data().items || []);
+            }
+
+            // Load notes
+            const notesDoc = await db.collection('users').doc(user.uid)
+                .collection('resourcePreferences').doc('notes').get();
+            if (notesDoc.exists) {
+                setNotes(notesDoc.data() || {});
+            }
+
+            // Load progress
+            const progressDoc = await db.collection('users').doc(user.uid)
+                .collection('resourcePreferences').doc('progress').get();
+            if (progressDoc.exists) {
+                setProgress(progressDoc.data() || {});
+            }
+        } catch (error) {
+            console.error('Error loading preferences:', error);
+        }
+    };
+
+    const loadCategoryResources = async () => {
+        setLoading(true);
+        try {
+            let query = db.collection('resources')
+                .where('category', '==', selectedCategory)
+                .where('active', '==', true);
+
+            if (activeTab === 'assigned') {
+                query = query.where('assignedTo', 'array-contains', user.uid);
+            } else {
+                query = query.where('isGlobal', '==', true);
+            }
+
+            const snapshot = await query.get();
+            const resourcesList = [];
+            snapshot.forEach(doc => {
+                resourcesList.push({ id: doc.id, ...doc.data() });
+            });
+
+            setResources(resourcesList);
+        } catch (error) {
+            console.error('Error loading resources:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const toggleFavorite = async (resourceId) => {
+        const newFavorites = favorites.includes(resourceId) 
+            ? favorites.filter(id => id !== resourceId)
+            : [...favorites, resourceId];
+        
+        setFavorites(newFavorites);
+        
+        // Save to Firestore
+        await db.collection('users').doc(user.uid)
+            .collection('resourcePreferences').doc('favorites')
+            .set({ items: newFavorites }, { merge: true });
+    };
+
+    const updateProgress = async (resourceId, status) => {
+        const newProgress = { ...progress, [resourceId]: status };
+        setProgress(newProgress);
+        
+        // Save to Firestore
+        await db.collection('users').doc(user.uid)
+            .collection('resourcePreferences').doc('progress')
+            .set(newProgress, { merge: true });
+
+        // Track activity
+        await db.collection('activities').add({
+            userId: user.uid,
+            type: 'resource_progress',
+            resourceId: resourceId,
+            status: status,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    };
+
+    const saveNote = async (resourceId, note) => {
+        const newNotes = { ...notes, [resourceId]: note };
+        setNotes(newNotes);
+        
+        // Save to Firestore
+        await db.collection('users').doc(user.uid)
+            .collection('resourcePreferences').doc('notes')
+            .set(newNotes, { merge: true });
+    };
+
+    const recordView = async (resourceId) => {
+        // Update last viewed
+        await db.collection('users').doc(user.uid)
+            .collection('resourceViews').doc(resourceId)
+            .set({
+                viewedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                resourceId: resourceId
+            });
+    };
+
+    const filteredResources = resources.filter(resource => 
+        resource.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        resource.description?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    // Category Selection View
+    if (!selectedCategory) {
+        return (
+            <div style={{
+                background: '#1a1a2e',
+                minHeight: '100vh',
+                padding: '20px'
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    marginBottom: '30px'
+                }}>
+                    <button 
+                        onClick={onBack}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'white',
+                            fontSize: '24px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        ←
+                    </button>
+                    <h2 style={{
+                        flex: 1,
+                        textAlign: 'center',
+                        margin: 0,
+                        color: 'white'
+                    }}>
+                        Recovery Resources
+                    </h2>
+                </div>
+
+                {/* Search Bar */}
+                <div style={{marginBottom: '20px'}}>
+                    <input 
+                        type="text"
+                        placeholder="Search all resources..."
+                        style={{
+                            width: '100%',
+                            padding: '12px',
+                            background: 'rgba(255,255,255,0.1)',
+                            border: '1px solid rgba(255,255,255,0.2)',
+                            borderRadius: '10px',
+                            color: 'white',
+                            fontSize: '16px'
+                        }}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                </div>
+
+                {/* Category Grid */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: '15px'
+                }}>
+                    {categories.map(category => (
+                        <button
+                            key={category.id}
+                            onClick={() => setSelectedCategory(category.id)}
+                            style={{
+                                background: `linear-gradient(135deg, ${category.color}99 0%, ${category.color}66 100%)`,
+                                border: 'none',
+                                borderRadius: '15px',
+                                padding: '20px',
+                                color: 'white',
+                                cursor: 'pointer',
+                                textAlign: 'center'
+                            }}
+                        >
+                            <div style={{fontSize: '32px', marginBottom: '10px'}}>
+                                {category.icon}
+                            </div>
+                            <div style={{fontSize: '14px', fontWeight: 'bold'}}>
+                                {category.name}
+                            </div>
+                        </button>
+                    ))}
+                </div>
+
+                {/* Favorites Section */}
+                {favorites.length > 0 && (
+                    <div style={{marginTop: '30px'}}>
+                        <h3 style={{color: 'white', marginBottom: '15px'}}>
+                            ⭐ Your Favorites
+                        </h3>
+                        {/* Display favorite resources here */}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    // Resource List View
+    if (!selectedResource) {
+        const category = categories.find(c => c.id === selectedCategory);
+        
+        return (
+            <div style={{
+                background: '#1a1a2e',
+                minHeight: '100vh',
+                padding: '20px'
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    marginBottom: '20px'
+                }}>
+                    <button 
+                        onClick={() => setSelectedCategory(null)}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'white',
+                            fontSize: '24px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        ←
+                    </button>
+                    <h2 style={{
+                        flex: 1,
+                        textAlign: 'center',
+                        margin: 0,
+                        color: 'white'
+                    }}>
+                        {category.icon} {category.name}
+                    </h2>
+                </div>
+
+                {/* Tabs */}
+                <div style={{
+                    display: 'flex',
+                    marginBottom: '20px',
+                    background: 'rgba(255,255,255,0.1)',
+                    borderRadius: '10px',
+                    padding: '5px'
+                }}>
+                    <button
+                        onClick={() => setActiveTab('assigned')}
+                        style={{
+                            flex: 1,
+                            padding: '10px',
+                            background: activeTab === 'assigned' ? 'white' : 'transparent',
+                            color: activeTab === 'assigned' ? '#1a1a2e' : 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold'
+                        }}
+                    >
+                        Assigned to Me
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('global')}
+                        style={{
+                            flex: 1,
+                            padding: '10px',
+                            background: activeTab === 'global' ? 'white' : 'transparent',
+                            color: activeTab === 'global' ? '#1a1a2e' : 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold'
+                        }}
+                    >
+                        Global Resources
+                    </button>
+                </div>
+
+                {/* Resource List */}
+                {loading ? (
+                    <div style={{textAlign: 'center', color: 'white', padding: '40px'}}>
+                        Loading resources...
+                    </div>
+                ) : filteredResources.length === 0 ? (
+                    <div style={{textAlign: 'center', color: 'rgba(255,255,255,0.6)', padding: '40px'}}>
+                        No resources available in this category.
+                    </div>
+                ) : (
+                    <div style={{display: 'flex', flexDirection: 'column', gap: '15px'}}>
+                        {filteredResources.map(resource => (
+                            <div 
+                                key={resource.id}
+                                style={{
+                                    background: 'rgba(255,255,255,0.1)',
+                                    borderRadius: '15px',
+                                    padding: '15px'
+                                }}
+                            >
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'flex-start',
+                                    marginBottom: '10px'
+                                }}>
+                                    <div style={{flex: 1}}>
+                                        <h4 style={{color: 'white', margin: '0 0 5px 0'}}>
+                                            {resource.title}
+                                        </h4>
+                                        {resource.description && (
+                                            <p style={{
+                                                color: 'rgba(255,255,255,0.7)',
+                                                fontSize: '14px',
+                                                margin: '0 0 10px 0'
+                                            }}>
+                                                {resource.description}
+                                            </p>
+                                        )}
+                                        <div style={{
+                                            display: 'flex',
+                                            gap: '10px',
+                                            flexWrap: 'wrap'
+                                        }}>
+                                            {/* Progress Badge */}
+                                            <span style={{
+                                                background: progress[resource.id] === 'completed' ? 'rgba(76,175,80,0.2)' :
+                                                         progress[resource.id] === 'in-progress' ? 'rgba(255,152,0,0.2)' :
+                                                         'rgba(255,255,255,0.1)',
+                                                color: progress[resource.id] === 'completed' ? '#4CAF50' :
+                                                       progress[resource.id] === 'in-progress' ? '#ff9800' :
+                                                       'rgba(255,255,255,0.6)',
+                                                padding: '2px 8px',
+                                                borderRadius: '10px',
+                                                fontSize: '12px'
+                                            }}>
+                                                {progress[resource.id] || 'Not Started'}
+                                            </span>
+                                            
+                                            {/* Added Date */}
+                                            {resource.addedAt && (
+                                                <span style={{
+                                                    color: 'rgba(255,255,255,0.5)',
+                                                    fontSize: '12px'
+                                                }}>
+                                                    Added {new Date(resource.addedAt.toDate()).toLocaleDateString()}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Favorite Button */}
+                                    <button
+                                        onClick={() => toggleFavorite(resource.id)}
+                                        style={{
+                                            background: 'transparent',
+                                            border: 'none',
+                                            color: favorites.includes(resource.id) ? '#ffd700' : 'rgba(255,255,255,0.3)',
+                                            fontSize: '24px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        {favorites.includes(resource.id) ? '⭐' : '☆'}
+                                    </button>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div style={{
+                                    display: 'flex',
+                                    gap: '10px',
+                                    marginTop: '10px'
+                                }}>
+                                    <button
+                                        onClick={() => {
+                                            setSelectedResource(resource);
+                                            recordView(resource.id);
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            padding: '8px',
+                                            background: category.color,
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            color: 'white',
+                                            cursor: 'pointer',
+                                            fontWeight: 'bold'
+                                        }}
+                                    >
+                                        View Resource
+                                    </button>
+                                    
+                                    {/* Progress Dropdown */}
+                                    <select
+                                        value={progress[resource.id] || 'not-started'}
+                                        onChange={(e) => updateProgress(resource.id, e.target.value)}
+                                        style={{
+                                            padding: '8px',
+                                            background: 'rgba(255,255,255,0.1)',
+                                            border: '1px solid rgba(255,255,255,0.2)',
+                                            borderRadius: '8px',
+                                            color: 'white',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        <option value="not-started">Not Started</option>
+                                        <option value="in-progress">In Progress</option>
+                                        <option value="completed">Completed</option>
+                                    </select>
+                                </div>
+
+                                {/* Notes Section */}
+                                {notes[resource.id] && (
+                                    <div style={{
+                                        marginTop: '10px',
+                                        padding: '10px',
+                                        background: 'rgba(255,255,255,0.05)',
+                                        borderRadius: '8px'
+                                    }}>
+                                        <small style={{color: 'rgba(255,255,255,0.6)'}}>Your Notes:</small>
+                                        <p style={{color: 'white', fontSize: '14px', margin: '5px 0 0 0'}}>
+                                            {notes[resource.id]}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    // Resource Viewer (Full Screen)
+    return (
+        <ResourceViewer 
+            resource={selectedResource}
+            onBack={() => setSelectedResource(null)}
+            onUpdateNote={(note) => saveNote(selectedResource.id, note)}
+            currentNote={notes[selectedResource.id]}
+        />
+    );
+}
+
+// Resource Viewer Component (Full Screen View)
+function ResourceViewer({ resource, onBack, onUpdateNote, currentNote }) {
+    const [note, setNote] = useState(currentNote || '');
+    const [showNoteInput, setShowNoteInput] = useState(false);
+
+    const handlePrint = () => {
+        window.print();
+    };
+
+    const handleDownload = async () => {
+        // If it's a file URL, open it
+        if (resource.fileURL) {
+            window.open(resource.fileURL, '_blank');
+        } else if (resource.content) {
+            // Create a blob and download
+            const blob = new Blob([resource.content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${resource.title}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    };
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'white',
+            zIndex: 9999,
+            overflowY: 'auto'
+        }}>
+            {/* Header */}
+            <div style={{
+                background: 'linear-gradient(135deg, #9c27b0 0%, #673ab7 100%)',
+                padding: '20px',
+                position: 'sticky',
+                top: 0,
+                zIndex: 10
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                }}>
+                    <button 
+                        onClick={onBack}
+                        style={{
+                            background: 'rgba(255,255,255,0.2)',
+                            border: 'none',
+                            color: 'white',
+                            fontSize: '24px',
+                            cursor: 'pointer',
+                            padding: '5px 10px',
+                            borderRadius: '8px'
+                        }}
+                    >
+                        ←
+                    </button>
+                    <h2 style={{
+                        flex: 1,
+                        textAlign: 'center',
+                        margin: 0,
+                        color: 'white',
+                        fontSize: '18px'
+                    }}>
+                        {resource.title}
+                    </h2>
+                    <div style={{display: 'flex', gap: '10px'}}>
+                        <button 
+                            onClick={handlePrint}
+                            style={{
+                                background: 'rgba(255,255,255,0.2)',
+                                border: 'none',
+                                color: 'white',
+                                padding: '8px 12px',
+                                borderRadius: '8px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            🖨️
+                        </button>
+                        <button 
+                            onClick={handleDownload}
+                            style={{
+                                background: 'rgba(255,255,255,0.2)',
+                                border: 'none',
+                                color: 'white',
+                                padding: '8px 12px',
+                                borderRadius: '8px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            📥
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Content */}
+            <div style={{padding: '20px', maxWidth: '800px', margin: '0 auto'}}>
+                {resource.content ? (
+                    <div style={{
+                        fontSize: '16px',
+                        lineHeight: '1.8',
+                        color: '#333'
+                    }}>
+                        {resource.content}
+                    </div>
+                ) : resource.embedUrl ? (
+                    <iframe 
+                        src={resource.embedUrl}
+                        style={{
+                            width: '100%',
+                            height: '600px',
+                            border: 'none',
+                            borderRadius: '10px'
+                        }}
+                    />
+                ) : (
+                    <div style={{
+                        padding: '40px',
+                        textAlign: 'center',
+                        color: '#999'
+                    }}>
+                        <p>This resource is available externally.</p>
+                        <a 
+                            href={resource.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                                display: 'inline-block',
+                                marginTop: '20px',
+                                padding: '12px 24px',
+                                background: '#9c27b0',
+                                color: 'white',
+                                borderRadius: '8px',
+                                textDecoration: 'none'
+                            }}
+                        >
+                            Open Resource
+                        </a>
+                    </div>
+                )}
+
+                {/* Notes Section */}
+                <div style={{
+                    marginTop: '40px',
+                    padding: '20px',
+                    background: '#f5f5f5',
+                    borderRadius: '10px'
+                }}>
+                    <h3 style={{margin: '0 0 15px 0'}}>
+                        📝 Personal Notes
+                    </h3>
+                    {showNoteInput ? (
+                        <div>
+                            <textarea 
+                                value={note}
+                                onChange={(e) => setNote(e.target.value)}
+                                placeholder="Add your thoughts, reflections, or key takeaways..."
+                                style={{
+                                    width: '100%',
+                                    minHeight: '100px',
+                                    padding: '10px',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    resize: 'vertical'
+                                }}
+                            />
+                            <div style={{marginTop: '10px', display: 'flex', gap: '10px'}}>
+                                <button
+                                    onClick={() => {
+                                        onUpdateNote(note);
+                                        setShowNoteInput(false);
+                                    }}
+                                    style={{
+                                        padding: '8px 16px',
+                                        background: '#4CAF50',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    Save Note
+                                </button>
+                                <button
+                                    onClick={() => setShowNoteInput(false)}
+                                    style={{
+                                        padding: '8px 16px',
+                                        background: '#999',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div>
+                            {currentNote ? (
+                                <div>
+                                    <p style={{margin: '0 0 10px 0'}}>{currentNote}</p>
+                                    <button
+                                        onClick={() => setShowNoteInput(true)}
+                                        style={{
+                                            padding: '8px 16px',
+                                            background: '#9c27b0',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        Edit Note
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => setShowNoteInput(true)}
+                                    style={{
+                                        padding: '8px 16px',
+                                        background: '#9c27b0',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    Add Note
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
         
        // Enhanced ProfileView Component with all missing features
 function ProfileView({ user, userData, profileImage, resources, onShowModal, onLogout, onImageUpload, fileInputRef, coachInfo }) {
