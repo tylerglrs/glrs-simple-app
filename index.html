@@ -3336,6 +3336,81 @@ function ProfileView({ user, userData, profileImage, resources, onShowModal, onL
         console.error('Error loading profile stats:', error);
     }
 };
+    // Helper functions for task calculations - can be called by admin.html
+const calculateLifetimeTaskCompletion = async (userId) => {
+    try {
+        // Get user's account creation date
+        const userDoc = await db.collection('users').doc(userId).get();
+        const accountCreatedDate = userDoc.data()?.createdAt?.toDate() || new Date();
+        
+        // Calculate total days since joining
+        const today = new Date();
+        const daysSinceJoining = Math.floor((today - accountCreatedDate) / (1000 * 60 * 60 * 24)) + 1; // +1 to include today
+        
+        // Get ALL check-ins (no date filter for lifetime)
+        const checkInsSnap = await db.collection('checkIns')
+            .where('userId', '==', userId)
+            .get();
+        
+        // Count morning check-ins and evening reflections separately
+        let morningCheckInsCompleted = 0;
+        let eveningReflectionsCompleted = 0;
+        
+        checkInsSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.morningData) {
+                morningCheckInsCompleted++;
+            }
+            if (data.eveningData) {
+                eveningReflectionsCompleted++;
+            }
+        });
+        
+        // Get ALL assignments (lifetime)
+        const assignmentsSnap = await db.collection('assignments')
+            .where('userId', '==', userId)
+            .get();
+        
+        let totalAssignments = 0;
+        let completedAssignments = 0;
+        
+        assignmentsSnap.forEach(doc => {
+            totalAssignments++;
+            if (doc.data().status === 'completed') {
+                completedAssignments++;
+            }
+        });
+        
+        // Calculate totals
+        const expectedDailyTasks = daysSinceJoining * 2; // Morning + Evening each day
+        const totalExpectedTasks = expectedDailyTasks + totalAssignments;
+        const totalCompletedTasks = morningCheckInsCompleted + eveningReflectionsCompleted + completedAssignments;
+        
+        // Calculate percentage
+        const completionRate = totalExpectedTasks > 0 ? 
+            Math.round((totalCompletedTasks / totalExpectedTasks) * 100) : 0;
+        
+        return {
+            completionRate,
+            totalCompleted: totalCompletedTasks,
+            totalExpected: totalExpectedTasks,
+            breakdown: {
+                morningCheckIns: morningCheckInsCompleted,
+                eveningReflections: eveningReflectionsCompleted,
+                assignments: completedAssignments,
+                expectedDailyTasks: expectedDailyTasks,
+                totalAssignments: totalAssignments
+            }
+        };
+    } catch (error) {
+        console.error('Error calculating lifetime task completion:', error);
+        return {
+            completionRate: 0,
+            totalCompleted: 0,
+            totalExpected: 0
+        };
+    }
+};
     
     const handleImageSelect = (e) => {
         const file = e.target.files[0];
