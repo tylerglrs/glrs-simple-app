@@ -1754,102 +1754,233 @@ useEffect(() => {
                 }
             };
 
-            // Load standalone assignments
-            const loadAssignments = async () => {
-                try {
-                    const assignmentsSnap = await db.collection('assignments')
-                        .where('userId', '==', user.uid)
-                        .get();
-                    
-                    const assignmentsData = [];
-                    assignmentsSnap.forEach(doc => {
-                        const assignment = { id: doc.id, ...doc.data() };
-                        if (!assignment.goalId) {
-                            assignmentsData.push(assignment);
-                        }
+            // Load standalone assignments - UPDATED VERSION
+const loadAssignments = async () => {
+    try {
+        const assignmentsSnap = await db.collection('assignments')
+            .where('userId', '==', user.uid)
+            .get();
+        
+        const assignmentsData = [];
+        assignmentsSnap.forEach(doc => {
+            const assignment = { id: doc.id, ...doc.data() };
+            assignmentsData.push(assignment);
+        });
+        
+        setAssignments(assignmentsData);
+        
+        // Check for upcoming due dates
+        checkUpcomingDueDates(assignmentsData);
+    } catch (error) {
+        console.error('Error loading assignments:', error);
+    }
+};
+
+// Handler for assignment completion - NEW
+const handleAssignmentComplete = async (assignmentId, isCompleted) => {
+    try {
+        const updates = {
+            status: isCompleted ? 'completed' : 'pending',
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        
+        if (isCompleted) {
+            updates.completedAt = firebase.firestore.FieldValue.serverTimestamp();
+        } else {
+            updates.completedAt = null;
+            updates.reflection = null;
+        }
+        
+        await db.collection('assignments').doc(assignmentId).update(updates);
+        
+        // Reload assignments to update UI
+        loadAssignments();
+        
+        // If completed, send notification to coach
+        if (isCompleted && userData?.assignedCoach) {
+            const assignment = assignments.find(a => a.id === assignmentId);
+            if (assignment) {
+                await db.collection('notifications').add({
+                    recipientId: userData.assignedCoach,
+                    senderId: user.uid,
+                    senderName: userData.displayName || userData.firstName || 'PIR',
+                    type: 'assignment_completed',
+                    message: `${userData.displayName || 'PIR'} completed: ${assignment.title}`,
+                    assignmentId: assignmentId,
+                    read: false,
+                    urgent: false,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Error updating assignment:', error);
+        alert('Failed to update assignment');
+    }
+};
+
+// Handler for saving reflection with assignment - NEW
+const handleReflectionSave = async (assignmentId, reflection) => {
+    try {
+        await db.collection('assignments').doc(assignmentId).update({
+            status: 'completed',
+            reflection: reflection,
+            completedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Reload assignments
+        loadAssignments();
+        
+        // Send notification to coach with reflection
+        const assignment = assignments.find(a => a.id === assignmentId);
+        if (assignment && userData?.assignedCoach) {
+            await db.collection('notifications').add({
+                recipientId: userData.assignedCoach,
+                senderId: user.uid,
+                senderName: userData.displayName || userData.firstName || 'PIR',
+                type: 'assignment_reflection',
+                message: `${userData.displayName || 'PIR'} completed with reflection: ${assignment.title}`,
+                reflection: reflection,
+                assignmentId: assignmentId,
+                read: false,
+                urgent: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        
+        alert('Assignment completed with reflection!');
+    } catch (error) {
+        console.error('Error saving reflection:', error);
+        alert('Failed to save reflection');
+    }
+};
+
+// Add notification scheduler for due dates - NEW
+const checkUpcomingDueDates = async (assignmentsList) => {
+    if (!assignmentsList || assignmentsList.length === 0) return;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    for (const assignment of assignmentsList) {
+        if (assignment.status !== 'completed' && assignment.dueDate) {
+            const dueDate = assignment.dueDate.toDate ? assignment.dueDate.toDate() : new Date(assignment.dueDate);
+            const diffDays = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
+            
+            // Check if notification already sent today
+            const notifCheck = await db.collection('notifications')
+                .where('recipientId', '==', user.uid)
+                .where('assignmentId', '==', assignment.id)
+                .where('type', '==', 'due_soon')
+                .where('createdAt', '>=', today)
+                .limit(1)
+                .get();
+            
+            if (notifCheck.empty) {
+                if (diffDays === 2) {
+                    // Create notification for 2 days before due
+                    await db.collection('notifications').add({
+                        recipientId: user.uid,
+                        type: 'due_soon',
+                        message: `Assignment "${assignment.title}" is due in 2 days`,
+                        assignmentId: assignment.id,
+                        read: false,
+                        urgent: true,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
-                    
-                    setAssignments(assignmentsData);
-                } catch (error) {
-                    console.error('Error loading assignments:', error);
-                }
-            };
-
-            // Load daily inspiration (rotates by day of year)
-            const loadDailyInspiration = async () => {
-                try {
-                    const inspirationsSnap = await db.collection('dailyInspirations')
-                        .where('active', '==', true)
-                        .get();
-                    
-                    if (!inspirationsSnap.empty) {
-                        const inspirations = [];
-                        inspirationsSnap.forEach(doc => {
-                            inspirations.push({ id: doc.id, ...doc.data() });
-                        });
-                        
-                        // Use day of year for consistent daily rotation
-                        const dayOfYear = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
-                        const index = dayOfYear % inspirations.length;
-                        setDailyQuote(inspirations[index]);
-                    } else {
-                        setDailyQuote({
-                            quote: "One day at a time.",
-                            author: "Recovery Wisdom"
-                        });
-                    }
-                } catch (error) {
-                    console.error('Error loading inspiration:', error);
-                    setDailyQuote({
-                        quote: "Progress, not perfection.",
-                        author: "Recovery Wisdom"
+                } else if (diffDays === 0) {
+                    // Due today notification
+                    await db.collection('notifications').add({
+                        recipientId: user.uid,
+                        type: 'due_today',
+                        message: `Assignment "${assignment.title}" is due today!`,
+                        assignmentId: assignment.id,
+                        read: false,
+                        urgent: true,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
                 }
-            };
+            }
+        }
+    }
+};
 
-            // Load milestones
-            const loadMilestones = async () => {
-                try {
-                    const milestonesSnap = await db.collection('milestones')
-                        .orderBy('daysRequired', 'asc')
-                        .get();
-                    
-                    const milestonesData = [];
-                    milestonesSnap.forEach(doc => {
-                        milestonesData.push({ id: doc.id, ...doc.data() });
-                    });
-                    setMilestones(milestonesData);
-                    
-                    // Calculate next milestone
-                    if (userData?.sobrietyDate) {
-                        const daysClean = Math.floor((new Date() - new Date(userData.sobrietyDate)) / (1000 * 60 * 60 * 24));
-                        const next = milestonesData.find(m => m.daysRequired > daysClean);
-                        setNextMilestone(next);
-                    }
-                } catch (error) {
-                    console.error('Error loading milestones:', error);
-                }
-            };
+// Load daily inspiration (rotates by day of year)
+const loadDailyInspiration = async () => {
+    try {
+        const inspirationsSnap = await db.collection('dailyInspirations')
+            .where('active', '==', true)
+            .get();
+        
+        if (!inspirationsSnap.empty) {
+            const inspirations = [];
+            inspirationsSnap.forEach(doc => {
+                inspirations.push({ id: doc.id, ...doc.data() });
+            });
+            
+            // Use day of year for consistent daily rotation
+            const dayOfYear = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+            const index = dayOfYear % inspirations.length;
+            setDailyQuote(inspirations[index]);
+        } else {
+            setDailyQuote({
+                quote: "One day at a time.",
+                author: "Recovery Wisdom"
+            });
+        }
+    } catch (error) {
+        console.error('Error loading inspiration:', error);
+        setDailyQuote({
+            quote: "Progress, not perfection.",
+            author: "Recovery Wisdom"
+        });
+    }
+};
 
-            // Load broadcasts
-            const loadBroadcasts = async () => {
-                try {
-                    const broadcastsSnap = await db.collection('broadcasts')
-                        .where('active', '==', true)
-                        .orderBy('createdAt', 'desc')
-                        .limit(1)
-                        .get();
-                    
-                    if (!broadcastsSnap.empty && !broadcastDismissed) {
-                        const broadcast = broadcastsSnap.docs[0].data();
-                        setActiveBroadcast(broadcast);
-                    }
-                } catch (error) {
-                    console.error('Error loading broadcasts:', error);
-                }
-            };
+// Load milestones
+const loadMilestones = async () => {
+    try {
+        const milestonesSnap = await db.collection('milestones')
+            .orderBy('daysRequired', 'asc')
+            .get();
+        
+        const milestonesData = [];
+        milestonesSnap.forEach(doc => {
+            milestonesData.push({ id: doc.id, ...doc.data() });
+        });
+        setMilestones(milestonesData);
+        
+        // Calculate next milestone
+        if (userData?.sobrietyDate) {
+            const daysClean = Math.floor((new Date() - new Date(userData.sobrietyDate)) / (1000 * 60 * 60 * 24));
+            const next = milestonesData.find(m => m.daysRequired > daysClean);
+            setNextMilestone(next);
+        }
+    } catch (error) {
+        console.error('Error loading milestones:', error);
+    }
+};
 
-            // Add this to your PIRApp component's loadResources function - REPLACE the existing loadResources function
+// Load broadcasts
+const loadBroadcasts = async () => {
+    try {
+        const broadcastsSnap = await db.collection('broadcasts')
+            .where('active', '==', true)
+            .orderBy('createdAt', 'desc')
+            .limit(1)
+            .get();
+        
+        if (!broadcastsSnap.empty && !broadcastDismissed) {
+            const broadcast = broadcastsSnap.docs[0].data();
+            setActiveBroadcast(broadcast);
+        }
+    } catch (error) {
+        console.error('Error loading broadcasts:', error);
+    }
+};
+
+// Add this to your PIRApp component's loadResources function - REPLACE the existing loadResources function
 const loadResources = async () => {
     try {
         // Get ALL resources that are either global OR specifically assigned to this PIR
@@ -1895,133 +2026,134 @@ const loadResources = async () => {
         console.error('Error loading resources:', error);
     }
 };
-            // Load check-ins and prepare chart data
-            const loadCheckIns = async () => {
-                try {
-                    const checkInsSnapshot = await db.collection('checkIns')
-                        .where('userId', '==', user.uid)
-                        .orderBy('createdAt', 'desc')
-                        .limit(7)
-                        .get();
-                    
-                    const checkInsList = [];
-                    checkInsSnapshot.forEach(doc => {
-                        checkInsList.push({ id: doc.id, ...doc.data() });
-                    });
-                    setCheckIns(checkInsList);
-                    
-                    // Check today's status
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    const tomorrow = new Date(today);
-                    tomorrow.setDate(tomorrow.getDate() + 1);
-                    
-                    const todayCheckIn = checkInsList.find(checkIn => {
-                        const checkInDate = checkIn.createdAt?.toDate ? 
-                            checkIn.createdAt.toDate() : new Date(checkIn.createdAt);
-                        return checkInDate >= today && checkInDate < tomorrow;
-                    });
-                    
-                    if (todayCheckIn) {
-                        setCheckInStatus({
-                            morning: !!todayCheckIn.morningData,
-                            evening: !!todayCheckIn.eveningData
-                        });
-                    }
-                    
-                    // Prepare chart data
-                    prepareChartData(checkInsList);
-                } catch (error) {
-                    console.error('Error loading check-ins:', error);
-                }
-            };
 
-            // Prepare chart data for progress section
-            const prepareChartData = (checkInsList) => {
-                const labels = [];
-                const moodData = [];
-                const cravingData = [];
-                
-                // Get last 7 days
-                for (let i = 6; i >= 0; i--) {
-                    const date = new Date();
-                    date.setDate(date.getDate() - i);
-                    
-                    const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-                    labels.push(dayName);
-                    
-                    // Find check-in for this date
-                    const checkIn = checkInsList.find(c => {
-                        const checkInDate = c.createdAt?.toDate ? 
-                            c.createdAt.toDate() : new Date(c.createdAt);
-                        return checkInDate.toDateString() === date.toDateString();
-                    });
-                    
-                    if (checkIn?.morningData) {
-                        moodData.push(checkIn.morningData.mood || 0);
-                        cravingData.push(checkIn.morningData.craving || 0);
-                    } else {
-                        moodData.push(0);
-                        cravingData.push(0);
-                    }
-                }
-                
-                setMoodChartData({
-                    labels: labels,
-                    datasets: [{
-                        label: 'Mood',
-                        data: moodData,
-                        borderColor: '#4caf50',
-                        backgroundColor: 'rgba(76, 175, 80, 0.1)',
-                        tension: 0.4
-                    }]
-                });
-                
-                setCravingChartData({
-                    labels: labels,
-                    datasets: [{
-                        label: 'Cravings',
-                        data: cravingData,
-                        borderColor: '#ff9800',
-                        backgroundColor: 'rgba(255, 152, 0, 0.1)',
-                        tension: 0.4
-                    }]
-                });
-            };
+// Load check-ins and prepare chart data
+const loadCheckIns = async () => {
+    try {
+        const checkInsSnapshot = await db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .orderBy('createdAt', 'desc')
+            .limit(7)
+            .get();
+        
+        const checkInsList = [];
+        checkInsSnapshot.forEach(doc => {
+            checkInsList.push({ id: doc.id, ...doc.data() });
+        });
+        setCheckIns(checkInsList);
+        
+        // Check today's status
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        const todayCheckIn = checkInsList.find(checkIn => {
+            const checkInDate = checkIn.createdAt?.toDate ? 
+                checkIn.createdAt.toDate() : new Date(checkIn.createdAt);
+            return checkInDate >= today && checkInDate < tomorrow;
+        });
+        
+        if (todayCheckIn) {
+            setCheckInStatus({
+                morning: !!todayCheckIn.morningData,
+                evening: !!todayCheckIn.eveningData
+            });
+        }
+        
+        // Prepare chart data
+        prepareChartData(checkInsList);
+    } catch (error) {
+        console.error('Error loading check-ins:', error);
+    }
+};
 
-            // Load today's pledge status
-            const loadTodaysPledge = async () => {
-                try {
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    const tomorrow = new Date(today);
-                    tomorrow.setDate(tomorrow.getDate() + 1);
-                    
-                    const pledgeSnapshot = await db.collection('pledges')
-                        .where('userId', '==', user.uid)
-                        .where('createdAt', '>=', today)
-                        .where('createdAt', '<', tomorrow)
-                        .get();
-                    
-                    setPledgeMade(!pledgeSnapshot.empty);
-                } catch (error) {
-                    console.error('Error loading pledge:', error);
-                }
-            };
+// Prepare chart data for progress section
+const prepareChartData = (checkInsList) => {
+    const labels = [];
+    const moodData = [];
+    const cravingData = [];
+    
+    // Get last 7 days
+    for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+        labels.push(dayName);
+        
+        // Find check-in for this date
+        const checkIn = checkInsList.find(c => {
+            const checkInDate = c.createdAt?.toDate ? 
+                c.createdAt.toDate() : new Date(c.createdAt);
+            return checkInDate.toDateString() === date.toDateString();
+        });
+        
+        if (checkIn?.morningData) {
+            moodData.push(checkIn.morningData.mood || 0);
+            cravingData.push(checkIn.morningData.craving || 0);
+        } else {
+            moodData.push(0);
+            cravingData.push(0);
+        }
+    }
+    
+    setMoodChartData({
+        labels: labels,
+        datasets: [{
+            label: 'Mood',
+            data: moodData,
+            borderColor: '#4caf50',
+            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+            tension: 0.4
+        }]
+    });
+    
+    setCravingChartData({
+        labels: labels,
+        datasets: [{
+            label: 'Cravings',
+            data: cravingData,
+            borderColor: '#ff9800',
+            backgroundColor: 'rgba(255, 152, 0, 0.1)',
+            tension: 0.4
+        }]
+    });
+};
 
-            // Load check-in streak
-            const loadStreak = async () => {
-                try {
-                    const streakDoc = await db.collection('streaks').doc(user.uid).get();
-                    if (streakDoc.exists) {
-                        setCheckInStreak(streakDoc.data().currentStreak || 0);
-                    }
-                } catch (error) {
-                    console.error('Error loading streak:', error);
-                }
-            };
+// Load today's pledge status
+const loadTodaysPledge = async () => {
+    try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        const pledgeSnapshot = await db.collection('pledges')
+            .where('userId', '==', user.uid)
+            .where('createdAt', '>=', today)
+            .where('createdAt', '<', tomorrow)
+            .get();
+        
+        setPledgeMade(!pledgeSnapshot.empty);
+    } catch (error) {
+        console.error('Error loading pledge:', error);
+    }
+};
 
-           // Load compliance rates
+// Load check-in streak
+const loadStreak = async () => {
+    try {
+        const streakDoc = await db.collection('streaks').doc(user.uid).get();
+        if (streakDoc.exists) {
+            setCheckInStreak(streakDoc.data().currentStreak || 0);
+        }
+    } catch (error) {
+        console.error('Error loading streak:', error);
+    }
+};
+
+// Load compliance rates
 const loadComplianceRates = async () => {
     try {
         // Get user's account creation date (same logic as loadProfileStats)
