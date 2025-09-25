@@ -1856,6 +1856,146 @@ const handleReflectionSave = async (assignmentId, reflection) => {
         alert('Failed to save reflection');
     }
 };
+            // Generate hardcoded recovery milestones based on sobriety date
+const getRecoveryMilestones = (sobrietyDate) => {
+    if (!sobrietyDate) return [];
+    
+    const startDate = new Date(sobrietyDate);
+    const milestones = [
+        { days: 1, title: '24 Hours Clean', icon: '🌟' },
+        { days: 7, title: '1 Week Clean', icon: '📅' },
+        { days: 30, title: '1 Month Clean', icon: '🏆' },
+        { days: 60, title: '2 Months Clean', icon: '💪' },
+        { days: 90, title: '3 Months Clean', icon: '🎯' },
+        { days: 100, title: '100 Days Clean', icon: '💯' },
+        { days: 120, title: '4 Months Clean', icon: '⭐' },
+        { days: 150, title: '5 Months Clean', icon: '🌈' },
+        { days: 180, title: '6 Months Clean', icon: '🎉' },
+        { days: 200, title: '200 Days Clean', icon: '✨' },
+        { days: 210, title: '7 Months Clean', icon: '🌟' },
+        { days: 240, title: '8 Months Clean', icon: '🏅' },
+        { days: 270, title: '9 Months Clean', icon: '💎' },
+        { days: 300, title: '10 Months Clean', icon: '🌺' },
+        { days: 330, title: '11 Months Clean', icon: '🎊' },
+        { days: 365, title: '1 Year Clean', icon: '🎂' },
+        { days: 500, title: '500 Days Clean', icon: '🏆' },
+        { days: 548, title: '18 Months Clean', icon: '🌟' },
+        { days: 730, title: '2 Years Clean', icon: '🎈' },
+        { days: 1000, title: '1000 Days Clean', icon: '🏅' },
+        { days: 1095, title: '3 Years Clean', icon: '🎉' },
+        { days: 1460, title: '4 Years Clean', icon: '🌟' },
+        { days: 1825, title: '5 Years Clean', icon: '💫' }
+    ];
+    
+    // Add more yearly milestones dynamically
+    for (let year = 6; year <= 20; year++) {
+        milestones.push({
+            days: year * 365,
+            title: `${year} Years Clean`,
+            icon: '🌟'
+        });
+    }
+    
+    const today = new Date();
+    const daysSober = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
+    
+    return milestones.map(milestone => {
+        const milestoneDate = new Date(startDate);
+        milestoneDate.setDate(milestoneDate.getDate() + milestone.days - 1);
+        
+        return {
+            ...milestone,
+            date: milestoneDate,
+            achieved: daysSober >= milestone.days,
+            isToday: daysSober === milestone.days,
+            isTomorrow: daysSober === (milestone.days - 1),
+            daysUntil: milestone.days - daysSober,
+            type: 'recovery' // Mark as recovery milestone
+        };
+    });
+};
+
+// Check for milestone notifications
+const checkMilestoneNotifications = async () => {
+    if (!userData?.sobrietyDate) return;
+    
+    const recoveryMilestones = getRecoveryMilestones(userData.sobrietyDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    for (const milestone of recoveryMilestones) {
+        // Check if notification already sent today
+        const existingNotif = await db.collection('notifications')
+            .where('recipientId', '==', user.uid)
+            .where('type', 'in', ['milestone_today', 'milestone_tomorrow'])
+            .where('milestoneTitle', '==', milestone.title)
+            .where('createdAt', '>=', today)
+            .limit(1)
+            .get();
+        
+        if (!existingNotif.empty) continue;
+        
+        // Send notification for milestone TODAY
+        if (milestone.isToday) {
+            // Notify PIR
+            await db.collection('notifications').add({
+                recipientId: user.uid,
+                type: 'milestone_today',
+                message: `🎉 Congratulations! You've reached ${milestone.title}!`,
+                milestoneTitle: milestone.title,
+                icon: milestone.icon,
+                read: false,
+                urgent: true,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Notify Coach
+            if (userData.assignedCoach) {
+                await db.collection('notifications').add({
+                    recipientId: userData.assignedCoach,
+                    senderId: user.uid,
+                    senderName: userData.displayName || userData.firstName || 'PIR',
+                    type: 'pir_milestone_achieved',
+                    message: `${userData.displayName || 'PIR'} reached ${milestone.title}!`,
+                    milestoneTitle: milestone.title,
+                    icon: milestone.icon,
+                    read: false,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+        
+        // Send notification for milestone TOMORROW
+        if (milestone.isTomorrow) {
+            // Notify PIR
+            await db.collection('notifications').add({
+                recipientId: user.uid,
+                type: 'milestone_tomorrow',
+                message: `Tomorrow you'll reach ${milestone.title}! Keep going!`,
+                milestoneTitle: milestone.title,
+                icon: milestone.icon,
+                read: false,
+                urgent: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Notify Coach
+            if (userData.assignedCoach) {
+                await db.collection('notifications').add({
+                    recipientId: userData.assignedCoach,
+                    senderId: user.uid,
+                    senderName: userData.displayName || userData.firstName || 'PIR',
+                    type: 'pir_milestone_upcoming',
+                    message: `${userData.displayName || 'PIR'} will reach ${milestone.title} tomorrow`,
+                    milestoneTitle: milestone.title,
+                    icon: milestone.icon,
+                    read: false,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+    }
+};
 
 // Add notification scheduler for due dates - NEW
 const checkUpcomingDueDates = async (assignmentsList) => {
@@ -4781,146 +4921,7 @@ const calculateLifetimeTaskCompletion = async (userId) => {
         onImageUpload(file);
     }
 };
-    // Generate hardcoded recovery milestones based on sobriety date
-const getRecoveryMilestones = (sobrietyDate) => {
-    if (!sobrietyDate) return [];
-    
-    const startDate = new Date(sobrietyDate);
-    const milestones = [
-        { days: 1, title: '24 Hours Clean', icon: '🌟' },
-        { days: 7, title: '1 Week Clean', icon: '📅' },
-        { days: 30, title: '1 Month Clean', icon: '🏆' },
-        { days: 60, title: '2 Months Clean', icon: '💪' },
-        { days: 90, title: '3 Months Clean', icon: '🎯' },
-        { days: 100, title: '100 Days Clean', icon: '💯' },
-        { days: 120, title: '4 Months Clean', icon: '⭐' },
-        { days: 150, title: '5 Months Clean', icon: '🌈' },
-        { days: 180, title: '6 Months Clean', icon: '🎉' },
-        { days: 200, title: '200 Days Clean', icon: '✨' },
-        { days: 210, title: '7 Months Clean', icon: '🌟' },
-        { days: 240, title: '8 Months Clean', icon: '🏅' },
-        { days: 270, title: '9 Months Clean', icon: '💎' },
-        { days: 300, title: '10 Months Clean', icon: '🌺' },
-        { days: 330, title: '11 Months Clean', icon: '🎊' },
-        { days: 365, title: '1 Year Clean', icon: '🎂' },
-        { days: 500, title: '500 Days Clean', icon: '🏆' },
-        { days: 548, title: '18 Months Clean', icon: '🌟' },
-        { days: 730, title: '2 Years Clean', icon: '🎈' },
-        { days: 1000, title: '1000 Days Clean', icon: '🏅' },
-        { days: 1095, title: '3 Years Clean', icon: '🎉' },
-        { days: 1460, title: '4 Years Clean', icon: '🌟' },
-        { days: 1825, title: '5 Years Clean', icon: '💫' }
-    ];
-    
-    // Add more yearly milestones dynamically
-    for (let year = 6; year <= 20; year++) {
-        milestones.push({
-            days: year * 365,
-            title: `${year} Years Clean`,
-            icon: '🌟'
-        });
-    }
-    
-    const today = new Date();
-    const daysSober = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
-    
-    return milestones.map(milestone => {
-        const milestoneDate = new Date(startDate);
-        milestoneDate.setDate(milestoneDate.getDate() + milestone.days - 1);
-        
-        return {
-            ...milestone,
-            date: milestoneDate,
-            achieved: daysSober >= milestone.days,
-            isToday: daysSober === milestone.days,
-            isTomorrow: daysSober === (milestone.days - 1),
-            daysUntil: milestone.days - daysSober,
-            type: 'recovery' // Mark as recovery milestone
-        };
-    });
-};
-
-// Check for milestone notifications
-const checkMilestoneNotifications = async () => {
-    if (!userData?.sobrietyDate) return;
-    
-    const recoveryMilestones = getRecoveryMilestones(userData.sobrietyDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    for (const milestone of recoveryMilestones) {
-        // Check if notification already sent today
-        const existingNotif = await db.collection('notifications')
-            .where('recipientId', '==', user.uid)
-            .where('type', 'in', ['milestone_today', 'milestone_tomorrow'])
-            .where('milestoneTitle', '==', milestone.title)
-            .where('createdAt', '>=', today)
-            .limit(1)
-            .get();
-        
-        if (!existingNotif.empty) continue;
-        
-        // Send notification for milestone TODAY
-        if (milestone.isToday) {
-            // Notify PIR
-            await db.collection('notifications').add({
-                recipientId: user.uid,
-                type: 'milestone_today',
-                message: `🎉 Congratulations! You've reached ${milestone.title}!`,
-                milestoneTitle: milestone.title,
-                icon: milestone.icon,
-                read: false,
-                urgent: true,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            // Notify Coach
-            if (userData.assignedCoach) {
-                await db.collection('notifications').add({
-                    recipientId: userData.assignedCoach,
-                    senderId: user.uid,
-                    senderName: userData.displayName || userData.firstName || 'PIR',
-                    type: 'pir_milestone_achieved',
-                    message: `${userData.displayName || 'PIR'} reached ${milestone.title}!`,
-                    milestoneTitle: milestone.title,
-                    icon: milestone.icon,
-                    read: false,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            }
-        }
-        
-        // Send notification for milestone TOMORROW
-        if (milestone.isTomorrow) {
-            // Notify PIR
-            await db.collection('notifications').add({
-                recipientId: user.uid,
-                type: 'milestone_tomorrow',
-                message: `Tomorrow you'll reach ${milestone.title}! Keep going!`,
-                milestoneTitle: milestone.title,
-                icon: milestone.icon,
-                read: false,
-                urgent: false,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            // Notify Coach
-            if (userData.assignedCoach) {
-                await db.collection('notifications').add({
-                    recipientId: userData.assignedCoach,
-                    senderId: user.uid,
-                    senderName: userData.displayName || userData.firstName || 'PIR',
-                    type: 'pir_milestone_upcoming',
-                    message: `${userData.displayName || 'PIR'} will reach ${milestone.title} tomorrow`,
-                    milestoneTitle: milestone.title,
-                    icon: milestone.icon,
-                    read: false,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            }
-        }
-    }
-};
+  
 
 const profileCompletion = calculateProfileCompletion();
 
