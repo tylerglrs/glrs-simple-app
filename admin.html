@@ -2643,28 +2643,37 @@ function MyPIRsView({ searchQuery, user }) {
         </div>
     );
 }
-        // Community Management View - Topic Rooms and GLRS Chat
+       // Community Management View - Enhanced with Groups, Support Groups, and Meetings
 function CommunityView({ searchQuery, user }) {
     const [activeTab, setActiveTab] = useState('chat');
     const [loading, setLoading] = useState(true);
     const [messages, setMessages] = useState([]);
     const [topicRooms, setTopicRooms] = useState([]);
     const [flaggedMessages, setFlaggedMessages] = useState([]);
-    const [selectedRoom, setSelectedRoom] = useState('main'); // main or room ID
+    const [supportGroups, setSupportGroups] = useState([]);
+    const [groups, setGroups] = useState([]);
+    const [meetings, setMeetings] = useState([]);
+    const [selectedRoom, setSelectedRoom] = useState('main');
     const [newMessage, setNewMessage] = useState('');
     const [showCreateRoom, setShowCreateRoom] = useState(false);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [modalType, setModalType] = useState(''); // room, supportGroup, group, meeting
+    const [selectedItem, setSelectedItem] = useState(null);
+    const [selectedImage, setSelectedImage] = useState(null);
     const [messageListener, setMessageListener] = useState(null);
     const [stats, setStats] = useState({
         totalMessages: 0,
         activeUsers: 0,
         flaggedCount: 0,
-        roomsCount: 0
+        roomsCount: 0,
+        supportGroupsCount: 0,
+        groupsCount: 0,
+        meetingsCount: 0
     });
 
     useEffect(() => {
         loadCommunityData();
         return () => {
-            // Cleanup listener on unmount
             if (messageListener) {
                 messageListener();
             }
@@ -2672,7 +2681,6 @@ function CommunityView({ searchQuery, user }) {
     }, []);
 
     useEffect(() => {
-        // Load messages when room changes
         if (selectedRoom) {
             loadMessages(selectedRoom);
         }
@@ -2690,6 +2698,54 @@ function CommunityView({ searchQuery, user }) {
             });
             setTopicRooms(roomsData);
 
+            // Load support groups
+            const supportGroupsSnap = await db.collection('supportGroups')
+                .orderBy('createdAt', 'desc')
+                .get();
+            const supportGroupsData = [];
+            supportGroupsSnap.forEach(doc => {
+                supportGroupsData.push({ id: doc.id, ...doc.data() });
+            });
+            setSupportGroups(supportGroupsData);
+
+            // Load groups
+            const groupsSnap = await db.collection('groups')
+                .orderBy('createdAt', 'desc')
+                .get();
+            const groupsData = [];
+            for (const doc of groupsSnap.docs) {
+                const groupData = { id: doc.id, ...doc.data() };
+                // Get member count
+                if (groupData.memberIds && groupData.memberIds.length > 0) {
+                    groupData.memberCount = groupData.memberIds.length;
+                } else {
+                    groupData.memberCount = 0;
+                }
+                groupsData.push(groupData);
+            }
+            setGroups(groupsData);
+
+            // Load meetings
+            const meetingsSnap = await db.collection('meetings')
+                .where('coachId', '==', user.uid)
+                .orderBy('scheduledTime', 'desc')
+                .limit(50)
+                .get();
+            const meetingsData = [];
+            for (const doc of meetingsSnap.docs) {
+                const meetingData = { id: doc.id, ...doc.data() };
+                // Get PIR info
+                if (meetingData.pirId) {
+                    const pirDoc = await db.collection('users').doc(meetingData.pirId).get();
+                    if (pirDoc.exists) {
+                        const pirData = pirDoc.data();
+                        meetingData.pirName = pirData.displayName || pirData.email;
+                    }
+                }
+                meetingsData.push(meetingData);
+            }
+            setMeetings(meetingsData);
+
             // Load flagged messages
             const flaggedSnap = await db.collection('messages')
                 .where('flagged', '==', true)
@@ -2702,7 +2758,6 @@ function CommunityView({ searchQuery, user }) {
             for (const doc of flaggedSnap.docs) {
                 const messageData = { id: doc.id, ...doc.data() };
                 
-                // Get user info
                 if (messageData.userId) {
                     const userDoc = await db.collection('users').doc(messageData.userId).get();
                     if (userDoc.exists) {
@@ -2731,7 +2786,10 @@ function CommunityView({ searchQuery, user }) {
                 totalMessages: messagesSnap.size,
                 activeUsers: uniqueUsers.size,
                 flaggedCount: flaggedData.length,
-                roomsCount: roomsData.length
+                roomsCount: roomsData.length,
+                supportGroupsCount: supportGroupsData.length,
+                groupsCount: groupsData.length,
+                meetingsCount: meetingsData.length
             });
 
         } catch (error) {
@@ -2742,12 +2800,10 @@ function CommunityView({ searchQuery, user }) {
     };
 
     const loadMessages = async (roomId) => {
-        // Clear previous listener
         if (messageListener) {
             messageListener();
         }
 
-        // Set up real-time listener for messages
         const listener = db.collection('messages')
             .where('roomId', '==', roomId)
             .orderBy('createdAt', 'desc')
@@ -2758,7 +2814,6 @@ function CommunityView({ searchQuery, user }) {
                 for (const doc of snapshot.docs) {
                     const messageData = { id: doc.id, ...doc.data() };
                     
-                    // Get user info
                     if (messageData.userId) {
                         const userDoc = await db.collection('users').doc(messageData.userId).get();
                         if (userDoc.exists) {
@@ -2824,7 +2879,6 @@ function CommunityView({ searchQuery, user }) {
                 });
             }
             
-            // Reload flagged messages
             loadCommunityData();
         } catch (error) {
             console.error('Error resolving flag:', error);
@@ -2873,6 +2927,58 @@ function CommunityView({ searchQuery, user }) {
                 console.error('Error deleting room:', error);
                 alert('Failed to delete room');
             }
+        }
+    };
+
+    const handleCreateSupportGroup = async (groupData) => {
+        try {
+            await db.collection('supportGroups').add({
+                ...groupData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: user.uid,
+                active: true
+            });
+            alert('Support group created successfully!');
+            setShowCreateModal(false);
+            loadCommunityData();
+        } catch (error) {
+            console.error('Error creating support group:', error);
+            alert('Failed to create support group');
+        }
+    };
+
+    const handleCreateGroup = async (groupData) => {
+        try {
+            await db.collection('groups').add({
+                ...groupData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: user.uid,
+                memberIds: [],
+                active: true
+            });
+            alert('Group created successfully!');
+            setShowCreateModal(false);
+            loadCommunityData();
+        } catch (error) {
+            console.error('Error creating group:', error);
+            alert('Failed to create group');
+        }
+    };
+
+    const handleCreateMeeting = async (meetingData) => {
+        try {
+            await db.collection('meetings').add({
+                ...meetingData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                coachId: user.uid,
+                status: 'scheduled'
+            });
+            alert('Meeting scheduled successfully!');
+            setShowCreateModal(false);
+            loadCommunityData();
+        } catch (error) {
+            console.error('Error creating meeting:', error);
+            alert('Failed to schedule meeting');
         }
     };
 
@@ -2926,6 +3032,24 @@ function CommunityView({ searchQuery, user }) {
                             </div>
                             <div className="message-content">
                                 {message.content}
+                                
+                                {/* Image display for base64 images */}
+                                {message.imageUrl && (
+                                    <div className="message-image-container" style={{marginTop: '10px'}}>
+                                        <img 
+                                            src={message.imageUrl} 
+                                            alt="Shared image"
+                                            style={{
+                                                maxWidth: '300px',
+                                                maxHeight: '300px',
+                                                borderRadius: '8px',
+                                                cursor: 'pointer',
+                                                display: 'block'
+                                            }}
+                                            onClick={() => setSelectedImage(message.imageUrl)}
+                                        />
+                                    </div>
+                                )}
                             </div>
                             <div className="message-actions">
                                 <button 
@@ -3024,7 +3148,6 @@ function CommunityView({ searchQuery, user }) {
                 </div>
             )}
 
-            {/* Create Room Modal */}
             {showCreateRoom && (
                 <div className="modal-overlay">
                     <div className="modal-content">
@@ -3037,6 +3160,211 @@ function CommunityView({ searchQuery, user }) {
                             onCancel={() => setShowCreateRoom(false)}
                         />
                     </div>
+                </div>
+            )}
+        </div>
+    );
+
+    const renderSupportGroupsTab = () => (
+        <div className="support-groups-container">
+            <div className="support-groups-header">
+                <h3>Support Groups</h3>
+                <button 
+                    className="btn btn-primary"
+                    onClick={() => {
+                        setModalType('supportGroup');
+                        setSelectedItem(null);
+                        setShowCreateModal(true);
+                    }}
+                >
+                    + Add Support Group
+                </button>
+            </div>
+
+            <div className="support-groups-grid">
+                {supportGroups.map(group => (
+                    <div key={group.id} className="support-group-card">
+                        <div className="group-header">
+                            <h4>{group.name}</h4>
+                            <span className={`badge badge-${group.type === 'AA' ? 'primary' : 
+                                group.type === 'NA' ? 'warning' : 
+                                group.type === 'SMART' ? 'success' : 'secondary'}`}>
+                                {group.type}
+                            </span>
+                        </div>
+                        <div className="group-details">
+                            <span>📅 {group.day}</span>
+                            <span>🕐 {group.time}</span>
+                            {group.link && (
+                                <a href={group.link} target="_blank" rel="noopener noreferrer">
+                                    🔗 Join Meeting
+                                </a>
+                            )}
+                        </div>
+                        <div className="group-actions">
+                            <button 
+                                className={`btn btn-sm ${group.active ? 'btn-success' : 'btn-secondary'}`}
+                                onClick={async () => {
+                                    await db.collection('supportGroups').doc(group.id).update({
+                                        active: !group.active
+                                    });
+                                    loadCommunityData();
+                                }}
+                            >
+                                {group.active ? 'Active' : 'Inactive'}
+                            </button>
+                            <button 
+                                className="btn btn-sm btn-danger"
+                                onClick={async () => {
+                                    if (confirm('Delete this support group?')) {
+                                        await db.collection('supportGroups').doc(group.id).delete();
+                                        loadCommunityData();
+                                    }
+                                }}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {supportGroups.length === 0 && (
+                <div className="empty-state">
+                    No support groups created. Add support groups for PIRs to join.
+                </div>
+            )}
+        </div>
+    );
+
+    const renderGroupsTab = () => (
+        <div className="groups-container">
+            <div className="groups-header">
+                <h3>PIR Groups</h3>
+                <button 
+                    className="btn btn-primary"
+                    onClick={() => {
+                        setModalType('group');
+                        setSelectedItem(null);
+                        setShowCreateModal(true);
+                    }}
+                >
+                    + Create Group
+                </button>
+            </div>
+
+            <div className="groups-grid">
+                {groups.map(group => (
+                    <div key={group.id} className="group-card">
+                        <h4>{group.name}</h4>
+                        <p>{group.description}</p>
+                        <div className="group-meta">
+                            <span>👥 {group.memberCount}/{group.maxMembers || '∞'} members</span>
+                            <span>📅 Created: {formatDate(group.createdAt)}</span>
+                        </div>
+                        <div className="group-actions">
+                            <button 
+                                className="btn btn-sm btn-info"
+                                onClick={() => {
+                                    // View/Edit group members
+                                    alert('Member management coming soon');
+                                }}
+                            >
+                                Manage Members
+                            </button>
+                            <button 
+                                className="btn btn-sm btn-danger"
+                                onClick={async () => {
+                                    if (confirm('Delete this group?')) {
+                                        await db.collection('groups').doc(group.id).delete();
+                                        loadCommunityData();
+                                    }
+                                }}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {groups.length === 0 && (
+                <div className="empty-state">
+                    No PIR groups created. Create groups to organize PIRs.
+                </div>
+            )}
+        </div>
+    );
+
+    const renderMeetingsTab = () => (
+        <div className="meetings-container">
+            <div className="meetings-header">
+                <h3>Scheduled Meetings</h3>
+                <button 
+                    className="btn btn-primary"
+                    onClick={() => {
+                        setModalType('meeting');
+                        setSelectedItem(null);
+                        setShowCreateModal(true);
+                    }}
+                >
+                    + Schedule Meeting
+                </button>
+            </div>
+
+            <div className="meetings-list">
+                {meetings.map(meeting => (
+                    <div key={meeting.id} className="meeting-card">
+                        <div className="meeting-header">
+                            <h4>{meeting.pirName || 'Unknown PIR'}</h4>
+                            <span className={`badge badge-${
+                                meeting.status === 'completed' ? 'success' :
+                                meeting.status === 'scheduled' ? 'primary' :
+                                meeting.status === 'cancelled' ? 'danger' : 'secondary'
+                            }`}>
+                                {meeting.status}
+                            </span>
+                        </div>
+                        <div className="meeting-details">
+                            <span>📅 {formatDate(meeting.scheduledTime)}</span>
+                            <span>🕐 {new Date(meeting.scheduledTime?.toDate ? meeting.scheduledTime.toDate() : meeting.scheduledTime).toLocaleTimeString()}</span>
+                            <span>📝 {meeting.type || 'Regular Session'}</span>
+                        </div>
+                        {meeting.notes && (
+                            <p className="meeting-notes">{meeting.notes}</p>
+                        )}
+                        <div className="meeting-actions">
+                            <button 
+                                className="btn btn-sm btn-success"
+                                onClick={async () => {
+                                    await db.collection('meetings').doc(meeting.id).update({
+                                        status: 'completed',
+                                        completedAt: firebase.firestore.FieldValue.serverTimestamp()
+                                    });
+                                    loadCommunityData();
+                                }}
+                            >
+                                Mark Complete
+                            </button>
+                            <button 
+                                className="btn btn-sm btn-warning"
+                                onClick={async () => {
+                                    await db.collection('meetings').doc(meeting.id).update({
+                                        status: 'cancelled'
+                                    });
+                                    loadCommunityData();
+                                }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {meetings.length === 0 && (
+                <div className="empty-state">
+                    No meetings scheduled. Schedule meetings with PIRs.
                 </div>
             )}
         </div>
@@ -3056,6 +3384,17 @@ function CommunityView({ searchQuery, user }) {
                             </div>
                             <div className="flagged-content">
                                 {message.content}
+                                {message.imageUrl && (
+                                    <img 
+                                        src={message.imageUrl} 
+                                        alt="Flagged content"
+                                        style={{
+                                            maxWidth: '200px',
+                                            marginTop: '10px',
+                                            borderRadius: '4px'
+                                        }}
+                                    />
+                                )}
                             </div>
                             <div className="flagged-reason">
                                 Reason: {message.flagReason || 'No reason provided'}
@@ -3099,8 +3438,8 @@ function CommunityView({ searchQuery, user }) {
                         <div className="stat-label">Topic Rooms</div>
                     </div>
                     <div className="stat-card">
-                        <div className="stat-value">{stats.flaggedCount}</div>
-                        <div className="stat-label">Flagged Items</div>
+                        <div className="stat-value">{stats.supportGroupsCount}</div>
+                        <div className="stat-label">Support Groups</div>
                     </div>
                 </div>
             </div>
@@ -3131,6 +3470,24 @@ function CommunityView({ searchQuery, user }) {
                     Topic Rooms ({topicRooms.length})
                 </button>
                 <button 
+                    className={`tab-btn ${activeTab === 'supportGroups' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('supportGroups')}
+                >
+                    Support Groups ({supportGroups.length})
+                </button>
+                <button 
+                    className={`tab-btn ${activeTab === 'groups' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('groups')}
+                >
+                    PIR Groups ({groups.length})
+                </button>
+                <button 
+                    className={`tab-btn ${activeTab === 'meetings' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('meetings')}
+                >
+                    Meetings ({meetings.length})
+                </button>
+                <button 
                     className={`tab-btn ${activeTab === 'moderation' ? 'active' : ''}`}
                     onClick={() => setActiveTab('moderation')}
                 >
@@ -3140,12 +3497,72 @@ function CommunityView({ searchQuery, user }) {
 
             {activeTab === 'chat' && renderChatTab()}
             {activeTab === 'rooms' && renderRoomsTab()}
+            {activeTab === 'supportGroups' && renderSupportGroupsTab()}
+            {activeTab === 'groups' && renderGroupsTab()}
+            {activeTab === 'meetings' && renderMeetingsTab()}
             {activeTab === 'moderation' && renderModerationTab()}
+
+            {/* Image Modal */}
+            {selectedImage && (
+                <div className="modal-overlay" onClick={() => setSelectedImage(null)} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                    cursor: 'pointer'
+                }}>
+                    <img 
+                        src={selectedImage} 
+                        alt="Full size"
+                        style={{
+                            maxWidth: '90vw',
+                            maxHeight: '90vh',
+                            objectFit: 'contain'
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                    <button 
+                        className="close-btn" 
+                        onClick={() => setSelectedImage(null)}
+                        style={{
+                            position: 'absolute',
+                            top: '20px',
+                            right: '20px',
+                            color: 'white',
+                            fontSize: '30px',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer'
+                        }}
+                    >×</button>
+                </div>
+            )}
+
+            {/* Create Modal for Support Groups/Groups/Meetings */}
+            {showCreateModal && (
+                <CommunityCreateModal
+                    type={modalType}
+                    item={selectedItem}
+                    onSubmit={(data) => {
+                        if (modalType === 'supportGroup') {
+                            handleCreateSupportGroup(data);
+                        } else if (modalType === 'group') {
+                            handleCreateGroup(data);
+                        } else if (modalType === 'meeting') {
+                            handleCreateMeeting(data);
+                        }
+                    }}
+                    onClose={() => {
+                        setShowCreateModal(false);
+                        setSelectedItem(null);
+                    }}
+                />
+            )}
         </div>
     );
 }
 
-// Create Room Form Component
+// Keep the existing CreateRoomForm component as is
 function CreateRoomForm({ onSubmit, onCancel }) {
     const [formData, setFormData] = useState({
         name: '',
