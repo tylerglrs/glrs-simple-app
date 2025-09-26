@@ -8579,91 +8579,101 @@ function UserDetailModal({ user, onClose, onUpdate, currentUserId }) {
                     .get()
             ]);
 
-           // Process check-ins
+           // Process check-ins with proper counting
 const checkIns = [];
 let totalMood = 0;
 let totalCravings = 0;
+let moodCount = 0;  // ADD: Count check-ins with mood
+let cravingCount = 0;  // ADD: Count check-ins with cravings
+
 checkInsSnap.forEach(doc => {
     const data = { id: doc.id, ...doc.data() };
     checkIns.push(data);
-    if (data.morningData?.mood) totalMood += data.morningData.mood;
-    if (data.morningData?.craving) totalCravings += data.morningData.craving;
+    if (data.morningData?.mood) {
+        totalMood += data.morningData.mood;
+        moodCount++;  // ADD: Increment counter
+    }
+    if (data.morningData?.craving) {
+        totalCravings += data.morningData.craving;
+        cravingCount++;  // ADD: Increment counter
+    }
 });
 
-            // Process assignments
-            const assignments = [];
-            let completedAssignments = 0;
-            assignmentsSnap.forEach(doc => {
-                const data = { id: doc.id, ...doc.data() };
-                assignments.push(data);
-                if (data.status === 'completed') completedAssignments++;
-            });
+// Process assignments
+const assignments = [];
+let completedAssignments = 0;
+assignmentsSnap.forEach(doc => {
+    const data = { id: doc.id, ...doc.data() };
+    assignments.push(data);
+    if (data.status === 'completed') completedAssignments++;
+});
 
-            // Process groups
-            const groups = [];
-            groupsSnap.forEach(doc => {
-                groups.push({ id: doc.id, ...doc.data() });
-            });
+// Process groups
+const groups = [];
+groupsSnap.forEach(doc => {
+    groups.push({ id: doc.id, ...doc.data() });
+});
 
-            // Process alerts
-            const alerts = [];
-            alertsSnap.forEach(doc => {
-                alerts.push({ id: doc.id, ...doc.data() });
-            });
+// Process alerts
+const alerts = [];
+alertsSnap.forEach(doc => {
+    alerts.push({ id: doc.id, ...doc.data() });
+});
 
-            // Process feedback
-            const feedback = [];
-            feedbackSnap.forEach(doc => {
-                feedback.push({ id: doc.id, ...doc.data() });
-            });
+// Process feedback
+const feedback = [];
+feedbackSnap.forEach(doc => {
+    feedback.push({ id: doc.id, ...doc.data() });
+});
 
-            // Process resources
-            const resources = [];
-            resourcesSnap.forEach(doc => {
-                resources.push({ id: doc.id, ...doc.data() });
-            });
+// Process resources
+const resources = [];
+resourcesSnap.forEach(doc => {
+    resources.push({ id: doc.id, ...doc.data() });
+});
 
-            // Calculate stats
-            const now = new Date();
-            const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
-            const expectedCheckIns = 30; // Daily for 30 days
-            
-            const recentCheckIns = checkIns.filter(ci => {
-                const checkInDate = ci.createdAt?.toDate ? ci.createdAt.toDate() : new Date(ci.createdAt);
-                return checkInDate >= thirtyDaysAgo;
-            });
+// Calculate stats
+const now = new Date();
+const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
+const expectedCheckIns = 30; // Daily for 30 days
 
-            const daysClean = user.sobrietyDate ? 
-                Math.floor((now - new Date(user.sobrietyDate)) / (1000 * 60 * 60 * 24)) : 0;
+// FIX: Count only morning check-ins in last 30 days
+const recentMorningCheckIns = checkIns.filter(ci => {
+    const checkInDate = ci.createdAt?.toDate ? ci.createdAt.toDate() : new Date(ci.createdAt);
+    return checkInDate >= thirtyDaysAgo && ci.morningData;  // ADD: Check for morningData
+});
 
-            const stats = {
-                checkInRate: Math.round((recentCheckIns.length / expectedCheckIns) * 100),
-                avgMood: checkIns.length > 0 ? (totalMood / checkIns.length).toFixed(1) : 0,
-                avgCravings: checkIns.length > 0 ? (totalCravings / checkIns.length).toFixed(1) : 0,
-                daysClean: daysClean,
-                assignmentCompletion: assignments.length > 0 ? 
-                    Math.round((completedAssignments / assignments.length) * 100) : 0,
-                totalCheckIns: checkIns.length,
-                missedCheckIns: expectedCheckIns - recentCheckIns.length,
-                lastCheckIn: checkIns[0]?.createdAt
-            };
+// FIX: Add +1 for inclusive day counting
+const daysClean = user.sobrietyDate ? 
+    Math.floor((now - new Date(user.sobrietyDate)) / (1000 * 60 * 60 * 24)) + 1 : 0;
 
-            setPirData({
-                checkIns,
-                assignments,
-                groups,
-                alerts,
-                feedback,
-                resources,
-                stats
-            });
+const stats = {
+    checkInRate: Math.round((recentMorningCheckIns.length / expectedCheckIns) * 100),  // FIX: Use morning only
+    avgMood: moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 0,  // FIX: Divide by moodCount
+    avgCravings: cravingCount > 0 ? (totalCravings / cravingCount).toFixed(1) : 0,  // FIX: Divide by cravingCount
+    daysClean: daysClean,
+    assignmentCompletion: assignments.length > 0 ? 
+        Math.round((completedAssignments / assignments.length) * 100) : 0,
+    totalCheckIns: checkIns.length,
+    missedCheckIns: expectedCheckIns - recentMorningCheckIns.length,  // FIX: Use morning check-ins
+    lastCheckIn: checkIns[0]?.createdAt
+};
 
-        } catch (error) {
-            console.error('Error loading PIR data:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
+setPirData({
+    checkIns,
+    assignments,
+    groups,
+    alerts,
+    feedback,
+    resources,
+    stats
+});
+} catch (error) {
+    console.error('Error loading PIR data:', error);
+} finally {
+    setLoading(false);
+}
+};
 
     const handleUpdate = async () => {
         try {
