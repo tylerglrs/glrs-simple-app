@@ -1923,7 +1923,7 @@ const handleReflectionSave = async (assignmentId, reflection) => {
         alert('Failed to save reflection');
     }
 };
-       // Upload image handler with compression before base64
+      // Fixed upload handler - saves data URL directly with message
 const uploadChatImage = async (file, chatType, roomId) => {
     if (!file) return null;
     
@@ -1938,7 +1938,7 @@ const uploadChatImage = async (file, chatType, roomId) => {
                 const ctx = canvas.getContext('2d');
                 
                 // Set max dimensions
-                const maxWidth = 800;  // Reduced for base64
+                const maxWidth = 800;
                 const maxHeight = 800;
                 let width = img.width;
                 let height = img.height;
@@ -1961,40 +1961,18 @@ const uploadChatImage = async (file, chatType, roomId) => {
                 canvas.height = height;
                 ctx.drawImage(img, 0, 0, width, height);
                 
-                // Convert to base64 with lower quality
-                canvas.toBlob(async (blob) => {
-                    if (blob.size > 700000) { // If still too large
-                        alert('Image too large. Please choose a smaller image.');
-                        reject(new Error('Image too large after compression'));
-                        return;
-                    }
-                    
-                    // Convert blob to base64
-                    const compressedReader = new FileReader();
-                    compressedReader.onload = async (e2) => {
-                        try {
-                            const base64String = e2.target.result.split(',')[1];
-                            
-                            // Save to Firestore
-                            const imageDoc = await db.collection('chatImages').add({
-                                base64: base64String,
-                                fileName: file.name,
-                                mimeType: 'image/jpeg',
-                                chatType: chatType,
-                                roomId: roomId,
-                                userId: user.uid,
-                                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                            });
-                            
-                            // Return data URL for display
-                            resolve(e2.target.result);
-                        } catch (error) {
-                            console.error('Upload error:', error);
-                            reject(error);
-                        }
-                    };
-                    compressedReader.readAsDataURL(blob);
-                }, 'image/jpeg', 0.6); // 60% quality
+                // Convert to data URL directly
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+                
+                // Check size
+                if (dataUrl.length > 900000) { // ~900KB limit for safety
+                    alert('Image too large. Please choose a smaller image.');
+                    reject(new Error('Image too large after compression'));
+                    return;
+                }
+                
+                // Return the data URL directly - no Firestore save needed here
+                resolve(dataUrl);
             };
             img.onerror = () => reject(new Error('Failed to load image'));
             img.src = e.target.result;
@@ -2003,7 +1981,6 @@ const uploadChatImage = async (file, chatType, roomId) => {
         reader.readAsDataURL(file);
     });
 };
-
 // Shared content flagging handler (this one is fine)
 const flagContent = async (contentType, contentData) => {
     const reason = prompt('Please describe why you are flagging this content:');
@@ -2811,23 +2788,27 @@ const loadComplianceRates = async () => {
                 }
             };
 
-            // Send community message
-            const sendCommunityMessage = async (content) => {
-                if (!content || !content.trim()) return;
-                
-                try {
-                    await db.collection('messages').add({
-                        roomId: 'main',
-                        userId: user.uid,
-                        senderName: userData?.displayName || userData?.firstName || 'Anonymous',
-                        content: content,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                } catch (error) {
-                    console.error('Error sending message:', error);
-                }
-            };
-
+           // Update the send message function for GLRS Community
+const sendCommunityMessage = async (message, imageUrl) => {
+    try {
+        const messageData = {
+            senderId: user.uid,
+            senderName: userData?.displayName || userData?.firstName || 'Anonymous',
+            content: message,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        
+        // Add image URL if provided
+        if (imageUrl) {
+            messageData.imageUrl = imageUrl;
+        }
+        
+        await db.collection('glrsChat').add(messageData);
+    } catch (error) {
+        console.error('Error sending community message:', error);
+        throw error;
+    }
+};
            // Send topic room message - UPDATED
 const sendTopicRoomMessage = async (roomId, content, imageUrl = null) => {
     if (!content || !content.trim()) return;
