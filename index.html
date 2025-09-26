@@ -1781,40 +1781,67 @@ const handleFlagTopicMessage = async (message) => {
     }
 };
 
-            // Load meetings
-            const loadMeetings = async () => {
-                try {
-                    const meetingsSnap = await db.collection('meetings')
-                        .where('active', '==', true)
-                        .get();
-                    
-                    const meetingsData = [];
-                    meetingsSnap.forEach(doc => {
-                        meetingsData.push({ id: doc.id, ...doc.data() });
-                    });
-                    setMeetings(meetingsData);
-                } catch (error) {
-                    console.error('Error loading meetings:', error);
-                }
-            };
+           // Load meetings
+const loadMeetings = async () => {
+    try {
+        const currentUserId = auth.currentUser?.uid;
+        if (!currentUserId) return;
+
+        // Get meetings where this PIR is specifically assigned
+        const assignedMeetingsSnap = await db.collection('meetings')
+            .where('assignedPIRs', 'array-contains', currentUserId)
+            .where('status', '==', 'scheduled')
+            .get();
+        
+        // Get global meetings (for all PIRs)
+        const globalMeetingsSnap = await db.collection('meetings')
+            .where('isGlobal', '==', true)
+            .where('status', '==', 'scheduled')
+            .get();
+        
+        // Combine both results and remove duplicates
+        const meetingsMap = new Map();
+        
+        assignedMeetingsSnap.forEach(doc => {
+            meetingsMap.set(doc.id, { id: doc.id, ...doc.data() });
+        });
+        
+        globalMeetingsSnap.forEach(doc => {
+            if (!meetingsMap.has(doc.id)) {
+                meetingsMap.set(doc.id, { id: doc.id, ...doc.data() });
+            }
+        });
+        
+        // Convert to array and sort by scheduled time
+        const meetingsData = Array.from(meetingsMap.values()).sort((a, b) => {
+            const timeA = a.scheduledTime?.toDate ? a.scheduledTime.toDate() : new Date(a.scheduledTime);
+            const timeB = b.scheduledTime?.toDate ? b.scheduledTime.toDate() : new Date(b.scheduledTime);
+            return timeA - timeB;
+        });
+        
+        setMeetings(meetingsData);
+    } catch (error) {
+        console.error('Error loading meetings:', error);
+    }
+};
 
             // Load support groups user is assigned to
-            const loadSupportGroups = async () => {
-                try {
-                    const groupsSnap = await db.collection('supportGroups')
-                        .where('assignedPIRs', 'array-contains', user.uid)
-                        .where('active', '==', true)
-                        .get();
-                    
-                    const groupsData = [];
-                    groupsSnap.forEach(doc => {
-                        groupsData.push({ id: doc.id, ...doc.data() });
-                    });
-                    setSupportGroups(groupsData);
-                } catch (error) {
-                    console.error('Error loading support groups:', error);
-                }
-            };
+           const loadSupportGroups = async () => {
+    try {
+        const groupsSnap = await db.collection('supportGroups')
+            .where('active', '==', true)
+            .orderBy('day')
+            .get();
+        
+        const groupsData = [];
+        groupsSnap.forEach(doc => {
+            groupsData.push({ id: doc.id, ...doc.data() });
+        });
+        setSupportGroups(groupsData);
+    } catch (error) {
+        console.error('Error loading support groups:', error);
+    }
+};
 
             // Load emergency resources
             const loadEmergencyResources = async () => {
@@ -3596,72 +3623,120 @@ const sendTopicRoomMessage = async (roomId, content, imageUrl = null) => {
                                     </>
                                 )}
 
-                                {activeChat === 'groups' && (
-                                    <>
-                                        <h3 style={{color: '#f4c430', marginBottom: '20px'}}>My Support Groups</h3>
-                                        {supportGroups.length > 0 ? (
-                                            supportGroups.map(group => (
-                                                <div key={group.id} className="support-group-card">
-                                                    <h4 style={{color: 'white'}}>{group.name}</h4>
-                                                    <p style={{color: 'rgba(255,255,255,0.7)', marginBottom: '10px'}}>
-                                                        {group.description}
-                                                    </p>
-                                                    <div style={{fontSize: '14px', opacity: 0.8}}>
-                                                        <div>📅 {group.schedule}</div>
-                                                        <div>⏰ {group.time}</div>
-                                                        <div>📍 {group.location || 'Virtual'}</div>
-                                                        <div>👥 {group.assignedPIRs?.length || 0} members</div>
-                                                    </div>
-                                                    {group.meetingUrl && (
-                                                        <button 
-                                                            className="join-btn" 
-                                                            onClick={() => window.open(group.meetingUrl, '_blank')}
-                                                        >
-                                                            Join Virtual Meeting
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <div className="empty-state">
-                                                <div className="empty-state-icon">👥</div>
-                                                <div className="empty-state-text">
-                                                    You haven't been assigned to any support groups yet.
-                                                </div>
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-
+                               {activeChat === 'groups' && (
+    <>
+        <h3 style={{color: '#f4c430', marginBottom: '20px'}}>Support Groups</h3>
+        {supportGroups.length > 0 ? (
+            supportGroups.map(group => (
+                <div key={group.id} className="support-group-card">
+                    <div className="group-header">
+                        <h4 style={{color: 'white'}}>{group.name}</h4>
+                        <span className={`badge ${
+                            group.type === 'AA' ? 'badge-primary' :
+                            group.type === 'NA' ? 'badge-warning' :
+                            group.type === 'SMART' ? 'badge-success' :
+                            'badge-secondary'
+                        }`}>
+                            {group.type}
+                        </span>
+                    </div>
+                    
+                    {group.description && (
+                        <p style={{color: 'rgba(255,255,255,0.7)', marginBottom: '10px'}}>
+                            {group.description}
+                        </p>
+                    )}
+                    
+                    <div style={{fontSize: '14px', opacity: 0.8}}>
+                        <div>📅 {group.day}</div>
+                        <div>⏰ {group.time}</div>
+                        {group.location && (
+                            <div>📍 {group.location}</div>
+                        )}
+                        {!group.location && group.link && (
+                            <div>📍 Virtual Meeting</div>
+                        )}
+                    </div>
+                    
+                    {group.link && (
+                        <button 
+                            className="join-btn" 
+                            onClick={() => window.open(group.link, '_blank')}
+                            style={{marginTop: '10px'}}
+                        >
+                            Join Virtual Meeting
+                        </button>
+                    )}
+                </div>
+            ))
+        ) : (
+            <div className="empty-state">
+                <div className="empty-state-icon">👥</div>
+                <div className="empty-state-text">
+                    No support groups available yet.
+                </div>
+            </div>
+        )}
+    </>
+)}
                                 {activeChat === 'meetings' && (
-                                    <>
-                                        <h3 style={{color: '#f4c430', marginBottom: '20px'}}>Available Meetings</h3>
-                                        {meetings.length > 0 ? (
-                                            meetings.map(meeting => (
-                                                <div key={meeting.id} className="meeting-card">
-                                                    <div className="meeting-type">{meeting.type}</div>
-                                                    <h4>{meeting.name}</h4>
-                                                    <div>📅 {meeting.schedule}</div>
-                                                    <div>⏰ {meeting.time}</div>
-                                                    <div>📍 {meeting.location || 'Online'}</div>
-                                                    {meeting.meetingUrl && (
-                                                        <button 
-                                                            className="join-btn" 
-                                                            onClick={() => window.open(meeting.meetingUrl, '_blank')}
-                                                        >
-                                                            Join Online Meeting
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <div className="empty-state">
-                                                <div className="empty-state-icon">📅</div>
-                                                <div className="empty-state-text">No meetings scheduled.</div>
-                                            </div>
-                                        )}
-                                    </>
-                                )}
+    <>
+        <h3 style={{color: '#f4c430', marginBottom: '20px'}}>Scheduled Group Meetings</h3>
+        {meetings.length > 0 ? (
+            meetings.map(meeting => {
+                const meetingDate = meeting.scheduledTime?.toDate ? 
+                    meeting.scheduledTime.toDate() : 
+                    new Date(meeting.scheduledTime);
+                
+                return (
+                    <div key={meeting.id} className="meeting-card">
+                        <div className="meeting-header">
+                            <h4>{meeting.meetingTitle || 'Group Recovery Session'}</h4>
+                            <span className={`status-badge ${
+                                meeting.status === 'scheduled' ? 'scheduled' : 
+                                meeting.status === 'completed' ? 'completed' : 'cancelled'
+                            }`}>
+                                {meeting.status}
+                            </span>
+                        </div>
+                        
+                        <div className="meeting-type">{meeting.type || 'Group Session'}</div>
+                        
+                        <div className="meeting-details">
+                            <div>📅 {meetingDate.toLocaleDateString()}</div>
+                            <div>⏰ {meetingDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                            <div>⏱️ Duration: {meeting.duration || '60'} minutes</div>
+                            
+                            {meeting.isGlobal && (
+                                <div>🌍 All PIRs Invited</div>
+                            )}
+                        </div>
+                        
+                        {meeting.notes && (
+                            <div className="meeting-notes">
+                                📝 {meeting.notes}
+                            </div>
+                        )}
+                        
+                        {meeting.meetingLink && (
+                            <button 
+                                className="join-btn" 
+                                onClick={() => window.open(meeting.meetingLink, '_blank')}
+                            >
+                                Join Virtual Meeting
+                            </button>
+                        )}
+                    </div>
+                );
+            })
+        ) : (
+            <div className="empty-state">
+                <div className="empty-state-icon">📅</div>
+                <div className="empty-state-text">No group meetings scheduled.</div>
+            </div>
+        )}
+    </>
+)}
                                 
                                 <div className="crisis-resources">
                                     <div className="crisis-title">🆘 Crisis Resources</div>
