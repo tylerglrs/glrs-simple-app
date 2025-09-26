@@ -2725,24 +2725,31 @@ function CommunityView({ searchQuery, user }) {
             }
             setGroups(groupsData);
 
-            // Load meetings
-            const meetingsSnap = await db.collection('meetings')
-                .where('coachId', '==', user.uid)
-                .orderBy('scheduledTime', 'desc')
-                .limit(50)
-                .get();
-            const meetingsData = [];
-            for (const doc of meetingsSnap.docs) {
-                const meetingData = { id: doc.id, ...doc.data() };
-                // Get PIR info
-                if (meetingData.pirId) {
-                    const pirDoc = await db.collection('users').doc(meetingData.pirId).get();
-                    if (pirDoc.exists) {
-                        const pirData = pirDoc.data();
-                        meetingData.pirName = pirData.displayName || pirData.email;
-                    }
-                }
-                meetingsData.push(meetingData);
+           // Load meetings (group sessions)
+const meetingsSnap = await db.collection('meetings')
+    .where('coachId', '==', user.uid)
+    .orderBy('scheduledTime', 'desc')
+    .limit(50)
+    .get();
+const meetingsData = [];
+for (const doc of meetingsSnap.docs) {
+    const meetingData = { id: doc.id, ...doc.data() };
+    
+    // Get PIR names if specific PIRs assigned
+    if (meetingData.assignedPIRs && meetingData.assignedPIRs.length > 0) {
+        const pirNames = [];
+        for (const pirId of meetingData.assignedPIRs) {
+            const pirDoc = await db.collection('users').doc(pirId).get();
+            if (pirDoc.exists) {
+                const pirData = pirDoc.data();
+                pirNames.push(pirData.displayName || `${pirData.firstName} ${pirData.lastName}` || pirData.email);
+            }
+        }
+        meetingData.pirNames = pirNames;
+    }
+    meetingsData.push(meetingData);
+}
+setMeetings(meetingsData);
             }
             setMeetings(meetingsData);
 
@@ -3297,79 +3304,137 @@ function CommunityView({ searchQuery, user }) {
     );
 
     const renderMeetingsTab = () => (
-        <div className="meetings-container">
-            <div className="meetings-header">
-                <h3>Scheduled Meetings</h3>
-                <button 
-                    className="btn btn-primary"
-                    onClick={() => {
-                        setModalType('meeting');
-                        setSelectedItem(null);
-                        setShowCreateModal(true);
-                    }}
-                >
-                    + Schedule Meeting
-                </button>
-            </div>
+    <div className="meetings-container">
+        <div className="meetings-header">
+            <h3>Group Meetings</h3>
+            <button 
+                className="btn btn-primary"
+                onClick={() => {
+                    setModalType('meeting');
+                    setSelectedItem(null);
+                    setShowCreateModal(true);
+                }}
+            >
+                + Schedule Group Meeting
+            </button>
+        </div>
 
-            <div className="meetings-list">
-                {meetings.map(meeting => (
-                    <div key={meeting.id} className="meeting-card">
-                        <div className="meeting-header">
-                            <h4>{meeting.pirName || 'Unknown PIR'}</h4>
-                            <span className={`badge badge-${
-                                meeting.status === 'completed' ? 'success' :
-                                meeting.status === 'scheduled' ? 'primary' :
-                                meeting.status === 'cancelled' ? 'danger' : 'secondary'
-                            }`}>
-                                {meeting.status}
-                            </span>
-                        </div>
-                        <div className="meeting-details">
-                            <span>📅 {formatDate(meeting.scheduledTime)}</span>
-                            <span>🕐 {new Date(meeting.scheduledTime?.toDate ? meeting.scheduledTime.toDate() : meeting.scheduledTime).toLocaleTimeString()}</span>
-                            <span>📝 {meeting.type || 'Regular Session'}</span>
-                        </div>
-                        {meeting.notes && (
-                            <p className="meeting-notes">{meeting.notes}</p>
+        <div className="meetings-list">
+            {meetings.map(meeting => (
+                <div key={meeting.id} className="meeting-card">
+                    <div className="meeting-header">
+                        <h4>{meeting.meetingTitle || 'Group Recovery Session'}</h4>
+                        <span className={`badge badge-${
+                            meeting.status === 'completed' ? 'success' :
+                            meeting.status === 'scheduled' ? 'primary' :
+                            meeting.status === 'cancelled' ? 'danger' : 'secondary'
+                        }`}>
+                            {meeting.status}
+                        </span>
+                    </div>
+                    
+                    <div className="meeting-participants">
+                        {meeting.isGlobal ? (
+                            <div className="participant-badge">
+                                🌍 All PIRs Invited
+                            </div>
+                        ) : meeting.pirNames && meeting.pirNames.length > 0 ? (
+                            <div>
+                                <strong>Participants ({meeting.pirNames.length}):</strong>
+                                <div className="participant-list">
+                                    {meeting.pirNames.slice(0, 3).map((name, idx) => (
+                                        <span key={idx} className="participant-name">{name}</span>
+                                    ))}
+                                    {meeting.pirNames.length > 3 && (
+                                        <span className="participant-more">
+                                            +{meeting.pirNames.length - 3} more
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="participant-badge">
+                                No PIRs assigned
+                            </div>
                         )}
-                        <div className="meeting-actions">
-                            <button 
-                                className="btn btn-sm btn-success"
-                                onClick={async () => {
-                                    await db.collection('meetings').doc(meeting.id).update({
-                                        status: 'completed',
-                                        completedAt: firebase.firestore.FieldValue.serverTimestamp()
-                                    });
-                                    loadCommunityData();
-                                }}
-                            >
-                                Mark Complete
-                            </button>
-                            <button 
-                                className="btn btn-sm btn-warning"
-                                onClick={async () => {
+                    </div>
+
+                    <div className="meeting-details">
+                        <span>📅 {formatDate(meeting.scheduledTime)}</span>
+                        <span>🕐 {new Date(meeting.scheduledTime?.toDate ? meeting.scheduledTime.toDate() : meeting.scheduledTime).toLocaleTimeString()}</span>
+                        <span>📝 {meeting.type || 'Group Session'}</span>
+                        {meeting.meetingLink && (
+                            <a href={meeting.meetingLink} target="_blank" rel="noopener noreferrer">
+                                🔗 Join Meeting
+                            </a>
+                        )}
+                    </div>
+                    
+                    {meeting.notes && (
+                        <p className="meeting-notes">{meeting.notes}</p>
+                    )}
+                    
+                    <div className="meeting-actions">
+                        <button 
+                            className="btn btn-sm btn-info"
+                            onClick={() => {
+                                setSelectedItem(meeting);
+                                setModalType('meeting');
+                                setShowCreateModal(true);
+                            }}
+                        >
+                            Edit
+                        </button>
+                        <button 
+                            className="btn btn-sm btn-success"
+                            onClick={async () => {
+                                await db.collection('meetings').doc(meeting.id).update({
+                                    status: 'completed',
+                                    completedAt: firebase.firestore.FieldValue.serverTimestamp()
+                                });
+                                loadCommunityData();
+                            }}
+                            disabled={meeting.status === 'completed'}
+                        >
+                            Mark Complete
+                        </button>
+                        <button 
+                            className="btn btn-sm btn-warning"
+                            onClick={async () => {
+                                if (confirm('Cancel this meeting?')) {
                                     await db.collection('meetings').doc(meeting.id).update({
                                         status: 'cancelled'
                                     });
                                     loadCommunityData();
-                                }}
-                            >
-                                Cancel
-                            </button>
-                        </div>
+                                }
+                            }}
+                            disabled={meeting.status === 'cancelled'}
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            className="btn btn-sm btn-danger"
+                            onClick={async () => {
+                                if (confirm('Delete this meeting permanently?')) {
+                                    await db.collection('meetings').doc(meeting.id).delete();
+                                    loadCommunityData();
+                                }
+                            }}
+                        >
+                            Delete
+                        </button>
                     </div>
-                ))}
-            </div>
-
-            {meetings.length === 0 && (
-                <div className="empty-state">
-                    No meetings scheduled. Schedule meetings with PIRs.
                 </div>
-            )}
+            ))}
         </div>
-    );
 
+        {meetings.length === 0 && (
+            <div className="empty-state">
+                No group meetings scheduled. Schedule group meetings for PIRs.
+            </div>
+        )}
+    </div>
+);
     const renderModerationTab = () => (
         <div className="moderation-container">
             <h3>Flagged Messages ({flaggedMessages.length})</h3>
