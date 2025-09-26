@@ -1923,39 +1923,81 @@ const handleReflectionSave = async (assignmentId, reflection) => {
         alert('Failed to save reflection');
     }
 };
-        // Upload image handler using base64 (to avoid CORS issues)
+       // Upload image handler with compression before base64
 const uploadChatImage = async (file, chatType, roomId) => {
     if (!file) return null;
     
     return new Promise((resolve, reject) => {
+        // First compress the image
         const reader = new FileReader();
-        reader.onload = async (e) => {
-            try {
-                // Check file size before converting to base64
-                if (file.size > 1024 * 1024) { // 1MB limit for base64
-                    alert('Image must be less than 1MB');
-                    reject(new Error('File too large'));
-                    return;
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                // Create canvas for compression
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                // Set max dimensions
+                const maxWidth = 800;  // Reduced for base64
+                const maxHeight = 800;
+                let width = img.width;
+                let height = img.height;
+                
+                // Calculate new dimensions
+                if (width > height) {
+                    if (width > maxWidth) {
+                        height = (maxWidth / width) * height;
+                        width = maxWidth;
+                    }
+                } else {
+                    if (height > maxHeight) {
+                        width = (maxHeight / height) * width;
+                        height = maxHeight;
+                    }
                 }
                 
-                const base64String = e.target.result.split(',')[1];
+                // Set canvas size and draw compressed image
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
                 
-                // Save base64 string to Firestore
-                const imageDoc = await db.collection('chatImages').add({
-                    base64: base64String,
-                    fileName: file.name,
-                    mimeType: file.type,
-                    chatType: chatType,
-                    roomId: roomId,
-                    userId: user.uid,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                
-                // Return the data URL for immediate display
-                resolve(e.target.result);
-            } catch (error) {
-                reject(error);
-            }
+                // Convert to base64 with lower quality
+                canvas.toBlob(async (blob) => {
+                    if (blob.size > 700000) { // If still too large
+                        alert('Image too large. Please choose a smaller image.');
+                        reject(new Error('Image too large after compression'));
+                        return;
+                    }
+                    
+                    // Convert blob to base64
+                    const compressedReader = new FileReader();
+                    compressedReader.onload = async (e2) => {
+                        try {
+                            const base64String = e2.target.result.split(',')[1];
+                            
+                            // Save to Firestore
+                            const imageDoc = await db.collection('chatImages').add({
+                                base64: base64String,
+                                fileName: file.name,
+                                mimeType: 'image/jpeg',
+                                chatType: chatType,
+                                roomId: roomId,
+                                userId: user.uid,
+                                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                            
+                            // Return data URL for display
+                            resolve(e2.target.result);
+                        } catch (error) {
+                            console.error('Upload error:', error);
+                            reject(error);
+                        }
+                    };
+                    compressedReader.readAsDataURL(blob);
+                }, 'image/jpeg', 0.6); // 60% quality
+            };
+            img.onerror = () => reject(new Error('Failed to load image'));
+            img.src = e.target.result;
         };
         reader.onerror = reject;
         reader.readAsDataURL(file);
