@@ -8507,7 +8507,7 @@ function ResourceModal({ type, item, onSubmit, onClose }) {
             );
         }
 
-       // Enhanced User Detail Modal with Tabs for PIR comprehensive view
+      // Enhanced User Detail Modal with Tabs for PIR comprehensive view
 function UserDetailModal({ user, onClose, onUpdate, currentUserId }) {
     const [activeTab, setActiveTab] = useState('overview');
     const [loading, setLoading] = useState(true);
@@ -8544,6 +8544,10 @@ function UserDetailModal({ user, onClose, onUpdate, currentUserId }) {
         try {
             setLoading(true);
 
+            // Get 30 days ago for proper filtering
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
             // Parallel load all PIR data
             const [
                 checkInsSnap,
@@ -8555,15 +8559,14 @@ function UserDetailModal({ user, onClose, onUpdate, currentUserId }) {
             ] = await Promise.all([
                 db.collection('checkIns')
                     .where('userId', '==', user.id)
+                    .where('createdAt', '>=', thirtyDaysAgo)
                     .orderBy('createdAt', 'desc')
-                    .limit(30)
                     .get(),
                 db.collection('assignments')
                     .where('userId', '==', user.id)
                     .orderBy('createdAt', 'desc')
                     .get(),
-                db.collection('groups')
-    .get(),
+                db.collection('groups').get(),
                 db.collection('alerts')
                     .where('userId', '==', user.id)
                     .orderBy('createdAt', 'desc')
@@ -8573,93 +8576,105 @@ function UserDetailModal({ user, onClose, onUpdate, currentUserId }) {
                     .where('userId', '==', user.id)
                     .orderBy('createdAt', 'desc')
                     .get(),
-                db.collection('resources')
-                    .get()
+                db.collection('resources').get()
             ]);
 
-           // Process check-ins with proper counting
-const checkIns = [];
-let totalMood = 0;
-let totalCravings = 0;
-let moodCount = 0;
-let cravingCount = 0;
+            // Process check-ins with proper counting
+            const checkIns = [];
+            let totalMood = 0;
+            let totalCravings = 0;
+            let moodCount = 0;
+            let cravingCount = 0;
 
-checkInsSnap.forEach(doc => {
-    const data = { id: doc.id, ...doc.data() };
-    checkIns.push(data);
-    if (data.morningData?.mood) {
-        totalMood += data.morningData.mood;
-        moodCount++;
-    }
-    if (data.morningData?.craving) {
-        totalCravings += data.morningData.craving;
-        cravingCount++;
-    }
-});
+            checkInsSnap.forEach(doc => {
+                const data = { id: doc.id, ...doc.data() };
+                checkIns.push(data);
+                if (data.morningData?.mood) {
+                    totalMood += data.morningData.mood;
+                    moodCount++;
+                }
+                if (data.morningData?.craving) {
+                    totalCravings += data.morningData.craving;
+                    cravingCount++;
+                }
+            });
 
-// Process assignments
-const assignments = [];
-let completedAssignments = 0;
-assignmentsSnap.forEach(doc => {
-    const data = { id: doc.id, ...doc.data() };
-    assignments.push(data);
-    if (data.status === 'completed') completedAssignments++;
-});
+            // Process assignments
+            const assignments = [];
+            let completedAssignments = 0;
+            assignmentsSnap.forEach(doc => {
+                const data = { id: doc.id, ...doc.data() };
+                assignments.push(data);
+                if (data.status === 'completed') completedAssignments++;
+            });
 
-// Process groups
-const groups = [];
-groupsSnap.forEach(doc => {
-    groups.push({ id: doc.id, ...doc.data() });
-});
+            // Process groups
+            const groups = [];
+            groupsSnap.forEach(doc => {
+                groups.push({ id: doc.id, ...doc.data() });
+            });
 
-// Process alerts
-const alerts = [];
-alertsSnap.forEach(doc => {
-    alerts.push({ id: doc.id, ...doc.data() });
-});
+            // Process alerts
+            const alerts = [];
+            alertsSnap.forEach(doc => {
+                alerts.push({ id: doc.id, ...doc.data() });
+            });
 
-// Process feedback
-const feedback = [];
-feedbackSnap.forEach(doc => {
-    feedback.push({ id: doc.id, ...doc.data() });
-});
+            // Process feedback
+            const feedback = [];
+            feedbackSnap.forEach(doc => {
+                feedback.push({ id: doc.id, ...doc.data() });
+            });
 
-// Process resources
-const resources = [];
-resourcesSnap.forEach(doc => {
-    resources.push({ id: doc.id, ...doc.data() });
-});
+            // Process resources
+            const resources = [];
+            resourcesSnap.forEach(doc => {
+                resources.push({ id: doc.id, ...doc.data() });
+            });
 
-// Calculate stats
-const now = new Date();
-const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
+            // Calculate stats
+            const now = new Date();
 
-// FIX: Calculate expected check-ins based on user join date
-const userJoinDate = user.createdAt?.toDate ? user.createdAt.toDate() : new Date(user.createdAt);
-const daysSinceJoining = Math.floor((now - userJoinDate) / (1000 * 60 * 60 * 24)) + 1;
-const expectedCheckIns = Math.min(30, daysSinceJoining);
+            // Calculate expected check-ins based on user join date
+            const userJoinDate = user.createdAt?.toDate ? user.createdAt.toDate() : new Date(user.createdAt);
+            const daysSinceJoining = Math.floor((now - userJoinDate) / (1000 * 60 * 60 * 24)) + 1;
+            const expectedCheckIns = Math.min(30, daysSinceJoining);
 
-// Count only morning check-ins in last 30 days
-const recentMorningCheckIns = checkIns.filter(ci => {
-    const checkInDate = ci.createdAt?.toDate ? ci.createdAt.toDate() : new Date(ci.createdAt);
-    return checkInDate >= thirtyDaysAgo && ci.morningData;
-});
+            // Count only morning check-ins
+            const morningCheckIns = checkIns.filter(ci => ci.morningData).length;
 
-// FIX: Sobriety date with timezone fix and +1 for inclusive
-const daysClean = user.sobrietyDate ? 
-    Math.floor((now - new Date(user.sobrietyDate)) / (1000 * 60 * 60 * 24)) + 1 : 0;
+            // Fix days clean with +1 for inclusive
+            const daysClean = user.sobrietyDate ? 
+                Math.floor((now - new Date(user.sobrietyDate)) / (1000 * 60 * 60 * 24)) + 1 : 0;
 
-const stats = {
-    checkInRate: Math.round((recentMorningCheckIns.length / expectedCheckIns) * 100),
-    avgMood: moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 0,
-    avgCravings: cravingCount > 0 ? (totalCravings / cravingCount).toFixed(1) : 0,
-    daysClean: daysClean,
-    assignmentCompletion: assignments.length > 0 ? 
-        Math.round((completedAssignments / assignments.length) * 100) : 0,
-    totalCheckIns: checkIns.length,
-    missedCheckIns: expectedCheckIns - recentMorningCheckIns.length,
-    lastCheckIn: checkIns[0]?.createdAt
-};
+            const stats = {
+                checkInRate: Math.round((morningCheckIns / expectedCheckIns) * 100),
+                avgMood: moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 0,
+                avgCravings: cravingCount > 0 ? (totalCravings / cravingCount).toFixed(1) : 0,
+                daysClean: daysClean,
+                assignmentCompletion: assignments.length > 0 ? 
+                    Math.round((completedAssignments / assignments.length) * 100) : 0,
+                totalCheckIns: checkIns.length,
+                missedCheckIns: expectedCheckIns - morningCheckIns,
+                lastCheckIn: checkIns[0]?.createdAt
+            };
+
+            setPirData({
+                checkIns,
+                assignments,
+                groups,
+                alerts,
+                feedback,
+                resources,
+                stats
+            });
+
+        } catch (error) {
+            console.error('Error loading PIR data:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleUpdate = async () => {
         try {
@@ -8726,21 +8741,21 @@ const stats = {
     };
 
     const handleExportReport = () => {
-    const report = {
-        user: {
-            name: user.displayName || 'N/A',
-            email: user.email,
-            phone: user.phone || 'N/A',
-            sobrietyDate: user.sobrietyDate || 'N/A',
-            daysClean: pirData.stats.daysClean
-        },
-        stats: pirData.stats,
-        recentCheckIns: pirData.checkIns.slice(0, 10).map(ci => ({
-            date: formatDate(ci.createdAt),
-            mood: ci.morningData?.mood || '--',
-            cravings: ci.morningData?.craving || '--',
-            notes: ci.morningData?.notes || ''
-        })),
+        const report = {
+            user: {
+                name: user.displayName || 'N/A',
+                email: user.email,
+                phone: user.phone || 'N/A',
+                sobrietyDate: user.sobrietyDate || 'N/A',
+                daysClean: pirData.stats.daysClean
+            },
+            stats: pirData.stats,
+            recentCheckIns: pirData.checkIns.slice(0, 10).map(ci => ({
+                date: formatDate(ci.createdAt),
+                mood: ci.morningData?.mood || '--',
+                cravings: ci.morningData?.craving || '--',
+                notes: ci.morningData?.notes || ''
+            })),
             assignments: pirData.assignments.map(a => ({
                 title: a.title,
                 status: a.status,
@@ -8772,10 +8787,11 @@ const stats = {
                         {pirData.stats.daysClean}
                     </div>
                     {user.sobrietyDate && (
-    <div className="stat-sublabel">
-        Since {new Date(user.sobrietyDate).toLocaleDateString('en-US', { timeZone: 'UTC' })}
-    </div>
-)}
+                        <div className="stat-sublabel">
+                            Since {new Date(user.sobrietyDate).toLocaleDateString('en-US', { timeZone: 'UTC' })}
+                        </div>
+                    )}
+                </div>
                 
                 <div className="stat-card">
                     <div className="stat-label">Check-in Compliance</div>
@@ -8884,7 +8900,7 @@ const stats = {
                             <tr key={checkIn.id}>
                                 <td>{formatDate(checkIn.createdAt)}</td>
                                 <td>{checkIn.morningData?.mood || '--'}</td>
-<td>{checkIn.morningData?.craving || '--'}</td>
+                                <td>{checkIn.morningData?.craving || '--'}</td>
                                 <td>{checkIn.attendedMeeting ? 'Yes' : 'No'}</td>
                                 <td>{checkIn.notes || '-'}</td>
                             </tr>
@@ -9124,7 +9140,6 @@ const stats = {
         </div>
     );
 }
-        
         // Enhanced Coach Detail Modal with Tabs for admin viewing coaches
 function CoachDetailModal({ coach, onClose, onUpdate, currentUserId }) {
     const [activeTab, setActiveTab] = useState('overview');
