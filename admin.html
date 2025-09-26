@@ -2750,8 +2750,6 @@ for (const doc of meetingsSnap.docs) {
     meetingsData.push(meetingData);
 }
 setMeetings(meetingsData);
-            }
-            setMeetings(meetingsData);
 
             // Load flagged messages
             const flaggedSnap = await db.collection('messages')
@@ -3702,6 +3700,402 @@ function CreateRoomForm({ onSubmit, onCancel }) {
                 <button type="button" className="btn btn-secondary" onClick={onCancel}>Cancel</button>
             </div>
         </form>
+    );
+}
+        // Community Create Modal - For Support Groups and Meetings
+function CommunityCreateModal({ type, item, onSubmit, onClose }) {
+    const [formData, setFormData] = useState(() => {
+        if (item) {
+            return {
+                ...item,
+                assignedPIRs: item.assignedPIRs || []
+            };
+        }
+        
+        if (type === 'supportGroup') {
+            return {
+                name: '',
+                type: 'AA',
+                day: 'Monday',
+                time: '',
+                link: '',
+                location: '',
+                description: '',
+                active: true
+            };
+        } else if (type === 'meeting') {
+            return {
+                meetingTitle: '',
+                scheduledTime: '',
+                type: 'Group Session',
+                meetingLink: '',
+                duration: '60',
+                isGlobal: false,
+                assignedPIRs: [],
+                notes: '',
+                sendReminder: true,
+                status: 'scheduled'
+            };
+        }
+    });
+
+    const [allPIRs, setAllPIRs] = useState([]);
+    const [selectedPIRs, setSelectedPIRs] = useState(item?.assignedPIRs || []);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        loadPIRs();
+    }, []);
+
+    const loadPIRs = async () => {
+        try {
+            const pirsSnap = await db.collection('users')
+                .where('role', '==', 'pir')
+                .where('active', '!=', false)
+                .get();
+            
+            const pirsData = [];
+            pirsSnap.forEach(doc => {
+                const data = doc.data();
+                pirsData.push({
+                    id: doc.id,
+                    name: data.displayName || `${data.firstName} ${data.lastName}` || data.email,
+                    email: data.email
+                });
+            });
+            setAllPIRs(pirsData);
+        } catch (error) {
+            console.error('Error loading PIRs:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        
+        if (type === 'supportGroup') {
+            if (!formData.name || !formData.day || !formData.time) {
+                alert('Please fill in all required fields');
+                return;
+            }
+            onSubmit(formData);
+        } else if (type === 'meeting') {
+            if (!formData.meetingTitle || !formData.scheduledTime) {
+                alert('Please provide a meeting title and scheduled time');
+                return;
+            }
+            
+            // Convert datetime-local to Firebase timestamp
+            const scheduledDate = new Date(formData.scheduledTime);
+            
+            const finalData = {
+                ...formData,
+                scheduledTime: firebase.firestore.Timestamp.fromDate(scheduledDate),
+                assignedPIRs: formData.isGlobal ? [] : selectedPIRs
+            };
+            
+            onSubmit(finalData);
+        }
+    };
+
+    const handlePIRSelection = (pirId) => {
+        if (selectedPIRs.includes(pirId)) {
+            setSelectedPIRs(selectedPIRs.filter(id => id !== pirId));
+        } else {
+            setSelectedPIRs([...selectedPIRs, pirId]);
+        }
+    };
+
+    const selectAllPIRs = () => {
+        setSelectedPIRs(allPIRs.map(pir => pir.id));
+    };
+
+    const clearSelection = () => {
+        setSelectedPIRs([]);
+    };
+
+    // Get current datetime for min attribute (can't schedule in the past)
+    const getCurrentDateTime = () => {
+        const now = new Date();
+        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+        return now.toISOString().slice(0, 16);
+    };
+
+    return (
+        <div className="modal-overlay">
+            <div className="modal-content" style={{maxWidth: '700px', maxHeight: '90vh', overflowY: 'auto'}}>
+                <div className="modal-header">
+                    <h3>
+                        {item ? 'Edit' : 'Create'} 
+                        {type === 'supportGroup' ? ' Support Group' : ' Group Meeting'}
+                    </h3>
+                    <button className="close-btn" onClick={onClose}>×</button>
+                </div>
+                
+                <form onSubmit={handleSubmit} className="modal-body">
+                    {type === 'supportGroup' && (
+                        <>
+                            <div className="form-group">
+                                <label>Group Name *</label>
+                                <input
+                                    type="text"
+                                    value={formData.name}
+                                    onChange={(e) => setFormData({...formData, name: e.target.value})}
+                                    placeholder="e.g., Wednesday Night NA Meeting"
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Type *</label>
+                                    <select
+                                        value={formData.type}
+                                        onChange={(e) => setFormData({...formData, type: e.target.value})}
+                                    >
+                                        <option value="AA">AA</option>
+                                        <option value="NA">NA</option>
+                                        <option value="Al-Anon">Al-Anon</option>
+                                        <option value="SMART">SMART Recovery</option>
+                                        <option value="Celebrate Recovery">Celebrate Recovery</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label>Day *</label>
+                                    <select
+                                        value={formData.day}
+                                        onChange={(e) => setFormData({...formData, day: e.target.value})}
+                                    >
+                                        <option value="Monday">Monday</option>
+                                        <option value="Tuesday">Tuesday</option>
+                                        <option value="Wednesday">Wednesday</option>
+                                        <option value="Thursday">Thursday</option>
+                                        <option value="Friday">Friday</option>
+                                        <option value="Saturday">Saturday</option>
+                                        <option value="Sunday">Sunday</option>
+                                        <option value="Daily">Daily</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Time *</label>
+                                <input
+                                    type="time"
+                                    value={formData.time}
+                                    onChange={(e) => setFormData({...formData, time: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Meeting Link (for virtual meetings)</label>
+                                <input
+                                    type="url"
+                                    value={formData.link}
+                                    onChange={(e) => setFormData({...formData, link: e.target.value})}
+                                    placeholder="https://zoom.us/j/..."
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Location (for in-person meetings)</label>
+                                <input
+                                    type="text"
+                                    value={formData.location || ''}
+                                    onChange={(e) => setFormData({...formData, location: e.target.value})}
+                                    placeholder="e.g., Community Center, 123 Main St"
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Description</label>
+                                <textarea
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                    placeholder="Additional details about this support group"
+                                    rows="3"
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                    <input
+                                        type="checkbox"
+                                        checked={formData.active}
+                                        onChange={(e) => setFormData({...formData, active: e.target.checked})}
+                                    />
+                                    <span>Support group is active</span>
+                                </label>
+                            </div>
+                        </>
+                    )}
+                    
+                    {type === 'meeting' && (
+                        <>
+                            <div className="form-group">
+                                <label>Meeting Title *</label>
+                                <input
+                                    type="text"
+                                    value={formData.meetingTitle}
+                                    onChange={(e) => setFormData({...formData, meetingTitle: e.target.value})}
+                                    placeholder="e.g., Weekly Progress Review"
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Date & Time *</label>
+                                    <input
+                                        type="datetime-local"
+                                        value={formData.scheduledTime}
+                                        onChange={(e) => setFormData({...formData, scheduledTime: e.target.value})}
+                                        min={getCurrentDateTime()}
+                                        required
+                                    />
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label>Duration</label>
+                                    <select
+                                        value={formData.duration}
+                                        onChange={(e) => setFormData({...formData, duration: e.target.value})}
+                                    >
+                                        <option value="30">30 minutes</option>
+                                        <option value="60">60 minutes</option>
+                                        <option value="90">90 minutes</option>
+                                        <option value="120">2 hours</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Meeting Type</label>
+                                <select
+                                    value={formData.type}
+                                    onChange={(e) => setFormData({...formData, type: e.target.value})}
+                                >
+                                    <option value="Group Session">Group Session</option>
+                                    <option value="Progress Review">Progress Review</option>
+                                    <option value="Educational">Educational</option>
+                                    <option value="Group Therapy">Group Therapy</option>
+                                    <option value="Special Topic">Special Topic</option>
+                                    <option value="Check-in">Check-in</option>
+                                </select>
+                            </div>
+                            
+                            <div className="form-group">
+                                <label>Meeting Link (for virtual meetings)</label>
+                                <input
+                                    type="url"
+                                    value={formData.meetingLink}
+                                    onChange={(e) => setFormData({...formData, meetingLink: e.target.value})}
+                                    placeholder="https://zoom.us/j/..."
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                    <input
+                                        type="checkbox"
+                                        checked={formData.isGlobal}
+                                        onChange={(e) => setFormData({...formData, isGlobal: e.target.checked})}
+                                    />
+                                    <span>Invite all PIRs (Global Meeting)</span>
+                                </label>
+                            </div>
+                            
+                            {!formData.isGlobal && (
+                                <div className="form-group">
+                                    <label>Select PIRs to Invite</label>
+                                    <div style={{marginBottom: '10px'}}>
+                                        <button type="button" className="btn btn-sm" onClick={selectAllPIRs}>
+                                            Select All
+                                        </button>
+                                        <button type="button" className="btn btn-sm" onClick={clearSelection} style={{marginLeft: '10px'}}>
+                                            Clear All
+                                        </button>
+                                        <span style={{marginLeft: '10px'}}>
+                                            {selectedPIRs.length} selected
+                                        </span>
+                                    </div>
+                                    <div style={{
+                                        maxHeight: '200px',
+                                        overflowY: 'auto',
+                                        border: '1px solid #ddd',
+                                        borderRadius: '4px',
+                                        padding: '10px'
+                                    }}>
+                                        {loading ? (
+                                            <div style={{textAlign: 'center', padding: '20px'}}>
+                                                Loading PIRs...
+                                            </div>
+                                        ) : allPIRs.length > 0 ? (
+                                            allPIRs.map(pir => (
+                                                <label key={pir.id} style={{
+                                                    display: 'block',
+                                                    padding: '5px',
+                                                    cursor: 'pointer',
+                                                    backgroundColor: selectedPIRs.includes(pir.id) ? '#e3f2fd' : 'transparent',
+                                                    borderRadius: '4px',
+                                                    marginBottom: '2px'
+                                                }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedPIRs.includes(pir.id)}
+                                                        onChange={() => handlePIRSelection(pir.id)}
+                                                        style={{marginRight: '10px'}}
+                                                    />
+                                                    {pir.name} ({pir.email})
+                                                </label>
+                                            ))
+                                        ) : (
+                                            <div style={{color: '#999', textAlign: 'center'}}>
+                                                No PIRs available
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            <div className="form-group">
+                                <label>Meeting Notes</label>
+                                <textarea
+                                    value={formData.notes}
+                                    onChange={(e) => setFormData({...formData, notes: e.target.value})}
+                                    placeholder="Topics to cover, preparation needed, etc."
+                                    rows="3"
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                                    <input
+                                        type="checkbox"
+                                        checked={formData.sendReminder}
+                                        onChange={(e) => setFormData({...formData, sendReminder: e.target.checked})}
+                                    />
+                                    <span>Send reminder to participants</span>
+                                </label>
+                            </div>
+                        </>
+                    )}
+                    
+                    <div className="modal-footer">
+                        <button type="submit" className="btn btn-primary">
+                            {item ? 'Update' : 'Create'}
+                        </button>
+                        <button type="button" className="btn btn-secondary" onClick={onClose}>
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
     );
 }
         // Goals & Objectives Management View
