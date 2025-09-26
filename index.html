@@ -1666,45 +1666,43 @@ useEffect(() => {
 const [selectedImage, setSelectedImage] = useState(null);
 const [uploading, setUploading] = useState(false);
 
-// Image selection handler
+// Image selection handler - UPDATED
 const handleTopicImageSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
-        if (file.size > 5 * 1024 * 1024) {
-            alert('Image must be less than 5MB');
-            return;
-        }
+        // Remove the size check here since we'll compress it
         setSelectedImage(file);
     }
 };
 
-// Update handleSendMessage in TopicRoom
+// Update handleSendMessage in TopicRoom - UPDATED
 const handleSendMessage = async () => {
-    if ((!newMessage.trim() && !selectedImage) || uploading) return;
+    if ((!topicMessage.trim() && !selectedImage) || uploading) return;
     
     try {
         setUploading(true);
         const messageData = {
-            userId: user.uid,
-            userName: userData?.displayName || userData?.firstName || 'Anonymous',
-            message: newMessage,
+            senderId: user.uid,  // Changed from userId to senderId to match display
+            senderName: userData?.displayName || userData?.firstName || 'Anonymous',
+            content: topicMessage,  // Changed from 'message' to 'content' to match display
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            roomId: selectedRoom.id
+            roomId: data.activeTopicRoom.id  // Changed from selectedRoom to data.activeTopicRoom
         };
         
         // Upload image if selected
         if (selectedImage) {
-            const imageUrl = await uploadChatImage(selectedImage, 'topic', selectedRoom.id);
+            const imageUrl = await uploadChatImage(selectedImage, 'topic', data.activeTopicRoom.id);
             messageData.imageUrl = imageUrl;
             messageData.imageName = selectedImage.name;
         }
         
-        await db.collection('topicRooms').doc(selectedRoom.id)
+        await db.collection('topicRooms').doc(data.activeTopicRoom.id)
             .collection('messages').add(messageData);
         
-        setNewMessage('');
+        setTopicMessage('');  // Changed from setNewMessage to setTopicMessage
         setSelectedImage(null);
-        document.getElementById('topic-image-input').value = '';
+        const fileInput = document.getElementById('topic-image-input');
+        if (fileInput) fileInput.value = '';
     } catch (error) {
         console.error('Error sending message:', error);
         alert(error.message || 'Failed to send message');
@@ -1925,16 +1923,47 @@ const handleReflectionSave = async (assignmentId, reflection) => {
         alert('Failed to save reflection');
     }
 };
-            // Shared image upload handler for chat features
+           // Shared image upload handler with compression
 const uploadChatImage = async (file, chatType, roomId) => {
     if (!file) return null;
     
-    // Validate file
-    if (file.size > 5 * 1024 * 1024) {
-        throw new Error('Image must be less than 5MB');
-    }
-    if (!file.type.startsWith('image/')) {
-        throw new Error('Only image files are allowed');
+    // Compress image before upload
+    const compressImage = (file, maxWidth = 1920) => {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
+                    
+                    // Calculate new dimensions
+                    if (width > maxWidth) {
+                        height = (maxWidth / width) * height;
+                        width = maxWidth;
+                    }
+                    
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    canvas.toBlob((blob) => {
+                        resolve(blob);
+                    }, 'image/jpeg', 0.8); // 0.8 quality
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+    };
+    
+    // Compress if image is larger than 500KB
+    let uploadFile = file;
+    if (file.size > 500 * 1024 && file.type.startsWith('image/')) {
+        uploadFile = await compressImage(file);
     }
     
     const timestamp = Date.now();
@@ -1944,12 +1973,11 @@ const uploadChatImage = async (file, chatType, roomId) => {
         `chat-images/community/${fileName}`;
     
     const storageRef = firebase.storage().ref(path);
-    const snapshot = await storageRef.put(file);
+    const snapshot = await storageRef.put(uploadFile);
     const imageUrl = await snapshot.ref.getDownloadURL();
     
     return imageUrl;
 };
-
 // Shared content flagging handler
 const flagContent = async (contentType, contentData) => {
     const reason = prompt('Please describe why you are flagging this content:');
@@ -2774,23 +2802,34 @@ const loadComplianceRates = async () => {
                 }
             };
 
-            // Send topic room message
-            const sendTopicRoomMessage = async (roomId, content) => {
-                if (!content || !content.trim()) return;
-                
-                try {
-                    await db.collection('messages').add({
-                        roomId: roomId,
-                        userId: user.uid,
-                        senderName: userData?.displayName || userData?.firstName || 'Anonymous',
-                        content: content,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                } catch (error) {
-                    console.error('Error sending message:', error);
-                }
-            };
-
+           // Send topic room message - UPDATED
+const sendTopicRoomMessage = async (roomId, content, imageUrl = null) => {
+    if (!content || !content.trim()) return;
+    
+    try {
+        const messageData = {
+            roomId: roomId,
+            senderId: user.uid,  // Changed to match display code
+            senderName: userData?.displayName || userData?.firstName || 'Anonymous',
+            content: content,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        
+        // Add image URL if provided
+        if (imageUrl) {
+            messageData.imageUrl = imageUrl;
+        }
+        
+        // Fix: Save to the correct collection path
+        await db.collection('topicRooms')
+            .doc(roomId)
+            .collection('messages')
+            .add(messageData);
+            
+    } catch (error) {
+        console.error('Error sending message:', error);
+    }
+};
             // Enter topic room
             const enterTopicRoom = async (room) => {
                 setActiveTopicRoom(room);
@@ -5332,21 +5371,38 @@ function CommunityChat({ messages, onSendMessage, currentUserId }) {
     
     const handleImageSelect = (e) => {
         const file = e.target.files[0];
-        if (file && file.size <= 5 * 1024 * 1024) {
-            setSelectedImage(file);
-        } else {
-            alert('Image must be less than 5MB');
+        if (file) {
+            setSelectedImage(file);  // Removed size check since we compress
         }
     };
     
     const handleSend = async () => {
         if ((message.trim() || selectedImage) && !uploading) {
             setUploading(true);
-            await onSendMessage(message, selectedImage);
-            setMessage('');
-            setSelectedImage(null);
-            document.getElementById('community-image-input').value = '';
-            setUploading(false);
+            
+            try {
+                let imageUrl = null;
+                
+                // Upload and compress image if selected
+                if (selectedImage) {
+                    imageUrl = await uploadChatImage(selectedImage, 'community', 'main');
+                }
+                
+                // Send message with image URL (not the file)
+                await onSendMessage(message, imageUrl);
+                
+                // Clear inputs
+                setMessage('');
+                setSelectedImage(null);
+                const fileInput = document.getElementById('community-image-input');
+                if (fileInput) fileInput.value = '';
+                
+            } catch (error) {
+                console.error('Error sending message:', error);
+                alert('Failed to send message');
+            } finally {
+                setUploading(false);
+            }
         }
     };
     
