@@ -8583,19 +8583,19 @@ function UserDetailModal({ user, onClose, onUpdate, currentUserId }) {
 const checkIns = [];
 let totalMood = 0;
 let totalCravings = 0;
-let moodCount = 0;  // ADD: Count check-ins with mood
-let cravingCount = 0;  // ADD: Count check-ins with cravings
+let moodCount = 0;
+let cravingCount = 0;
 
 checkInsSnap.forEach(doc => {
     const data = { id: doc.id, ...doc.data() };
     checkIns.push(data);
     if (data.morningData?.mood) {
         totalMood += data.morningData.mood;
-        moodCount++;  // ADD: Increment counter
+        moodCount++;
     }
     if (data.morningData?.craving) {
         totalCravings += data.morningData.craving;
-        cravingCount++;  // ADD: Increment counter
+        cravingCount++;
     }
 });
 
@@ -8635,44 +8635,32 @@ resourcesSnap.forEach(doc => {
 // Calculate stats
 const now = new Date();
 const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
-const expectedCheckIns = 30; // Daily for 30 days
 
-// FIX: Count only morning check-ins in last 30 days
+// FIX: Calculate expected check-ins based on user join date
+const userJoinDate = user.createdAt?.toDate ? user.createdAt.toDate() : new Date(user.createdAt);
+const daysSinceJoining = Math.floor((now - userJoinDate) / (1000 * 60 * 60 * 24)) + 1;
+const expectedCheckIns = Math.min(30, daysSinceJoining);
+
+// Count only morning check-ins in last 30 days
 const recentMorningCheckIns = checkIns.filter(ci => {
     const checkInDate = ci.createdAt?.toDate ? ci.createdAt.toDate() : new Date(ci.createdAt);
-    return checkInDate >= thirtyDaysAgo && ci.morningData;  // ADD: Check for morningData
+    return checkInDate >= thirtyDaysAgo && ci.morningData;
 });
 
-// FIX: Add +1 for inclusive day counting
+// FIX: Sobriety date with timezone fix and +1 for inclusive
 const daysClean = user.sobrietyDate ? 
     Math.floor((now - new Date(user.sobrietyDate)) / (1000 * 60 * 60 * 24)) + 1 : 0;
 
 const stats = {
-    checkInRate: Math.round((recentMorningCheckIns.length / expectedCheckIns) * 100),  // FIX: Use morning only
-    avgMood: moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 0,  // FIX: Divide by moodCount
-    avgCravings: cravingCount > 0 ? (totalCravings / cravingCount).toFixed(1) : 0,  // FIX: Divide by cravingCount
+    checkInRate: Math.round((recentMorningCheckIns.length / expectedCheckIns) * 100),
+    avgMood: moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 0,
+    avgCravings: cravingCount > 0 ? (totalCravings / cravingCount).toFixed(1) : 0,
     daysClean: daysClean,
     assignmentCompletion: assignments.length > 0 ? 
         Math.round((completedAssignments / assignments.length) * 100) : 0,
     totalCheckIns: checkIns.length,
-    missedCheckIns: expectedCheckIns - recentMorningCheckIns.length,  // FIX: Use morning check-ins
+    missedCheckIns: expectedCheckIns - recentMorningCheckIns.length,
     lastCheckIn: checkIns[0]?.createdAt
-};
-
-setPirData({
-    checkIns,
-    assignments,
-    groups,
-    alerts,
-    feedback,
-    resources,
-    stats
-});
-} catch (error) {
-    console.error('Error loading PIR data:', error);
-} finally {
-    setLoading(false);
-}
 };
 
     const handleUpdate = async () => {
