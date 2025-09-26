@@ -5319,107 +5319,77 @@ return (
     );
 }
         
-        // In GLRS Community Chat modal
-case 'glrsChat':
-    const [communityImage, setCommunityImage] = useState(null);
-    const [communityUploading, setCommunityUploading] = useState(false);
+        // Community Chat Component - UPDATED VERSION
+function CommunityChat({ messages, onSendMessage, currentUserId }) {
+    const [message, setMessage] = useState('');
+    const [selectedImage, setSelectedImage] = useState(null);
+    const [uploading, setUploading] = useState(false);
+    const messagesEndRef = useRef(null);
     
-    const handleCommunityImageSelect = (e) => {
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [messages]);
+    
+    const handleImageSelect = (e) => {
         const file = e.target.files[0];
-        if (file) {
-            if (file.size > 5 * 1024 * 1024) {
-                alert('Image must be less than 5MB');
-                return;
-            }
-            setCommunityImage(file);
+        if (file && file.size <= 5 * 1024 * 1024) {
+            setSelectedImage(file);
+        } else {
+            alert('Image must be less than 5MB');
         }
     };
     
-    const sendCommunityMessage = async () => {
-        if ((!communityNewMessage.trim() && !communityImage) || communityUploading) return;
-        
-        try {
-            setCommunityUploading(true);
-            const messageData = {
-                userId: user.uid,
-                userName: userData?.displayName || userData?.firstName || 'Anonymous',
-                message: communityNewMessage,
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
-            };
-            
-            if (communityImage) {
-                const imageUrl = await uploadChatImage(communityImage, 'community', 'main');
-                messageData.imageUrl = imageUrl;
-                messageData.imageName = communityImage.name;
-            }
-            
-            await db.collection('glrsChat').add(messageData);
-            
-            setCommunityNewMessage('');
-            setCommunityImage(null);
+    const handleSend = async () => {
+        if ((message.trim() || selectedImage) && !uploading) {
+            setUploading(true);
+            await onSendMessage(message, selectedImage);
+            setMessage('');
+            setSelectedImage(null);
             document.getElementById('community-image-input').value = '';
-        } catch (error) {
-            console.error('Error sending message:', error);
-            alert(error.message || 'Failed to send message');
-        } finally {
-            setCommunityUploading(false);
+            setUploading(false);
         }
-    };
-    
-    const handleFlagCommunityMessage = async (message) => {
-        const flagData = {
-            messageId: message.id,
-            messageContent: message.message,
-            messageImageUrl: message.imageUrl || null,
-            authorId: message.userId,
-            authorName: message.userName
-        };
-        
-        await flagContent('community_message', flagData);
     };
     
     return (
-        <div>
-            <h3 style={{marginBottom: '20px'}}>🌟 GLRS Community Chat</h3>
-            <div style={{height: '400px', display: 'flex', flexDirection: 'column'}}>
-                <div style={{flex: 1, overflowY: 'auto', marginBottom: '10px'}}>
-                    {communityMessages.map(msg => (
-                        <div key={msg.id} style={{
-                            background: msg.userId === user.uid ? 
-                                'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' :
-                                'rgba(255,255,255,0.05)',
-                            padding: '10px',
-                            marginBottom: '8px',
-                            borderRadius: '8px'
-                        }}>
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                marginBottom: '5px'
-                            }}>
-                                <strong style={{color: '#f4c430'}}>{msg.userName}</strong>
+        <div className="community-chat-container">
+            <div className="messages-container">
+                {messages.length > 0 ? (
+                    messages.map(msg => (
+                        <div key={msg.id} className="community-message">
+                            <div className="message-header">
+                                <span className="message-author">
+                                    {msg.senderName || 'Anonymous'}
+                                </span>
                                 <div style={{display: 'flex', gap: '10px'}}>
-                                    <small style={{opacity: 0.7}}>
-                                        {msg.timestamp?.toDate?.().toLocaleTimeString() || 'sending...'}
-                                    </small>
-                                    {msg.userId !== user.uid && (
+                                    <span className="message-time">
+                                        {msg.createdAt?.toDate ? 
+                                            new Date(msg.createdAt.toDate()).toLocaleTimeString() :
+                                            'now'}
+                                    </span>
+                                    {msg.senderId !== currentUserId && (
                                         <button
-                                            onClick={() => handleFlagCommunityMessage(msg)}
+                                            onClick={() => flagContent('community_message', {
+                                                messageId: msg.id,
+                                                messageContent: msg.content,
+                                                messageImageUrl: msg.imageUrl || null,
+                                                authorId: msg.senderId,
+                                                authorName: msg.senderName
+                                            })}
                                             style={{
                                                 background: 'transparent',
                                                 border: 'none',
                                                 color: 'rgba(255,255,255,0.5)',
-                                                cursor: 'pointer',
-                                                fontSize: '14px'
+                                                cursor: 'pointer'
                                             }}
-                                            title="Flag inappropriate content"
                                         >
                                             🚩
                                         </button>
                                     )}
                                 </div>
                             </div>
-                            {msg.message && <p style={{margin: 0}}>{msg.message}</p>}
+                            <div className="message-content">
+                                {msg.content}
+                            </div>
                             {msg.imageUrl && (
                                 <img 
                                     src={msg.imageUrl}
@@ -5435,91 +5405,48 @@ case 'glrsChat':
                                 />
                             )}
                         </div>
-                    ))}
-                </div>
-                
-                {communityImage && (
-                    <div style={{
-                        marginBottom: '10px',
-                        padding: '8px',
-                        background: 'rgba(255,255,255,0.1)',
-                        borderRadius: '8px',
-                        display: 'flex',
-                        justifyContent: 'space-between'
-                    }}>
-                        <span>📷 {communityImage.name}</span>
-                        <button
-                            onClick={() => {
-                                setCommunityImage(null);
-                                document.getElementById('community-image-input').value = '';
-                            }}
-                            style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: 'white',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            ✕
-                        </button>
+                    ))
+                ) : (
+                    <div style={{textAlign: 'center', opacity: 0.6, padding: '40px'}}>
+                        No messages yet. Start the conversation!
                     </div>
                 )}
-                
-                <div style={{display: 'flex', gap: '10px'}}>
-                    <input
-                        type="file"
-                        id="community-image-input"
-                        accept="image/*"
-                        style={{display: 'none'}}
-                        onChange={handleCommunityImageSelect}
-                    />
-                    <button
-                        onClick={() => document.getElementById('community-image-input').click()}
-                        style={{
-                            background: 'rgba(255,255,255,0.1)',
-                            border: 'none',
-                            borderRadius: '8px',
-                            padding: '10px',
-                            color: 'white',
-                            cursor: 'pointer'
-                        }}
-                    >
-                        📷
-                    </button>
-                    <input 
-                        type="text"
-                        value={communityNewMessage}
-                        onChange={(e) => setCommunityNewMessage(e.target.value)}
-                        placeholder="Share with the community..."
-                        onKeyPress={(e) => e.key === 'Enter' && sendCommunityMessage()}
-                        style={{
-                            flex: 1,
-                            padding: '10px',
-                            background: 'rgba(255,255,255,0.1)',
-                            border: 'none',
-                            borderRadius: '8px',
-                            color: 'white'
-                        }}
-                    />
-                    <button 
-                        onClick={sendCommunityMessage}
-                        disabled={communityUploading || (!communityNewMessage.trim() && !communityImage)}
-                        style={{
-                            padding: '10px 20px',
-                            background: communityUploading ? 'gray' : '#f4c430',
-                            border: 'none',
-                            borderRadius: '8px',
-                            color: 'black',
-                            fontWeight: 'bold',
-                            cursor: communityUploading ? 'not-allowed' : 'pointer'
-                        }}
-                    >
-                        {communityUploading ? '...' : 'Send'}
-                    </button>
+                <div ref={messagesEndRef} />
+            </div>
+            
+            {selectedImage && (
+                <div style={{padding: '10px', background: 'rgba(255,255,255,0.1)'}}>
+                    📷 {selectedImage.name}
+                    <button onClick={() => setSelectedImage(null)}>✕</button>
                 </div>
+            )}
+            
+            <div className="chat-input-group">
+                <input
+                    type="file"
+                    id="community-image-input"
+                    accept="image/*"
+                    style={{display: 'none'}}
+                    onChange={handleImageSelect}
+                />
+                <button onClick={() => document.getElementById('community-image-input').click()}>
+                    📷
+                </button>
+                <input
+                    type="text"
+                    className="chat-input"
+                    placeholder="Type your message..."
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+                />
+                <button className="send-btn" onClick={handleSend} disabled={uploading}>
+                    {uploading ? '...' : 'Send'}
+                </button>
             </div>
         </div>
     );
+}
         
         // Modal Container Component with ALL modals working
         function ModalContainer({ type, onClose, data, handlers }) {
