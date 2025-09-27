@@ -1144,14 +1144,13 @@
         };
 
         // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.firestore();
-        const storage = firebase.storage();
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+const storage = firebase.storage();
 
-        const { useState, useEffect, useRef } = React;
-        // Global helper function for consistent sobriety day calculation
-window.calculateSobrietyDays = (sobrietyDate) => {
+// Global helper function for consistent sobriety day calculation - FIXED VERSION
+window.getSobrietyDays = (sobrietyDate) => {
     if (!sobrietyDate) return 0;
     
     const sobrietyDateObj = new Date(sobrietyDate);
@@ -1161,11 +1160,17 @@ window.calculateSobrietyDays = (sobrietyDate) => {
     sobrietyDateObj.setHours(0, 0, 0, 0);
     today.setHours(0, 0, 0, 0);
     
+    // Calculate difference in milliseconds
     const diffTime = today - sobrietyDateObj;
+    
+    // Convert to days and add 1 (sobriety date counts as day 1)
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
     
+    // Return at least 1 if sobriety date is today or in the past
     return Math.max(1, diffDays);
 };
+
+const { useState, useEffect, useRef } = React;
 
         // Lighthouse Logo Component
         function LighthouseLogo({ size = 100 }) {
@@ -1524,7 +1529,7 @@ const calculateSobrietyDays = (sobrietyDate) => {
     const diffTime = today - sobrietyDateObj;
     
     // Convert to days and add 1 (because day 1 is the sobriety date itself)
-    const sobrietyDays = calculateSobrietyDays(userData.sobrietyDate);
+    const sobrietyDays = window.getSobrietyDays(userData.sobrietyDate);
     
     // Return at least 1 if sobriety date is today or in the past
     return Math.max(1, diffDays);
@@ -1534,7 +1539,7 @@ const calculateSobrietyDays = (sobrietyDate) => {
 useEffect(() => {
     if (userData?.sobrietyDate) {
         const calculateStats = () => {
-            const sobrietyDays = calculateSobrietyDays(userData.sobrietyDate);
+            const sobrietyDays = window.getSobrietyDays(userData.sobrietyDate);
             setSobrietyDays(sobrietyDays);
             
             // Use the user's custom daily cost, default to 20 if not set
@@ -7173,7 +7178,7 @@ case 'recoveryInfo':
                                 const sobrietyDate = new Date(updates.sobrietyDate);
                                 const today = new Date();
                                 const diffTime = today - sobrietyDate;
-                                const sobrietyDays = calculateSobrietyDays(userData.sobrietyDate);
+                                const sobrietyDays = window.getSobrietyDays(userData.sobrietyDate);
                                 if (data.setSobrietyDays) {
                                     data.setSobrietyDays(diffDays >= 0 ? diffDays : 0);
                                 }
