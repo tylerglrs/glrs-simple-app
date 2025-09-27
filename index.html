@@ -1150,6 +1150,22 @@
         const storage = firebase.storage();
 
         const { useState, useEffect, useRef } = React;
+        // Global helper function for consistent sobriety day calculation
+window.calculateSobrietyDays = (sobrietyDate) => {
+    if (!sobrietyDate) return 0;
+    
+    const sobrietyDateObj = new Date(sobrietyDate);
+    const today = new Date();
+    
+    // Reset to midnight for accurate day counting
+    sobrietyDateObj.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    
+    const diffTime = today - sobrietyDateObj;
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    
+    return Math.max(1, diffDays);
+};
 
         // Lighthouse Logo Component
         function LighthouseLogo({ size = 100 }) {
@@ -1493,22 +1509,37 @@
                 listenersRef.current.push(broadcastsListener);
             };
 
-            // Calculate sobriety days and stats
-            // In PIRApp component, update the useEffect that calculates sobriety days:
- // Calculate sobriety days and stats
-            // In PIRApp component, update the useEffect that calculates sobriety days:
+          // Correct sobriety days calculation function
+const calculateSobrietyDays = (sobrietyDate) => {
+    if (!sobrietyDate) return 0;
+    
+    const sobrietyDateObj = new Date(sobrietyDate);
+    const today = new Date();
+    
+    // Reset time to start of day for accurate day counting
+    sobrietyDateObj.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    
+    // Calculate difference in milliseconds
+    const diffTime = today - sobrietyDateObj;
+    
+    // Convert to days and add 1 (because day 1 is the sobriety date itself)
+    const sobrietyDays = calculateSobrietyDays(userData.sobrietyDate);
+    
+    // Return at least 1 if sobriety date is today or in the past
+    return Math.max(1, diffDays);
+};
+
+// Updated useEffect for PIRApp component
 useEffect(() => {
     if (userData?.sobrietyDate) {
         const calculateStats = () => {
-            const sobrietyDate = new Date(userData.sobrietyDate);
-            const today = new Date();
-            const diffTime = Math.abs(today - sobrietyDate);
-            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-            setSobrietyDays(diffDays);
+            const sobrietyDays = calculateSobrietyDays(userData.sobrietyDate);
+            setSobrietyDays(sobrietyDays);
             
             // Use the user's custom daily cost, default to 20 if not set
             const dailyCost = userData.dailyCost || 20;
-            setMoneySaved(diffDays * dailyCost);
+            setMoneySaved(sobrietyDays * dailyCost);
         };
         
         calculateStats();
@@ -7142,7 +7173,7 @@ case 'recoveryInfo':
                                 const sobrietyDate = new Date(updates.sobrietyDate);
                                 const today = new Date();
                                 const diffTime = today - sobrietyDate;
-                                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                                const sobrietyDays = calculateSobrietyDays(userData.sobrietyDate);
                                 if (data.setSobrietyDays) {
                                     data.setSobrietyDays(diffDays >= 0 ? diffDays : 0);
                                 }
