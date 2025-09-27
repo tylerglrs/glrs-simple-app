@@ -2269,55 +2269,7 @@ const checkMilestoneNotifications = async () => {
     }
 };
 
-// Add notification scheduler for due dates - NEW
-const checkUpcomingDueDates = async (assignmentsList) => {
-    if (!assignmentsList || assignmentsList.length === 0) return;
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    for (const assignment of assignmentsList) {
-        if (assignment.status !== 'completed' && assignment.dueDate) {
-            const dueDate = assignment.dueDate.toDate ? assignment.dueDate.toDate() : new Date(assignment.dueDate);
-            const diffDays = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
-            
-            // Check if notification already sent today
-            const notifCheck = await db.collection('notifications')
-                .where('recipientId', '==', user.uid)
-                .where('assignmentId', '==', assignment.id)
-                .where('type', '==', 'due_soon')
-                .where('createdAt', '>=', today)
-                .limit(1)
-                .get();
-            
-            if (notifCheck.empty) {
-                if (diffDays === 2) {
-                    // Create notification for 2 days before due
-                    await db.collection('notifications').add({
-                        recipientId: user.uid,
-                        type: 'due_soon',
-                        message: `Assignment "${assignment.title}" is due in 2 days`,
-                        assignmentId: assignment.id,
-                        read: false,
-                        urgent: true,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                } else if (diffDays === 0) {
-                    // Due today notification
-                    await db.collection('notifications').add({
-                        recipientId: user.uid,
-                        type: 'due_today',
-                        message: `Assignment "${assignment.title}" is due today!`,
-                        assignmentId: assignment.id,
-                        read: false,
-                        urgent: true,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                }
-            }
-        }
-    }
-};
+
 
 // Load daily inspiration (rotates by day of year)
 const loadDailyInspiration = async () => {
