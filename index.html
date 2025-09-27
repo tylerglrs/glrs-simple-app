@@ -2986,27 +2986,34 @@ const sendCommunityMessage = async (message, imageUrl) => {
         throw error;
     }
 };
-           // Send topic room message - FIXED
-const sendTopicRoomMessage = async (roomId, content, imageUrl = null) => {
-    if (!content || !content.trim()) return;
-    
+          const sendTopicRoomMessage = async (roomId, content, imageFile = null) => {
+    // Check content is a string
+    if (!content || typeof content !== 'string' || !content.trim()) return;
+
     try {
         const messageData = {
             roomId: roomId,
-            userId: user.uid,  // Keep this for consistency
-            senderId: user.uid,  // Add this too for compatibility
+            userId: user.uid,
+            senderId: user.uid,
             senderName: userData?.displayName || userData?.firstName || 'Anonymous',
-            message: content,  // CHANGED from 'content' to 'message'
+            message: content,  // Changed from 'content' to 'message'
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
-        
-        if (imageUrl) {
-            messageData.imageUrl = imageUrl;
+
+        // Handle image upload if provided
+        if (imageFile && imageFile instanceof File) {
+            // Process and add image as base64
+            const reader = new FileReader();
+            const base64 = await new Promise((resolve) => {
+                reader.onload = (e) => resolve(e.target.result);
+                reader.readAsDataURL(imageFile);
+            });
+            messageData.imageUrl = base64;
         }
-        
+
         await db.collection('messages').add(messageData);
         
-        // Reload messages after sending
+        // Reload messages
         const messagesSnap = await db.collection('messages')
             .where('roomId', '==', roomId)
             .orderBy('createdAt', 'desc')
@@ -3021,6 +3028,7 @@ const sendTopicRoomMessage = async (roomId, content, imageUrl = null) => {
         
     } catch (error) {
         console.error('Error sending message:', error);
+        showNotification('Failed to send message', 'error');
     }
 };
             // Enter topic room
@@ -4068,15 +4076,20 @@ const handleImageSelect = (e) => {
                                 topicRoomMessages,
                                 coachInfo
                             }}
-                            handlers={{
-            markNotificationAsRead,
-            markAllNotificationsAsRead,
-            handleMorningCheckIn,
-            handleEveningReflection,
-            sendTopicMessage: sendTopicRoomMessage,  // CHANGED THIS LINE
-            exportDataAsJSON,
-            exportDataAsPDF
-                            }}
+                          handlers={{
+    markNotificationAsRead,
+    markAllNotificationsAsRead,
+    handleMorningCheckIn,
+    handleEveningReflection,
+    sendTopicMessage: async (message, image) => {
+        // Need to pass roomId as first parameter
+        if (activeTopicRoom) {
+            await sendTopicRoomMessage(activeTopicRoom.id, message, image);
+        }
+    },
+    exportDataAsJSON,
+    exportDataAsPDF
+}}
                         />
                     )}
                     
