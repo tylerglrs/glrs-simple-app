@@ -1861,7 +1861,7 @@ const loadMeetings = async () => {
                 }
             };
 
-            // Load goals with objectives - UPDATED VERSION
+           // Load goals with objectives - UPDATED VERSION
 const loadGoals = async () => {
     try {
         // Load ALL goals, not just active ones
@@ -1896,6 +1896,9 @@ const loadGoals = async () => {
         }
         
         setGoals(goalsData);
+        
+        // Update lifetime stats
+        updateLifetimeStats(goalsData);
     } catch (error) {
         console.error('Error loading goals:', error);
     }
@@ -1917,49 +1920,35 @@ const loadAssignments = async () => {
         
         setAssignments(assignmentsData);
         
-        // Check for upcoming due dates
-        checkUpcomingDueDates(assignmentsData);
+        // Update lifetime completed count
+        const completedCount = assignmentsData.filter(a => a.status === 'completed').length;
+        updateLifetimeCompletedTasks(completedCount);
+        
     } catch (error) {
         console.error('Error loading assignments:', error);
     }
 };
 
-// Check for upcoming due dates and create notifications
-const checkUpcomingDueDates = async (assignmentsData) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+// Update lifetime stats
+const updateLifetimeStats = (goalsData) => {
+    if (!goalsData) return;
     
-    for (const assignment of assignmentsData) {
-        if (assignment.dueDate && assignment.status !== 'completed') {
-            const dueDate = assignment.dueDate.toDate ? assignment.dueDate.toDate() : new Date(assignment.dueDate);
-            dueDate.setHours(0, 0, 0, 0);
-            
-            const daysUntilDue = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
-            
-            // Create notifications for upcoming due dates
-            if (daysUntilDue === 2) {
-                await db.collection('notifications').add({
-                    userId: user.uid,
-                    type: 'assignment_due_soon',
-                    title: 'Assignment Due Soon',
-                    message: `"${assignment.title}" is due in 2 days`,
-                    assignmentId: assignment.id,
-                    read: false,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            } else if (daysUntilDue === 0) {
-                await db.collection('notifications').add({
-                    userId: user.uid,
-                    type: 'assignment_due_today',
-                    title: 'Assignment Due Today',
-                    message: `"${assignment.title}" is due today!`,
-                    assignmentId: assignment.id,
-                    read: false,
-                    urgent: true,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            }
-        }
+    const completedGoals = goalsData.filter(g => g.status === 'completed').length;
+    const activeGoals = goalsData.filter(g => g.status === 'active').length;
+    const totalGoals = goalsData.length;
+    
+    // Update any dashboard elements that show these stats
+    const goalsStatElement = document.querySelector('.goals-stat');
+    if (goalsStatElement) {
+        goalsStatElement.textContent = `${activeGoals} Active / ${completedGoals} Complete`;
+    }
+};
+
+// Update lifetime completed tasks count
+const updateLifetimeCompletedTasks = (count) => {
+    const tasksStatElement = document.querySelector('.lifetime-tasks-stat');
+    if (tasksStatElement) {
+        tasksStatElement.textContent = count;
     }
 };
 
@@ -1980,9 +1969,14 @@ const handleAssignmentComplete = async (assignmentId, isCompleted) => {
         
         await db.collection('assignments').doc(assignmentId).update(updates);
         
-        // Reload assignments to update UI
-        loadAssignments();
-        loadGoals(); // Also reload goals to update progress
+        // Reload both assignments and goals to update all progress calculations
+        await loadAssignments();
+        await loadGoals();
+        
+        // Update the GoalsTasksView if it exists
+        if (window.goalsTasksViewInstance) {
+            window.goalsTasksViewInstance.forceUpdate();
+        }
         
         // If completed, send notification to coach
         if (isCompleted && userData?.assignedCoach) {
@@ -2002,9 +1996,14 @@ const handleAssignmentComplete = async (assignmentId, isCompleted) => {
                 });
             }
         }
+        
+        // Show success feedback
+        const feedbackMsg = isCompleted ? 'Assignment marked complete!' : 'Assignment marked incomplete';
+        showNotification(feedbackMsg, 'success');
+        
     } catch (error) {
         console.error('Error updating assignment:', error);
-        alert('Failed to update assignment');
+        showNotification('Failed to update assignment', 'error');
     }
 };
 
@@ -2018,9 +2017,9 @@ const handleReflectionSave = async (assignmentId, reflection) => {
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        // Reload assignments and goals
-        loadAssignments();
-        loadGoals();
+        // Reload both to update progress everywhere
+        await loadAssignments();
+        await loadGoals();
         
         // Send notification to coach with reflection
         const assignment = assignments.find(a => a.id === assignmentId);
@@ -2040,11 +2039,36 @@ const handleReflectionSave = async (assignmentId, reflection) => {
             });
         }
         
-        alert('Assignment completed with reflection!');
+        showNotification('Assignment completed with reflection!', 'success');
     } catch (error) {
         console.error('Error saving reflection:', error);
-        alert('Failed to save reflection');
+        showNotification('Failed to save reflection', 'error');
     }
+};
+
+// Helper function to show notifications (add if not exists)
+const showNotification = (message, type = 'info') => {
+    // Create a temporary notification element
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        z-index: 10000;
+        animation: slideIn 0.3s ease;
+    `;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => document.body.removeChild(notification), 300);
+    }, 3000);
 };
       // Fixed upload handler - saves data URL directly with message
 const uploadChatImage = async (file, chatType, roomId) => {
@@ -4602,21 +4626,21 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote }) {
         </div>
     );
 }
-      // Goals and Tasks View Component with Hierarchical Structure - UPDATED
+      // Goals and Tasks View Component with Clear Type Labels - UPDATED
 function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onReflectionSave }) {
     const [expandedGoals, setExpandedGoals] = useState({});
     const [expandedAssignments, setExpandedAssignments] = useState({});
     const [reflections, setReflections] = useState({});
     const [objectives, setObjectives] = useState([]);
     
-    // Load objectives when component mounts
+    // Load objectives when component mounts or goals change
     useEffect(() => {
         loadObjectives();
-    }, []);
+    }, [goals]);
     
     const loadObjectives = async () => {
         try {
-            // Load ALL objectives, not just active ones
+            // Load ALL objectives
             const objectivesSnap = await db.collection('objectives')
                 .where('userId', '==', user.uid)
                 .orderBy('order', 'asc')
@@ -4655,36 +4679,25 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
         return Math.round((completed / goalAssignments.length) * 100);
     };
     
-    const formatDueDate = (date) => {
-        if (!date) return '';
-        const dueDate = date.toDate ? date.toDate() : new Date(date);
-        const today = new Date();
-        const diffTime = dueDate - today;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const formatDate = (date) => {
+        if (!date) return 'Not set';
+        const dateObj = date.toDate ? date.toDate() : new Date(date);
+        return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    };
+    
+    const getDueDateStatus = (date, isCompleted) => {
+        if (isCompleted) return { text: 'Completed', color: '#4CAF50' };
+        if (!date) return { text: 'No due date', color: 'rgba(255,255,255,0.5)' };
         
-        if (diffDays < 0) return 'Overdue';
-        if (diffDays === 0) return 'Due Today';
-        if (diffDays === 1) return 'Due Tomorrow';
-        if (diffDays <= 7) return `Due in ${diffDays} days`;
-        return dueDate.toLocaleDateString();
-    };
-    
-    const formatCompletionDate = (date) => {
-        if (!date) return '';
-        const completedDate = date.toDate ? date.toDate() : new Date(date);
-        return `Completed: ${completedDate.toLocaleDateString()}`;
-    };
-    
-    const getDueDateColor = (date, isCompleted) => {
-        if (isCompleted) return '#4CAF50'; // Green for completed
-        if (!date) return 'rgba(255,255,255,0.6)';
         const dueDate = date.toDate ? date.toDate() : new Date(date);
         const today = new Date();
         const diffDays = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
         
-        if (diffDays < 0) return '#ff453a'; // Overdue - red
-        if (diffDays <= 2) return '#ff9500'; // Due soon - orange
-        return 'rgba(255,255,255,0.6)'; // Normal - grey
+        if (diffDays < 0) return { text: 'Overdue', color: '#ff453a' };
+        if (diffDays === 0) return { text: 'Due Today', color: '#ff9500' };
+        if (diffDays === 1) return { text: 'Due Tomorrow', color: '#ff9500' };
+        if (diffDays <= 7) return { text: `Due in ${diffDays} days`, color: '#ffd60a' };
+        return { text: formatDate(date), color: 'rgba(255,255,255,0.7)' };
     };
     
     if (goals.length === 0) {
@@ -4710,14 +4723,15 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                 const goalProgress = calculateGoalProgress(goal.id);
                 const isExpanded = expandedGoals[goal.id];
                 const isGoalCompleted = goal.status === 'completed';
+                const dueDateStatus = getDueDateStatus(goal.dueDate, isGoalCompleted);
                 
                 return (
                     <div key={goal.id} style={{
-                        background: isGoalCompleted ? 'rgba(76,175,80,0.1)' : 'rgba(255,255,255,0.05)',
+                        background: isGoalCompleted ? 'rgba(76,175,80,0.08)' : 'rgba(255,255,255,0.05)',
                         borderRadius: '15px',
                         marginBottom: '20px',
                         overflow: 'hidden',
-                        border: isGoalCompleted ? '1px solid rgba(76,175,80,0.3)' : 'none'
+                        border: isGoalCompleted ? '1px solid rgba(76,175,80,0.3)' : '1px solid rgba(255,255,255,0.1)'
                     }}>
                         {/* Goal Header */}
                         <div 
@@ -4728,11 +4742,12 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                 borderBottom: isExpanded ? '1px solid rgba(255,255,255,0.1)' : 'none'
                             }}
                         >
+                            {/* Type Label and Title */}
                             <div style={{
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'space-between',
-                                marginBottom: '10px'
+                                marginBottom: '12px'
                             }}>
                                 <h3 style={{
                                     color: isGoalCompleted ? '#4CAF50' : 'white',
@@ -4740,71 +4755,117 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                     fontSize: '18px',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: '10px',
+                                    gap: '12px',
                                     textDecoration: isGoalCompleted ? 'line-through' : 'none'
                                 }}>
                                     <span style={{
                                         transform: isExpanded ? 'rotate(90deg)' : 'rotate(0)',
-                                        transition: 'transform 0.3s'
+                                        transition: 'transform 0.3s',
+                                        fontSize: '14px'
                                     }}>
                                         ▶
+                                    </span>
+                                    <span style={{
+                                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                        padding: '4px 10px',
+                                        borderRadius: '6px',
+                                        fontSize: '11px',
+                                        fontWeight: 'bold',
+                                        letterSpacing: '0.5px'
+                                    }}>
+                                        GOAL
                                     </span>
                                     {goal.title}
                                     {isGoalCompleted && <span style={{color: '#4CAF50'}}>✅</span>}
                                 </h3>
                                 <span style={{
-                                    color: getDueDateColor(goal.dueDate, isGoalCompleted),
-                                    fontSize: '14px'
+                                    color: dueDateStatus.color,
+                                    fontSize: '13px',
+                                    fontWeight: '500'
                                 }}>
-                                    {isGoalCompleted && goal.completedAt ? 
-                                        formatCompletionDate(goal.completedAt) : 
-                                        formatDueDate(goal.dueDate)}
+                                    {dueDateStatus.text}
                                 </span>
+                            </div>
+
+                            {/* Date Information */}
+                            <div style={{
+                                display: 'flex',
+                                gap: '20px',
+                                marginBottom: '12px',
+                                paddingLeft: '26px'
+                            }}>
+                                <span style={{
+                                    color: 'rgba(255,255,255,0.5)',
+                                    fontSize: '12px'
+                                }}>
+                                    📅 Created: {formatDate(goal.createdAt)}
+                                </span>
+                                {goal.dueDate && (
+                                    <span style={{
+                                        color: 'rgba(255,255,255,0.5)',
+                                        fontSize: '12px'
+                                    }}>
+                                        ⏰ Due: {formatDate(goal.dueDate)}
+                                    </span>
+                                )}
+                                {goal.completedAt && (
+                                    <span style={{
+                                        color: '#4CAF50',
+                                        fontSize: '12px'
+                                    }}>
+                                        ✓ Completed: {formatDate(goal.completedAt)}
+                                    </span>
+                                )}
                             </div>
                             
                             {/* Progress Bar */}
                             <div style={{
-                                background: 'rgba(255,255,255,0.1)',
-                                borderRadius: '10px',
-                                height: '8px',
-                                overflow: 'hidden'
+                                paddingLeft: '26px'
                             }}>
                                 <div style={{
-                                    background: isGoalCompleted ? 
-                                        '#4CAF50' : 
-                                        `linear-gradient(90deg, #4CAF50 0%, #45a049 100%)`,
-                                    width: `${goalProgress}%`,
-                                    height: '100%',
-                                    transition: 'width 0.3s ease'
-                                }}/>
-                            </div>
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                marginTop: '5px'
-                            }}>
-                                <span style={{
-                                    color: 'rgba(255,255,255,0.6)',
-                                    fontSize: '12px'
+                                    background: 'rgba(255,255,255,0.1)',
+                                    borderRadius: '10px',
+                                    height: '8px',
+                                    overflow: 'hidden'
                                 }}>
-                                    {goalProgress}% Complete
-                                </span>
-                                <span style={{
-                                    color: 'rgba(255,255,255,0.6)',
-                                    fontSize: '12px'
+                                    <div style={{
+                                        background: isGoalCompleted ? 
+                                            '#4CAF50' : 
+                                            `linear-gradient(90deg, #4CAF50 0%, #45a049 100%)`,
+                                        width: `${goalProgress}%`,
+                                        height: '100%',
+                                        transition: 'width 0.3s ease'
+                                    }}/>
+                                </div>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    marginTop: '5px'
                                 }}>
-                                    {goalObjectives.length} Objectives
-                                </span>
+                                    <span style={{
+                                        color: 'rgba(255,255,255,0.6)',
+                                        fontSize: '12px'
+                                    }}>
+                                        {goalProgress}% Complete
+                                    </span>
+                                    <span style={{
+                                        color: 'rgba(255,255,255,0.6)',
+                                        fontSize: '12px'
+                                    }}>
+                                        {goalObjectives.length} Objectives • {assignments.filter(a => a.goalId === goal.id).length} Assignments
+                                    </span>
+                                </div>
                             </div>
                         </div>
                         
                         {/* Objectives and Assignments */}
                         {isExpanded && (
-                            <div style={{padding: '20px'}}>
+                            <div style={{padding: '20px', paddingTop: '0'}}>
                                 {goalObjectives.length === 0 ? (
                                     <p style={{
                                         color: 'rgba(255,255,255,0.6)',
-                                        fontSize: '14px'
+                                        fontSize: '14px',
+                                        paddingLeft: '26px'
                                     }}>
                                         No objectives created yet.
                                     </p>
@@ -4812,36 +4873,75 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                     goalObjectives.map(objective => {
                                         const objectiveAssignments = assignments.filter(a => a.objectiveId === objective.id);
                                         const isObjectiveCompleted = objective.status === 'completed';
+                                        const objDueDateStatus = getDueDateStatus(objective.dueDate, isObjectiveCompleted);
                                         
                                         return (
                                             <div key={objective.id} style={{
-                                                marginBottom: '20px',
-                                                opacity: isObjectiveCompleted ? 0.8 : 1
+                                                marginTop: '20px',
+                                                paddingLeft: '26px',
+                                                opacity: isObjectiveCompleted ? 0.85 : 1
                                             }}>
                                                 {/* Objective Header */}
                                                 <div style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'space-between',
-                                                    marginBottom: '10px'
+                                                    background: isObjectiveCompleted ? 'rgba(76,175,80,0.05)' : 'rgba(255,255,255,0.03)',
+                                                    borderRadius: '10px',
+                                                    padding: '15px',
+                                                    marginBottom: '10px',
+                                                    border: '1px solid rgba(255,255,255,0.08)'
                                                 }}>
-                                                    <h4 style={{
-                                                        color: isObjectiveCompleted ? '#4CAF50' : '#f4c430',
-                                                        margin: 0,
-                                                        fontSize: '16px',
-                                                        textDecoration: isObjectiveCompleted ? 'line-through' : 'none'
+                                                    <div style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        marginBottom: '8px'
                                                     }}>
-                                                        📌 {objective.title}
-                                                        {isObjectiveCompleted && <span style={{marginLeft: '10px'}}>✅</span>}
-                                                    </h4>
-                                                    <span style={{
-                                                        color: getDueDateColor(objective.dueDate, isObjectiveCompleted),
-                                                        fontSize: '12px'
+                                                        <h4 style={{
+                                                            color: isObjectiveCompleted ? '#4CAF50' : '#f4c430',
+                                                            margin: 0,
+                                                            fontSize: '16px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '10px',
+                                                            textDecoration: isObjectiveCompleted ? 'line-through' : 'none'
+                                                        }}>
+                                                            <span style={{
+                                                                background: 'linear-gradient(135deg, #f4c430 0%, #ffa500 100%)',
+                                                                padding: '3px 8px',
+                                                                borderRadius: '5px',
+                                                                fontSize: '10px',
+                                                                fontWeight: 'bold',
+                                                                color: '#000',
+                                                                letterSpacing: '0.5px'
+                                                            }}>
+                                                                OBJECTIVE
+                                                            </span>
+                                                            {objective.title}
+                                                            {isObjectiveCompleted && <span>✅</span>}
+                                                        </h4>
+                                                        <span style={{
+                                                            color: objDueDateStatus.color,
+                                                            fontSize: '12px',
+                                                            fontWeight: '500'
+                                                        }}>
+                                                            {objDueDateStatus.text}
+                                                        </span>
+                                                    </div>
+                                                    
+                                                    {/* Objective Dates */}
+                                                    <div style={{
+                                                        display: 'flex',
+                                                        gap: '15px',
+                                                        fontSize: '11px',
+                                                        color: 'rgba(255,255,255,0.5)'
                                                     }}>
-                                                        {isObjectiveCompleted && objective.completedAt ? 
-                                                            formatCompletionDate(objective.completedAt) : 
-                                                            formatDueDate(objective.dueDate)}
-                                                    </span>
+                                                        <span>📅 Created: {formatDate(objective.createdAt)}</span>
+                                                        {objective.dueDate && <span>⏰ Due: {formatDate(objective.dueDate)}</span>}
+                                                        {objective.completedAt && (
+                                                            <span style={{color: '#4CAF50'}}>
+                                                                ✓ Completed: {formatDate(objective.completedAt)}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                                 
                                                 {/* Assignments under this objective */}
@@ -4851,114 +4951,132 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                                         fontSize: '14px',
                                                         marginLeft: '20px'
                                                     }}>
-                                                        No tasks assigned to this objective.
+                                                        No assignments for this objective.
                                                     </p>
                                                 ) : (
                                                     objectiveAssignments.map(assignment => {
                                                         const isAssignmentExpanded = expandedAssignments[assignment.id];
                                                         const isAssignmentCompleted = assignment.status === 'completed';
+                                                        const assignDueDateStatus = getDueDateStatus(assignment.dueDate, isAssignmentCompleted);
                                                         
                                                         return (
                                                             <div key={assignment.id} style={{
                                                                 background: isAssignmentCompleted ? 
-                                                                    'rgba(76,175,80,0.1)' : 
-                                                                    'rgba(255,255,255,0.03)',
-                                                                borderRadius: '10px',
-                                                                padding: '15px',
+                                                                    'rgba(76,175,80,0.08)' : 
+                                                                    'rgba(255,255,255,0.02)',
+                                                                borderRadius: '8px',
+                                                                padding: '12px',
                                                                 marginLeft: '20px',
-                                                                marginBottom: '10px',
+                                                                marginBottom: '8px',
                                                                 border: isAssignmentCompleted ? 
                                                                     '1px solid rgba(76,175,80,0.2)' : 
-                                                                    'none'
+                                                                    '1px solid rgba(255,255,255,0.06)'
                                                             }}>
                                                                 <div style={{
                                                                     display: 'flex',
                                                                     alignItems: 'flex-start',
-                                                                    justifyContent: 'space-between'
+                                                                    gap: '10px'
                                                                 }}>
+                                                                    {/* Assignment Checkbox for PIR */}
+                                                                    <input 
+                                                                        type="checkbox"
+                                                                        checked={isAssignmentCompleted}
+                                                                        onChange={(e) => {
+                                                                            if (e.target.checked && !assignment.reflection) {
+                                                                                toggleAssignment(assignment.id);
+                                                                            } else {
+                                                                                onAssignmentComplete(assignment.id, e.target.checked);
+                                                                            }
+                                                                        }}
+                                                                        style={{
+                                                                            width: '20px',
+                                                                            height: '20px',
+                                                                            cursor: 'pointer',
+                                                                            marginTop: '2px'
+                                                                        }}
+                                                                    />
+                                                                    
                                                                     <div style={{flex: 1}}>
+                                                                        {/* Assignment Title with Type Label */}
                                                                         <div style={{
                                                                             display: 'flex',
                                                                             alignItems: 'center',
-                                                                            gap: '10px'
+                                                                            justifyContent: 'space-between',
+                                                                            marginBottom: '6px'
                                                                         }}>
-                                                                            <input 
-                                                                                type="checkbox"
-                                                                                checked={isAssignmentCompleted}
-                                                                                onChange={(e) => {
-                                                                                    if (e.target.checked && !assignment.reflection) {
-                                                                                        toggleAssignment(assignment.id);
-                                                                                    } else {
-                                                                                        onAssignmentComplete(assignment.id, e.target.checked);
-                                                                                    }
-                                                                                }}
-                                                                                style={{
-                                                                                    width: '20px',
-                                                                                    height: '20px',
-                                                                                    cursor: 'pointer'
-                                                                                }}
-                                                                            />
                                                                             <label style={{
                                                                                 color: isAssignmentCompleted ? 
                                                                                     'rgba(255,255,255,0.5)' : 'white',
                                                                                 textDecoration: isAssignmentCompleted ? 
                                                                                     'line-through' : 'none',
-                                                                                cursor: 'pointer'
+                                                                                cursor: 'pointer',
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                gap: '8px',
+                                                                                fontSize: '14px'
                                                                             }}>
+                                                                                <span style={{
+                                                                                    background: 'linear-gradient(135deg, #9c27b0 0%, #673ab7 100%)',
+                                                                                    padding: '2px 7px',
+                                                                                    borderRadius: '4px',
+                                                                                    fontSize: '9px',
+                                                                                    fontWeight: 'bold',
+                                                                                    letterSpacing: '0.5px'
+                                                                                }}>
+                                                                                    ASSIGNMENT
+                                                                                </span>
                                                                                 {assignment.title}
                                                                             </label>
+                                                                            <span style={{
+                                                                                color: assignDueDateStatus.color,
+                                                                                fontSize: '11px',
+                                                                                fontWeight: '500'
+                                                                            }}>
+                                                                                {assignDueDateStatus.text}
+                                                                            </span>
                                                                         </div>
                                                                         
                                                                         {assignment.description && (
                                                                             <p style={{
                                                                                 color: 'rgba(255,255,255,0.6)',
-                                                                                fontSize: '14px',
-                                                                                marginTop: '5px',
-                                                                                marginLeft: '30px'
+                                                                                fontSize: '13px',
+                                                                                margin: '6px 0'
                                                                             }}>
                                                                                 {assignment.description}
                                                                             </p>
                                                                         )}
                                                                         
+                                                                        {/* Assignment Dates */}
                                                                         <div style={{
-                                                                            marginLeft: '30px',
-                                                                            marginTop: '5px',
                                                                             display: 'flex',
-                                                                            gap: '15px',
-                                                                            flexWrap: 'wrap'
+                                                                            gap: '12px',
+                                                                            flexWrap: 'wrap',
+                                                                            fontSize: '11px',
+                                                                            color: 'rgba(255,255,255,0.5)',
+                                                                            marginTop: '8px'
                                                                         }}>
-                                                                            {assignment.createdAt && (
-                                                                                <span style={{
-                                                                                    color: 'rgba(255,255,255,0.5)',
-                                                                                    fontSize: '12px'
-                                                                                }}>
-                                                                                    Created: {new Date(assignment.createdAt.toDate ? 
-                                                                                        assignment.createdAt.toDate() : 
-                                                                                        assignment.createdAt).toLocaleDateString()}
+                                                                            <span>📅 Created: {formatDate(assignment.createdAt)}</span>
+                                                                            {assignment.dueDate && (
+                                                                                <span>⏰ Due: {formatDate(assignment.dueDate)}</span>
+                                                                            )}
+                                                                            {assignment.completedAt && (
+                                                                                <span style={{color: '#4CAF50'}}>
+                                                                                    ✓ Completed: {formatDate(assignment.completedAt)}
                                                                                 </span>
                                                                             )}
-                                                                            <span style={{
-                                                                                color: getDueDateColor(assignment.dueDate, isAssignmentCompleted),
-                                                                                fontSize: '12px'
-                                                                            }}>
-                                                                                {isAssignmentCompleted && assignment.completedAt ? 
-                                                                                    formatCompletionDate(assignment.completedAt) : 
-                                                                                    formatDueDate(assignment.dueDate)}
-                                                                            </span>
                                                                         </div>
                                                                         
                                                                         {/* Inline Reflection Section */}
                                                                         {isAssignmentExpanded && !isAssignmentCompleted && (
                                                                             <div style={{
-                                                                                marginTop: '15px',
-                                                                                marginLeft: '30px',
+                                                                                marginTop: '12px',
                                                                                 padding: '10px',
                                                                                 background: 'rgba(255,255,255,0.05)',
-                                                                                borderRadius: '8px'
+                                                                                borderRadius: '6px'
                                                                             }}>
                                                                                 <label style={{
                                                                                     color: 'white',
-                                                                                    fontSize: '14px',
+                                                                                    fontSize: '13px',
                                                                                     display: 'block',
                                                                                     marginBottom: '8px'
                                                                                 }}>
@@ -4973,13 +5091,13 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                                                                     placeholder="What did you learn? How did this help your recovery?"
                                                                                     style={{
                                                                                         width: '100%',
-                                                                                        minHeight: '80px',
-                                                                                        padding: '10px',
+                                                                                        minHeight: '70px',
+                                                                                        padding: '8px',
                                                                                         background: 'rgba(0,0,0,0.3)',
                                                                                         border: '1px solid rgba(255,255,255,0.2)',
-                                                                                        borderRadius: '8px',
+                                                                                        borderRadius: '6px',
                                                                                         color: 'white',
-                                                                                        fontSize: '14px',
+                                                                                        fontSize: '13px',
                                                                                         resize: 'vertical'
                                                                                     }}
                                                                                 />
@@ -4997,13 +5115,14 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                                                                             toggleAssignment(assignment.id);
                                                                                         }}
                                                                                         style={{
-                                                                                            padding: '8px 16px',
+                                                                                            padding: '6px 14px',
                                                                                             background: '#4CAF50',
                                                                                             border: 'none',
-                                                                                            borderRadius: '8px',
+                                                                                            borderRadius: '6px',
                                                                                             color: 'white',
                                                                                             cursor: 'pointer',
-                                                                                            fontWeight: 'bold'
+                                                                                            fontSize: '13px',
+                                                                                            fontWeight: '500'
                                                                                         }}
                                                                                     >
                                                                                         Complete with Reflection
@@ -5011,12 +5130,13 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                                                                     <button
                                                                                         onClick={() => toggleAssignment(assignment.id)}
                                                                                         style={{
-                                                                                            padding: '8px 16px',
+                                                                                            padding: '6px 14px',
                                                                                             background: 'rgba(255,255,255,0.1)',
                                                                                             border: '1px solid rgba(255,255,255,0.2)',
-                                                                                            borderRadius: '8px',
+                                                                                            borderRadius: '6px',
                                                                                             color: 'white',
-                                                                                            cursor: 'pointer'
+                                                                                            cursor: 'pointer',
+                                                                                            fontSize: '13px'
                                                                                         }}
                                                                                     >
                                                                                         Cancel
@@ -5029,22 +5149,22 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                                                         {assignment.reflection && !isAssignmentExpanded && (
                                                                             <div style={{
                                                                                 marginTop: '10px',
-                                                                                marginLeft: '30px',
                                                                                 padding: '8px',
                                                                                 background: 'rgba(76,175,80,0.1)',
-                                                                                borderRadius: '8px',
+                                                                                borderRadius: '6px',
                                                                                 borderLeft: '3px solid #4CAF50'
                                                                             }}>
                                                                                 <small style={{
                                                                                     color: '#4CAF50',
                                                                                     display: 'block',
-                                                                                    marginBottom: '5px'
+                                                                                    marginBottom: '4px',
+                                                                                    fontSize: '11px'
                                                                                 }}>
                                                                                     ✓ Reflection submitted
                                                                                 </small>
                                                                                 <p style={{
                                                                                     color: 'rgba(255,255,255,0.8)',
-                                                                                    fontSize: '14px',
+                                                                                    fontSize: '13px',
                                                                                     margin: 0
                                                                                 }}>
                                                                                     {assignment.reflection}
