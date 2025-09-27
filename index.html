@@ -4148,13 +4148,12 @@ const handleImageSelect = (e) => {
                 </div>
             );
         }
-      // Enhanced Recovery Resources View Component with all fixes
+    // Recovery Resources View Component - No Favorites
 function ResourcesView({ user, userData, onBack }) {
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [activeTab, setActiveTab] = useState('assigned');
     const [resources, setResources] = useState([]);
     const [allResources, setAllResources] = useState([]);
-    const [favorites, setFavorites] = useState([]);
     const [notes, setNotes] = useState({});
     const [progress, setProgress] = useState({});
     const [searchQuery, setSearchQuery] = useState('');
@@ -4163,7 +4162,6 @@ function ResourcesView({ user, userData, onBack }) {
     const [resourceCounts, setResourceCounts] = useState({});
     const [totalResourceCount, setTotalResourceCount] = useState(0);
     const [newResourceIds, setNewResourceIds] = useState([]);
-    const [showFavorites, setShowFavorites] = useState(false);
     const [userNames, setUserNames] = useState({});
 
     const categories = [
@@ -4188,15 +4186,10 @@ function ResourcesView({ user, userData, onBack }) {
     }, [allResources]);
 
     useEffect(() => {
-        if (selectedCategory === 'favorites') {
-            setShowFavorites(true);
-            const favoriteResourcesList = allResources.filter(r => favorites.includes(r.id));
-            setResources(favoriteResourcesList);
-        } else if (selectedCategory) {
-            setShowFavorites(false);
+        if (selectedCategory) {
             filterCategoryResources();
         }
-    }, [selectedCategory, activeTab, allResources, favorites]);
+    }, [selectedCategory, activeTab, allResources]);
 
     const loadUserNames = async () => {
         try {
@@ -4311,32 +4304,13 @@ function ResourcesView({ user, userData, onBack }) {
             
             if (prefDoc.exists) {
                 const data = prefDoc.data();
-                setFavorites(data.favorites || []);
                 setNotes(data.notes || {});
                 setProgress(data.progress || {});
             }
         } catch (error) {
             console.error('Error loading preferences:', error);
-            setFavorites([]);
             setNotes({});
             setProgress({});
-        }
-    };
-
-    const toggleFavorite = async (resourceId) => {
-        const newFavorites = favorites.includes(resourceId) 
-            ? favorites.filter(id => id !== resourceId)
-            : [...favorites, resourceId];
-        
-        setFavorites(newFavorites);
-        
-        const saved = await savePreferences({ favorites: newFavorites });
-        
-        if (saved) {
-            showNotification(
-                favorites.includes(resourceId) ? 'Removed from favorites' : 'Added to favorites',
-                'success'
-            );
         }
     };
 
@@ -4383,7 +4357,6 @@ function ResourcesView({ user, userData, onBack }) {
     const savePreferences = async (updates) => {
         try {
             const currentPrefs = {
-                favorites: favorites,
                 notes: notes,
                 progress: progress,
                 ...updates,
@@ -4457,11 +4430,6 @@ function ResourcesView({ user, userData, onBack }) {
         );
     };
 
-    const getFavoriteResources = () => {
-        if (!favorites || favorites.length === 0) return [];
-        return allResources.filter(r => r && r.id && favorites.includes(r.id));
-    };
-
     const handleResourceClick = async (resource) => {
         if (!resource || !resource.id) {
             console.error('Invalid resource clicked');
@@ -4484,8 +4452,6 @@ function ResourcesView({ user, userData, onBack }) {
 
     // Category Selection View
     if (!selectedCategory) {
-        const favoriteResources = getFavoriteResources();
-        
         return (
             <div style={{
                 background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
@@ -4695,111 +4661,13 @@ function ResourcesView({ user, userData, onBack }) {
                         </button>
                     ))}
                 </div>
-
-                {/* Fixed Favorites Section */}
-                {favoriteResources.length > 0 && (
-                    <div style={{
-                        background: 'rgba(255,255,255,0.95)',
-                        borderRadius: '20px',
-                        padding: '20px'
-                    }}>
-                        <h3 style={{
-                            margin: '0 0 15px 0',
-                            color: '#333',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px'
-                        }}>
-                            ⭐ Your Favorites ({favoriteResources.length})
-                        </h3>
-                        <div style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '10px'
-                        }}>
-                            {favoriteResources.slice(0, 3).map(resource => {
-                                if (!resource || !resource.id) return null;
-                                return (
-                                    <div 
-                                        key={resource.id}
-                                        onClick={() => {
-                                            console.log('Favorite clicked:', resource);
-                                            handleResourceClick(resource);
-                                        }}
-                                        style={{
-                                            padding: '15px',
-                                            background: 'linear-gradient(135deg, #667eea20, #764ba220)',
-                                            borderRadius: '15px',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.3s',
-                                            border: '1px solid rgba(118,75,162,0.2)'
-                                        }}
-                                    >
-                                        <div style={{
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
-                                            pointerEvents: 'none'
-                                        }}>
-                                            <div style={{ flex: 1, pointerEvents: 'none' }}>
-                                                <div style={{
-                                                    fontWeight: 'bold',
-                                                    color: '#333',
-                                                    marginBottom: '5px',
-                                                    pointerEvents: 'none'
-                                                }}>
-                                                    {resource.title || 'Untitled Resource'}
-                                                </div>
-                                                <div style={{
-                                                    fontSize: '12px',
-                                                    color: '#666',
-                                                    pointerEvents: 'none'
-                                                }}>
-                                                    {categories.find(c => c.id === resource.category)?.name || 'Unknown Category'}
-                                                </div>
-                                            </div>
-                                            <span style={{
-                                                fontSize: '24px',
-                                                color: '#ffd700',
-                                                pointerEvents: 'none'
-                                            }}>
-                                                ⭐
-                                            </span>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            {favoriteResources.length > 3 && (
-                                <button
-                                    onClick={() => {
-                                        setSelectedCategory('favorites');
-                                        setShowFavorites(true);
-                                    }}
-                                    style={{
-                                        padding: '10px',
-                                        background: 'transparent',
-                                        border: '1px solid #764ba2',
-                                        borderRadius: '10px',
-                                        color: '#764ba2',
-                                        cursor: 'pointer',
-                                        fontWeight: 'bold'
-                                    }}
-                                >
-                                    View All Favorites →
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                )}
             </div>
         );
-    } // This closing bracket was missing!
+    }
 
     // Resource List View
     if (!selectedResource) {
-        const category = showFavorites 
-            ? { id: 'favorites', name: 'Favorites', icon: '⭐', color: '#ffd700' }
-            : categories.find(c => c.id === selectedCategory);
+        const category = categories.find(c => c.id === selectedCategory);
         const filteredResources = getFilteredResources();
         
         return (
@@ -4818,13 +4686,10 @@ function ResourcesView({ user, userData, onBack }) {
                     <div style={{
                         display: 'flex',
                         alignItems: 'center',
-                        marginBottom: showFavorites ? 0 : '20px'
+                        marginBottom: '20px'
                     }}>
                         <button 
-                            onClick={() => {
-                                setSelectedCategory(null);
-                                setShowFavorites(false);
-                            }}
+                            onClick={() => setSelectedCategory(null)}
                             style={{
                                 background: 'rgba(255,255,255,0.2)',
                                 border: 'none',
@@ -4851,47 +4716,45 @@ function ResourcesView({ user, userData, onBack }) {
                         </div>
                     </div>
 
-                    {!showFavorites && (
-                        <div style={{
-                            display: 'flex',
-                            background: 'rgba(255,255,255,0.2)',
-                            borderRadius: '15px',
-                            padding: '5px'
-                        }}>
-                            <button
-                                onClick={() => setActiveTab('assigned')}
-                                style={{
-                                    flex: 1,
-                                    padding: '12px',
-                                    background: activeTab === 'assigned' ? 'white' : 'transparent',
-                                    color: activeTab === 'assigned' ? '#764ba2' : 'white',
-                                    border: 'none',
-                                    borderRadius: '10px',
-                                    cursor: 'pointer',
-                                    fontWeight: 'bold',
-                                    transition: 'all 0.3s'
-                                }}
-                            >
-                                Assigned ({resources.filter(r => r.isAssigned).length})
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('global')}
-                                style={{
-                                    flex: 1,
-                                    padding: '12px',
-                                    background: activeTab === 'global' ? 'white' : 'transparent',
-                                    color: activeTab === 'global' ? '#764ba2' : 'white',
-                                    border: 'none',
-                                    borderRadius: '10px',
-                                    cursor: 'pointer',
-                                    fontWeight: 'bold',
-                                    transition: 'all 0.3s'
-                                }}
-                            >
-                                Global ({resources.filter(r => !r.isAssigned).length})
-                            </button>
-                        </div>
-                    )}
+                    <div style={{
+                        display: 'flex',
+                        background: 'rgba(255,255,255,0.2)',
+                        borderRadius: '15px',
+                        padding: '5px'
+                    }}>
+                        <button
+                            onClick={() => setActiveTab('assigned')}
+                            style={{
+                                flex: 1,
+                                padding: '12px',
+                                background: activeTab === 'assigned' ? 'white' : 'transparent',
+                                color: activeTab === 'assigned' ? '#764ba2' : 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                fontWeight: 'bold',
+                                transition: 'all 0.3s'
+                            }}
+                        >
+                            Assigned ({resources.filter(r => r.isAssigned).length})
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('global')}
+                            style={{
+                                flex: 1,
+                                padding: '12px',
+                                background: activeTab === 'global' ? 'white' : 'transparent',
+                                color: activeTab === 'global' ? '#764ba2' : 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                fontWeight: 'bold',
+                                transition: 'all 0.3s'
+                            }}
+                        >
+                            Global ({resources.filter(r => !r.isAssigned).length})
+                        </button>
+                    </div>
                 </div>
 
                 {loading ? (
@@ -4910,7 +4773,7 @@ function ResourcesView({ user, userData, onBack }) {
                         background: 'rgba(255,255,255,0.1)',
                         borderRadius: '20px'
                     }}>
-                        {showFavorites ? 'No favorite resources yet.' : 'No resources found.'}
+                        No resources found.
                     </div>
                 ) : (
                     <div style={{
@@ -5064,23 +4927,6 @@ function ResourcesView({ user, userData, onBack }) {
                                             )}
                                         </div>
                                     </div>
-                                    
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            toggleFavorite(resource.id);
-                                        }}
-                                        style={{
-                                            background: 'transparent',
-                                            border: 'none',
-                                            fontSize: '28px',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.3s',
-                                            transform: favorites.includes(resource.id) ? 'scale(1.1)' : 'scale(1)'
-                                        }}
-                                    >
-                                        {favorites.includes(resource.id) ? '⭐' : '☆'}
-                                    </button>
                                 </div>
                             </div>
                         ))}
@@ -5103,7 +4949,7 @@ function ResourcesView({ user, userData, onBack }) {
     );
 }
 
-// Keep the same ResourceViewer component
+// Resource Viewer Component
 function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress, onUpdateProgress, userName }) {
     const [note, setNote] = useState(currentNote || '');
     const [showNoteInput, setShowNoteInput] = useState(false);
