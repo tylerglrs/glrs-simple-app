@@ -3037,30 +3037,61 @@ const sendTopicRoomMessage = async (roomId, content, imageUrl = null) => {
                 }
             };
 
-            // Handle profile image upload
-            const handleProfileImageUpload = async (file) => {
-                try {
-                    if (file.size > 5 * 1024 * 1024) {
-                        alert('Image must be less than 5MB');
-                        return;
-                    }
-                    
-                    const reader = new FileReader();
-                    reader.onloadend = async () => {
-                        const base64String = reader.result;
-                        
-                        await db.collection('users').doc(user.uid).update({
-                            profileImageUrl: base64String
-                        });
-                        
-                        setProfileImage(base64String);
-                    };
-                    reader.readAsDataURL(file);
-                } catch (error) {
-                    console.error('Error uploading image:', error);
-                }
-            };
+            // Profile image upload handler - FIXED VERSION
+const handleProfileImageUpload = async (file) => {
+    try {
+        // Check file size (optional - limit to 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            alert('Image size must be less than 5MB');
+            return;
+        }
+        
+        // Show loading state
+        showNotification('Uploading image...', 'info');
+        
+        // Create a reference to Firebase Storage
+        const storageRef = firebase.storage().ref();
+        const imageRef = storageRef.child(`profileImages/${user.uid}/${Date.now()}_${file.name}`);
+        
+        // Upload the file to Firebase Storage
+        const uploadTask = await imageRef.put(file);
+        
+        // Get the download URL
+        const downloadURL = await uploadTask.ref.getDownloadURL();
+        
+        // Update user profile with just the URL (not the whole image)
+        await db.collection('users').doc(user.uid).update({
+            profileImageUrl: downloadURL,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Update local state
+        setProfileImage(downloadURL);
+        setUserData(prevData => ({
+            ...prevData,
+            profileImageUrl: downloadURL
+        }));
+        
+        showNotification('Profile image updated successfully!', 'success');
+    } catch (error) {
+        console.error('Error uploading profile image:', error);
+        showNotification('Failed to upload image. Please try again.', 'error');
+    }
+};
 
+// Update the handleImageSelect to use the new upload function
+const handleImageSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        // Check file type
+        if (!file.type.startsWith('image/')) {
+            alert('Please select an image file');
+            return;
+        }
+        
+        handleProfileImageUpload(file);
+    }
+};
             // Export data as JSON
             const exportDataAsJSON = () => {
                 const exportData = {
