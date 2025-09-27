@@ -3037,58 +3037,135 @@ const sendTopicRoomMessage = async (roomId, content, imageUrl = null) => {
                 }
             };
 
-            // Profile image upload handler - FIXED VERSION
+           // Alternative Profile Image Upload - Resize and store in Firestore
 const handleProfileImageUpload = async (file) => {
     try {
-        // Check file size (optional - limit to 5MB)
+        // Check file size (limit to 5MB for upload)
         if (file.size > 5 * 1024 * 1024) {
-            alert('Image size must be less than 5MB');
+            showNotification('Image size must be less than 5MB', 'error');
             return;
         }
         
-        // Show loading state
-        showNotification('Uploading image...', 'info');
+        // Show loading
+        showNotification('Processing image...', 'info');
         
-        // Create a reference to Firebase Storage
-        const storageRef = firebase.storage().ref();
-        const imageRef = storageRef.child(`profileImages/${user.uid}/${Date.now()}_${file.name}`);
+        // Create canvas for resizing
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
         
-        // Upload the file to Firebase Storage
-        const uploadTask = await imageRef.put(file);
+        // Read and process the file
+        const reader = new FileReader();
         
-        // Get the download URL
-        const downloadURL = await uploadTask.ref.getDownloadURL();
+        reader.onload = async (e) => {
+            img.onload = async () => {
+                try {
+                    // Resize to max 300x300 pixels (slightly larger for better quality)
+                    const MAX_SIZE = 300;
+                    let width = img.width;
+                    let height = img.height;
+                    
+                    // Calculate new dimensions maintaining aspect ratio
+                    if (width > height) {
+                        if (width > MAX_SIZE) {
+                            height = Math.round((height * MAX_SIZE) / width);
+                            width = MAX_SIZE;
+                        }
+                    } else {
+                        if (height > MAX_SIZE) {
+                            width = Math.round((width * MAX_SIZE) / height);
+                            height = MAX_SIZE;
+                        }
+                    }
+                    
+                    // Set canvas size
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    // Draw and compress image
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    // Convert to base64 with compression
+                    const resizedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+                    
+                    // Check final size (should be under 500KB)
+                    const base64Size = resizedBase64.length * 0.75; // Approximate size in bytes
+                    if (base64Size > 500 * 1024) {
+                        // Try with more compression
+                        const moreCompressed = canvas.toDataURL('image/jpeg', 0.5);
+                        if (moreCompressed.length * 0.75 > 500 * 1024) {
+                            showNotification('Image is too large even after compression. Please choose a smaller image.', 'error');
+                            return;
+                        }
+                        resizedBase64 = moreCompressed;
+                    }
+                    
+                    // Store directly in Firestore
+                    await db.collection('users').doc(user.uid).update({
+                        profileImageUrl: resizedBase64,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // Update local state
+                    if (typeof setProfileImage === 'function') {
+                        setProfileImage(resizedBase64);
+                    }
+                    
+                    if (typeof setUserData === 'function') {
+                        setUserData(prevData => ({
+                            ...prevData,
+                            profileImageUrl: resizedBase64
+                        }));
+                    }
+                    
+                    // Update the displayed image immediately
+                    const profileImgElements = document.querySelectorAll('.profile-image, #profileImage, .user-avatar');
+                    profileImgElements.forEach(elem => {
+                        if (elem.tagName === 'IMG') {
+                            elem.src = resizedBase64;
+                        } else {
+                            elem.style.backgroundImage = `url(${resizedBase64})`;
+                        }
+                    });
+                    
+                    showNotification('Profile image updated successfully!', 'success');
+                    
+                } catch (error) {
+                    console.error('Error processing image:', error);
+                    showNotification('Failed to process image', 'error');
+                }
+            };
+            
+            img.onerror = () => {
+                showNotification('Failed to load image', 'error');
+            };
+            
+            img.src = e.target.result;
+        };
         
-        // Update user profile with just the URL (not the whole image)
-        await db.collection('users').doc(user.uid).update({
-            profileImageUrl: downloadURL,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        reader.onerror = () => {
+            showNotification('Failed to read file', 'error');
+        };
         
-        // Update local state
-        setProfileImage(downloadURL);
-        setUserData(prevData => ({
-            ...prevData,
-            profileImageUrl: downloadURL
-        }));
+        reader.readAsDataURL(file);
         
-        showNotification('Profile image updated successfully!', 'success');
     } catch (error) {
-        console.error('Error uploading profile image:', error);
-        showNotification('Failed to upload image. Please try again.', 'error');
+        console.error('Error uploading image:', error);
+        showNotification('Failed to upload image', 'error');
     }
 };
 
-// Update the handleImageSelect to use the new upload function
+// Update the handleImageSelect function to use the new handler
 const handleImageSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
         // Check file type
         if (!file.type.startsWith('image/')) {
-            alert('Please select an image file');
+            showNotification('Please select an image file', 'error');
             return;
         }
         
+        // Use the new upload handler
         handleProfileImageUpload(file);
     }
 };
