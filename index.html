@@ -4626,12 +4626,14 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote }) {
         </div>
     );
 }
-      // Goals and Tasks View Component with Clear Type Labels - UPDATED
+     // Goals and Tasks View Component with Popup Details - UPDATED
 function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onReflectionSave }) {
     const [expandedGoals, setExpandedGoals] = useState({});
     const [expandedAssignments, setExpandedAssignments] = useState({});
     const [reflections, setReflections] = useState({});
     const [objectives, setObjectives] = useState([]);
+    const [selectedItem, setSelectedItem] = useState(null);
+    const [showModal, setShowModal] = useState(false);
     
     // Load objectives when component mounts or goals change
     useEffect(() => {
@@ -4640,7 +4642,6 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
     
     const loadObjectives = async () => {
         try {
-            // Load ALL objectives
             const objectivesSnap = await db.collection('objectives')
                 .where('userId', '==', user.uid)
                 .orderBy('order', 'asc')
@@ -4664,11 +4665,14 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
         }));
     };
     
-    const toggleAssignment = (assignmentId) => {
-        setExpandedAssignments(prev => ({
-            ...prev,
-            [assignmentId]: !prev[assignmentId]
-        }));
+    const openItemModal = (item, type) => {
+        setSelectedItem({ ...item, type });
+        setShowModal(true);
+    };
+    
+    const closeModal = () => {
+        setShowModal(false);
+        setSelectedItem(null);
     };
     
     const calculateGoalProgress = (goalId) => {
@@ -4700,6 +4704,293 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
         return { text: formatDate(date), color: 'rgba(255,255,255,0.7)' };
     };
     
+    const makeLinksClickable = (text) => {
+        if (!text) return null;
+        
+        // Regex to detect URLs
+        const urlRegex = /(https?:\/\/[^\s]+)/g;
+        const parts = text.split(urlRegex);
+        
+        return parts.map((part, index) => {
+            if (part.match(urlRegex)) {
+                return (
+                    <a 
+                        key={index}
+                        href={part} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        style={{
+                            color: '#4fc3f7',
+                            textDecoration: 'underline'
+                        }}
+                    >
+                        {part}
+                    </a>
+                );
+            }
+            return <span key={index}>{part}</span>;
+        });
+    };
+    
+    // Modal Component
+    const ItemModal = () => {
+        if (!selectedItem || !showModal) return null;
+        
+        const isCompleted = selectedItem.status === 'completed';
+        const typeColors = {
+            objective: 'linear-gradient(135deg, #f4c430 0%, #ffa500 100%)',
+            assignment: 'linear-gradient(135deg, #9c27b0 0%, #673ab7 100%)'
+        };
+        
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(0,0,0,0.8)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 9999,
+                padding: '20px'
+            }}>
+                <div style={{
+                    background: '#1a1a1a',
+                    borderRadius: '15px',
+                    maxWidth: '600px',
+                    width: '100%',
+                    maxHeight: '80vh',
+                    overflow: 'auto',
+                    position: 'relative',
+                    border: '1px solid rgba(255,255,255,0.1)'
+                }}>
+                    {/* Header */}
+                    <div style={{
+                        padding: '20px',
+                        borderBottom: '1px solid rgba(255,255,255,0.1)',
+                        background: typeColors[selectedItem.type]
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                        }}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px'
+                            }}>
+                                <span style={{
+                                    background: 'rgba(0,0,0,0.3)',
+                                    padding: '4px 10px',
+                                    borderRadius: '6px',
+                                    fontSize: '11px',
+                                    fontWeight: 'bold',
+                                    letterSpacing: '0.5px',
+                                    color: 'white'
+                                }}>
+                                    {selectedItem.type.toUpperCase()}
+                                </span>
+                                {isCompleted && <span>✅</span>}
+                            </div>
+                            <button
+                                onClick={closeModal}
+                                style={{
+                                    background: 'rgba(255,255,255,0.2)',
+                                    border: 'none',
+                                    borderRadius: '50%',
+                                    width: '30px',
+                                    height: '30px',
+                                    cursor: 'pointer',
+                                    color: 'white',
+                                    fontSize: '18px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}
+                            >
+                                ×
+                            </button>
+                        </div>
+                        <h3 style={{
+                            color: 'white',
+                            margin: '10px 0 0 0',
+                            fontSize: '20px',
+                            textDecoration: isCompleted ? 'line-through' : 'none'
+                        }}>
+                            {selectedItem.title}
+                        </h3>
+                    </div>
+                    
+                    {/* Body */}
+                    <div style={{ padding: '20px' }}>
+                        {/* Description */}
+                        {selectedItem.description && (
+                            <div style={{
+                                marginBottom: '20px'
+                            }}>
+                                <h4 style={{
+                                    color: 'rgba(255,255,255,0.7)',
+                                    fontSize: '12px',
+                                    marginBottom: '8px',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '1px'
+                                }}>
+                                    Description
+                                </h4>
+                                <div style={{
+                                    color: 'white',
+                                    fontSize: '14px',
+                                    lineHeight: '1.6',
+                                    background: 'rgba(255,255,255,0.05)',
+                                    padding: '12px',
+                                    borderRadius: '8px'
+                                }}>
+                                    {makeLinksClickable(selectedItem.description)}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Dates */}
+                        <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '10px',
+                            marginBottom: '20px'
+                        }}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                color: 'rgba(255,255,255,0.7)',
+                                fontSize: '13px'
+                            }}>
+                                <span>📅</span>
+                                <span>Created:</span>
+                                <span style={{ color: 'white' }}>
+                                    {formatDate(selectedItem.createdAt)}
+                                </span>
+                            </div>
+                            
+                            {selectedItem.dueDate && (
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    color: 'rgba(255,255,255,0.7)',
+                                    fontSize: '13px'
+                                }}>
+                                    <span>⏰</span>
+                                    <span>Due:</span>
+                                    <span style={{ 
+                                        color: getDueDateStatus(selectedItem.dueDate, isCompleted).color 
+                                    }}>
+                                        {formatDate(selectedItem.dueDate)}
+                                    </span>
+                                </div>
+                            )}
+                            
+                            {selectedItem.completedAt && (
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    color: '#4CAF50',
+                                    fontSize: '13px'
+                                }}>
+                                    <span>✓</span>
+                                    <span>Completed:</span>
+                                    <span>{formatDate(selectedItem.completedAt)}</span>
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Status */}
+                        <div style={{
+                            padding: '10px',
+                            background: isCompleted ? 
+                                'rgba(76,175,80,0.1)' : 
+                                'rgba(255,152,0,0.1)',
+                            borderRadius: '8px',
+                            border: `1px solid ${isCompleted ? 
+                                'rgba(76,175,80,0.3)' : 
+                                'rgba(255,152,0,0.3)'}`,
+                            marginBottom: '20px'
+                        }}>
+                            <span style={{
+                                color: isCompleted ? '#4CAF50' : '#ff9800',
+                                fontSize: '13px',
+                                fontWeight: '500'
+                            }}>
+                                Status: {isCompleted ? 'Completed' : 'Active'}
+                            </span>
+                        </div>
+                        
+                        {/* Reflection if exists */}
+                        {selectedItem.reflection && (
+                            <div style={{
+                                marginTop: '15px',
+                                padding: '12px',
+                                background: 'rgba(76,175,80,0.1)',
+                                borderRadius: '8px',
+                                borderLeft: '3px solid #4CAF50'
+                            }}>
+                                <h4 style={{
+                                    color: '#4CAF50',
+                                    fontSize: '12px',
+                                    marginBottom: '8px',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '1px'
+                                }}>
+                                    Your Reflection
+                                </h4>
+                                <p style={{
+                                    color: 'rgba(255,255,255,0.9)',
+                                    fontSize: '13px',
+                                    margin: 0,
+                                    lineHeight: '1.6'
+                                }}>
+                                    {selectedItem.reflection}
+                                </p>
+                            </div>
+                        )}
+                        
+                        {/* Action buttons for assignments */}
+                        {selectedItem.type === 'assignment' && !isCompleted && (
+                            <div style={{
+                                marginTop: '20px',
+                                display: 'flex',
+                                gap: '10px'
+                            }}>
+                                <button
+                                    onClick={() => {
+                                        onAssignmentComplete(selectedItem.id, true);
+                                        closeModal();
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        padding: '12px',
+                                        background: '#4CAF50',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        color: 'white',
+                                        cursor: 'pointer',
+                                        fontWeight: '500',
+                                        fontSize: '14px'
+                                    }}
+                                >
+                                    Mark Complete
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+    
     if (goals.length === 0) {
         return (
             <div style={{
@@ -4717,476 +5008,349 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
     }
     
     return (
-        <div style={{padding: '0 20px'}}>
-            {goals.map(goal => {
-                const goalObjectives = objectives.filter(o => o.goalId === goal.id);
-                const goalProgress = calculateGoalProgress(goal.id);
-                const isExpanded = expandedGoals[goal.id];
-                const isGoalCompleted = goal.status === 'completed';
-                const dueDateStatus = getDueDateStatus(goal.dueDate, isGoalCompleted);
-                
-                return (
-                    <div key={goal.id} style={{
-                        background: isGoalCompleted ? 'rgba(76,175,80,0.08)' : 'rgba(255,255,255,0.05)',
-                        borderRadius: '15px',
-                        marginBottom: '20px',
-                        overflow: 'hidden',
-                        border: isGoalCompleted ? '1px solid rgba(76,175,80,0.3)' : '1px solid rgba(255,255,255,0.1)'
-                    }}>
-                        {/* Goal Header */}
-                        <div 
-                            onClick={() => toggleGoal(goal.id)}
-                            style={{
-                                padding: '20px',
-                                cursor: 'pointer',
-                                borderBottom: isExpanded ? '1px solid rgba(255,255,255,0.1)' : 'none'
-                            }}
-                        >
-                            {/* Type Label and Title */}
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                marginBottom: '12px'
-                            }}>
-                                <h3 style={{
-                                    color: isGoalCompleted ? '#4CAF50' : 'white',
-                                    margin: 0,
-                                    fontSize: '18px',
+        <>
+            <div style={{padding: '0 20px'}}>
+                {goals.map(goal => {
+                    const goalObjectives = objectives.filter(o => o.goalId === goal.id);
+                    const goalProgress = calculateGoalProgress(goal.id);
+                    const isExpanded = expandedGoals[goal.id];
+                    const isGoalCompleted = goal.status === 'completed';
+                    const dueDateStatus = getDueDateStatus(goal.dueDate, isGoalCompleted);
+                    
+                    return (
+                        <div key={goal.id} style={{
+                            background: isGoalCompleted ? 'rgba(76,175,80,0.08)' : 'rgba(255,255,255,0.05)',
+                            borderRadius: '15px',
+                            marginBottom: '20px',
+                            overflow: 'hidden',
+                            border: isGoalCompleted ? '1px solid rgba(76,175,80,0.3)' : '1px solid rgba(255,255,255,0.1)'
+                        }}>
+                            {/* Goal Header */}
+                            <div 
+                                onClick={() => toggleGoal(goal.id)}
+                                style={{
+                                    padding: '20px',
+                                    cursor: 'pointer',
+                                    borderBottom: isExpanded ? '1px solid rgba(255,255,255,0.1)' : 'none'
+                                }}
+                            >
+                                {/* Type Label and Title */}
+                                <div style={{
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: '12px',
-                                    textDecoration: isGoalCompleted ? 'line-through' : 'none'
+                                    justifyContent: 'space-between',
+                                    marginBottom: '12px'
                                 }}>
-                                    <span style={{
-                                        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0)',
-                                        transition: 'transform 0.3s',
-                                        fontSize: '14px'
+                                    <h3 style={{
+                                        color: isGoalCompleted ? '#4CAF50' : 'white',
+                                        margin: 0,
+                                        fontSize: '18px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '12px',
+                                        textDecoration: isGoalCompleted ? 'line-through' : 'none'
                                     }}>
-                                        ▶
-                                    </span>
+                                        <span style={{
+                                            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0)',
+                                            transition: 'transform 0.3s',
+                                            fontSize: '14px'
+                                        }}>
+                                            ▶
+                                        </span>
+                                        <span style={{
+                                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                            padding: '4px 10px',
+                                            borderRadius: '6px',
+                                            fontSize: '11px',
+                                            fontWeight: 'bold',
+                                            letterSpacing: '0.5px'
+                                        }}>
+                                            GOAL
+                                        </span>
+                                        {goal.title}
+                                        {isGoalCompleted && <span style={{color: '#4CAF50'}}>✅</span>}
+                                    </h3>
                                     <span style={{
-                                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                        padding: '4px 10px',
-                                        borderRadius: '6px',
-                                        fontSize: '11px',
-                                        fontWeight: 'bold',
-                                        letterSpacing: '0.5px'
+                                        color: dueDateStatus.color,
+                                        fontSize: '13px',
+                                        fontWeight: '500'
                                     }}>
-                                        GOAL
+                                        {dueDateStatus.text}
                                     </span>
-                                    {goal.title}
-                                    {isGoalCompleted && <span style={{color: '#4CAF50'}}>✅</span>}
-                                </h3>
-                                <span style={{
-                                    color: dueDateStatus.color,
-                                    fontSize: '13px',
-                                    fontWeight: '500'
-                                }}>
-                                    {dueDateStatus.text}
-                                </span>
-                            </div>
+                                </div>
 
-                            {/* Date Information */}
-                            <div style={{
-                                display: 'flex',
-                                gap: '20px',
-                                marginBottom: '12px',
-                                paddingLeft: '26px'
-                            }}>
-                                <span style={{
-                                    color: 'rgba(255,255,255,0.5)',
-                                    fontSize: '12px'
+                                {/* Goal Description - Now displayed here */}
+                                {goal.description && (
+                                    <div style={{
+                                        color: 'rgba(255,255,255,0.8)',
+                                        fontSize: '14px',
+                                        marginBottom: '12px',
+                                        paddingLeft: '26px',
+                                        lineHeight: '1.5'
+                                    }}>
+                                        {makeLinksClickable(goal.description)}
+                                    </div>
+                                )}
+
+                                {/* Date Information - After description */}
+                                <div style={{
+                                    display: 'flex',
+                                    gap: '20px',
+                                    marginBottom: '12px',
+                                    paddingLeft: '26px'
                                 }}>
-                                    📅 Created: {formatDate(goal.createdAt)}
-                                </span>
-                                {goal.dueDate && (
                                     <span style={{
                                         color: 'rgba(255,255,255,0.5)',
                                         fontSize: '12px'
                                     }}>
-                                        ⏰ Due: {formatDate(goal.dueDate)}
+                                        📅 Created: {formatDate(goal.createdAt)}
                                     </span>
-                                )}
-                                {goal.completedAt && (
-                                    <span style={{
-                                        color: '#4CAF50',
-                                        fontSize: '12px'
-                                    }}>
-                                        ✓ Completed: {formatDate(goal.completedAt)}
-                                    </span>
-                                )}
-                            </div>
-                            
-                            {/* Progress Bar */}
-                            <div style={{
-                                paddingLeft: '26px'
-                            }}>
+                                    {goal.dueDate && (
+                                        <span style={{
+                                            color: 'rgba(255,255,255,0.5)',
+                                            fontSize: '12px'
+                                        }}>
+                                            ⏰ Due: {formatDate(goal.dueDate)}
+                                        </span>
+                                    )}
+                                    {goal.completedAt && (
+                                        <span style={{
+                                            color: '#4CAF50',
+                                            fontSize: '12px'
+                                        }}>
+                                            ✓ Completed: {formatDate(goal.completedAt)}
+                                        </span>
+                                    )}
+                                </div>
+                                
+                                {/* Progress Bar */}
                                 <div style={{
-                                    background: 'rgba(255,255,255,0.1)',
-                                    borderRadius: '10px',
-                                    height: '8px',
-                                    overflow: 'hidden'
+                                    paddingLeft: '26px'
                                 }}>
                                     <div style={{
-                                        background: isGoalCompleted ? 
-                                            '#4CAF50' : 
-                                            `linear-gradient(90deg, #4CAF50 0%, #45a049 100%)`,
-                                        width: `${goalProgress}%`,
-                                        height: '100%',
-                                        transition: 'width 0.3s ease'
-                                    }}/>
-                                </div>
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    marginTop: '5px'
-                                }}>
-                                    <span style={{
-                                        color: 'rgba(255,255,255,0.6)',
-                                        fontSize: '12px'
+                                        background: 'rgba(255,255,255,0.1)',
+                                        borderRadius: '10px',
+                                        height: '8px',
+                                        overflow: 'hidden'
                                     }}>
-                                        {goalProgress}% Complete
-                                    </span>
-                                    <span style={{
-                                        color: 'rgba(255,255,255,0.6)',
-                                        fontSize: '12px'
+                                        <div style={{
+                                            background: isGoalCompleted ? 
+                                                '#4CAF50' : 
+                                                `linear-gradient(90deg, #4CAF50 0%, #45a049 100%)`,
+                                            width: `${goalProgress}%`,
+                                            height: '100%',
+                                            transition: 'width 0.3s ease'
+                                        }}/>
+                                    </div>
+                                    <div style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        marginTop: '5px'
                                     }}>
-                                        {goalObjectives.length} Objectives • {assignments.filter(a => a.goalId === goal.id).length} Assignments
-                                    </span>
+                                        <span style={{
+                                            color: 'rgba(255,255,255,0.6)',
+                                            fontSize: '12px'
+                                        }}>
+                                            {goalProgress}% Complete
+                                        </span>
+                                        <span style={{
+                                            color: 'rgba(255,255,255,0.6)',
+                                            fontSize: '12px'
+                                        }}>
+                                            {goalObjectives.length} Objectives • {assignments.filter(a => a.goalId === goal.id).length} Assignments
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        
-                        {/* Objectives and Assignments */}
-                        {isExpanded && (
-                            <div style={{padding: '20px', paddingTop: '0'}}>
-                                {goalObjectives.length === 0 ? (
-                                    <p style={{
-                                        color: 'rgba(255,255,255,0.6)',
-                                        fontSize: '14px',
-                                        paddingLeft: '26px'
-                                    }}>
-                                        No objectives created yet.
-                                    </p>
-                                ) : (
-                                    goalObjectives.map(objective => {
-                                        const objectiveAssignments = assignments.filter(a => a.objectiveId === objective.id);
-                                        const isObjectiveCompleted = objective.status === 'completed';
-                                        const objDueDateStatus = getDueDateStatus(objective.dueDate, isObjectiveCompleted);
-                                        
-                                        return (
-                                            <div key={objective.id} style={{
-                                                marginTop: '20px',
-                                                paddingLeft: '26px',
-                                                opacity: isObjectiveCompleted ? 0.85 : 1
-                                            }}>
-                                                {/* Objective Header */}
-                                                <div style={{
-                                                    background: isObjectiveCompleted ? 'rgba(76,175,80,0.05)' : 'rgba(255,255,255,0.03)',
-                                                    borderRadius: '10px',
-                                                    padding: '15px',
-                                                    marginBottom: '10px',
-                                                    border: '1px solid rgba(255,255,255,0.08)'
+                            
+                            {/* Objectives and Assignments - Simplified list */}
+                            {isExpanded && (
+                                <div style={{padding: '20px', paddingTop: '0'}}>
+                                    {goalObjectives.length === 0 ? (
+                                        <p style={{
+                                            color: 'rgba(255,255,255,0.6)',
+                                            fontSize: '14px',
+                                            paddingLeft: '26px'
+                                        }}>
+                                            No objectives created yet.
+                                        </p>
+                                    ) : (
+                                        goalObjectives.map(objective => {
+                                            const objectiveAssignments = assignments.filter(a => a.objectiveId === objective.id);
+                                            const isObjectiveCompleted = objective.status === 'completed';
+                                            
+                                            return (
+                                                <div key={objective.id} style={{
+                                                    marginTop: '15px',
+                                                    paddingLeft: '26px'
                                                 }}>
-                                                    <div style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'space-between',
-                                                        marginBottom: '8px'
-                                                    }}>
-                                                        <h4 style={{
-                                                            color: isObjectiveCompleted ? '#4CAF50' : '#f4c430',
-                                                            margin: 0,
-                                                            fontSize: '16px',
+                                                    {/* Objective - Clickable */}
+                                                    <div 
+                                                        onClick={() => openItemModal(objective, 'objective')}
+                                                        style={{
+                                                            background: isObjectiveCompleted ? 'rgba(76,175,80,0.05)' : 'rgba(255,255,255,0.03)',
+                                                            borderRadius: '10px',
+                                                            padding: '12px',
+                                                            marginBottom: '10px',
+                                                            border: '1px solid rgba(255,255,255,0.08)',
+                                                            cursor: 'pointer',
+                                                            transition: 'all 0.2s'
+                                                        }}
+                                                        onMouseEnter={(e) => {
+                                                            e.currentTarget.style.background = isObjectiveCompleted ? 
+                                                                'rgba(76,175,80,0.08)' : 'rgba(255,255,255,0.06)';
+                                                        }}
+                                                        onMouseLeave={(e) => {
+                                                            e.currentTarget.style.background = isObjectiveCompleted ? 
+                                                                'rgba(76,175,80,0.05)' : 'rgba(255,255,255,0.03)';
+                                                        }}
+                                                    >
+                                                        <div style={{
                                                             display: 'flex',
                                                             alignItems: 'center',
-                                                            gap: '10px',
-                                                            textDecoration: isObjectiveCompleted ? 'line-through' : 'none'
+                                                            justifyContent: 'space-between'
                                                         }}>
-                                                            <span style={{
-                                                                background: 'linear-gradient(135deg, #f4c430 0%, #ffa500 100%)',
-                                                                padding: '3px 8px',
-                                                                borderRadius: '5px',
-                                                                fontSize: '10px',
-                                                                fontWeight: 'bold',
-                                                                color: '#000',
-                                                                letterSpacing: '0.5px'
+                                                            <div style={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '10px'
                                                             }}>
-                                                                OBJECTIVE
+                                                                <span style={{
+                                                                    background: 'linear-gradient(135deg, #f4c430 0%, #ffa500 100%)',
+                                                                    padding: '3px 8px',
+                                                                    borderRadius: '5px',
+                                                                    fontSize: '10px',
+                                                                    fontWeight: 'bold',
+                                                                    color: '#000',
+                                                                    letterSpacing: '0.5px'
+                                                                }}>
+                                                                    OBJECTIVE
+                                                                </span>
+                                                                <span style={{
+                                                                    color: isObjectiveCompleted ? '#4CAF50' : 'white',
+                                                                    fontSize: '14px',
+                                                                    textDecoration: isObjectiveCompleted ? 'line-through' : 'none'
+                                                                }}>
+                                                                    {objective.title}
+                                                                </span>
+                                                                {isObjectiveCompleted && <span>✅</span>}
+                                                            </div>
+                                                            <span style={{
+                                                                color: 'rgba(255,255,255,0.4)',
+                                                                fontSize: '12px'
+                                                            }}>
+                                                                Click for details →
                                                             </span>
-                                                            {objective.title}
-                                                            {isObjectiveCompleted && <span>✅</span>}
-                                                        </h4>
-                                                        <span style={{
-                                                            color: objDueDateStatus.color,
-                                                            fontSize: '12px',
-                                                            fontWeight: '500'
-                                                        }}>
-                                                            {objDueDateStatus.text}
-                                                        </span>
+                                                        </div>
                                                     </div>
                                                     
-                                                    {/* Objective Dates */}
-                                                    <div style={{
-                                                        display: 'flex',
-                                                        gap: '15px',
-                                                        fontSize: '11px',
-                                                        color: 'rgba(255,255,255,0.5)'
-                                                    }}>
-                                                        <span>📅 Created: {formatDate(objective.createdAt)}</span>
-                                                        {objective.dueDate && <span>⏰ Due: {formatDate(objective.dueDate)}</span>}
-                                                        {objective.completedAt && (
-                                                            <span style={{color: '#4CAF50'}}>
-                                                                ✓ Completed: {formatDate(objective.completedAt)}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                
-                                                {/* Assignments under this objective */}
-                                                {objectiveAssignments.length === 0 ? (
-                                                    <p style={{
-                                                        color: 'rgba(255,255,255,0.4)',
-                                                        fontSize: '14px',
-                                                        marginLeft: '20px'
-                                                    }}>
-                                                        No assignments for this objective.
-                                                    </p>
-                                                ) : (
-                                                    objectiveAssignments.map(assignment => {
-                                                        const isAssignmentExpanded = expandedAssignments[assignment.id];
+                                                    {/* Assignments under this objective */}
+                                                    {objectiveAssignments.map(assignment => {
                                                         const isAssignmentCompleted = assignment.status === 'completed';
-                                                        const assignDueDateStatus = getDueDateStatus(assignment.dueDate, isAssignmentCompleted);
                                                         
                                                         return (
                                                             <div key={assignment.id} style={{
-                                                                background: isAssignmentCompleted ? 
-                                                                    'rgba(76,175,80,0.08)' : 
-                                                                    'rgba(255,255,255,0.02)',
-                                                                borderRadius: '8px',
-                                                                padding: '12px',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '10px',
                                                                 marginLeft: '20px',
-                                                                marginBottom: '8px',
-                                                                border: isAssignmentCompleted ? 
-                                                                    '1px solid rgba(76,175,80,0.2)' : 
-                                                                    '1px solid rgba(255,255,255,0.06)'
+                                                                marginBottom: '8px'
                                                             }}>
-                                                                <div style={{
-                                                                    display: 'flex',
-                                                                    alignItems: 'flex-start',
-                                                                    gap: '10px'
-                                                                }}>
-                                                                    {/* Assignment Checkbox for PIR */}
-                                                                    <input 
-                                                                        type="checkbox"
-                                                                        checked={isAssignmentCompleted}
-                                                                        onChange={(e) => {
-                                                                            if (e.target.checked && !assignment.reflection) {
-                                                                                toggleAssignment(assignment.id);
-                                                                            } else {
-                                                                                onAssignmentComplete(assignment.id, e.target.checked);
-                                                                            }
-                                                                        }}
-                                                                        style={{
-                                                                            width: '20px',
-                                                                            height: '20px',
-                                                                            cursor: 'pointer',
-                                                                            marginTop: '2px'
-                                                                        }}
-                                                                    />
-                                                                    
-                                                                    <div style={{flex: 1}}>
-                                                                        {/* Assignment Title with Type Label */}
+                                                                {/* Checkbox for completion */}
+                                                                <input 
+                                                                    type="checkbox"
+                                                                    checked={isAssignmentCompleted}
+                                                                    onChange={(e) => {
+                                                                        onAssignmentComplete(assignment.id, e.target.checked);
+                                                                    }}
+                                                                    style={{
+                                                                        width: '18px',
+                                                                        height: '18px',
+                                                                        cursor: 'pointer'
+                                                                    }}
+                                                                />
+                                                                
+                                                                {/* Assignment - Clickable */}
+                                                                <div 
+                                                                    onClick={() => openItemModal(assignment, 'assignment')}
+                                                                    style={{
+                                                                        flex: 1,
+                                                                        background: isAssignmentCompleted ? 
+                                                                            'rgba(76,175,80,0.08)' : 
+                                                                            'rgba(255,255,255,0.02)',
+                                                                        borderRadius: '8px',
+                                                                        padding: '10px',
+                                                                        border: isAssignmentCompleted ? 
+                                                                            '1px solid rgba(76,175,80,0.2)' : 
+                                                                            '1px solid rgba(255,255,255,0.06)',
+                                                                        cursor: 'pointer',
+                                                                        transition: 'all 0.2s'
+                                                                    }}
+                                                                    onMouseEnter={(e) => {
+                                                                        e.currentTarget.style.background = isAssignmentCompleted ? 
+                                                                            'rgba(76,175,80,0.1)' : 'rgba(255,255,255,0.04)';
+                                                                    }}
+                                                                    onMouseLeave={(e) => {
+                                                                        e.currentTarget.style.background = isAssignmentCompleted ? 
+                                                                            'rgba(76,175,80,0.08)' : 'rgba(255,255,255,0.02)';
+                                                                    }}
+                                                                >
+                                                                    <div style={{
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'space-between'
+                                                                    }}>
                                                                         <div style={{
                                                                             display: 'flex',
                                                                             alignItems: 'center',
-                                                                            justifyContent: 'space-between',
-                                                                            marginBottom: '6px'
+                                                                            gap: '8px'
                                                                         }}>
-                                                                            <label style={{
+                                                                            <span style={{
+                                                                                background: 'linear-gradient(135deg, #9c27b0 0%, #673ab7 100%)',
+                                                                                padding: '2px 7px',
+                                                                                borderRadius: '4px',
+                                                                                fontSize: '9px',
+                                                                                fontWeight: 'bold',
+                                                                                letterSpacing: '0.5px'
+                                                                            }}>
+                                                                                ASSIGNMENT
+                                                                            </span>
+                                                                            <span style={{
                                                                                 color: isAssignmentCompleted ? 
                                                                                     'rgba(255,255,255,0.5)' : 'white',
-                                                                                textDecoration: isAssignmentCompleted ? 
-                                                                                    'line-through' : 'none',
-                                                                                cursor: 'pointer',
-                                                                                display: 'flex',
-                                                                                alignItems: 'center',
-                                                                                gap: '8px',
-                                                                                fontSize: '14px'
-                                                                            }}>
-                                                                                <span style={{
-                                                                                    background: 'linear-gradient(135deg, #9c27b0 0%, #673ab7 100%)',
-                                                                                    padding: '2px 7px',
-                                                                                    borderRadius: '4px',
-                                                                                    fontSize: '9px',
-                                                                                    fontWeight: 'bold',
-                                                                                    letterSpacing: '0.5px'
-                                                                                }}>
-                                                                                    ASSIGNMENT
-                                                                                </span>
-                                                                                {assignment.title}
-                                                                            </label>
-                                                                            <span style={{
-                                                                                color: assignDueDateStatus.color,
-                                                                                fontSize: '11px',
-                                                                                fontWeight: '500'
-                                                                            }}>
-                                                                                {assignDueDateStatus.text}
-                                                                            </span>
-                                                                        </div>
-                                                                        
-                                                                        {assignment.description && (
-                                                                            <p style={{
-                                                                                color: 'rgba(255,255,255,0.6)',
                                                                                 fontSize: '13px',
-                                                                                margin: '6px 0'
+                                                                                textDecoration: isAssignmentCompleted ? 
+                                                                                    'line-through' : 'none'
                                                                             }}>
-                                                                                {assignment.description}
-                                                                            </p>
-                                                                        )}
-                                                                        
-                                                                        {/* Assignment Dates */}
-                                                                        <div style={{
-                                                                            display: 'flex',
-                                                                            gap: '12px',
-                                                                            flexWrap: 'wrap',
-                                                                            fontSize: '11px',
-                                                                            color: 'rgba(255,255,255,0.5)',
-                                                                            marginTop: '8px'
-                                                                        }}>
-                                                                            <span>📅 Created: {formatDate(assignment.createdAt)}</span>
-                                                                            {assignment.dueDate && (
-                                                                                <span>⏰ Due: {formatDate(assignment.dueDate)}</span>
-                                                                            )}
-                                                                            {assignment.completedAt && (
-                                                                                <span style={{color: '#4CAF50'}}>
-                                                                                    ✓ Completed: {formatDate(assignment.completedAt)}
-                                                                                </span>
-                                                                            )}
+                                                                                {assignment.title}
+                                                                            </span>
+                                                                            {isAssignmentCompleted && <span>✅</span>}
                                                                         </div>
-                                                                        
-                                                                        {/* Inline Reflection Section */}
-                                                                        {isAssignmentExpanded && !isAssignmentCompleted && (
-                                                                            <div style={{
-                                                                                marginTop: '12px',
-                                                                                padding: '10px',
-                                                                                background: 'rgba(255,255,255,0.05)',
-                                                                                borderRadius: '6px'
-                                                                            }}>
-                                                                                <label style={{
-                                                                                    color: 'white',
-                                                                                    fontSize: '13px',
-                                                                                    display: 'block',
-                                                                                    marginBottom: '8px'
-                                                                                }}>
-                                                                                    Add your reflection:
-                                                                                </label>
-                                                                                <textarea 
-                                                                                    value={reflections[assignment.id] || ''}
-                                                                                    onChange={(e) => setReflections(prev => ({
-                                                                                        ...prev,
-                                                                                        [assignment.id]: e.target.value
-                                                                                    }))}
-                                                                                    placeholder="What did you learn? How did this help your recovery?"
-                                                                                    style={{
-                                                                                        width: '100%',
-                                                                                        minHeight: '70px',
-                                                                                        padding: '8px',
-                                                                                        background: 'rgba(0,0,0,0.3)',
-                                                                                        border: '1px solid rgba(255,255,255,0.2)',
-                                                                                        borderRadius: '6px',
-                                                                                        color: 'white',
-                                                                                        fontSize: '13px',
-                                                                                        resize: 'vertical'
-                                                                                    }}
-                                                                                />
-                                                                                <div style={{
-                                                                                    marginTop: '10px',
-                                                                                    display: 'flex',
-                                                                                    gap: '10px'
-                                                                                }}>
-                                                                                    <button
-                                                                                        onClick={() => {
-                                                                                            onReflectionSave(
-                                                                                                assignment.id, 
-                                                                                                reflections[assignment.id]
-                                                                                            );
-                                                                                            toggleAssignment(assignment.id);
-                                                                                        }}
-                                                                                        style={{
-                                                                                            padding: '6px 14px',
-                                                                                            background: '#4CAF50',
-                                                                                            border: 'none',
-                                                                                            borderRadius: '6px',
-                                                                                            color: 'white',
-                                                                                            cursor: 'pointer',
-                                                                                            fontSize: '13px',
-                                                                                            fontWeight: '500'
-                                                                                        }}
-                                                                                    >
-                                                                                        Complete with Reflection
-                                                                                    </button>
-                                                                                    <button
-                                                                                        onClick={() => toggleAssignment(assignment.id)}
-                                                                                        style={{
-                                                                                            padding: '6px 14px',
-                                                                                            background: 'rgba(255,255,255,0.1)',
-                                                                                            border: '1px solid rgba(255,255,255,0.2)',
-                                                                                            borderRadius: '6px',
-                                                                                            color: 'white',
-                                                                                            cursor: 'pointer',
-                                                                                            fontSize: '13px'
-                                                                                        }}
-                                                                                    >
-                                                                                        Cancel
-                                                                                    </button>
-                                                                                </div>
-                                                                            </div>
-                                                                        )}
-                                                                        
-                                                                        {/* Show existing reflection */}
-                                                                        {assignment.reflection && !isAssignmentExpanded && (
-                                                                            <div style={{
-                                                                                marginTop: '10px',
-                                                                                padding: '8px',
-                                                                                background: 'rgba(76,175,80,0.1)',
-                                                                                borderRadius: '6px',
-                                                                                borderLeft: '3px solid #4CAF50'
-                                                                            }}>
-                                                                                <small style={{
-                                                                                    color: '#4CAF50',
-                                                                                    display: 'block',
-                                                                                    marginBottom: '4px',
-                                                                                    fontSize: '11px'
-                                                                                }}>
-                                                                                    ✓ Reflection submitted
-                                                                                </small>
-                                                                                <p style={{
-                                                                                    color: 'rgba(255,255,255,0.8)',
-                                                                                    fontSize: '13px',
-                                                                                    margin: 0
-                                                                                }}>
-                                                                                    {assignment.reflection}
-                                                                                </p>
-                                                                            </div>
-                                                                        )}
+                                                                        <span style={{
+                                                                            color: 'rgba(255,255,255,0.3)',
+                                                                            fontSize: '11px'
+                                                                        }}>
+                                                                            Click for details →
+                                                                        </span>
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                         );
-                                                    })
-                                                )}
-                                            </div>
-                                        );
-                                    })
-                                )}
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
-        </div>
+                                                    })}
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+            
+            {/* Render Modal */}
+            <ItemModal />
+        </>
     );
 }
         
