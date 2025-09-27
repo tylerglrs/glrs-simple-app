@@ -4019,7 +4019,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose }) {
         </div>
     );
 }
-       // PIR-Centric Goals & Objectives Management View with Enhanced UI
+      // PIR-Centric Goals & Objectives Management View with Enhanced UI
 function GoalsView({ searchQuery, user }) {
     const [selectedPIR, setSelectedPIR] = useState(null);
     const [pirs, setPirs] = useState([]);
@@ -4270,6 +4270,99 @@ function GoalsView({ searchQuery, user }) {
             loadPIRGoalsData(selectedPIR.id);
         } catch (error) {
             console.error('Error completing objective:', error);
+        }
+    };
+
+    const handleCreateGoal = async (goalData) => {
+        try {
+            await db.collection('goals').add({
+                userId: selectedPIR.id,
+                title: goalData.title,
+                description: goalData.description,
+                dueDate: goalData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(goalData.dueDate)) : null,
+                status: 'active',
+                createdBy: user.uid,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            alert('Goal created successfully!');
+            setShowCreateModal(false);
+            loadPIRGoalsData(selectedPIR.id);
+        } catch (error) {
+            console.error('Error creating goal:', error);
+            alert('Failed to create goal');
+        }
+    };
+
+    const handleCreateObjective = async (objectiveData) => {
+        try {
+            const objectivesSnap = await db.collection('objectives')
+                .where('goalId', '==', objectiveData.goalId)
+                .get();
+            
+            await db.collection('objectives').add({
+                goalId: objectiveData.goalId,
+                userId: selectedPIR.id,
+                title: objectiveData.title,
+                order: objectivesSnap.size + 1,
+                dueDate: objectiveData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(objectiveData.dueDate)) : null,
+                status: 'active',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            alert('Objective created successfully!');
+            setShowCreateModal(false);
+            loadPIRGoalsData(selectedPIR.id);
+        } catch (error) {
+            console.error('Error creating objective:', error);
+            alert('Failed to create objective');
+        }
+    };
+
+    const handleCreateAssignment = async (assignmentData) => {
+        try {
+            await db.collection('assignments').add({
+                goalId: assignmentData.goalId,
+                objectiveId: assignmentData.objectiveId,
+                pirId: selectedPIR.id,
+                pirName: selectedPIR.displayName || selectedPIR.email,
+                coachId: user.uid,
+                coachName: user.displayName || user.email,
+                title: assignmentData.title,
+                description: assignmentData.description,
+                dueDate: assignmentData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignmentData.dueDate)) : null,
+                status: 'pending',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            alert('Assignment created successfully!');
+            setShowCreateModal(false);
+            loadPIRGoalsData(selectedPIR.id);
+        } catch (error) {
+            console.error('Error creating assignment:', error);
+            alert('Failed to create assignment');
+        }
+    };
+
+    const handleCreateMilestone = async (milestoneData) => {
+        try {
+            await db.collection('milestones').add({
+                userId: selectedPIR.id,
+                title: milestoneData.title,
+                description: milestoneData.description,
+                targetDate: firebase.firestore.Timestamp.fromDate(new Date(milestoneData.targetDate)),
+                type: 'custom',
+                achieved: false,
+                icon: milestoneData.icon || '🎯',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            alert('Milestone created successfully!');
+            setShowCreateModal(false);
+            loadPIRGoalsData(selectedPIR.id);
+        } catch (error) {
+            console.error('Error creating milestone:', error);
+            alert('Failed to create milestone');
         }
     };
 
@@ -4645,7 +4738,7 @@ function GoalsView({ searchQuery, user }) {
                             fontSize: '1.2em',
                             color: '#666'
                         }}>
-                            Overall Progress: {pirGoalsData.goals.reduce((acc, g) => acc + g.progress, 0) / (pirGoalsData.goals.length || 1)}%
+                            Overall Progress: {Math.round(pirGoalsData.goals.reduce((acc, g) => acc + g.progress, 0) / (pirGoalsData.goals.length || 1))}%
                         </div>
                     </div>
                     
@@ -4698,6 +4791,33 @@ function GoalsView({ searchQuery, user }) {
                         </div>
                     )}
                 </div>
+
+                {/* MODAL RENDERING */}
+                {showCreateModal && (
+                    <CreateGoalModal
+                        type={modalType}
+                        selectedPIR={selectedPIR}
+                        selectedParent={selectedParent}
+                        onSubmit={(data) => {
+                            if (modalType === 'goldenThread') {
+                                // Golden thread handles its own submit
+                                return;
+                            } else if (modalType === 'goal') {
+                                handleCreateGoal(data);
+                            } else if (modalType === 'objective') {
+                                handleCreateObjective(data);
+                            } else if (modalType === 'assignment') {
+                                handleCreateAssignment(data);
+                            } else if (modalType === 'milestone') {
+                                handleCreateMilestone(data);
+                            }
+                        }}
+                        onClose={() => {
+                            setShowCreateModal(false);
+                            setSelectedParent(null);
+                        }}
+                    />
+                )}
             </div>
         );
     }
@@ -4727,11 +4847,38 @@ function GoalsView({ searchQuery, user }) {
                     </div>
                 )}
             </div>
+
+            {/* MODAL RENDERING FOR MAIN VIEW */}
+            {showCreateModal && (
+                <CreateGoalModal
+                    type={modalType}
+                    selectedPIR={selectedPIR}
+                    selectedParent={selectedParent}
+                    onSubmit={(data) => {
+                        if (modalType === 'goldenThread') {
+                            // Golden thread handles its own submit
+                            return;
+                        } else if (modalType === 'goal') {
+                            handleCreateGoal(data);
+                        } else if (modalType === 'objective') {
+                            handleCreateObjective(data);
+                        } else if (modalType === 'assignment') {
+                            handleCreateAssignment(data);
+                        } else if (modalType === 'milestone') {
+                            handleCreateMilestone(data);
+                        }
+                    }}
+                    onClose={() => {
+                        setShowCreateModal(false);
+                        setSelectedParent(null);
+                    }}
+                />
+            )}
         </div>
     );
 }
 
-// Enhanced Golden Thread Modal
+// Enhanced Golden Thread Modal - KEEP YOUR EXISTING CreateGoalModal COMPONENT HERE
 function CreateGoalModal({ type, selectedPIR, selectedParent, onSubmit, onClose }) {
     const [goldenThreadData, setGoldenThreadData] = useState({
         goals: [
@@ -4856,6 +5003,7 @@ function CreateGoalModal({ type, selectedPIR, selectedParent, onSubmit, onClose 
                             pirId: selectedPIR.id,
                             pirName: selectedPIR.displayName || selectedPIR.email,
                             coachId: auth.currentUser.uid,
+                            coachName: auth.currentUser.displayName || auth.currentUser.email,
                             title: assignment.title,
                             description: assignment.description,
                             dueDate: assignment.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignment.dueDate)) : null,
@@ -5199,7 +5347,7 @@ function CreateGoalModal({ type, selectedPIR, selectedParent, onSubmit, onClose 
                         }}
                     />
                     
-                    {(type === 'goal' || type === 'assignment') && (
+                    {(type === 'goal' || type === 'assignment' || type === 'milestone') && (
                         <textarea
                             placeholder="Description"
                             value={singleFormData.description}
