@@ -4148,7 +4148,7 @@ const handleImageSelect = (e) => {
                 </div>
             );
         }
-        // Enhanced Recovery Resources View Component with all fixes
+      // Enhanced Recovery Resources View Component with all fixes
 function ResourcesView({ user, userData, onBack }) {
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [activeTab, setActiveTab] = useState('assigned');
@@ -4163,6 +4163,7 @@ function ResourcesView({ user, userData, onBack }) {
     const [resourceCounts, setResourceCounts] = useState({});
     const [totalResourceCount, setTotalResourceCount] = useState(0);
     const [newResourceIds, setNewResourceIds] = useState([]);
+    const [showFavorites, setShowFavorites] = useState(false);
 
     const categories = [
         { id: 'coping', name: 'Coping Skills', icon: '🧘', color: '#4CAF50' },
@@ -4177,15 +4178,26 @@ function ResourcesView({ user, userData, onBack }) {
     useEffect(() => {
         loadAllResources();
         loadUserPreferences();
-        checkNewResources();
     }, [user.uid]);
+
+    // Check for new resources after resources are loaded
+    useEffect(() => {
+        if (allResources.length > 0) {
+            checkNewResources();
+        }
+    }, [allResources]);
 
     // Load resources for selected category
     useEffect(() => {
-        if (selectedCategory) {
+        if (selectedCategory === 'favorites') {
+            setShowFavorites(true);
+            const favoriteResourcesList = allResources.filter(r => favorites.includes(r.id));
+            setResources(favoriteResourcesList);
+        } else if (selectedCategory) {
+            setShowFavorites(false);
             filterCategoryResources();
         }
-    }, [selectedCategory, activeTab, allResources]);
+    }, [selectedCategory, activeTab, allResources, favorites]);
 
     const loadAllResources = async () => {
         try {
@@ -4258,10 +4270,10 @@ function ResourcesView({ user, userData, onBack }) {
             
             const lastView = lastViewDoc.exists ? lastViewDoc.data().timestamp : null;
             
-            if (lastView) {
+            if (lastView && lastView.toDate) {
                 // Find resources added after last view
                 const newResources = allResources.filter(r => 
-                    r.addedAt && r.addedAt.toDate() > lastView.toDate()
+                    r.addedAt && r.addedAt.toDate && r.addedAt.toDate() > lastView.toDate()
                 );
                 setNewResourceIds(newResources.map(r => r.id));
             }
@@ -4290,6 +4302,10 @@ function ResourcesView({ user, userData, onBack }) {
             }
         } catch (error) {
             console.error('Error loading preferences:', error);
+            // Initialize empty preferences if they don't exist
+            setFavorites([]);
+            setNotes({});
+            setProgress({});
         }
     };
 
@@ -4301,12 +4317,14 @@ function ResourcesView({ user, userData, onBack }) {
         setFavorites(newFavorites);
         
         // Save all preferences together
-        await savePreferences({ favorites: newFavorites });
+        const saved = await savePreferences({ favorites: newFavorites });
         
-        showNotification(
-            favorites.includes(resourceId) ? 'Removed from favorites' : 'Added to favorites',
-            'success'
-        );
+        if (saved) {
+            showNotification(
+                favorites.includes(resourceId) ? 'Removed from favorites' : 'Added to favorites',
+                'success'
+            );
+        }
     };
 
     const updateProgress = async (resourceId, status) => {
@@ -4315,31 +4333,39 @@ function ResourcesView({ user, userData, onBack }) {
             [resourceId]: {
                 status: status,
                 updatedAt: new Date().toISOString(),
-                completedAt: status === 'completed' ? new Date().toISOString() : null
+                completedAt: status === 'completed' ? new Date().toISOString() : progress[resourceId]?.completedAt || null
             }
         };
         setProgress(newProgress);
         
-        await savePreferences({ progress: newProgress });
+        const saved = await savePreferences({ progress: newProgress });
 
-        // Track activity
-        await db.collection('activities').add({
-            userId: user.uid,
-            type: 'resource_progress',
-            resourceId: resourceId,
-            status: status,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        showNotification(`Progress updated to ${status}`, 'success');
+        if (saved) {
+            // Track activity
+            try {
+                await db.collection('activities').add({
+                    userId: user.uid,
+                    type: 'resource_progress',
+                    resourceId: resourceId,
+                    status: status,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (error) {
+                console.error('Error tracking activity:', error);
+            }
+            
+            showNotification(`Progress updated to ${status}`, 'success');
+        }
     };
 
     const saveNote = async (resourceId, note) => {
         const newNotes = { ...notes, [resourceId]: note };
         setNotes(newNotes);
         
-        await savePreferences({ notes: newNotes });
-        showNotification('Note saved', 'success');
+        const saved = await savePreferences({ notes: newNotes });
+        if (saved) {
+            showNotification('Note saved', 'success');
+        }
     };
 
     const savePreferences = async (updates) => {
@@ -4355,22 +4381,34 @@ function ResourcesView({ user, userData, onBack }) {
             await db.collection('users').doc(user.uid)
                 .collection('preferences').doc('resources')
                 .set(currentPrefs, { merge: true });
+                
+            return true;
         } catch (error) {
             console.error('Error saving preferences:', error);
-            showNotification('Failed to save preferences', 'error');
+            showNotification('Failed to save - check permissions', 'error');
+            return false;
         }
     };
 
     const recordView = async (resourceId) => {
-        await db.collection('users').doc(user.uid)
-            .collection('resourceViews').doc(resourceId)
-            .set({
-                viewedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+        try {
+            await db.collection('users').doc(user.uid)
+                .collection('resourceViews').doc(resourceId)
+                .set({
+                    viewedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+        } catch (error) {
+            console.error('Error recording view:', error);
+        }
     };
 
     const showNotification = (message, type) => {
         // Create a toast notification
+        const existingToast = document.querySelector('.resource-toast');
+        if (existingToast) {
+            existingToast.remove();
+        }
+        
         const toast = document.createElement('div');
         toast.className = 'resource-toast';
         toast.style.cssText = `
@@ -4383,13 +4421,18 @@ function ResourcesView({ user, userData, onBack }) {
             border-radius: 8px;
             z-index: 10000;
             animation: slideIn 0.3s ease;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.2);
         `;
         toast.textContent = message;
         document.body.appendChild(toast);
         
         setTimeout(() => {
             toast.style.animation = 'slideOut 0.3s ease';
-            setTimeout(() => document.body.removeChild(toast), 300);
+            setTimeout(() => {
+                if (document.body.contains(toast)) {
+                    document.body.removeChild(toast);
+                }
+            }, 300);
         }, 3000);
     };
 
@@ -4409,6 +4452,12 @@ function ResourcesView({ user, userData, onBack }) {
         return allResources.filter(r => favorites.includes(r.id));
     };
 
+    // Handle resource click
+    const handleResourceClick = (resource) => {
+        setSelectedResource(resource);
+        recordView(resource.id);
+    };
+
     // Category Selection View with modern design
     if (!selectedCategory) {
         const favoriteResources = getFavoriteResources();
@@ -4419,6 +4468,30 @@ function ResourcesView({ user, userData, onBack }) {
                 minHeight: '100vh',
                 padding: '20px'
             }}>
+                {/* Add animation styles */}
+                <style>{`
+                    @keyframes slideIn {
+                        from {
+                            transform: translateX(100%);
+                            opacity: 0;
+                        }
+                        to {
+                            transform: translateX(0);
+                            opacity: 1;
+                        }
+                    }
+                    @keyframes slideOut {
+                        from {
+                            transform: translateX(0);
+                            opacity: 1;
+                        }
+                        to {
+                            transform: translateX(100%);
+                            opacity: 0;
+                        }
+                    }
+                `}</style>
+
                 {/* Modern Header */}
                 <div style={{
                     background: 'rgba(255,255,255,0.1)',
@@ -4512,10 +4585,7 @@ function ResourcesView({ user, userData, onBack }) {
                                 .map(resource => (
                                     <div 
                                         key={resource.id}
-                                        onClick={() => {
-                                            setSelectedResource(resource);
-                                            recordView(resource.id);
-                                        }}
+                                        onClick={() => handleResourceClick(resource)}
                                         style={{
                                             padding: '10px',
                                             marginBottom: '10px',
@@ -4632,10 +4702,7 @@ function ResourcesView({ user, userData, onBack }) {
                             {favoriteResources.slice(0, 3).map(resource => (
                                 <div 
                                     key={resource.id}
-                                    onClick={() => {
-                                        setSelectedResource(resource);
-                                        recordView(resource.id);
-                                    }}
+                                    onClick={() => handleResourceClick(resource)}
                                     style={{
                                         padding: '15px',
                                         background: 'linear-gradient(135deg, #667eea20, #764ba220)',
@@ -4676,10 +4743,7 @@ function ResourcesView({ user, userData, onBack }) {
                             ))}
                             {favoriteResources.length > 3 && (
                                 <button
-                                    onClick={() => {
-                                        setSearchQuery('');
-                                        setSelectedCategory('favorites');
-                                    }}
+                                    onClick={() => setSelectedCategory('favorites')}
                                     style={{
                                         padding: '10px',
                                         background: 'transparent',
@@ -4700,9 +4764,11 @@ function ResourcesView({ user, userData, onBack }) {
         );
     }
 
-    // Resource List View with modern design
+    // Resource List View with modern design (including favorites view)
     if (!selectedResource) {
-        const category = categories.find(c => c.id === selectedCategory);
+        const category = showFavorites 
+            ? { id: 'favorites', name: 'Favorites', icon: '⭐', color: '#ffd700' }
+            : categories.find(c => c.id === selectedCategory);
         const filteredResources = getFilteredResources();
         
         return (
@@ -4722,10 +4788,13 @@ function ResourcesView({ user, userData, onBack }) {
                     <div style={{
                         display: 'flex',
                         alignItems: 'center',
-                        marginBottom: '20px'
+                        marginBottom: showFavorites ? 0 : '20px'
                     }}>
                         <button 
-                            onClick={() => setSelectedCategory(null)}
+                            onClick={() => {
+                                setSelectedCategory(null);
+                                setShowFavorites(false);
+                            }}
                             style={{
                                 background: 'rgba(255,255,255,0.2)',
                                 border: 'none',
@@ -4747,51 +4816,53 @@ function ResourcesView({ user, userData, onBack }) {
                                 color: 'rgba(255,255,255,0.8)',
                                 fontSize: '14px'
                             }}>
-                                {filteredResources.length} resources available
+                                {filteredResources.length} resources
                             </p>
                         </div>
                     </div>
 
-                    {/* Tabs */}
-                    <div style={{
-                        display: 'flex',
-                        background: 'rgba(255,255,255,0.2)',
-                        borderRadius: '15px',
-                        padding: '5px'
-                    }}>
-                        <button
-                            onClick={() => setActiveTab('assigned')}
-                            style={{
-                                flex: 1,
-                                padding: '12px',
-                                background: activeTab === 'assigned' ? 'white' : 'transparent',
-                                color: activeTab === 'assigned' ? '#764ba2' : 'white',
-                                border: 'none',
-                                borderRadius: '10px',
-                                cursor: 'pointer',
-                                fontWeight: 'bold',
-                                transition: 'all 0.3s'
-                            }}
-                        >
-                            Assigned ({resources.filter(r => r.isAssigned).length})
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('global')}
-                            style={{
-                                flex: 1,
-                                padding: '12px',
-                                background: activeTab === 'global' ? 'white' : 'transparent',
-                                color: activeTab === 'global' ? '#764ba2' : 'white',
-                                border: 'none',
-                                borderRadius: '10px',
-                                cursor: 'pointer',
-                                fontWeight: 'bold',
-                                transition: 'all 0.3s'
-                            }}
-                        >
-                            Global ({resources.filter(r => !r.isAssigned).length})
-                        </button>
-                    </div>
+                    {/* Tabs - only show if not favorites */}
+                    {!showFavorites && (
+                        <div style={{
+                            display: 'flex',
+                            background: 'rgba(255,255,255,0.2)',
+                            borderRadius: '15px',
+                            padding: '5px'
+                        }}>
+                            <button
+                                onClick={() => setActiveTab('assigned')}
+                                style={{
+                                    flex: 1,
+                                    padding: '12px',
+                                    background: activeTab === 'assigned' ? 'white' : 'transparent',
+                                    color: activeTab === 'assigned' ? '#764ba2' : 'white',
+                                    border: 'none',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    transition: 'all 0.3s'
+                                }}
+                            >
+                                Assigned ({resources.filter(r => r.isAssigned).length})
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('global')}
+                                style={{
+                                    flex: 1,
+                                    padding: '12px',
+                                    background: activeTab === 'global' ? 'white' : 'transparent',
+                                    color: activeTab === 'global' ? '#764ba2' : 'white',
+                                    border: 'none',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    transition: 'all 0.3s'
+                                }}
+                            >
+                                Global ({resources.filter(r => !r.isAssigned).length})
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Resource Cards */}
@@ -4811,7 +4882,7 @@ function ResourcesView({ user, userData, onBack }) {
                         background: 'rgba(255,255,255,0.1)',
                         borderRadius: '20px'
                     }}>
-                        No resources found.
+                        {showFavorites ? 'No favorite resources yet.' : 'No resources found.'}
                     </div>
                 ) : (
                     <div style={{
@@ -4830,10 +4901,7 @@ function ResourcesView({ user, userData, onBack }) {
                                     transition: 'all 0.3s',
                                     cursor: 'pointer'
                                 }}
-                                onClick={() => {
-                                    setSelectedResource(resource);
-                                    recordView(resource.id);
-                                }}
+                                onClick={() => handleResourceClick(resource)}
                             >
                                 {/* New Badge */}
                                 {newResourceIds.includes(resource.id) && (
@@ -4910,7 +4978,9 @@ function ResourcesView({ user, userData, onBack }) {
                                                     borderRadius: '20px',
                                                     fontSize: '12px'
                                                 }}>
-                                                    📅 Added {new Date(resource.addedAt.toDate()).toLocaleDateString()}
+                                                    📅 Added {resource.addedAt.toDate ? 
+                                                        new Date(resource.addedAt.toDate()).toLocaleDateString() :
+                                                        new Date(resource.addedAt).toLocaleDateString()}
                                                 </span>
                                             )}
 
@@ -5000,7 +5070,7 @@ function ResourcesView({ user, userData, onBack }) {
         );
     }
 
-    // Resource Viewer (Full Screen)
+    // Keep the same ResourceViewer component
     return (
         <ResourceViewer 
             resource={selectedResource}
@@ -5013,7 +5083,7 @@ function ResourcesView({ user, userData, onBack }) {
     );
 }
 
-// Resource Viewer Component (Full Screen View)
+// Keep the existing ResourceViewer component unchanged
 function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress, onUpdateProgress }) {
     const [note, setNote] = useState(currentNote || '');
     const [showNoteInput, setShowNoteInput] = useState(false);
@@ -5312,7 +5382,9 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress,
                     </div>
                     {resource.addedAt && (
                         <div style={{marginBottom: '8px'}}>
-                            <strong>Added:</strong> {new Date(resource.addedAt.toDate()).toLocaleDateString()}
+                            <strong>Added:</strong> {resource.addedAt.toDate ? 
+                                new Date(resource.addedAt.toDate()).toLocaleDateString() :
+                                new Date(resource.addedAt).toLocaleDateString()}
                         </div>
                     )}
                     {progress?.completedAt && (
