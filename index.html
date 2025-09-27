@@ -1952,9 +1952,18 @@ const updateLifetimeCompletedTasks = (count) => {
     }
 };
 
-// Handler for assignment completion - UPDATED
+// Handler for assignment completion - UPDATED with Goal Progress
 const handleAssignmentComplete = async (assignmentId, isCompleted) => {
     try {
+        // First, get the assignment to check if it has a goalId
+        const assignmentDoc = await db.collection('assignments').doc(assignmentId).get();
+        const assignment = assignmentDoc.exists ? { id: assignmentDoc.id, ...assignmentDoc.data() } : null;
+        
+        if (!assignment) {
+            throw new Error('Assignment not found');
+        }
+        
+        // Update the assignment
         const updates = {
             status: isCompleted ? 'completed' : 'pending',
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1969,6 +1978,11 @@ const handleAssignmentComplete = async (assignmentId, isCompleted) => {
         
         await db.collection('assignments').doc(assignmentId).update(updates);
         
+        // Update goal progress if this assignment belongs to a goal
+        if (assignment.goalId) {
+            await updateGoalProgress(assignment.goalId);
+        }
+        
         // Reload both assignments and goals to update all progress calculations
         await loadAssignments();
         await loadGoals();
@@ -1980,21 +1994,18 @@ const handleAssignmentComplete = async (assignmentId, isCompleted) => {
         
         // If completed, send notification to coach
         if (isCompleted && userData?.assignedCoach) {
-            const assignment = assignments.find(a => a.id === assignmentId);
-            if (assignment) {
-                await db.collection('notifications').add({
-                    userId: userData.assignedCoach,
-                    senderId: user.uid,
-                    senderName: userData.displayName || userData.firstName || 'PIR',
-                    type: 'assignment_completed',
-                    title: 'Assignment Completed',
-                    message: `${userData.displayName || 'PIR'} completed: ${assignment.title}`,
-                    assignmentId: assignmentId,
-                    read: false,
-                    urgent: false,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            }
+            await db.collection('notifications').add({
+                userId: userData.assignedCoach,
+                senderId: user.uid,
+                senderName: userData.displayName || userData.firstName || 'PIR',
+                type: 'assignment_completed',
+                title: 'Assignment Completed',
+                message: `${userData.displayName || 'PIR'} completed: ${assignment.title}`,
+                assignmentId: assignmentId,
+                read: false,
+                urgent: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
         }
         
         // Show success feedback
@@ -2858,34 +2869,64 @@ const loadComplianceRates = async () => {
                 }
             };
 
-            // Update goal progress
-            const updateGoalProgress = async (goalId) => {
-                try {
-                    const assignmentsSnap = await db.collection('assignments')
-                        .where('goalId', '==', goalId)
-                        .where('userId', '==', user.uid)
-                        .get();
-                    
-                    let total = 0;
-                    let completed = 0;
-                    
-                    assignmentsSnap.forEach(doc => {
-                        total++;
-                        if (doc.data().status === 'completed') {
-                            completed++;
-                        }
-                    });
-                    
-                    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
-                    
-                    await db.collection('goals').doc(goalId).update({
-                        progress: progress,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                } catch (error) {
-                    console.error('Error updating goal progress:', error);
-                }
-            };
+            // Update goal progress - IMPROVED VERSION
+const updateGoalProgress = async (goalId) => {
+    try {
+        // Get ALL assignments for this goal (not filtered by status)
+        const assignmentsSnap = await db.collection('assignments')
+            .where('goalId', '==', goalId)
+            .where('userId', '==', user.uid)
+            .get();
+        
+        let total = 0;
+        let completed = 0;
+        
+        assignmentsSnap.forEach(doc => {
+            total++;
+            if (doc.data().status === 'completed') {
+                completed++;
+            }
+        });
+        
+        const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+        
+        // Update the goal document
+        await db.collection('goals').doc(goalId).update({
+            progress: progress,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Also check if goal should be marked complete (100% progress)
+        if (progress === 100) {
+            const goalDoc = await db.collection('goals').doc(goalId).get();
+            if (goalDoc.exists && goalDoc.data().status !== 'completed') {
+                await db.collection('goals').doc(goalId).update({
+                    status: 'completed',
+                    completedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                // Send notification to PIR about goal completion
+                await db.collection('notifications').add({
+                    userId: user.uid,
+                    type: 'goal_completed',
+                    title: 'Goal Completed!',
+                    message: `Congratulations! You've completed the goal: ${goalDoc.data().title}`,
+                    goalId: goalId,
+                    read: false,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+        
+        // Trigger a refresh of the goals view if it exists
+        if (window.goalsTasksViewInstance) {
+            window.goalsTasksViewInstance.forceUpdate();
+        }
+        
+    } catch (error) {
+        console.error('Error updating goal progress:', error);
+    }
+};
 
          // Update the send message function for GLRS Community - SAVES TO MESSAGES
 const sendCommunityMessage = async (message, imageUrl) => {
