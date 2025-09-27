@@ -4148,90 +4148,148 @@ const handleImageSelect = (e) => {
                 </div>
             );
         }
-        // Recovery Resources View Component with all enhanced features
+        // Enhanced Recovery Resources View Component with all fixes
 function ResourcesView({ user, userData, onBack }) {
     const [selectedCategory, setSelectedCategory] = useState(null);
-    const [activeTab, setActiveTab] = useState('assigned'); // 'assigned' or 'global'
+    const [activeTab, setActiveTab] = useState('assigned');
     const [resources, setResources] = useState([]);
+    const [allResources, setAllResources] = useState([]);
     const [favorites, setFavorites] = useState([]);
     const [notes, setNotes] = useState({});
     const [progress, setProgress] = useState({});
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedResource, setSelectedResource] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [resourceCounts, setResourceCounts] = useState({});
+    const [totalResourceCount, setTotalResourceCount] = useState(0);
+    const [newResourceIds, setNewResourceIds] = useState([]);
 
     const categories = [
-        { id: 'coping', name: 'Coping Skills & Techniques', icon: '🧘', color: '#4CAF50' },
+        { id: 'coping', name: 'Coping Skills', icon: '🧘', color: '#4CAF50' },
         { id: 'relapse', name: 'Relapse Prevention', icon: '🛡️', color: '#ff9500' },
-        { id: 'daily', name: 'Daily Recovery Tools', icon: '📝', color: '#2196F3' },
-        { id: 'education', name: 'Education & Understanding', icon: '🎓', color: '#9c27b0' },
-        { id: 'support', name: 'Support & Connection', icon: '🤝', color: '#00bcd4' },
-        { id: 'life', name: 'Life Skills & Wellness', icon: '💪', color: '#ff5722' }
+        { id: 'daily', name: 'Daily Tools', icon: '📝', color: '#2196F3' },
+        { id: 'education', name: 'Education', icon: '🎓', color: '#9c27b0' },
+        { id: 'support', name: 'Support', icon: '🤝', color: '#00bcd4' },
+        { id: 'life', name: 'Life Skills', icon: '💪', color: '#ff5722' }
     ];
+
+    // Load all resources on mount
+    useEffect(() => {
+        loadAllResources();
+        loadUserPreferences();
+        checkNewResources();
+    }, [user.uid]);
 
     // Load resources for selected category
     useEffect(() => {
         if (selectedCategory) {
-            loadCategoryResources();
+            filterCategoryResources();
         }
-    }, [selectedCategory, activeTab]);
+    }, [selectedCategory, activeTab, allResources]);
 
-    // Load user preferences (favorites, notes, progress)
-    useEffect(() => {
-        loadUserPreferences();
-    }, [user.uid]);
-
-    const loadUserPreferences = async () => {
+    const loadAllResources = async () => {
         try {
-            // Load favorites
-            const favDoc = await db.collection('users').doc(user.uid)
-                .collection('resourcePreferences').doc('favorites').get();
-            if (favDoc.exists) {
-                setFavorites(favDoc.data().items || []);
-            }
+            // Load all resources user has access to
+            const assignedQuery = await db.collection('resources')
+                .where('assignedTo', 'array-contains', user.uid)
+                .where('active', '==', true)
+                .get();
+            
+            const globalQuery = await db.collection('resources')
+                .where('isGlobal', '==', true)
+                .where('active', '==', true)
+                .get();
 
-            // Load notes
-            const notesDoc = await db.collection('users').doc(user.uid)
-                .collection('resourcePreferences').doc('notes').get();
-            if (notesDoc.exists) {
-                setNotes(notesDoc.data() || {});
-            }
+            const resourceMap = new Map();
+            
+            // Add assigned resources
+            assignedQuery.forEach(doc => {
+                resourceMap.set(doc.id, { 
+                    id: doc.id, 
+                    ...doc.data(),
+                    isAssigned: true 
+                });
+            });
+            
+            // Add global resources
+            globalQuery.forEach(doc => {
+                if (!resourceMap.has(doc.id)) {
+                    resourceMap.set(doc.id, { 
+                        id: doc.id, 
+                        ...doc.data(),
+                        isAssigned: false 
+                    });
+                }
+            });
 
-            // Load progress
-            const progressDoc = await db.collection('users').doc(user.uid)
-                .collection('resourcePreferences').doc('progress').get();
-            if (progressDoc.exists) {
-                setProgress(progressDoc.data() || {});
-            }
+            const allResourcesList = Array.from(resourceMap.values());
+            setAllResources(allResourcesList);
+            setTotalResourceCount(allResourcesList.length);
+            
+            // Calculate counts per category
+            const counts = {};
+            categories.forEach(cat => {
+                counts[cat.id] = allResourcesList.filter(r => r.category === cat.id).length;
+            });
+            setResourceCounts(counts);
+
         } catch (error) {
-            console.error('Error loading preferences:', error);
+            console.error('Error loading resources:', error);
         }
     };
 
-    const loadCategoryResources = async () => {
-        setLoading(true);
+    const filterCategoryResources = () => {
+        let filtered = allResources.filter(r => r.category === selectedCategory);
+        
+        if (activeTab === 'assigned') {
+            filtered = filtered.filter(r => r.isAssigned);
+        } else {
+            filtered = filtered.filter(r => !r.isAssigned);
+        }
+        
+        setResources(filtered);
+    };
+
+    const checkNewResources = async () => {
         try {
-            let query = db.collection('resources')
-                .where('category', '==', selectedCategory)
-                .where('active', '==', true);
-
-            if (activeTab === 'assigned') {
-                query = query.where('assignedTo', 'array-contains', user.uid);
-            } else {
-                query = query.where('isGlobal', '==', true);
+            // Get last viewed timestamp
+            const lastViewDoc = await db.collection('users').doc(user.uid)
+                .collection('preferences').doc('lastResourceView').get();
+            
+            const lastView = lastViewDoc.exists ? lastViewDoc.data().timestamp : null;
+            
+            if (lastView) {
+                // Find resources added after last view
+                const newResources = allResources.filter(r => 
+                    r.addedAt && r.addedAt.toDate() > lastView.toDate()
+                );
+                setNewResourceIds(newResources.map(r => r.id));
             }
-
-            const snapshot = await query.get();
-            const resourcesList = [];
-            snapshot.forEach(doc => {
-                resourcesList.push({ id: doc.id, ...doc.data() });
-            });
-
-            setResources(resourcesList);
+            
+            // Update last view time
+            await db.collection('users').doc(user.uid)
+                .collection('preferences').doc('lastResourceView')
+                .set({ timestamp: firebase.firestore.FieldValue.serverTimestamp() });
+                
         } catch (error) {
-            console.error('Error loading resources:', error);
-        } finally {
-            setLoading(false);
+            console.error('Error checking new resources:', error);
+        }
+    };
+
+    const loadUserPreferences = async () => {
+        try {
+            // Load user preferences from single document
+            const prefDoc = await db.collection('users').doc(user.uid)
+                .collection('preferences').doc('resources').get();
+            
+            if (prefDoc.exists) {
+                const data = prefDoc.data();
+                setFavorites(data.favorites || []);
+                setNotes(data.notes || {});
+                setProgress(data.progress || {});
+            }
+        } catch (error) {
+            console.error('Error loading preferences:', error);
         }
     };
 
@@ -4242,20 +4300,27 @@ function ResourcesView({ user, userData, onBack }) {
         
         setFavorites(newFavorites);
         
-        // Save to Firestore
-        await db.collection('users').doc(user.uid)
-            .collection('resourcePreferences').doc('favorites')
-            .set({ items: newFavorites }, { merge: true });
+        // Save all preferences together
+        await savePreferences({ favorites: newFavorites });
+        
+        showNotification(
+            favorites.includes(resourceId) ? 'Removed from favorites' : 'Added to favorites',
+            'success'
+        );
     };
 
     const updateProgress = async (resourceId, status) => {
-        const newProgress = { ...progress, [resourceId]: status };
+        const newProgress = { 
+            ...progress, 
+            [resourceId]: {
+                status: status,
+                updatedAt: new Date().toISOString(),
+                completedAt: status === 'completed' ? new Date().toISOString() : null
+            }
+        };
         setProgress(newProgress);
         
-        // Save to Firestore
-        await db.collection('users').doc(user.uid)
-            .collection('resourcePreferences').doc('progress')
-            .set(newProgress, { merge: true });
+        await savePreferences({ progress: newProgress });
 
         // Track activity
         await db.collection('activities').add({
@@ -4265,272 +4330,645 @@ function ResourcesView({ user, userData, onBack }) {
             status: status,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
+        
+        showNotification(`Progress updated to ${status}`, 'success');
     };
 
     const saveNote = async (resourceId, note) => {
         const newNotes = { ...notes, [resourceId]: note };
         setNotes(newNotes);
         
-        // Save to Firestore
-        await db.collection('users').doc(user.uid)
-            .collection('resourcePreferences').doc('notes')
-            .set(newNotes, { merge: true });
+        await savePreferences({ notes: newNotes });
+        showNotification('Note saved', 'success');
+    };
+
+    const savePreferences = async (updates) => {
+        try {
+            const currentPrefs = {
+                favorites: favorites,
+                notes: notes,
+                progress: progress,
+                ...updates,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            
+            await db.collection('users').doc(user.uid)
+                .collection('preferences').doc('resources')
+                .set(currentPrefs, { merge: true });
+        } catch (error) {
+            console.error('Error saving preferences:', error);
+            showNotification('Failed to save preferences', 'error');
+        }
     };
 
     const recordView = async (resourceId) => {
-        // Update last viewed
         await db.collection('users').doc(user.uid)
             .collection('resourceViews').doc(resourceId)
             .set({
-                viewedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                resourceId: resourceId
+                viewedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
     };
 
-    const filteredResources = resources.filter(resource => 
-        resource.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        resource.description?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const showNotification = (message, type) => {
+        // Create a toast notification
+        const toast = document.createElement('div');
+        toast.className = 'resource-toast';
+        toast.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: ${type === 'success' ? '#4CAF50' : '#f44336'};
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            z-index: 10000;
+            animation: slideIn 0.3s ease;
+        `;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.style.animation = 'slideOut 0.3s ease';
+            setTimeout(() => document.body.removeChild(toast), 300);
+        }, 3000);
+    };
 
-    // Category Selection View
+    // Filter resources based on search
+    const getFilteredResources = () => {
+        if (!searchQuery) return resources;
+        
+        return resources.filter(resource => 
+            resource.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            resource.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            resource.category.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    };
+
+    // Get favorite resources across all categories
+    const getFavoriteResources = () => {
+        return allResources.filter(r => favorites.includes(r.id));
+    };
+
+    // Category Selection View with modern design
     if (!selectedCategory) {
+        const favoriteResources = getFavoriteResources();
+        
         return (
             <div style={{
-                background: '#1a1a2e',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                 minHeight: '100vh',
                 padding: '20px'
             }}>
+                {/* Modern Header */}
                 <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
+                    background: 'rgba(255,255,255,0.1)',
+                    backdropFilter: 'blur(10px)',
+                    borderRadius: '20px',
+                    padding: '20px',
                     marginBottom: '30px'
                 }}>
-                    <button 
-                        onClick={onBack}
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'white',
-                            fontSize: '24px',
-                            cursor: 'pointer'
-                        }}
-                    >
-                        ←
-                    </button>
-                    <h2 style={{
-                        flex: 1,
-                        textAlign: 'center',
-                        margin: 0,
-                        color: 'white'
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        marginBottom: '20px'
                     }}>
-                        Recovery Resources
-                    </h2>
+                        <button 
+                            onClick={onBack}
+                            style={{
+                                background: 'rgba(255,255,255,0.2)',
+                                border: 'none',
+                                color: 'white',
+                                fontSize: '24px',
+                                cursor: 'pointer',
+                                padding: '10px',
+                                borderRadius: '10px',
+                                transition: 'all 0.3s'
+                            }}
+                        >
+                            ←
+                        </button>
+                        <div style={{ flex: 1, textAlign: 'center' }}>
+                            <h2 style={{ margin: 0, color: 'white' }}>Recovery Resources</h2>
+                            <p style={{ 
+                                margin: '5px 0 0 0', 
+                                color: 'rgba(255,255,255,0.8)',
+                                fontSize: '14px'
+                            }}>
+                                {totalResourceCount} resources available
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Global Search Bar */}
+                    <div style={{ position: 'relative' }}>
+                        <input 
+                            type="text"
+                            placeholder="Search all resources..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '15px 20px 15px 50px',
+                                background: 'rgba(255,255,255,0.9)',
+                                border: 'none',
+                                borderRadius: '15px',
+                                fontSize: '16px',
+                                outline: 'none',
+                                transition: 'all 0.3s'
+                            }}
+                        />
+                        <span style={{
+                            position: 'absolute',
+                            left: '20px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            fontSize: '20px'
+                        }}>
+                            🔍
+                        </span>
+                    </div>
                 </div>
 
-                {/* Search Bar */}
-                <div style={{marginBottom: '20px'}}>
-                    <input 
-                        type="text"
-                        placeholder="Search all resources..."
-                        style={{
-                            width: '100%',
-                            padding: '12px',
-                            background: 'rgba(255,255,255,0.1)',
-                            border: '1px solid rgba(255,255,255,0.2)',
-                            borderRadius: '10px',
-                            color: 'white',
-                            fontSize: '16px'
-                        }}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                </div>
+                {/* Search Results */}
+                {searchQuery && (
+                    <div style={{
+                        background: 'rgba(255,255,255,0.95)',
+                        borderRadius: '20px',
+                        padding: '20px',
+                        marginBottom: '20px'
+                    }}>
+                        <h3 style={{ margin: '0 0 15px 0' }}>
+                            Search Results ({allResources.filter(r => 
+                                r.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                r.description?.toLowerCase().includes(searchQuery.toLowerCase())
+                            ).length})
+                        </h3>
+                        <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                            {allResources
+                                .filter(r => 
+                                    r.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                    r.description?.toLowerCase().includes(searchQuery.toLowerCase())
+                                )
+                                .map(resource => (
+                                    <div 
+                                        key={resource.id}
+                                        onClick={() => {
+                                            setSelectedResource(resource);
+                                            recordView(resource.id);
+                                        }}
+                                        style={{
+                                            padding: '10px',
+                                            marginBottom: '10px',
+                                            background: 'rgba(103,58,183,0.05)',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.3s'
+                                        }}
+                                    >
+                                        <div style={{ fontWeight: 'bold' }}>{resource.title}</div>
+                                        <div style={{ fontSize: '12px', color: '#666' }}>
+                                            {categories.find(c => c.id === resource.category)?.name}
+                                        </div>
+                                    </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {/* Category Grid */}
                 <div style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(2, 1fr)',
-                    gap: '15px'
+                    gap: '15px',
+                    marginBottom: '30px'
                 }}>
                     {categories.map(category => (
                         <button
                             key={category.id}
                             onClick={() => setSelectedCategory(category.id)}
                             style={{
-                                background: `linear-gradient(135deg, ${category.color}99 0%, ${category.color}66 100%)`,
+                                background: 'rgba(255,255,255,0.95)',
                                 border: 'none',
-                                borderRadius: '15px',
-                                padding: '20px',
-                                color: 'white',
+                                borderRadius: '20px',
+                                padding: '25px',
                                 cursor: 'pointer',
-                                textAlign: 'center'
+                                transition: 'all 0.3s',
+                                position: 'relative',
+                                overflow: 'hidden'
                             }}
                         >
-                            <div style={{fontSize: '32px', marginBottom: '10px'}}>
+                            {/* New indicator */}
+                            {newResourceIds.some(id => 
+                                allResources.find(r => r.id === id && r.category === category.id)
+                            ) && (
+                                <span style={{
+                                    position: 'absolute',
+                                    top: '10px',
+                                    right: '10px',
+                                    background: '#ff4444',
+                                    color: 'white',
+                                    padding: '2px 8px',
+                                    borderRadius: '10px',
+                                    fontSize: '10px',
+                                    fontWeight: 'bold'
+                                }}>
+                                    NEW
+                                </span>
+                            )}
+                            
+                            <div style={{
+                                width: '50px',
+                                height: '50px',
+                                background: `linear-gradient(135deg, ${category.color}40, ${category.color}60)`,
+                                borderRadius: '15px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '28px',
+                                margin: '0 auto 15px'
+                            }}>
                                 {category.icon}
                             </div>
-                            <div style={{fontSize: '14px', fontWeight: 'bold'}}>
+                            <div style={{
+                                fontSize: '16px',
+                                fontWeight: 'bold',
+                                color: '#333',
+                                marginBottom: '5px'
+                            }}>
                                 {category.name}
+                            </div>
+                            <div style={{
+                                fontSize: '14px',
+                                color: category.color,
+                                fontWeight: 'bold'
+                            }}>
+                                {resourceCounts[category.id] || 0} resources
                             </div>
                         </button>
                     ))}
                 </div>
 
                 {/* Favorites Section */}
-                {favorites.length > 0 && (
-                    <div style={{marginTop: '30px'}}>
-                        <h3 style={{color: 'white', marginBottom: '15px'}}>
-                            ⭐ Your Favorites
+                {favoriteResources.length > 0 && (
+                    <div style={{
+                        background: 'rgba(255,255,255,0.95)',
+                        borderRadius: '20px',
+                        padding: '20px'
+                    }}>
+                        <h3 style={{
+                            margin: '0 0 15px 0',
+                            color: '#333',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px'
+                        }}>
+                            ⭐ Your Favorites ({favoriteResources.length})
                         </h3>
-                        {/* Display favorite resources here */}
+                        <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '10px'
+                        }}>
+                            {favoriteResources.slice(0, 3).map(resource => (
+                                <div 
+                                    key={resource.id}
+                                    onClick={() => {
+                                        setSelectedResource(resource);
+                                        recordView(resource.id);
+                                    }}
+                                    style={{
+                                        padding: '15px',
+                                        background: 'linear-gradient(135deg, #667eea20, #764ba220)',
+                                        borderRadius: '15px',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.3s',
+                                        border: '1px solid rgba(118,75,162,0.2)'
+                                    }}
+                                >
+                                    <div style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center'
+                                    }}>
+                                        <div>
+                                            <div style={{
+                                                fontWeight: 'bold',
+                                                color: '#333',
+                                                marginBottom: '5px'
+                                            }}>
+                                                {resource.title}
+                                            </div>
+                                            <div style={{
+                                                fontSize: '12px',
+                                                color: '#666'
+                                            }}>
+                                                {categories.find(c => c.id === resource.category)?.name}
+                                            </div>
+                                        </div>
+                                        <span style={{
+                                            fontSize: '24px',
+                                            color: '#ffd700'
+                                        }}>
+                                            ⭐
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                            {favoriteResources.length > 3 && (
+                                <button
+                                    onClick={() => {
+                                        setSearchQuery('');
+                                        setSelectedCategory('favorites');
+                                    }}
+                                    style={{
+                                        padding: '10px',
+                                        background: 'transparent',
+                                        border: '1px solid #764ba2',
+                                        borderRadius: '10px',
+                                        color: '#764ba2',
+                                        cursor: 'pointer',
+                                        fontWeight: 'bold'
+                                    }}
+                                >
+                                    View All Favorites →
+                                </button>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>
         );
     }
 
-    // Resource List View
+    // Resource List View with modern design
     if (!selectedResource) {
         const category = categories.find(c => c.id === selectedCategory);
+        const filteredResources = getFilteredResources();
         
         return (
             <div style={{
-                background: '#1a1a2e',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                 minHeight: '100vh',
                 padding: '20px'
             }}>
+                {/* Modern Header */}
                 <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
+                    background: 'rgba(255,255,255,0.1)',
+                    backdropFilter: 'blur(10px)',
+                    borderRadius: '20px',
+                    padding: '20px',
                     marginBottom: '20px'
                 }}>
-                    <button 
-                        onClick={() => setSelectedCategory(null)}
-                        style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'white',
-                            fontSize: '24px',
-                            cursor: 'pointer'
-                        }}
-                    >
-                        ←
-                    </button>
-                    <h2 style={{
-                        flex: 1,
-                        textAlign: 'center',
-                        margin: 0,
-                        color: 'white'
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        marginBottom: '20px'
                     }}>
-                        {category.icon} {category.name}
-                    </h2>
+                        <button 
+                            onClick={() => setSelectedCategory(null)}
+                            style={{
+                                background: 'rgba(255,255,255,0.2)',
+                                border: 'none',
+                                color: 'white',
+                                fontSize: '24px',
+                                cursor: 'pointer',
+                                padding: '10px',
+                                borderRadius: '10px'
+                            }}
+                        >
+                            ←
+                        </button>
+                        <div style={{ flex: 1, textAlign: 'center' }}>
+                            <h2 style={{ margin: 0, color: 'white' }}>
+                                {category?.icon} {category?.name}
+                            </h2>
+                            <p style={{ 
+                                margin: '5px 0 0 0', 
+                                color: 'rgba(255,255,255,0.8)',
+                                fontSize: '14px'
+                            }}>
+                                {filteredResources.length} resources available
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Tabs */}
+                    <div style={{
+                        display: 'flex',
+                        background: 'rgba(255,255,255,0.2)',
+                        borderRadius: '15px',
+                        padding: '5px'
+                    }}>
+                        <button
+                            onClick={() => setActiveTab('assigned')}
+                            style={{
+                                flex: 1,
+                                padding: '12px',
+                                background: activeTab === 'assigned' ? 'white' : 'transparent',
+                                color: activeTab === 'assigned' ? '#764ba2' : 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                fontWeight: 'bold',
+                                transition: 'all 0.3s'
+                            }}
+                        >
+                            Assigned ({resources.filter(r => r.isAssigned).length})
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('global')}
+                            style={{
+                                flex: 1,
+                                padding: '12px',
+                                background: activeTab === 'global' ? 'white' : 'transparent',
+                                color: activeTab === 'global' ? '#764ba2' : 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                fontWeight: 'bold',
+                                transition: 'all 0.3s'
+                            }}
+                        >
+                            Global ({resources.filter(r => !r.isAssigned).length})
+                        </button>
+                    </div>
                 </div>
 
-                {/* Tabs */}
-                <div style={{
-                    display: 'flex',
-                    marginBottom: '20px',
-                    background: 'rgba(255,255,255,0.1)',
-                    borderRadius: '10px',
-                    padding: '5px'
-                }}>
-                    <button
-                        onClick={() => setActiveTab('assigned')}
-                        style={{
-                            flex: 1,
-                            padding: '10px',
-                            background: activeTab === 'assigned' ? 'white' : 'transparent',
-                            color: activeTab === 'assigned' ? '#1a1a2e' : 'white',
-                            border: 'none',
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            fontWeight: 'bold'
-                        }}
-                    >
-                        Assigned to Me
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('global')}
-                        style={{
-                            flex: 1,
-                            padding: '10px',
-                            background: activeTab === 'global' ? 'white' : 'transparent',
-                            color: activeTab === 'global' ? '#1a1a2e' : 'white',
-                            border: 'none',
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            fontWeight: 'bold'
-                        }}
-                    >
-                        Global Resources
-                    </button>
-                </div>
-
-                {/* Resource List */}
+                {/* Resource Cards */}
                 {loading ? (
-                    <div style={{textAlign: 'center', color: 'white', padding: '40px'}}>
+                    <div style={{
+                        textAlign: 'center',
+                        color: 'white',
+                        padding: '40px'
+                    }}>
                         Loading resources...
                     </div>
                 ) : filteredResources.length === 0 ? (
-                    <div style={{textAlign: 'center', color: 'rgba(255,255,255,0.6)', padding: '40px'}}>
-                        No resources available in this category.
+                    <div style={{
+                        textAlign: 'center',
+                        color: 'rgba(255,255,255,0.8)',
+                        padding: '40px',
+                        background: 'rgba(255,255,255,0.1)',
+                        borderRadius: '20px'
+                    }}>
+                        No resources found.
                     </div>
                 ) : (
-                    <div style={{display: 'flex', flexDirection: 'column', gap: '15px'}}>
+                    <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '15px'
+                    }}>
                         {filteredResources.map(resource => (
                             <div 
                                 key={resource.id}
                                 style={{
-                                    background: 'rgba(255,255,255,0.1)',
-                                    borderRadius: '15px',
-                                    padding: '15px'
+                                    background: 'rgba(255,255,255,0.95)',
+                                    borderRadius: '20px',
+                                    padding: '20px',
+                                    position: 'relative',
+                                    transition: 'all 0.3s',
+                                    cursor: 'pointer'
+                                }}
+                                onClick={() => {
+                                    setSelectedResource(resource);
+                                    recordView(resource.id);
                                 }}
                             >
+                                {/* New Badge */}
+                                {newResourceIds.includes(resource.id) && (
+                                    <span style={{
+                                        position: 'absolute',
+                                        top: '10px',
+                                        right: '10px',
+                                        background: '#ff4444',
+                                        color: 'white',
+                                        padding: '4px 10px',
+                                        borderRadius: '10px',
+                                        fontSize: '11px',
+                                        fontWeight: 'bold'
+                                    }}>
+                                        NEW
+                                    </span>
+                                )}
+
                                 <div style={{
                                     display: 'flex',
                                     justifyContent: 'space-between',
-                                    alignItems: 'flex-start',
-                                    marginBottom: '10px'
+                                    alignItems: 'flex-start'
                                 }}>
-                                    <div style={{flex: 1}}>
-                                        <h4 style={{color: 'white', margin: '0 0 5px 0'}}>
+                                    <div style={{ flex: 1 }}>
+                                        <h4 style={{
+                                            color: '#333',
+                                            margin: '0 0 8px 0',
+                                            fontSize: '18px'
+                                        }}>
                                             {resource.title}
                                         </h4>
                                         {resource.description && (
                                             <p style={{
-                                                color: 'rgba(255,255,255,0.7)',
+                                                color: '#666',
                                                 fontSize: '14px',
-                                                margin: '0 0 10px 0'
+                                                margin: '0 0 15px 0',
+                                                lineHeight: '1.5'
                                             }}>
                                                 {resource.description}
                                             </p>
                                         )}
+                                        
+                                        {/* Status Pills */}
                                         <div style={{
                                             display: 'flex',
                                             gap: '10px',
-                                            flexWrap: 'wrap'
+                                            flexWrap: 'wrap',
+                                            marginBottom: '15px'
                                         }}>
-                                            {/* Progress Badge */}
+                                            {/* Progress Status */}
                                             <span style={{
-                                                background: progress[resource.id] === 'completed' ? 'rgba(76,175,80,0.2)' :
-                                                         progress[resource.id] === 'in-progress' ? 'rgba(255,152,0,0.2)' :
-                                                         'rgba(255,255,255,0.1)',
-                                                color: progress[resource.id] === 'completed' ? '#4CAF50' :
-                                                       progress[resource.id] === 'in-progress' ? '#ff9800' :
-                                                       'rgba(255,255,255,0.6)',
-                                                padding: '2px 8px',
-                                                borderRadius: '10px',
-                                                fontSize: '12px'
+                                                background: progress[resource.id]?.status === 'completed' 
+                                                    ? 'linear-gradient(135deg, #4CAF50, #45a049)'
+                                                    : progress[resource.id]?.status === 'in-progress' 
+                                                    ? 'linear-gradient(135deg, #ff9800, #f57c00)'
+                                                    : 'linear-gradient(135deg, #9e9e9e, #757575)',
+                                                color: 'white',
+                                                padding: '6px 12px',
+                                                borderRadius: '20px',
+                                                fontSize: '12px',
+                                                fontWeight: 'bold'
                                             }}>
-                                                {progress[resource.id] || 'Not Started'}
+                                                {progress[resource.id]?.status === 'completed' ? '✓ Completed' :
+                                                 progress[resource.id]?.status === 'in-progress' ? '⏳ In Progress' :
+                                                 '○ Not Started'}
                                             </span>
-                                            
-                                            {/* Added Date */}
+
+                                            {/* Created Date */}
                                             {resource.addedAt && (
                                                 <span style={{
-                                                    color: 'rgba(255,255,255,0.5)',
+                                                    background: 'rgba(103,58,183,0.1)',
+                                                    color: '#673ab7',
+                                                    padding: '6px 12px',
+                                                    borderRadius: '20px',
                                                     fontSize: '12px'
                                                 }}>
-                                                    Added {new Date(resource.addedAt.toDate()).toLocaleDateString()}
+                                                    📅 Added {new Date(resource.addedAt.toDate()).toLocaleDateString()}
+                                                </span>
+                                            )}
+
+                                            {/* Completed Date */}
+                                            {progress[resource.id]?.completedAt && (
+                                                <span style={{
+                                                    background: 'rgba(76,175,80,0.1)',
+                                                    color: '#4CAF50',
+                                                    padding: '6px 12px',
+                                                    borderRadius: '20px',
+                                                    fontSize: '12px'
+                                                }}>
+                                                    ✅ Completed {new Date(progress[resource.id].completedAt).toLocaleDateString()}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {/* Action Buttons */}
+                                        <div style={{
+                                            display: 'flex',
+                                            gap: '10px',
+                                            alignItems: 'center'
+                                        }}>
+                                            <select
+                                                value={progress[resource.id]?.status || 'not-started'}
+                                                onChange={(e) => {
+                                                    e.stopPropagation();
+                                                    updateProgress(resource.id, e.target.value);
+                                                }}
+                                                onClick={(e) => e.stopPropagation()}
+                                                style={{
+                                                    padding: '8px 12px',
+                                                    background: 'white',
+                                                    border: '2px solid #e0e0e0',
+                                                    borderRadius: '10px',
+                                                    color: '#333',
+                                                    cursor: 'pointer',
+                                                    fontWeight: '500'
+                                                }}
+                                            >
+                                                <option value="not-started">Not Started</option>
+                                                <option value="in-progress">In Progress</option>
+                                                <option value="completed">Completed</option>
+                                            </select>
+                                            
+                                            {/* Note Indicator */}
+                                            {notes[resource.id] && (
+                                                <span style={{
+                                                    background: 'rgba(33,150,243,0.1)',
+                                                    color: '#2196F3',
+                                                    padding: '8px 12px',
+                                                    borderRadius: '10px',
+                                                    fontSize: '12px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '5px'
+                                                }}>
+                                                    📝 Has notes
                                                 </span>
                                             )}
                                         </div>
@@ -4538,77 +4976,22 @@ function ResourcesView({ user, userData, onBack }) {
                                     
                                     {/* Favorite Button */}
                                     <button
-                                        onClick={() => toggleFavorite(resource.id)}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            toggleFavorite(resource.id);
+                                        }}
                                         style={{
                                             background: 'transparent',
                                             border: 'none',
-                                            color: favorites.includes(resource.id) ? '#ffd700' : 'rgba(255,255,255,0.3)',
-                                            fontSize: '24px',
-                                            cursor: 'pointer'
+                                            fontSize: '28px',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.3s',
+                                            transform: favorites.includes(resource.id) ? 'scale(1.1)' : 'scale(1)'
                                         }}
                                     >
                                         {favorites.includes(resource.id) ? '⭐' : '☆'}
                                     </button>
                                 </div>
-
-                                {/* Action Buttons */}
-                                <div style={{
-                                    display: 'flex',
-                                    gap: '10px',
-                                    marginTop: '10px'
-                                }}>
-                                    <button
-                                        onClick={() => {
-                                            setSelectedResource(resource);
-                                            recordView(resource.id);
-                                        }}
-                                        style={{
-                                            flex: 1,
-                                            padding: '8px',
-                                            background: category.color,
-                                            border: 'none',
-                                            borderRadius: '8px',
-                                            color: 'white',
-                                            cursor: 'pointer',
-                                            fontWeight: 'bold'
-                                        }}
-                                    >
-                                        View Resource
-                                    </button>
-                                    
-                                    {/* Progress Dropdown */}
-                                    <select
-                                        value={progress[resource.id] || 'not-started'}
-                                        onChange={(e) => updateProgress(resource.id, e.target.value)}
-                                        style={{
-                                            padding: '8px',
-                                            background: 'rgba(255,255,255,0.1)',
-                                            border: '1px solid rgba(255,255,255,0.2)',
-                                            borderRadius: '8px',
-                                            color: 'white',
-                                            cursor: 'pointer'
-                                        }}
-                                    >
-                                        <option value="not-started">Not Started</option>
-                                        <option value="in-progress">In Progress</option>
-                                        <option value="completed">Completed</option>
-                                    </select>
-                                </div>
-
-                                {/* Notes Section */}
-                                {notes[resource.id] && (
-                                    <div style={{
-                                        marginTop: '10px',
-                                        padding: '10px',
-                                        background: 'rgba(255,255,255,0.05)',
-                                        borderRadius: '8px'
-                                    }}>
-                                        <small style={{color: 'rgba(255,255,255,0.6)'}}>Your Notes:</small>
-                                        <p style={{color: 'white', fontSize: '14px', margin: '5px 0 0 0'}}>
-                                            {notes[resource.id]}
-                                        </p>
-                                    </div>
-                                )}
                             </div>
                         ))}
                     </div>
@@ -4624,12 +5007,14 @@ function ResourcesView({ user, userData, onBack }) {
             onBack={() => setSelectedResource(null)}
             onUpdateNote={(note) => saveNote(selectedResource.id, note)}
             currentNote={notes[selectedResource.id]}
+            progress={progress[selectedResource.id]}
+            onUpdateProgress={(status) => updateProgress(selectedResource.id, status)}
         />
     );
 }
 
 // Resource Viewer Component (Full Screen View)
-function ResourceViewer({ resource, onBack, onUpdateNote, currentNote }) {
+function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress, onUpdateProgress }) {
     const [note, setNote] = useState(currentNote || '');
     const [showNoteInput, setShowNoteInput] = useState(false);
 
@@ -4731,6 +5116,32 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote }) {
                         </button>
                     </div>
                 </div>
+                
+                {/* Progress Bar */}
+                <div style={{
+                    marginTop: '15px',
+                    display: 'flex',
+                    gap: '10px',
+                    alignItems: 'center'
+                }}>
+                    <span style={{color: 'white', fontSize: '14px'}}>Progress:</span>
+                    <select
+                        value={progress?.status || 'not-started'}
+                        onChange={(e) => onUpdateProgress(e.target.value)}
+                        style={{
+                            padding: '6px 12px',
+                            background: 'rgba(255,255,255,0.9)',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            flex: 1
+                        }}
+                    >
+                        <option value="not-started">Not Started</option>
+                        <option value="in-progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                    </select>
+                </div>
             </div>
 
             {/* Content */}
@@ -4741,7 +5152,11 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote }) {
                         lineHeight: '1.8',
                         color: '#333'
                     }}>
-                        {resource.content}
+                        {resource.content.split('\n').map((paragraph, index) => (
+                            <p key={index} style={{marginBottom: '15px'}}>
+                                {paragraph}
+                            </p>
+                        ))}
                     </div>
                 ) : resource.embedUrl ? (
                     <iframe 
@@ -4823,7 +5238,10 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote }) {
                                     Save Note
                                 </button>
                                 <button
-                                    onClick={() => setShowNoteInput(false)}
+                                    onClick={() => {
+                                        setNote(currentNote || '');
+                                        setShowNoteInput(false);
+                                    }}
                                     style={{
                                         padding: '8px 16px',
                                         background: '#999',
@@ -4841,9 +5259,14 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote }) {
                         <div>
                             {currentNote ? (
                                 <div>
-                                    <p style={{margin: '0 0 10px 0'}}>{currentNote}</p>
+                                    <p style={{margin: '0 0 10px 0', whiteSpace: 'pre-wrap'}}>
+                                        {currentNote}
+                                    </p>
                                     <button
-                                        onClick={() => setShowNoteInput(true)}
+                                        onClick={() => {
+                                            setNote(currentNote);
+                                            setShowNoteInput(true);
+                                        }}
                                         style={{
                                             padding: '8px 16px',
                                             background: '#9c27b0',
@@ -4871,6 +5294,35 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote }) {
                                     Add Note
                                 </button>
                             )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Resource Metadata */}
+                <div style={{
+                    marginTop: '20px',
+                    padding: '15px',
+                    background: '#f9f9f9',
+                    borderRadius: '10px',
+                    fontSize: '14px',
+                    color: '#666'
+                }}>
+                    <div style={{marginBottom: '8px'}}>
+                        <strong>Category:</strong> {resource.category}
+                    </div>
+                    {resource.addedAt && (
+                        <div style={{marginBottom: '8px'}}>
+                            <strong>Added:</strong> {new Date(resource.addedAt.toDate()).toLocaleDateString()}
+                        </div>
+                    )}
+                    {progress?.completedAt && (
+                        <div style={{marginBottom: '8px'}}>
+                            <strong>Completed:</strong> {new Date(progress.completedAt).toLocaleDateString()}
+                        </div>
+                    )}
+                    {resource.addedBy && (
+                        <div>
+                            <strong>Added by:</strong> {resource.addedBy}
                         </div>
                     )}
                 </div>
