@@ -4019,12 +4019,16 @@ function CommunityCreateModal({ type, item, onSubmit, onClose }) {
         </div>
     );
 }
-       // PIR-Centric Goals & Objectives Management View
+       // PIR-Centric Goals & Objectives Management View with Enhanced UI
 function GoalsView({ searchQuery, user }) {
-    const [activeTab, setActiveTab] = useState('pirs');
-    const [loading, setLoading] = useState(true);
-    const [pirs, setPirs] = useState([]);
     const [selectedPIR, setSelectedPIR] = useState(null);
+    const [pirs, setPirs] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [expandedGoals, setExpandedGoals] = useState(new Set());
+    const [expandedObjectives, setExpandedObjectives] = useState(new Set());
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [modalType, setModalType] = useState('');
+    const [selectedParent, setSelectedParent] = useState(null);
     const [pirGoalsData, setPirGoalsData] = useState({
         goals: [],
         objectives: [],
@@ -4032,20 +4036,10 @@ function GoalsView({ searchQuery, user }) {
         milestones: [],
         customMilestones: []
     });
-    const [milestones, setMilestones] = useState([]);
-    const [inspirations, setInspirations] = useState([]);
-    const [showCreateModal, setShowCreateModal] = useState(false);
-    const [modalType, setModalType] = useState(''); // goal, objective, assignment, milestone, inspiration, goldenThread
-    const [selectedParent, setSelectedParent] = useState(null); // For objective/assignment creation
-    const [stats, setStats] = useState({
-        activePIRs: 0,
-        totalGoals: 0,
-        avgProgress: 0,
-        totalMilestones: 0
-    });
+    const [activeTab, setActiveTab] = useState('overview');
 
     useEffect(() => {
-        loadInitialData();
+        loadPIRsWithStats();
     }, []);
 
     useEffect(() => {
@@ -4054,64 +4048,64 @@ function GoalsView({ searchQuery, user }) {
         }
     }, [selectedPIR]);
 
-    const loadInitialData = async () => {
+    const loadPIRsWithStats = async () => {
         try {
             setLoading(true);
-
-            // Load all PIRs
             const pirsSnap = await db.collection('users')
                 .where('role', '==', 'pir')
                 .where('active', '!=', false)
                 .get();
             
             const pirsData = [];
+            
             for (const doc of pirsSnap.docs) {
                 const pirData = { id: doc.id, ...doc.data() };
                 
-                // Get basic stats for each PIR
+                // Get goals and calculate stats
                 const goalsSnap = await db.collection('goals')
                     .where('userId', '==', doc.id)
                     .where('status', '==', 'active')
                     .get();
                 
+                let totalProgress = 0;
+                let overdueCount = 0;
+                let nearCompletion = 0;
+                
+                for (const goalDoc of goalsSnap.docs) {
+                    const goalData = goalDoc.data();
+                    
+                    // Get assignments for this goal
+                    const assignmentsSnap = await db.collection('assignments')
+                        .where('goalId', '==', goalDoc.id)
+                        .get();
+                    
+                    let completed = 0;
+                    let total = assignmentsSnap.size;
+                    
+                    assignmentsSnap.forEach(assignDoc => {
+                        const assignment = assignDoc.data();
+                        if (assignment.status === 'completed') completed++;
+                        if (assignment.dueDate && new Date(assignment.dueDate.toDate()) < new Date() && assignment.status !== 'completed') {
+                            overdueCount++;
+                        }
+                    });
+                    
+                    const goalProgress = total > 0 ? (completed / total) * 100 : 0;
+                    totalProgress += goalProgress;
+                    if (goalProgress >= 80) nearCompletion++;
+                }
+                
                 pirData.activeGoals = goalsSnap.size;
+                pirData.overallProgress = goalsSnap.size > 0 ? Math.round(totalProgress / goalsSnap.size) : 0;
+                pirData.overdueAssignments = overdueCount;
+                pirData.nearCompletion = nearCompletion;
+                
                 pirsData.push(pirData);
             }
-            setPirs(pirsData);
-
-            // Load system milestones
-            const milestonesSnap = await db.collection('milestones')
-                .where('type', '!=', 'custom')
-                .orderBy('type')
-                .orderBy('daysRequired', 'asc')
-                .get();
             
-            const milestonesData = [];
-            milestonesSnap.forEach(doc => {
-                milestonesData.push({ id: doc.id, ...doc.data() });
-            });
-            setMilestones(milestonesData);
-
-            // Load daily inspirations
-            const inspirationsSnap = await db.collection('dailyInspirations')
-                .where('active', '==', true)
-                .get();
-            const inspirationsData = [];
-            inspirationsSnap.forEach(doc => {
-                inspirationsData.push({ id: doc.id, ...doc.data() });
-            });
-            setInspirations(inspirationsData);
-
-            // Calculate stats
-            setStats({
-                activePIRs: pirsData.filter(p => p.active).length,
-                totalGoals: 0, // Will be calculated when PIR is selected
-                avgProgress: 0,
-                totalMilestones: milestonesData.length
-            });
-
+            setPirs(pirsData);
         } catch (error) {
-            console.error('Error loading data:', error);
+            console.error('Error loading PIRs:', error);
         } finally {
             setLoading(false);
         }
@@ -4120,8 +4114,7 @@ function GoalsView({ searchQuery, user }) {
     const loadPIRGoalsData = async (pirId) => {
         try {
             setLoading(true);
-
-            // Load goals
+            
             const goalsSnap = await db.collection('goals')
                 .where('userId', '==', pirId)
                 .orderBy('createdAt', 'desc')
@@ -4130,12 +4123,10 @@ function GoalsView({ searchQuery, user }) {
             const goalsData = [];
             const objectivesData = [];
             const assignmentsData = [];
-            let totalProgress = 0;
 
             for (const goalDoc of goalsSnap.docs) {
                 const goalData = { id: goalDoc.id, ...goalDoc.data() };
                 
-                // Load objectives for this goal
                 const objectivesSnap = await db.collection('objectives')
                     .where('goalId', '==', goalDoc.id)
                     .orderBy('order', 'asc')
@@ -4148,7 +4139,6 @@ function GoalsView({ searchQuery, user }) {
                     const objData = { id: objDoc.id, ...objDoc.data() };
                     objectivesData.push(objData);
                     
-                    // Load assignments for this objective
                     const assignmentsSnap = await db.collection('assignments')
                         .where('objectiveId', '==', objDoc.id)
                         .orderBy('createdAt', 'desc')
@@ -4158,25 +4148,19 @@ function GoalsView({ searchQuery, user }) {
                         const assignData = { id: assignDoc.id, ...assignDoc.data() };
                         assignmentsData.push(assignData);
                         goalAssignments++;
-                        if (assignData.status === 'completed') {
-                            completedAssignments++;
-                        }
+                        if (assignData.status === 'completed') completedAssignments++;
                     });
                 }
                 
-                // Calculate goal progress
                 goalData.progress = goalAssignments > 0 
                     ? Math.round((completedAssignments / goalAssignments) * 100)
                     : 0;
                 
                 goalsData.push(goalData);
-                totalProgress += goalData.progress;
             }
 
-            // Get hardcoded recovery milestones
             const recoveryMilestones = getRecoveryMilestones(selectedPIR.sobrietyDate);
             
-            // Load custom milestones for this PIR
             const customMilestonesSnap = await db.collection('milestones')
                 .where('userId', '==', pirId)
                 .where('type', '==', 'custom')
@@ -4196,23 +4180,13 @@ function GoalsView({ searchQuery, user }) {
                 customMilestones: customMilestonesData
             });
 
-            // Update stats
-            setStats(prev => ({
-                ...prev,
-                totalGoals: goalsData.length,
-                avgProgress: goalsData.length > 0 
-                    ? Math.round(totalProgress / goalsData.length)
-                    : 0
-            }));
-
         } catch (error) {
-            console.error('Error loading PIR goals data:', error);
+            console.error('Error loading PIR goals:', error);
         } finally {
             setLoading(false);
         }
     };
 
-    // Generate hardcoded recovery milestones (from index.html)
     const getRecoveryMilestones = (sobrietyDate) => {
         if (!sobrietyDate) return [];
         
@@ -4249,137 +4223,28 @@ function GoalsView({ searchQuery, user }) {
         }));
     };
 
-    const handleCreateGoldenThread = async (data) => {
-        try {
-            // Create Goal
-            const goalRef = await db.collection('goals').add({
-                userId: selectedPIR.id,
-                title: data.goalTitle,
-                description: data.goalDescription,
-                dueDate: data.goalDueDate ? firebase.firestore.Timestamp.fromDate(new Date(data.goalDueDate)) : null,
-                status: 'active',
-                createdBy: user.uid,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-
-            // Create Objective
-            const objectiveRef = await db.collection('objectives').add({
-                goalId: goalRef.id,
-                userId: selectedPIR.id,
-                title: data.objectiveTitle,
-                order: 1,
-                dueDate: data.objectiveDueDate ? firebase.firestore.Timestamp.fromDate(new Date(data.objectiveDueDate)) : null,
-                status: 'active',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-
-            // Create Assignment
-            await db.collection('assignments').add({
-                goalId: goalRef.id,
-                objectiveId: objectiveRef.id,
-                pirId: selectedPIR.id,
-                pirName: selectedPIR.displayName || selectedPIR.email,
-                coachId: user.uid,
-                coachName: user.displayName || user.email,
-                title: data.assignmentTitle,
-                description: data.assignmentDescription,
-                dueDate: data.assignmentDueDate ? firebase.firestore.Timestamp.fromDate(new Date(data.assignmentDueDate)) : null,
-                status: 'pending',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-
-            // Create notification
-            await db.collection('notifications').add({
-                userId: selectedPIR.id,
-                type: 'goal_assigned',
-                title: 'New Goal Assigned',
-                message: `You have been assigned a new goal: ${data.goalTitle}`,
-                read: false,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-
-            alert('Golden thread created successfully!');
-            setShowCreateModal(false);
-            loadPIRGoalsData(selectedPIR.id);
-        } catch (error) {
-            console.error('Error creating golden thread:', error);
-            alert('Failed to create golden thread');
+    const toggleGoalExpand = (goalId) => {
+        const newExpanded = new Set(expandedGoals);
+        if (newExpanded.has(goalId)) {
+            newExpanded.delete(goalId);
+        } else {
+            newExpanded.add(goalId);
         }
+        setExpandedGoals(newExpanded);
     };
 
-    const handleCreateGoal = async (goalData) => {
-        try {
-            await db.collection('goals').add({
-                userId: selectedPIR.id,
-                title: goalData.title,
-                description: goalData.description,
-                dueDate: goalData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(goalData.dueDate)) : null,
-                status: 'active',
-                createdBy: user.uid,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            alert('Goal created successfully!');
-            setShowCreateModal(false);
-            loadPIRGoalsData(selectedPIR.id);
-        } catch (error) {
-            console.error('Error creating goal:', error);
-            alert('Failed to create goal');
+    const toggleObjectiveExpand = (objId) => {
+        const newExpanded = new Set(expandedObjectives);
+        if (newExpanded.has(objId)) {
+            newExpanded.delete(objId);
+        } else {
+            newExpanded.add(objId);
         }
-    };
-
-    const handleCreateObjective = async (objectiveData) => {
-        try {
-            const objectivesSnap = await db.collection('objectives')
-                .where('goalId', '==', objectiveData.goalId)
-                .get();
-            
-            await db.collection('objectives').add({
-                goalId: objectiveData.goalId,
-                userId: selectedPIR.id,
-                title: objectiveData.title,
-                order: objectivesSnap.size + 1,
-                dueDate: objectiveData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(objectiveData.dueDate)) : null,
-                status: 'active',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            alert('Objective created successfully!');
-            setShowCreateModal(false);
-            loadPIRGoalsData(selectedPIR.id);
-        } catch (error) {
-            console.error('Error creating objective:', error);
-            alert('Failed to create objective');
-        }
-    };
-
-    const handleCreateAssignment = async (assignmentData) => {
-        try {
-            await db.collection('assignments').add({
-                goalId: assignmentData.goalId,
-                objectiveId: assignmentData.objectiveId,
-                pirId: selectedPIR.id,
-                pirName: selectedPIR.displayName || selectedPIR.email,
-                coachId: user.uid,
-                coachName: user.displayName || user.email,
-                title: assignmentData.title,
-                description: assignmentData.description,
-                dueDate: assignmentData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignmentData.dueDate)) : null,
-                status: 'pending',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            alert('Assignment created successfully!');
-            setShowCreateModal(false);
-            loadPIRGoalsData(selectedPIR.id);
-        } catch (error) {
-            console.error('Error creating assignment:', error);
-            alert('Failed to create assignment');
-        }
+        setExpandedObjectives(newExpanded);
     };
 
     const handleCompleteGoal = async (goalId) => {
-        if (!confirm('Mark this goal as complete?')) return;
+        if (!confirm('Mark this goal as complete? Only coaches can complete goals.')) return;
         
         try {
             await db.collection('goals').doc(goalId).update({
@@ -4387,16 +4252,14 @@ function GoalsView({ searchQuery, user }) {
                 completedBy: user.uid,
                 completedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            
             loadPIRGoalsData(selectedPIR.id);
         } catch (error) {
             console.error('Error completing goal:', error);
-            alert('Failed to complete goal');
         }
     };
 
     const handleCompleteObjective = async (objectiveId) => {
-        if (!confirm('Mark this objective as complete?')) return;
+        if (!confirm('Mark this objective as complete? Only coaches can complete objectives.')) return;
         
         try {
             await db.collection('objectives').doc(objectiveId).update({
@@ -4404,763 +4267,998 @@ function GoalsView({ searchQuery, user }) {
                 completedBy: user.uid,
                 completedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            
             loadPIRGoalsData(selectedPIR.id);
         } catch (error) {
             console.error('Error completing objective:', error);
-            alert('Failed to complete objective');
         }
     };
 
-    const handleCreateMilestone = async (milestoneData) => {
-        try {
-            await db.collection('milestones').add({
-                userId: selectedPIR.id,
-                title: milestoneData.title,
-                description: milestoneData.description,
-                targetDate: firebase.firestore.Timestamp.fromDate(new Date(milestoneData.targetDate)),
-                type: 'custom',
-                achieved: false,
-                icon: milestoneData.icon || '🎯',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+    const PIRCard = ({ pir, onClick }) => (
+        <div 
+            className="pir-card-enhanced"
+            onClick={onClick}
+            style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                borderRadius: '12px',
+                padding: '20px',
+                marginBottom: '15px',
+                cursor: 'pointer',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                color: 'white',
+                boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+            }}
+            onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.15)';
+            }}
+            onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+            }}
+        >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                <div>
+                    <h3 style={{ margin: '0 0 10px 0', fontSize: '1.4em' }}>
+                        👤 {pir.displayName || `${pir.firstName} ${pir.lastName}` || pir.email}
+                    </h3>
+                    <div style={{ display: 'flex', gap: '20px', fontSize: '0.95em', opacity: '0.95' }}>
+                        <span>📊 {pir.activeGoals || 0} Active Goals</span>
+                        <span>✅ {pir.overallProgress || 0}% Complete</span>
+                    </div>
+                </div>
+                <div style={{ 
+                    background: 'rgba(255,255,255,0.2)', 
+                    borderRadius: '20px', 
+                    padding: '8px 16px',
+                    fontSize: '2em',
+                    fontWeight: 'bold'
+                }}>
+                    {pir.overallProgress || 0}%
+                </div>
+            </div>
             
-            alert('Milestone created successfully!');
-            setShowCreateModal(false);
-            loadPIRGoalsData(selectedPIR.id);
-        } catch (error) {
-            console.error('Error creating milestone:', error);
-            alert('Failed to create milestone');
-        }
+            {(pir.overdueAssignments > 0 || pir.nearCompletion > 0) && (
+                <div style={{ 
+                    marginTop: '15px', 
+                    paddingTop: '15px', 
+                    borderTop: '1px solid rgba(255,255,255,0.2)'
+                }}>
+                    {pir.overdueAssignments > 0 && (
+                        <span style={{ 
+                            background: 'rgba(255,100,100,0.3)', 
+                            padding: '4px 12px', 
+                            borderRadius: '15px',
+                            marginRight: '10px',
+                            fontSize: '0.9em'
+                        }}>
+                            ⚠️ {pir.overdueAssignments} Overdue
+                        </span>
+                    )}
+                    {pir.nearCompletion > 0 && (
+                        <span style={{ 
+                            background: 'rgba(100,255,100,0.3)', 
+                            padding: '4px 12px', 
+                            borderRadius: '15px',
+                            fontSize: '0.9em'
+                        }}>
+                            🎯 {pir.nearCompletion} Near Completion
+                        </span>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+
+    const ActionButton = ({ icon, label, onClick, variant = 'primary' }) => {
+        const colors = {
+            primary: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            success: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+            warning: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+            info: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
+        };
+
+        return (
+            <button
+                onClick={onClick}
+                style={{
+                    background: colors[variant],
+                    border: 'none',
+                    borderRadius: '8px',
+                    color: 'white',
+                    padding: '10px 20px',
+                    fontSize: '0.95em',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    transition: 'transform 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+            >
+                <span style={{ fontSize: '1.2em' }}>{icon}</span>
+                {label}
+            </button>
+        );
     };
 
-    const handleCreateInspiration = async (inspirationData) => {
-        try {
-            await db.collection('dailyInspirations').add({
-                ...inspirationData,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                createdBy: user.uid,
-                active: true
-            });
-            
-            alert('Daily inspiration created successfully!');
-            setShowCreateModal(false);
-            loadInitialData();
-        } catch (error) {
-            console.error('Error creating inspiration:', error);
-            alert('Failed to create inspiration');
-        }
-    };
-
-    const renderPIRsList = () => (
-        <div className="pirs-list">
-            <h3>Select a PIR to Manage Goals</h3>
-            <div className="pirs-grid">
-                {pirs.map(pir => (
+    const GoalItem = ({ goal }) => {
+        const isExpanded = expandedGoals.has(goal.id);
+        const objectives = pirGoalsData.objectives.filter(obj => obj.goalId === goal.id);
+        
+        return (
+            <div style={{
+                background: 'white',
+                borderRadius: '10px',
+                padding: '20px',
+                marginBottom: '15px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                transition: 'all 0.3s'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div 
-                        key={pir.id} 
-                        className="pir-card"
-                        onClick={() => setSelectedPIR(pir)}
+                        onClick={() => toggleGoalExpand(goal.id)}
+                        style={{ cursor: 'pointer', flex: 1 }}
                     >
-                        <div className="pir-header">
-                            <h4>{pir.displayName || pir.email}</h4>
-                            <span className={`badge ${pir.active ? 'badge-success' : 'badge-secondary'}`}>
-                                {pir.active ? 'Active' : 'Inactive'}
+                        <h4 style={{ margin: 0, color: '#333', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span>{isExpanded ? '▼' : '▶'}</span>
+                            {goal.title}
+                            <span style={{
+                                background: `linear-gradient(90deg, #667eea ${goal.progress}%, #e0e0e0 ${goal.progress}%)`,
+                                padding: '2px 10px',
+                                borderRadius: '12px',
+                                fontSize: '0.8em',
+                                color: 'white'
+                            }}>
+                                {goal.progress}%
                             </span>
-                        </div>
-                        <div className="pir-stats">
-                            <div>Active Goals: {pir.activeGoals || 0}</div>
-                            <div>Sobriety: {pir.sobrietyDate ? 
-                                `${Math.floor((new Date() - new Date(pir.sobrietyDate)) / (1000 * 60 * 60 * 24))} days` 
-                                : 'Not set'}</div>
+                        </h4>
+                        <div style={{ marginTop: '5px', fontSize: '0.9em', color: '#666' }}>
+                            Created: {formatDate(goal.createdAt)} 
+                            {goal.dueDate && ` • Due: ${formatDate(goal.dueDate)}`}
                         </div>
                     </div>
-                ))}
-            </div>
-        </div>
-    );
-
-    const renderPIRGoals = () => (
-        <div className="pir-goals">
-            <div className="pir-goals-header">
-                <button onClick={() => setSelectedPIR(null)} className="back-btn">
-                    ← Back to PIRs
-                </button>
-                <h3>{selectedPIR.displayName || selectedPIR.email}'s Recovery Plan</h3>
-                <div className="action-buttons">
-                    <button 
-                        className="btn btn-primary"
-                        onClick={() => {
-                            setModalType('goldenThread');
-                            setShowCreateModal(true);
-                        }}
-                    >
-                        + Create Golden Thread
-                    </button>
-                    <button 
-                        className="btn btn-secondary"
-                        onClick={() => {
-                            setModalType('goal');
-                            setShowCreateModal(true);
-                        }}
-                    >
-                        + Add Goal
-                    </button>
-                </div>
-            </div>
-
-            <div className="progress-summary">
-                <div className="progress-stat">
-                    <span>Overall Progress</span>
-                    <div className="progress-bar">
-                        <div 
-                            className="progress-fill"
-                            style={{width: `${stats.avgProgress}%`}}
-                        ></div>
-                    </div>
-                    <span>{stats.avgProgress}%</span>
-                </div>
-            </div>
-
-            <div className="goals-hierarchy">
-                {pirGoalsData.goals.map(goal => (
-                    <div key={goal.id} className="goal-container">
-                        <div className="goal-header">
-                            <div className="goal-title">
-                                <h4>{goal.title}</h4>
-                                <span className="progress-badge">{goal.progress}%</span>
-                            </div>
-                            <div className="goal-meta">
-                                <span>Created: {formatDate(goal.createdAt)}</span>
-                                {goal.dueDate && <span>Due: {formatDate(goal.dueDate)}</span>}
-                                <span className={`status-badge ${goal.status}`}>
-                                    {goal.status}
-                                </span>
-                            </div>
-                            <div className="goal-actions">
-                                <button 
-                                    className="btn btn-sm btn-secondary"
-                                    onClick={() => {
-                                        setSelectedParent({type: 'goal', id: goal.id, title: goal.title});
-                                        setModalType('objective');
-                                        setShowCreateModal(true);
-                                    }}
-                                >
-                                    + Add Objective
-                                </button>
-                                {goal.status !== 'completed' && (
-                                    <button 
-                                        className="btn btn-sm btn-success"
-                                        onClick={() => handleCompleteGoal(goal.id)}
-                                    >
-                                        Complete Goal
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                        
-                        <div className="objectives-list">
-                            {pirGoalsData.objectives
-                                .filter(obj => obj.goalId === goal.id)
-                                .map(objective => (
-                                    <div key={objective.id} className="objective-container">
-                                        <div className="objective-header">
-                                            <h5>└─ {objective.title}</h5>
-                                            <div className="objective-meta">
-                                                {objective.dueDate && <span>Due: {formatDate(objective.dueDate)}</span>}
-                                                <span className={`status-badge ${objective.status}`}>
-                                                    {objective.status}
-                                                </span>
-                                            </div>
-                                            <div className="objective-actions">
-                                                <button 
-                                                    className="btn btn-sm btn-secondary"
-                                                    onClick={() => {
-                                                        setSelectedParent({
-                                                            type: 'objective', 
-                                                            id: objective.id, 
-                                                            goalId: goal.id,
-                                                            title: objective.title
-                                                        });
-                                                        setModalType('assignment');
-                                                        setShowCreateModal(true);
-                                                    }}
-                                                >
-                                                    + Add Assignment
-                                                </button>
-                                                {objective.status !== 'completed' && (
-                                                    <button 
-                                                        className="btn btn-sm btn-success"
-                                                        onClick={() => handleCompleteObjective(objective.id)}
-                                                    >
-                                                        Complete
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                        
-                                        <div className="assignments-list">
-                                            {pirGoalsData.assignments
-                                                .filter(assign => assign.objectiveId === objective.id)
-                                                .map(assignment => (
-                                                    <div key={assignment.id} className="assignment-container">
-                                                        <div className="assignment-header">
-                                                            <span>└── {assignment.title}</span>
-                                                            <span className={`status-icon ${assignment.status}`}>
-                                                                {assignment.status === 'completed' ? '✅' : '⏳'}
-                                                            </span>
-                                                        </div>
-                                                        {assignment.description && (
-                                                            <div className="assignment-description">
-                                                                {assignment.description}
-                                                            </div>
-                                                        )}
-                                                        {assignment.reflection && (
-                                                            <div className="assignment-reflection">
-                                                                <strong>PIR Reflection:</strong> {assignment.reflection}
-                                                            </div>
-                                                        )}
-                                                        <div className="assignment-meta">
-                                                            {assignment.dueDate && <span>Due: {formatDate(assignment.dueDate)}</span>}
-                                                            {assignment.completedAt && <span>Completed: {formatDate(assignment.completedAt)}</span>}
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                        </div>
-                                    </div>
-                                ))}
-                        </div>
-                    </div>
-                ))}
-                
-                {pirGoalsData.goals.length === 0 && (
-                    <div className="empty-state">
-                        No goals assigned yet. Start with a Golden Thread to create the initial recovery plan.
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-
-    const renderMilestonesTab = () => (
-        <div className="milestones-container">
-            <div className="milestones-header">
-                <h3>Recovery Milestones</h3>
-                {selectedPIR && (
-                    <button 
-                        className="btn btn-primary"
-                        onClick={() => {
-                            setModalType('milestone');
-                            setShowCreateModal(true);
-                        }}
-                    >
-                        + Create Custom Milestone
-                    </button>
-                )}
-            </div>
-
-            {selectedPIR && (
-                <>
-                    <div className="milestones-section">
-                        <h4>Recovery Milestones</h4>
-                        <div className="milestones-timeline">
-                            {pirGoalsData.milestones.map((milestone, idx) => (
-                                <div key={idx} className={`milestone-item ${milestone.achieved ? 'achieved' : 'pending'}`}>
-                                    <div className="milestone-marker">
-                                        <span className="milestone-icon">{milestone.icon}</span>
-                                        <span className="milestone-days">{milestone.days} days</span>
-                                    </div>
-                                    <div className="milestone-content">
-                                        <h5>{milestone.title}</h5>
-                                        {milestone.achieved && (
-                                            <span className="achieved-date">
-                                                Achieved: {formatDate(milestone.achievedDate)}
-                                            </span>
-                                        )}
-                                        {!milestone.achieved && (
-                                            <span className="target-date">
-                                                Target: {formatDate(milestone.targetDate)}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="milestones-section">
-                        <h4>Custom Milestones</h4>
-                        <div className="milestones-grid">
-                            {pirGoalsData.customMilestones.map(milestone => (
-                                <div key={milestone.id} className={`milestone-card ${milestone.achieved ? 'achieved' : ''}`}>
-                                    <div className="milestone-header">
-                                        <span className="milestone-icon">{milestone.icon}</span>
-                                        <h5>{milestone.title}</h5>
-                                    </div>
-                                    <p>{milestone.description}</p>
-                                    <div className="milestone-date">
-                                        Target: {formatDate(milestone.targetDate)}
-                                    </div>
-                                    {milestone.achieved && (
-                                        <div className="achieved-badge">✅ Achieved</div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </>
-            )}
-            
-            {!selectedPIR && (
-                <div className="empty-state">
-                    Select a PIR to view their milestones
-                </div>
-            )}
-        </div>
-    );
-
-    const renderInspirationsTab = () => (
-        <div className="inspirations-container">
-            <div className="inspirations-header">
-                <h3>Daily Inspirations</h3>
-                <button 
-                    className="btn btn-primary"
-                    onClick={() => {
-                        setModalType('inspiration');
-                        setShowCreateModal(true);
-                    }}
-                >
-                    + Add Inspiration
-                </button>
-            </div>
-
-            <div className="inspirations-grid">
-                {inspirations.map(inspiration => (
-                    <div key={inspiration.id} className="inspiration-card">
-                        <div className="inspiration-quote">
-                            "{inspiration.quote}"
-                        </div>
-                        
-                        {inspiration.author && (
-                            <div className="inspiration-author">
-                                - {inspiration.author}
-                            </div>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <button
+                            onClick={() => {
+                                setSelectedParent({ type: 'goal', id: goal.id, title: goal.title });
+                                setModalType('objective');
+                                setShowCreateModal(true);
+                            }}
+                            style={{
+                                background: '#4CAF50',
+                                border: 'none',
+                                borderRadius: '6px',
+                                color: 'white',
+                                padding: '6px 12px',
+                                cursor: 'pointer',
+                                fontSize: '0.85em'
+                            }}
+                        >
+                            + Objective
+                        </button>
+                        {goal.status !== 'completed' && (
+                            <button
+                                onClick={() => handleCompleteGoal(goal.id)}
+                                style={{
+                                    background: '#2196F3',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    color: 'white',
+                                    padding: '6px 12px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.85em'
+                                }}
+                            >
+                                Complete
+                            </button>
                         )}
-                        
-                        <div className="inspiration-meta">
-                            <span className="inspiration-category">
-                                {inspiration.category || 'General'}
-                            </span>
-                            <span className={`badge ${inspiration.active ? 'badge-success' : 'badge-secondary'}`}>
-                                {inspiration.active ? 'Active' : 'Inactive'}
-                            </span>
-                        </div>
                     </div>
-                ))}
-            </div>
-
-            {inspirations.length === 0 && (
-                <div className="empty-state">
-                    No daily inspirations added yet. Add inspirational quotes to motivate PIRs.
                 </div>
-            )}
+                
+                {isExpanded && (
+                    <div style={{ marginTop: '20px', paddingLeft: '30px' }}>
+                        {objectives.map(objective => (
+                            <ObjectiveItem key={objective.id} objective={objective} goal={goal} />
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const ObjectiveItem = ({ objective, goal }) => {
+        const isExpanded = expandedObjectives.has(objective.id);
+        const assignments = pirGoalsData.assignments.filter(a => a.objectiveId === objective.id);
+        
+        return (
+            <div style={{
+                background: '#f8f9fa',
+                borderLeft: '3px solid #667eea',
+                padding: '15px',
+                marginBottom: '10px',
+                borderRadius: '6px'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div 
+                        onClick={() => toggleObjectiveExpand(objective.id)}
+                        style={{ cursor: 'pointer', flex: 1 }}
+                    >
+                        <h5 style={{ margin: 0, color: '#555', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span>{isExpanded ? '▼' : '▶'}</span>
+                            {objective.title}
+                            <span style={{
+                                background: objective.status === 'completed' ? '#4CAF50' : '#FFA726',
+                                padding: '2px 8px',
+                                borderRadius: '10px',
+                                fontSize: '0.75em',
+                                color: 'white'
+                            }}>
+                                {objective.status}
+                            </span>
+                        </h5>
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <button
+                            onClick={() => {
+                                setSelectedParent({
+                                    type: 'objective',
+                                    id: objective.id,
+                                    goalId: goal.id,
+                                    title: `${goal.title} > ${objective.title}`
+                                });
+                                setModalType('assignment');
+                                setShowCreateModal(true);
+                            }}
+                            style={{
+                                background: '#9C27B0',
+                                border: 'none',
+                                borderRadius: '6px',
+                                color: 'white',
+                                padding: '5px 10px',
+                                cursor: 'pointer',
+                                fontSize: '0.8em'
+                            }}
+                        >
+                            + Assignment
+                        </button>
+                        {objective.status !== 'completed' && (
+                            <button
+                                onClick={() => handleCompleteObjective(objective.id)}
+                                style={{
+                                    background: '#FF9800',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    color: 'white',
+                                    padding: '5px 10px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.8em'
+                                }}
+                            >
+                                Complete
+                            </button>
+                        )}
+                    </div>
+                </div>
+                
+                {isExpanded && (
+                    <div style={{ marginTop: '15px', paddingLeft: '20px' }}>
+                        {assignments.map(assignment => (
+                            <AssignmentItem key={assignment.id} assignment={assignment} />
+                        ))}
+                        {assignments.length === 0 && (
+                            <p style={{ color: '#999', fontSize: '0.9em' }}>No assignments yet</p>
+                        )}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const AssignmentItem = ({ assignment }) => (
+        <div style={{
+            background: 'white',
+            border: '1px solid #e0e0e0',
+            padding: '12px',
+            marginBottom: '8px',
+            borderRadius: '4px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+        }}>
+            <span style={{ fontSize: '1.2em' }}>
+                {assignment.status === 'completed' ? '✅' : '⏳'}
+            </span>
+            <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: '500', color: '#333' }}>{assignment.title}</div>
+                {assignment.description && (
+                    <div style={{ fontSize: '0.85em', color: '#666', marginTop: '4px' }}>
+                        {assignment.description}
+                    </div>
+                )}
+                {assignment.reflection && (
+                    <div style={{
+                        background: '#e3f2fd',
+                        padding: '8px',
+                        borderRadius: '4px',
+                        marginTop: '8px',
+                        fontSize: '0.85em'
+                    }}>
+                        <strong>PIR Reflection:</strong> {assignment.reflection}
+                    </div>
+                )}
+                <div style={{ fontSize: '0.8em', color: '#999', marginTop: '4px' }}>
+                    {assignment.dueDate && `Due: ${formatDate(assignment.dueDate)}`}
+                    {assignment.completedAt && ` • Completed: ${formatDate(assignment.completedAt)}`}
+                </div>
+            </div>
         </div>
     );
 
     if (loading) {
         return (
-            <div className="loading-container">
+            <div style={{ 
+                display: 'flex', 
+                justifyContent: 'center', 
+                alignItems: 'center', 
+                height: '400px' 
+            }}>
                 <div className="loading-spinner"></div>
             </div>
         );
     }
 
+    if (selectedPIR) {
+        return (
+            <div style={{ padding: '20px' }}>
+                <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    marginBottom: '30px',
+                    background: 'white',
+                    padding: '20px',
+                    borderRadius: '10px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                }}>
+                    <div>
+                        <button
+                            onClick={() => setSelectedPIR(null)}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#667eea',
+                                cursor: 'pointer',
+                                fontSize: '1em',
+                                marginBottom: '10px',
+                                padding: 0
+                            }}
+                        >
+                            ← Back to PIR List
+                        </button>
+                        <h2 style={{ margin: 0, color: '#333' }}>
+                            {selectedPIR.displayName || selectedPIR.email}'s Recovery Plan
+                        </h2>
+                        <div style={{ 
+                            marginTop: '10px',
+                            fontSize: '1.2em',
+                            color: '#666'
+                        }}>
+                            Overall Progress: {pirGoalsData.goals.reduce((acc, g) => acc + g.progress, 0) / (pirGoalsData.goals.length || 1)}%
+                        </div>
+                    </div>
+                    
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        <ActionButton 
+                            icon="🧵" 
+                            label="Golden Thread" 
+                            variant="primary"
+                            onClick={() => {
+                                setModalType('goldenThread');
+                                setShowCreateModal(true);
+                            }}
+                        />
+                        <ActionButton 
+                            icon="🎯" 
+                            label="Add Goal" 
+                            variant="success"
+                            onClick={() => {
+                                setModalType('goal');
+                                setShowCreateModal(true);
+                            }}
+                        />
+                        <ActionButton 
+                            icon="⭐" 
+                            label="Add Milestone" 
+                            variant="warning"
+                            onClick={() => {
+                                setModalType('milestone');
+                                setShowCreateModal(true);
+                            }}
+                        />
+                    </div>
+                </div>
+
+                <div style={{ marginTop: '20px' }}>
+                    {pirGoalsData.goals.map(goal => (
+                        <GoalItem key={goal.id} goal={goal} />
+                    ))}
+                    
+                    {pirGoalsData.goals.length === 0 && (
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '10px',
+                            padding: '40px',
+                            textAlign: 'center',
+                            color: '#999'
+                        }}>
+                            <h3>No goals assigned yet</h3>
+                            <p>Start with a Golden Thread to create a structured recovery plan</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <div className="goals-view">
-            {/* Stats Row */}
-            <div className="stats-row">
-                <div className="stat-card">
-                    <div className="stat-value">{stats.activePIRs}</div>
-                    <div className="stat-label">Active PIRs</div>
-                </div>
-                <div className="stat-card">
-                    <div className="stat-value">{stats.totalGoals}</div>
-                    <div className="stat-label">Total Goals</div>
-                </div>
-                <div className="stat-card">
-                    <div className="stat-value">{stats.avgProgress}%</div>
-                    <div className="stat-label">Avg Progress</div>
-                </div>
-                <div className="stat-card">
-                    <div className="stat-value">{stats.totalMilestones}</div>
-                    <div className="stat-label">Milestones</div>
-                </div>
+        <div style={{ padding: '20px' }}>
+            <h2 style={{ marginBottom: '30px', color: '#333' }}>PIR Goals Management</h2>
+            <div>
+                {pirs.map(pir => (
+                    <PIRCard 
+                        key={pir.id} 
+                        pir={pir} 
+                        onClick={() => setSelectedPIR(pir)}
+                    />
+                ))}
+                
+                {pirs.length === 0 && (
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '10px',
+                        padding: '40px',
+                        textAlign: 'center',
+                        color: '#999'
+                    }}>
+                        <h3>No active PIRs found</h3>
+                        <p>PIRs will appear here once they are added to the system</p>
+                    </div>
+                )}
             </div>
-
-            {/* Tab Navigation */}
-            <div className="tab-nav">
-                <button 
-                    className={`tab-btn ${activeTab === 'pirs' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('pirs')}
-                >
-                    PIRs & Goals
-                </button>
-                <button 
-                    className={`tab-btn ${activeTab === 'milestones' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('milestones')}
-                >
-                    Milestones
-                </button>
-                <button 
-                    className={`tab-btn ${activeTab === 'inspirations' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('inspirations')}
-                >
-                    Inspirations
-                </button>
-            </div>
-
-            {/* Tab Content */}
-            {activeTab === 'pirs' && (
-                selectedPIR ? renderPIRGoals() : renderPIRsList()
-            )}
-            {activeTab === 'milestones' && renderMilestonesTab()}
-            {activeTab === 'inspirations' && renderInspirationsTab()}
-
-            {/* Create Modal */}
-            {showCreateModal && (
-                <CreateGoalModal
-                    type={modalType}
-                    selectedPIR={selectedPIR}
-                    selectedParent={selectedParent}
-                    onSubmit={(data) => {
-                        if (modalType === 'goldenThread') handleCreateGoldenThread(data);
-                        else if (modalType === 'goal') handleCreateGoal(data);
-                        else if (modalType === 'objective') handleCreateObjective(data);
-                        else if (modalType === 'assignment') handleCreateAssignment(data);
-                        else if (modalType === 'milestone') handleCreateMilestone(data);
-                        else if (modalType === 'inspiration') handleCreateInspiration(data);
-                    }}
-                    onClose={() => {
-                        setShowCreateModal(false);
-                        setSelectedParent(null);
-                    }}
-                />
-            )}
         </div>
     );
 }
 
-// Create Goal Modal Component
+// Enhanced Golden Thread Modal
 function CreateGoalModal({ type, selectedPIR, selectedParent, onSubmit, onClose }) {
-    const [formData, setFormData] = useState(() => {
-        const base = {
-            // Golden Thread fields
-            goalTitle: '',
-            goalDescription: '',
-            goalDueDate: '',
-            objectiveTitle: '',
-            objectiveDueDate: '',
-            assignmentTitle: '',
-            assignmentDescription: '',
-            assignmentDueDate: '',
-            // Individual creation fields
-            title: '',
-            description: '',
-            dueDate: '',
-            targetDate: '',
-            // Milestone fields
-            icon: '🎯',
-            // Inspiration fields
-            quote: '',
-            author: '',
-            category: 'general'
-        };
-
-        if (selectedParent) {
-            if (selectedParent.type === 'goal') {
-                base.goalId = selectedParent.id;
-            } else if (selectedParent.type === 'objective') {
-                base.objectiveId = selectedParent.id;
-                base.goalId = selectedParent.goalId;
+    const [goldenThreadData, setGoldenThreadData] = useState({
+        goals: [
+            {
+                title: '',
+                description: '',
+                dueDate: '',
+                objectives: [
+                    { title: '', dueDate: '', assignments: [{ title: '', description: '', dueDate: '' }] },
+                    { title: '', dueDate: '', assignments: [{ title: '', description: '', dueDate: '' }] }
+                ]
+            },
+            {
+                title: '',
+                description: '',
+                dueDate: '',
+                objectives: [
+                    { title: '', dueDate: '', assignments: [{ title: '', description: '', dueDate: '' }] },
+                    { title: '', dueDate: '', assignments: [{ title: '', description: '', dueDate: '' }] }
+                ]
             }
-        }
-
-        return base;
+        ]
     });
 
-    const icons = ['🎯', '🏆', '⭐', '💪', '🌟', '✨', '🔥', '💎', '🎖️', '🏅'];
+    const [singleFormData, setSingleFormData] = useState({
+        title: '',
+        description: '',
+        dueDate: '',
+        targetDate: '',
+        icon: '🎯',
+        goalId: selectedParent?.goalId || '',
+        objectiveId: selectedParent?.id || ''
+    });
 
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        
-        if (type === 'goldenThread') {
-            if (!formData.goalTitle || !formData.objectiveTitle || !formData.assignmentTitle) {
-                alert('Please fill in all required fields');
-                return;
-            }
-        } else if (type === 'milestone') {
-            if (!formData.title || !formData.targetDate) {
-                alert('Please provide a title and target date');
-                return;
-            }
-        } else if (type === 'inspiration') {
-            if (!formData.quote) {
-                alert('Please provide a quote');
-                return;
-            }
-        } else {
-            if (!formData.title) {
-                alert('Please provide a title');
-                return;
-            }
-        }
-        
-        onSubmit(formData);
+    const addGoal = () => {
+        setGoldenThreadData({
+            ...goldenThreadData,
+            goals: [...goldenThreadData.goals, {
+                title: '',
+                description: '',
+                dueDate: '',
+                objectives: [
+                    { title: '', dueDate: '', assignments: [{ title: '', description: '', dueDate: '' }] }
+                ]
+            }]
+        });
     };
 
+    const addObjective = (goalIndex) => {
+        const newGoals = [...goldenThreadData.goals];
+        newGoals[goalIndex].objectives.push({
+            title: '',
+            dueDate: '',
+            assignments: [{ title: '', description: '', dueDate: '' }]
+        });
+        setGoldenThreadData({ ...goldenThreadData, goals: newGoals });
+    };
+
+    const addAssignment = (goalIndex, objIndex) => {
+        const newGoals = [...goldenThreadData.goals];
+        newGoals[goalIndex].objectives[objIndex].assignments.push({
+            title: '',
+            description: '',
+            dueDate: ''
+        });
+        setGoldenThreadData({ ...goldenThreadData, goals: newGoals });
+    };
+
+    const updateGoal = (index, field, value) => {
+        const newGoals = [...goldenThreadData.goals];
+        newGoals[index][field] = value;
+        setGoldenThreadData({ ...goldenThreadData, goals: newGoals });
+    };
+
+    const updateObjective = (goalIndex, objIndex, field, value) => {
+        const newGoals = [...goldenThreadData.goals];
+        newGoals[goalIndex].objectives[objIndex][field] = value;
+        setGoldenThreadData({ ...goldenThreadData, goals: newGoals });
+    };
+
+    const updateAssignment = (goalIndex, objIndex, assignIndex, field, value) => {
+        const newGoals = [...goldenThreadData.goals];
+        newGoals[goalIndex].objectives[objIndex].assignments[assignIndex][field] = value;
+        setGoldenThreadData({ ...goldenThreadData, goals: newGoals });
+    };
+
+    const handleGoldenThreadSubmit = async () => {
+        try {
+            for (const goal of goldenThreadData.goals) {
+                if (!goal.title) continue;
+                
+                const goalRef = await db.collection('goals').add({
+                    userId: selectedPIR.id,
+                    title: goal.title,
+                    description: goal.description,
+                    dueDate: goal.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(goal.dueDate)) : null,
+                    status: 'active',
+                    createdBy: auth.currentUser.uid,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                for (let i = 0; i < goal.objectives.length; i++) {
+                    const objective = goal.objectives[i];
+                    if (!objective.title) continue;
+                    
+                    const objectiveRef = await db.collection('objectives').add({
+                        goalId: goalRef.id,
+                        userId: selectedPIR.id,
+                        title: objective.title,
+                        order: i + 1,
+                        dueDate: objective.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(objective.dueDate)) : null,
+                        status: 'active',
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    for (const assignment of objective.assignments) {
+                        if (!assignment.title) continue;
+                        
+                        await db.collection('assignments').add({
+                            goalId: goalRef.id,
+                            objectiveId: objectiveRef.id,
+                            pirId: selectedPIR.id,
+                            pirName: selectedPIR.displayName || selectedPIR.email,
+                            coachId: auth.currentUser.uid,
+                            title: assignment.title,
+                            description: assignment.description,
+                            dueDate: assignment.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignment.dueDate)) : null,
+                            status: 'pending',
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                }
+            }
+
+            alert('Golden Thread created successfully!');
+            onClose();
+            window.location.reload(); // Reload to show new data
+        } catch (error) {
+            console.error('Error creating golden thread:', error);
+            alert('Failed to create golden thread');
+        }
+    };
+
+    if (type === 'goldenThread') {
+        return (
+            <div className="modal-overlay" style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(0,0,0,0.5)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 1000,
+                overflow: 'auto'
+            }}>
+                <div style={{
+                    background: 'white',
+                    borderRadius: '12px',
+                    width: '90%',
+                    maxWidth: '900px',
+                    maxHeight: '90vh',
+                    overflow: 'auto',
+                    padding: '30px'
+                }}>
+                    <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center',
+                        marginBottom: '20px'
+                    }}>
+                        <h2 style={{ margin: 0 }}>Create Golden Thread</h2>
+                        <button 
+                            onClick={onClose}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                fontSize: '24px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            ×
+                        </button>
+                    </div>
+
+                    {goldenThreadData.goals.map((goal, goalIndex) => (
+                        <div key={goalIndex} style={{
+                            background: '#f8f9fa',
+                            borderRadius: '8px',
+                            padding: '20px',
+                            marginBottom: '20px'
+                        }}>
+                            <h3 style={{ color: '#667eea', marginTop: 0 }}>Goal {goalIndex + 1}</h3>
+                            <input
+                                type="text"
+                                placeholder="Goal Title"
+                                value={goal.title}
+                                onChange={(e) => updateGoal(goalIndex, 'title', e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    marginBottom: '10px',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '6px'
+                                }}
+                            />
+                            <textarea
+                                placeholder="Goal Description"
+                                value={goal.description}
+                                onChange={(e) => updateGoal(goalIndex, 'description', e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    marginBottom: '10px',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '6px',
+                                    minHeight: '60px'
+                                }}
+                            />
+                            <input
+                                type="date"
+                                value={goal.dueDate}
+                                onChange={(e) => updateGoal(goalIndex, 'dueDate', e.target.value)}
+                                style={{
+                                    padding: '10px',
+                                    marginBottom: '20px',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '6px'
+                                }}
+                            />
+
+                            {goal.objectives.map((objective, objIndex) => (
+                                <div key={objIndex} style={{
+                                    background: 'white',
+                                    borderLeft: '3px solid #667eea',
+                                    padding: '15px',
+                                    marginLeft: '20px',
+                                    marginBottom: '15px',
+                                    borderRadius: '4px'
+                                }}>
+                                    <h4 style={{ color: '#555', marginTop: 0 }}>Objective {objIndex + 1}</h4>
+                                    <input
+                                        type="text"
+                                        placeholder="Objective Title"
+                                        value={objective.title}
+                                        onChange={(e) => updateObjective(goalIndex, objIndex, 'title', e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px',
+                                            marginBottom: '8px',
+                                            border: '1px solid #ddd',
+                                            borderRadius: '4px'
+                                        }}
+                                    />
+                                    <input
+                                        type="date"
+                                        value={objective.dueDate}
+                                        onChange={(e) => updateObjective(goalIndex, objIndex, 'dueDate', e.target.value)}
+                                        style={{
+                                            padding: '8px',
+                                            marginBottom: '15px',
+                                            border: '1px solid #ddd',
+                                            borderRadius: '4px'
+                                        }}
+                                    />
+
+                                    {objective.assignments.map((assignment, assignIndex) => (
+                                        <div key={assignIndex} style={{
+                                            background: '#f8f9fa',
+                                            padding: '10px',
+                                            marginLeft: '20px',
+                                            marginBottom: '8px',
+                                            borderRadius: '4px'
+                                        }}>
+                                            <div style={{ color: '#777', fontSize: '0.9em', marginBottom: '5px' }}>
+                                                Assignment {assignIndex + 1}
+                                            </div>
+                                            <input
+                                                type="text"
+                                                placeholder="Assignment Title"
+                                                value={assignment.title}
+                                                onChange={(e) => updateAssignment(goalIndex, objIndex, assignIndex, 'title', e.target.value)}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '6px',
+                                                    marginBottom: '6px',
+                                                    border: '1px solid #ddd',
+                                                    borderRadius: '4px'
+                                                }}
+                                            />
+                                            <input
+                                                type="text"
+                                                placeholder="Assignment Description"
+                                                value={assignment.description}
+                                                onChange={(e) => updateAssignment(goalIndex, objIndex, assignIndex, 'description', e.target.value)}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '6px',
+                                                    marginBottom: '6px',
+                                                    border: '1px solid #ddd',
+                                                    borderRadius: '4px'
+                                                }}
+                                            />
+                                            <input
+                                                type="date"
+                                                value={assignment.dueDate}
+                                                onChange={(e) => updateAssignment(goalIndex, objIndex, assignIndex, 'dueDate', e.target.value)}
+                                                style={{
+                                                    padding: '6px',
+                                                    border: '1px solid #ddd',
+                                                    borderRadius: '4px'
+                                                }}
+                                            />
+                                        </div>
+                                    ))}
+                                    
+                                    <button
+                                        onClick={() => addAssignment(goalIndex, objIndex)}
+                                        style={{
+                                            marginLeft: '20px',
+                                            marginTop: '5px',
+                                            background: '#9C27B0',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            color: 'white',
+                                            padding: '6px 12px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.85em'
+                                        }}
+                                    >
+                                        + Add Assignment
+                                    </button>
+                                </div>
+                            ))}
+                            
+                            <button
+                                onClick={() => addObjective(goalIndex)}
+                                style={{
+                                    marginLeft: '20px',
+                                    background: '#4CAF50',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    color: 'white',
+                                    padding: '8px 16px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                + Add Objective
+                            </button>
+                        </div>
+                    ))}
+                    
+                    <button
+                        onClick={addGoal}
+                        style={{
+                            background: '#2196F3',
+                            border: 'none',
+                            borderRadius: '6px',
+                            color: 'white',
+                            padding: '10px 20px',
+                            cursor: 'pointer',
+                            marginBottom: '20px'
+                        }}
+                    >
+                        + Add Another Goal
+                    </button>
+                    
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                        <button
+                            onClick={onClose}
+                            style={{
+                                background: '#e0e0e0',
+                                border: 'none',
+                                borderRadius: '6px',
+                                padding: '12px 24px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handleGoldenThreadSubmit}
+                            style={{
+                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                border: 'none',
+                                borderRadius: '6px',
+                                color: 'white',
+                                padding: '12px 24px',
+                                cursor: 'pointer',
+                                fontWeight: 'bold'
+                            }}
+                        >
+                            Create Golden Thread
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Regular single item creation forms
     return (
-        <div className="modal-overlay">
-            <div className="modal-content" style={{maxWidth: '700px', maxHeight: '90vh', overflowY: 'auto'}}>
-                <div className="modal-header">
-                    <h3>
-                        {type === 'goldenThread' && 'Create Golden Thread'}
-                        {type === 'goal' && 'Create New Goal'}
+        <div className="modal-overlay" style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 1000
+        }}>
+            <div style={{
+                background: 'white',
+                borderRadius: '12px',
+                width: '90%',
+                maxWidth: '500px',
+                padding: '30px'
+            }}>
+                <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    marginBottom: '20px'
+                }}>
+                    <h2 style={{ margin: 0 }}>
+                        {type === 'goal' && 'Add New Goal'}
                         {type === 'objective' && `Add Objective to: ${selectedParent?.title}`}
                         {type === 'assignment' && `Add Assignment to: ${selectedParent?.title}`}
-                        {type === 'milestone' && 'Create Custom Milestone'}
-                        {type === 'inspiration' && 'Add Daily Inspiration'}
-                    </h3>
-                    <button className="close-btn" onClick={onClose}>×</button>
+                        {type === 'milestone' && 'Add Custom Milestone'}
+                    </h2>
+                    <button 
+                        onClick={onClose}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            fontSize: '24px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        ×
+                    </button>
                 </div>
-                
-                <form onSubmit={handleSubmit} className="modal-body">
-                    {type === 'goldenThread' && (
-                        <>
-                            <h4>Goal</h4>
-                            <div className="form-group">
-                                <label>Goal Title *</label>
-                                <input
-                                    type="text"
-                                    value={formData.goalTitle}
-                                    onChange={(e) => setFormData({...formData, goalTitle: e.target.value})}
-                                    placeholder="e.g., Achieve 90 Days of Sobriety"
-                                    required
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Goal Description</label>
-                                <textarea
-                                    value={formData.goalDescription}
-                                    onChange={(e) => setFormData({...formData, goalDescription: e.target.value})}
-                                    placeholder="Describe the goal..."
-                                    rows="2"
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Goal Due Date</label>
-                                <input
-                                    type="date"
-                                    value={formData.goalDueDate}
-                                    onChange={(e) => setFormData({...formData, goalDueDate: e.target.value})}
-                                />
-                            </div>
 
-                            <h4>Objective</h4>
-                            <div className="form-group">
-                                <label>Objective Title *</label>
-                                <input
-                                    type="text"
-                                    value={formData.objectiveTitle}
-                                    onChange={(e) => setFormData({...formData, objectiveTitle: e.target.value})}
-                                    placeholder="e.g., Daily Check-ins and Meetings"
-                                    required
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Objective Due Date</label>
-                                <input
-                                    type="date"
-                                    value={formData.objectiveDueDate}
-                                    onChange={(e) => setFormData({...formData, objectiveDueDate: e.target.value})}
-                                />
-                            </div>
-
-                            <h4>Initial Assignment</h4>
-                            <div className="form-group">
-                                <label>Assignment Title *</label>
-                                <input
-                                    type="text"
-                                    value={formData.assignmentTitle}
-                                    onChange={(e) => setFormData({...formData, assignmentTitle: e.target.value})}
-                                    placeholder="e.g., Complete morning check-in"
-                                    required
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Assignment Description</label>
-                                <textarea
-                                    value={formData.assignmentDescription}
-                                    onChange={(e) => setFormData({...formData, assignmentDescription: e.target.value})}
-                                    placeholder="Describe what the PIR needs to do..."
-                                    rows="2"
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Assignment Due Date</label>
-                                <input
-                                    type="date"
-                                    value={formData.assignmentDueDate}
-                                    onChange={(e) => setFormData({...formData, assignmentDueDate: e.target.value})}
-                                />
-                            </div>
-                        </>
+                <form onSubmit={(e) => {
+                    e.preventDefault();
+                    onSubmit({...singleFormData, ...selectedParent});
+                }}>
+                    <input
+                        type="text"
+                        placeholder="Title"
+                        value={singleFormData.title}
+                        onChange={(e) => setSingleFormData({...singleFormData, title: e.target.value})}
+                        required
+                        style={{
+                            width: '100%',
+                            padding: '10px',
+                            marginBottom: '15px',
+                            border: '1px solid #ddd',
+                            borderRadius: '6px'
+                        }}
+                    />
+                    
+                    {(type === 'goal' || type === 'assignment') && (
+                        <textarea
+                            placeholder="Description"
+                            value={singleFormData.description}
+                            onChange={(e) => setSingleFormData({...singleFormData, description: e.target.value})}
+                            style={{
+                                width: '100%',
+                                padding: '10px',
+                                marginBottom: '15px',
+                                border: '1px solid #ddd',
+                                borderRadius: '6px',
+                                minHeight: '80px'
+                            }}
+                        />
                     )}
                     
-                    {(type === 'goal' || type === 'objective' || type === 'assignment') && (
-                        <>
-                            <div className="form-group">
-                                <label>Title *</label>
-                                <input
-                                    type="text"
-                                    value={formData.title}
-                                    onChange={(e) => setFormData({...formData, title: e.target.value})}
-                                    placeholder={`Enter ${type} title`}
-                                    required
-                                />
-                            </div>
-                            
-                            {type === 'assignment' && (
-                                <div className="form-group">
-                                    <label>Description</label>
-                                    <textarea
-                                        value={formData.description}
-                                        onChange={(e) => setFormData({...formData, description: e.target.value})}
-                                        placeholder="Provide detailed instructions..."
-                                        rows="3"
-                                    />
-                                </div>
-                            )}
-                            
-                            {type === 'goal' && (
-                                <div className="form-group">
-                                    <label>Description</label>
-                                    <textarea
-                                        value={formData.description}
-                                        onChange={(e) => setFormData({...formData, description: e.target.value})}
-                                        placeholder="Describe the goal..."
-                                        rows="3"
-                                    />
-                                </div>
-                            )}
-                            
-                            <div className="form-group">
-                                <label>Due Date</label>
-                                <input
-                                    type="date"
-                                    value={formData.dueDate}
-                                    onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
-                                />
-                            </div>
-                        </>
-                    )}
+                    <input
+                        type="date"
+                        value={singleFormData.dueDate || singleFormData.targetDate}
+                        onChange={(e) => setSingleFormData({
+                            ...singleFormData, 
+                            dueDate: e.target.value,
+                            targetDate: e.target.value
+                        })}
+                        style={{
+                            width: '100%',
+                            padding: '10px',
+                            marginBottom: '15px',
+                            border: '1px solid #ddd',
+                            borderRadius: '6px'
+                        }}
+                    />
                     
-                    {type === 'milestone' && (
-                        <>
-                            <div className="form-group">
-                                <label>Title *</label>
-                                <input
-                                    type="text"
-                                    value={formData.title}
-                                    onChange={(e) => setFormData({...formData, title: e.target.value})}
-                                    placeholder="e.g., Complete First Step"
-                                    required
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Description</label>
-                                <textarea
-                                    value={formData.description}
-                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
-                                    placeholder="Describe this milestone..."
-                                    rows="2"
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Target Date *</label>
-                                <input
-                                    type="date"
-                                    value={formData.targetDate}
-                                    onChange={(e) => setFormData({...formData, targetDate: e.target.value})}
-                                    required
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Icon</label>
-                                <div className="icon-picker">
-                                    {icons.map(icon => (
-                                        <button
-                                            key={icon}
-                                            type="button"
-                                            className={`icon-option ${formData.icon === icon ? 'selected' : ''}`}
-                                            onClick={() => setFormData({...formData, icon})}
-                                        >
-                                            {icon}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </>
-                    )}
-                    
-                    {type === 'inspiration' && (
-                        <>
-                            <div className="form-group">
-                                <label>Quote *</label>
-                                <textarea
-                                    value={formData.quote}
-                                    onChange={(e) => setFormData({...formData, quote: e.target.value})}
-                                    placeholder="Enter an inspirational quote..."
-                                    rows="4"
-                                    required
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Author</label>
-                                <input
-                                    type="text"
-                                    value={formData.author}
-                                    onChange={(e) => setFormData({...formData, author: e.target.value})}
-                                    placeholder="e.g., Unknown"
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Category</label>
-                                <select
-                                    value={formData.category}
-                                    onChange={(e) => setFormData({...formData, category: e.target.value})}
-                                >
-                                    <option value="general">General</option>
-                                    <option value="motivation">Motivation</option>
-                                    <option value="recovery">Recovery</option>
-                                    <option value="strength">Strength</option>
-                                    <option value="hope">Hope</option>
-                                    <option value="wisdom">Wisdom</option>
-                                </select>
-                            </div>
-                        </>
-                    )}
-                    
-                    <div className="modal-footer">
-                        <button type="submit" className="btn btn-primary">
-                            {type === 'goldenThread' ? 'Create Golden Thread' : 'Create'}
-                        </button>
-                        <button type="button" className="btn btn-secondary" onClick={onClose}>
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            style={{
+                                background: '#e0e0e0',
+                                border: 'none',
+                                borderRadius: '6px',
+                                padding: '10px 20px',
+                                cursor: 'pointer'
+                            }}
+                        >
                             Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            style={{
+                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                border: 'none',
+                                borderRadius: '6px',
+                                color: 'white',
+                                padding: '10px 20px',
+                                cursor: 'pointer',
+                                fontWeight: 'bold'
+                            }}
+                        >
+                            Create
                         </button>
                     </div>
                 </form>
