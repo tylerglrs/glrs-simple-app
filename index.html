@@ -2986,30 +2986,39 @@ const sendCommunityMessage = async (message, imageUrl) => {
         throw error;
     }
 };
-           // Send topic room message - UPDATED
+           // Send topic room message - FIXED
 const sendTopicRoomMessage = async (roomId, content, imageUrl = null) => {
     if (!content || !content.trim()) return;
     
     try {
         const messageData = {
             roomId: roomId,
-            senderId: user.uid,  // Changed to match display code
+            userId: user.uid,  // Keep this for consistency
+            senderId: user.uid,  // Add this too for compatibility
             senderName: userData?.displayName || userData?.firstName || 'Anonymous',
-            content: content,
+            message: content,  // CHANGED from 'content' to 'message'
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
         
-        // Add image URL if provided
         if (imageUrl) {
             messageData.imageUrl = imageUrl;
         }
         
-        // Fix: Save to the correct collection path
-        await db.collection('topicRooms')
-            .doc(roomId)
-            .collection('messages')
-            .add(messageData);
-            
+        await db.collection('messages').add(messageData);
+        
+        // Reload messages after sending
+        const messagesSnap = await db.collection('messages')
+            .where('roomId', '==', roomId)
+            .orderBy('createdAt', 'desc')
+            .limit(50)
+            .get();
+        
+        const messages = [];
+        messagesSnap.forEach(doc => {
+            messages.push({ id: doc.id, ...doc.data() });
+        });
+        setTopicRoomMessages(messages.reverse());
+        
     } catch (error) {
         console.error('Error sending message:', error);
     }
