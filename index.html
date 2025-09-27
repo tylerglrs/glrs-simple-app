@@ -4164,6 +4164,7 @@ function ResourcesView({ user, userData, onBack }) {
     const [totalResourceCount, setTotalResourceCount] = useState(0);
     const [newResourceIds, setNewResourceIds] = useState([]);
     const [showFavorites, setShowFavorites] = useState(false);
+    const [userNames, setUserNames] = useState({}); // Store user names
 
     const categories = [
         { id: 'coping', name: 'Coping Skills', icon: '🧘', color: '#4CAF50' },
@@ -4184,6 +4185,7 @@ function ResourcesView({ user, userData, onBack }) {
     useEffect(() => {
         if (allResources.length > 0) {
             checkNewResources();
+            loadUserNames();
         }
     }, [allResources]);
 
@@ -4198,6 +4200,30 @@ function ResourcesView({ user, userData, onBack }) {
             filterCategoryResources();
         }
     }, [selectedCategory, activeTab, allResources, favorites]);
+
+    const loadUserNames = async () => {
+        try {
+            const uniqueUserIds = [...new Set(allResources.map(r => r.addedBy).filter(Boolean))];
+            const names = {};
+            
+            for (const userId of uniqueUserIds) {
+                try {
+                    const userDoc = await db.collection('users').doc(userId).get();
+                    if (userDoc.exists) {
+                        const data = userDoc.data();
+                        names[userId] = data.displayName || `${data.firstName} ${data.lastName}` || 'Unknown';
+                    }
+                } catch (error) {
+                    console.error(`Error loading user ${userId}:`, error);
+                    names[userId] = 'Unknown';
+                }
+            }
+            
+            setUserNames(names);
+        } catch (error) {
+            console.error('Error loading user names:', error);
+        }
+    };
 
     const loadAllResources = async () => {
         try {
@@ -4449,13 +4475,32 @@ function ResourcesView({ user, userData, onBack }) {
 
     // Get favorite resources across all categories
     const getFavoriteResources = () => {
-        return allResources.filter(r => favorites.includes(r.id));
+        if (!favorites || favorites.length === 0) return [];
+        return allResources.filter(r => r && r.id && favorites.includes(r.id));
     };
 
-    // Handle resource click
-    const handleResourceClick = (resource) => {
-        setSelectedResource(resource);
-        recordView(resource.id);
+    // Handle resource click - Fixed
+    const handleResourceClick = async (resource) => {
+        if (!resource || !resource.id) {
+            console.error('Invalid resource clicked');
+            return;
+        }
+        
+        // Make sure we have the complete resource data
+        let completeResource = resource;
+        if (!resource.category || !resource.title) {
+            // Try to find the complete resource in allResources
+            completeResource = allResources.find(r => r.id === resource.id) || resource;
+        }
+        
+        setSelectedResource(completeResource);
+        
+        // Record view in a try-catch to prevent errors
+        try {
+            await recordView(resource.id);
+        } catch (error) {
+            console.error('Error recording view:', error);
+        }
     };
 
     // Category Selection View with modern design
@@ -4678,7 +4723,7 @@ function ResourcesView({ user, userData, onBack }) {
                     ))}
                 </div>
 
-                {/* Favorites Section */}
+                {/* Favorites Section - Fixed */}
                 {favoriteResources.length > 0 && (
                     <div style={{
                         background: 'rgba(255,255,255,0.95)',
@@ -4699,51 +4744,63 @@ function ResourcesView({ user, userData, onBack }) {
                             flexDirection: 'column',
                             gap: '10px'
                         }}>
-                            {favoriteResources.slice(0, 3).map(resource => (
-                                <div 
-                                    key={resource.id}
-                                    onClick={() => handleResourceClick(resource)}
-                                    style={{
-                                        padding: '15px',
-                                        background: 'linear-gradient(135deg, #667eea20, #764ba220)',
-                                        borderRadius: '15px',
-                                        cursor: 'pointer',
-                                        transition: 'all 0.3s',
-                                        border: '1px solid rgba(118,75,162,0.2)'
-                                    }}
-                                >
-                                    <div style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center'
-                                    }}>
-                                        <div>
-                                            <div style={{
-                                                fontWeight: 'bold',
-                                                color: '#333',
-                                                marginBottom: '5px'
-                                            }}>
-                                                {resource.title}
-                                            </div>
-                                            <div style={{
-                                                fontSize: '12px',
-                                                color: '#666'
-                                            }}>
-                                                {categories.find(c => c.id === resource.category)?.name}
-                                            </div>
-                                        </div>
-                                        <span style={{
-                                            fontSize: '24px',
-                                            color: '#ffd700'
+                            {favoriteResources.slice(0, 3).map(resource => {
+                                if (!resource || !resource.id) return null;
+                                return (
+                                    <div 
+                                        key={resource.id}
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            handleResourceClick(resource);
+                                        }}
+                                        style={{
+                                            padding: '15px',
+                                            background: 'linear-gradient(135deg, #667eea20, #764ba220)',
+                                            borderRadius: '15px',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.3s',
+                                            border: '1px solid rgba(118,75,162,0.2)'
+                                        }}
+                                    >
+                                        <div style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
                                         }}>
-                                            ⭐
-                                        </span>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{
+                                                    fontWeight: 'bold',
+                                                    color: '#333',
+                                                    marginBottom: '5px'
+                                                }}>
+                                                    {resource.title || 'Untitled Resource'}
+                                                </div>
+                                                <div style={{
+                                                    fontSize: '12px',
+                                                    color: '#666'
+                                                }}>
+                                                    {categories.find(c => c.id === resource.category)?.name || 'Unknown Category'}
+                                                </div>
+                                            </div>
+                                            <span style={{
+                                                fontSize: '24px',
+                                                color: '#ffd700'
+                                            }}>
+                                                ⭐
+                                            </span>
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                             {favoriteResources.length > 3 && (
                                 <button
-                                    onClick={() => setSelectedCategory('favorites')}
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setSelectedCategory('favorites');
+                                        setShowFavorites(true);
+                                    }}
                                     style={{
                                         padding: '10px',
                                         background: 'transparent',
@@ -5070,7 +5127,7 @@ function ResourcesView({ user, userData, onBack }) {
         );
     }
 
-    // Keep the same ResourceViewer component
+    // Pass userNames to ResourceViewer
     return (
         <ResourceViewer 
             resource={selectedResource}
@@ -5079,12 +5136,13 @@ function ResourcesView({ user, userData, onBack }) {
             currentNote={notes[selectedResource.id]}
             progress={progress[selectedResource.id]}
             onUpdateProgress={(status) => updateProgress(selectedResource.id, status)}
+            userName={userNames[selectedResource.addedBy] || 'Unknown'}
         />
     );
 }
 
-// Keep the existing ResourceViewer component unchanged
-function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress, onUpdateProgress }) {
+// Resource Viewer Component (Full Screen View) - Updated with userName
+function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress, onUpdateProgress, userName }) {
     const [note, setNote] = useState(currentNote || '');
     const [showNoteInput, setShowNoteInput] = useState(false);
 
@@ -5368,7 +5426,7 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress,
                     )}
                 </div>
 
-                {/* Resource Metadata */}
+                {/* Resource Metadata - Updated */}
                 <div style={{
                     marginTop: '20px',
                     padding: '15px',
@@ -5392,9 +5450,9 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress,
                             <strong>Completed:</strong> {new Date(progress.completedAt).toLocaleDateString()}
                         </div>
                     )}
-                    {resource.addedBy && (
+                    {userName && (
                         <div>
-                            <strong>Added by:</strong> {resource.addedBy}
+                            <strong>Added by:</strong> {userName}
                         </div>
                     )}
                 </div>
