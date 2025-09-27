@@ -4164,7 +4164,7 @@ function ResourcesView({ user, userData, onBack }) {
     const [totalResourceCount, setTotalResourceCount] = useState(0);
     const [newResourceIds, setNewResourceIds] = useState([]);
     const [showFavorites, setShowFavorites] = useState(false);
-    const [userNames, setUserNames] = useState({}); // Store user names
+    const [userNames, setUserNames] = useState({});
 
     const categories = [
         { id: 'coping', name: 'Coping Skills', icon: '🧘', color: '#4CAF50' },
@@ -4175,13 +4175,11 @@ function ResourcesView({ user, userData, onBack }) {
         { id: 'life', name: 'Life Skills', icon: '💪', color: '#ff5722' }
     ];
 
-    // Load all resources on mount
     useEffect(() => {
         loadAllResources();
         loadUserPreferences();
     }, [user.uid]);
 
-    // Check for new resources after resources are loaded
     useEffect(() => {
         if (allResources.length > 0) {
             checkNewResources();
@@ -4189,7 +4187,6 @@ function ResourcesView({ user, userData, onBack }) {
         }
     }, [allResources]);
 
-    // Load resources for selected category
     useEffect(() => {
         if (selectedCategory === 'favorites') {
             setShowFavorites(true);
@@ -4227,7 +4224,6 @@ function ResourcesView({ user, userData, onBack }) {
 
     const loadAllResources = async () => {
         try {
-            // Load all resources user has access to
             const assignedQuery = await db.collection('resources')
                 .where('assignedTo', 'array-contains', user.uid)
                 .where('active', '==', true)
@@ -4240,7 +4236,6 @@ function ResourcesView({ user, userData, onBack }) {
 
             const resourceMap = new Map();
             
-            // Add assigned resources
             assignedQuery.forEach(doc => {
                 resourceMap.set(doc.id, { 
                     id: doc.id, 
@@ -4249,7 +4244,6 @@ function ResourcesView({ user, userData, onBack }) {
                 });
             });
             
-            // Add global resources
             globalQuery.forEach(doc => {
                 if (!resourceMap.has(doc.id)) {
                     resourceMap.set(doc.id, { 
@@ -4264,7 +4258,6 @@ function ResourcesView({ user, userData, onBack }) {
             setAllResources(allResourcesList);
             setTotalResourceCount(allResourcesList.length);
             
-            // Calculate counts per category
             const counts = {};
             categories.forEach(cat => {
                 counts[cat.id] = allResourcesList.filter(r => r.category === cat.id).length;
@@ -4290,21 +4283,18 @@ function ResourcesView({ user, userData, onBack }) {
 
     const checkNewResources = async () => {
         try {
-            // Get last viewed timestamp
             const lastViewDoc = await db.collection('users').doc(user.uid)
                 .collection('preferences').doc('lastResourceView').get();
             
             const lastView = lastViewDoc.exists ? lastViewDoc.data().timestamp : null;
             
             if (lastView && lastView.toDate) {
-                // Find resources added after last view
                 const newResources = allResources.filter(r => 
                     r.addedAt && r.addedAt.toDate && r.addedAt.toDate() > lastView.toDate()
                 );
                 setNewResourceIds(newResources.map(r => r.id));
             }
             
-            // Update last view time
             await db.collection('users').doc(user.uid)
                 .collection('preferences').doc('lastResourceView')
                 .set({ timestamp: firebase.firestore.FieldValue.serverTimestamp() });
@@ -4316,7 +4306,6 @@ function ResourcesView({ user, userData, onBack }) {
 
     const loadUserPreferences = async () => {
         try {
-            // Load user preferences from single document
             const prefDoc = await db.collection('users').doc(user.uid)
                 .collection('preferences').doc('resources').get();
             
@@ -4328,7 +4317,6 @@ function ResourcesView({ user, userData, onBack }) {
             }
         } catch (error) {
             console.error('Error loading preferences:', error);
-            // Initialize empty preferences if they don't exist
             setFavorites([]);
             setNotes({});
             setProgress({});
@@ -4342,7 +4330,6 @@ function ResourcesView({ user, userData, onBack }) {
         
         setFavorites(newFavorites);
         
-        // Save all preferences together
         const saved = await savePreferences({ favorites: newFavorites });
         
         if (saved) {
@@ -4367,7 +4354,6 @@ function ResourcesView({ user, userData, onBack }) {
         const saved = await savePreferences({ progress: newProgress });
 
         if (saved) {
-            // Track activity
             try {
                 await db.collection('activities').add({
                     userId: user.uid,
@@ -4429,7 +4415,6 @@ function ResourcesView({ user, userData, onBack }) {
     };
 
     const showNotification = (message, type) => {
-        // Create a toast notification
         const existingToast = document.querySelector('.resource-toast');
         if (existingToast) {
             existingToast.remove();
@@ -4462,7 +4447,6 @@ function ResourcesView({ user, userData, onBack }) {
         }, 3000);
     };
 
-    // Filter resources based on search
     const getFilteredResources = () => {
         if (!searchQuery) return resources;
         
@@ -4473,29 +4457,24 @@ function ResourcesView({ user, userData, onBack }) {
         );
     };
 
-    // Get favorite resources across all categories
     const getFavoriteResources = () => {
         if (!favorites || favorites.length === 0) return [];
         return allResources.filter(r => r && r.id && favorites.includes(r.id));
     };
 
-    // Handle resource click - Fixed
     const handleResourceClick = async (resource) => {
         if (!resource || !resource.id) {
             console.error('Invalid resource clicked');
             return;
         }
         
-        // Make sure we have the complete resource data
         let completeResource = resource;
         if (!resource.category || !resource.title) {
-            // Try to find the complete resource in allResources
             completeResource = allResources.find(r => r.id === resource.id) || resource;
         }
         
         setSelectedResource(completeResource);
         
-        // Record view in a try-catch to prevent errors
         try {
             await recordView(resource.id);
         } catch (error) {
@@ -4503,7 +4482,7 @@ function ResourcesView({ user, userData, onBack }) {
         }
     };
 
-    // Category Selection View with modern design
+    // Category Selection View
     if (!selectedCategory) {
         const favoriteResources = getFavoriteResources();
         
@@ -4513,7 +4492,6 @@ function ResourcesView({ user, userData, onBack }) {
                 minHeight: '100vh',
                 padding: '20px'
             }}>
-                {/* Add animation styles */}
                 <style>{`
                     @keyframes slideIn {
                         from {
@@ -4537,7 +4515,6 @@ function ResourcesView({ user, userData, onBack }) {
                     }
                 `}</style>
 
-                {/* Modern Header */}
                 <div style={{
                     background: 'rgba(255,255,255,0.1)',
                     backdropFilter: 'blur(10px)',
@@ -4577,7 +4554,6 @@ function ResourcesView({ user, userData, onBack }) {
                         </div>
                     </div>
 
-                    {/* Global Search Bar */}
                     <div style={{ position: 'relative' }}>
                         <input 
                             type="text"
@@ -4607,7 +4583,6 @@ function ResourcesView({ user, userData, onBack }) {
                     </div>
                 </div>
 
-                {/* Search Results */}
                 {searchQuery && (
                     <div style={{
                         background: 'rgba(255,255,255,0.95)',
@@ -4650,7 +4625,6 @@ function ResourcesView({ user, userData, onBack }) {
                     </div>
                 )}
 
-                {/* Category Grid */}
                 <div style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(2, 1fr)',
@@ -4672,7 +4646,6 @@ function ResourcesView({ user, userData, onBack }) {
                                 overflow: 'hidden'
                             }}
                         >
-                            {/* New indicator */}
                             {newResourceIds.some(id => 
                                 allResources.find(r => r.id === id && r.category === category.id)
                             ) && (
@@ -4724,105 +4697,105 @@ function ResourcesView({ user, userData, onBack }) {
                 </div>
 
                 {/* Fixed Favorites Section */}
-{favoriteResources.length > 0 && (
-    <div style={{
-        background: 'rgba(255,255,255,0.95)',
-        borderRadius: '20px',
-        padding: '20px'
-    }}>
-        <h3 style={{
-            margin: '0 0 15px 0',
-            color: '#333',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px'
-        }}>
-            ⭐ Your Favorites ({favoriteResources.length})
-        </h3>
-        <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '10px'
-        }}>
-            {favoriteResources.slice(0, 3).map(resource => {
-                if (!resource || !resource.id) return null;
-                return (
-                    <div 
-                        key={resource.id}
-                        onClick={() => {
-                            // Remove preventDefault and stopPropagation
-                            // Just call the handler directly
-                            console.log('Favorite clicked:', resource);
-                            handleResourceClick(resource);
-                        }}
-                        style={{
-                            padding: '15px',
-                            background: 'linear-gradient(135deg, #667eea20, #764ba220)',
-                            borderRadius: '15px',
-                            cursor: 'pointer',
-                            transition: 'all 0.3s',
-                            border: '1px solid rgba(118,75,162,0.2)'
-                        }}
-                    >
+                {favoriteResources.length > 0 && (
+                    <div style={{
+                        background: 'rgba(255,255,255,0.95)',
+                        borderRadius: '20px',
+                        padding: '20px'
+                    }}>
+                        <h3 style={{
+                            margin: '0 0 15px 0',
+                            color: '#333',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px'
+                        }}>
+                            ⭐ Your Favorites ({favoriteResources.length})
+                        </h3>
                         <div style={{
                             display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            pointerEvents: 'none'  // THIS IS THE KEY FIX
+                            flexDirection: 'column',
+                            gap: '10px'
                         }}>
-                            <div style={{ flex: 1, pointerEvents: 'none' }}>  {/* Add here too */}
-                                <div style={{
-                                    fontWeight: 'bold',
-                                    color: '#333',
-                                    marginBottom: '5px',
-                                    pointerEvents: 'none'  // And here
-                                }}>
-                                    {resource.title || 'Untitled Resource'}
-                                </div>
-                                <div style={{
-                                    fontSize: '12px',
-                                    color: '#666',
-                                    pointerEvents: 'none'  // And here
-                                }}>
-                                    {categories.find(c => c.id === resource.category)?.name || 'Unknown Category'}
-                                </div>
-                            </div>
-                            <span style={{
-                                fontSize: '24px',
-                                color: '#ffd700',
-                                pointerEvents: 'none'  // And here
-                            }}>
-                                ⭐
-                            </span>
+                            {favoriteResources.slice(0, 3).map(resource => {
+                                if (!resource || !resource.id) return null;
+                                return (
+                                    <div 
+                                        key={resource.id}
+                                        onClick={() => {
+                                            console.log('Favorite clicked:', resource);
+                                            handleResourceClick(resource);
+                                        }}
+                                        style={{
+                                            padding: '15px',
+                                            background: 'linear-gradient(135deg, #667eea20, #764ba220)',
+                                            borderRadius: '15px',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.3s',
+                                            border: '1px solid rgba(118,75,162,0.2)'
+                                        }}
+                                    >
+                                        <div style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            pointerEvents: 'none'
+                                        }}>
+                                            <div style={{ flex: 1, pointerEvents: 'none' }}>
+                                                <div style={{
+                                                    fontWeight: 'bold',
+                                                    color: '#333',
+                                                    marginBottom: '5px',
+                                                    pointerEvents: 'none'
+                                                }}>
+                                                    {resource.title || 'Untitled Resource'}
+                                                </div>
+                                                <div style={{
+                                                    fontSize: '12px',
+                                                    color: '#666',
+                                                    pointerEvents: 'none'
+                                                }}>
+                                                    {categories.find(c => c.id === resource.category)?.name || 'Unknown Category'}
+                                                </div>
+                                            </div>
+                                            <span style={{
+                                                fontSize: '24px',
+                                                color: '#ffd700',
+                                                pointerEvents: 'none'
+                                            }}>
+                                                ⭐
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            {favoriteResources.length > 3 && (
+                                <button
+                                    onClick={() => {
+                                        setSelectedCategory('favorites');
+                                        setShowFavorites(true);
+                                    }}
+                                    style={{
+                                        padding: '10px',
+                                        background: 'transparent',
+                                        border: '1px solid #764ba2',
+                                        borderRadius: '10px',
+                                        color: '#764ba2',
+                                        cursor: 'pointer',
+                                        fontWeight: 'bold'
+                                    }}
+                                >
+                                    View All Favorites →
+                                </button>
+                            )}
                         </div>
                     </div>
-                );
-            })}
-            {favoriteResources.length > 3 && (
-                <button
-                    onClick={() => {
-                        // Remove preventDefault here too
-                        setSelectedCategory('favorites');
-                        setShowFavorites(true);
-                    }}
-                    style={{
-                        padding: '10px',
-                        background: 'transparent',
-                        border: '1px solid #764ba2',
-                        borderRadius: '10px',
-                        color: '#764ba2',
-                        cursor: 'pointer',
-                        fontWeight: 'bold'
-                    }}
-                >
-                    View All Favorites →
-                </button>
-            )}
-        </div>
-    </div>
-)}
+                )}
+            </div>
+        );
+    } // This closing bracket was missing!
 
-    // Resource List View with modern design (including favorites view)
+    // Resource List View
     if (!selectedResource) {
         const category = showFavorites 
             ? { id: 'favorites', name: 'Favorites', icon: '⭐', color: '#ffd700' }
@@ -4835,7 +4808,6 @@ function ResourcesView({ user, userData, onBack }) {
                 minHeight: '100vh',
                 padding: '20px'
             }}>
-                {/* Modern Header */}
                 <div style={{
                     background: 'rgba(255,255,255,0.1)',
                     backdropFilter: 'blur(10px)',
@@ -4879,7 +4851,6 @@ function ResourcesView({ user, userData, onBack }) {
                         </div>
                     </div>
 
-                    {/* Tabs - only show if not favorites */}
                     {!showFavorites && (
                         <div style={{
                             display: 'flex',
@@ -4923,7 +4894,6 @@ function ResourcesView({ user, userData, onBack }) {
                     )}
                 </div>
 
-                {/* Resource Cards */}
                 {loading ? (
                     <div style={{
                         textAlign: 'center',
@@ -4961,7 +4931,6 @@ function ResourcesView({ user, userData, onBack }) {
                                 }}
                                 onClick={() => handleResourceClick(resource)}
                             >
-                                {/* New Badge */}
                                 {newResourceIds.includes(resource.id) && (
                                     <span style={{
                                         position: 'absolute',
@@ -5002,14 +4971,12 @@ function ResourcesView({ user, userData, onBack }) {
                                             </p>
                                         )}
                                         
-                                        {/* Status Pills */}
                                         <div style={{
                                             display: 'flex',
                                             gap: '10px',
                                             flexWrap: 'wrap',
                                             marginBottom: '15px'
                                         }}>
-                                            {/* Progress Status */}
                                             <span style={{
                                                 background: progress[resource.id]?.status === 'completed' 
                                                     ? 'linear-gradient(135deg, #4CAF50, #45a049)'
@@ -5027,7 +4994,6 @@ function ResourcesView({ user, userData, onBack }) {
                                                  '○ Not Started'}
                                             </span>
 
-                                            {/* Created Date */}
                                             {resource.addedAt && (
                                                 <span style={{
                                                     background: 'rgba(103,58,183,0.1)',
@@ -5042,7 +5008,6 @@ function ResourcesView({ user, userData, onBack }) {
                                                 </span>
                                             )}
 
-                                            {/* Completed Date */}
                                             {progress[resource.id]?.completedAt && (
                                                 <span style={{
                                                     background: 'rgba(76,175,80,0.1)',
@@ -5056,7 +5021,6 @@ function ResourcesView({ user, userData, onBack }) {
                                             )}
                                         </div>
 
-                                        {/* Action Buttons */}
                                         <div style={{
                                             display: 'flex',
                                             gap: '10px',
@@ -5084,7 +5048,6 @@ function ResourcesView({ user, userData, onBack }) {
                                                 <option value="completed">Completed</option>
                                             </select>
                                             
-                                            {/* Note Indicator */}
                                             {notes[resource.id] && (
                                                 <span style={{
                                                     background: 'rgba(33,150,243,0.1)',
@@ -5102,7 +5065,6 @@ function ResourcesView({ user, userData, onBack }) {
                                         </div>
                                     </div>
                                     
-                                    {/* Favorite Button */}
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
@@ -5128,7 +5090,6 @@ function ResourcesView({ user, userData, onBack }) {
         );
     }
 
-    // Pass userNames to ResourceViewer
     return (
         <ResourceViewer 
             resource={selectedResource}
@@ -5142,7 +5103,7 @@ function ResourcesView({ user, userData, onBack }) {
     );
 }
 
-// Resource Viewer Component (Full Screen View) - Updated with userName
+// Keep the same ResourceViewer component
 function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress, onUpdateProgress, userName }) {
     const [note, setNote] = useState(currentNote || '');
     const [showNoteInput, setShowNoteInput] = useState(false);
@@ -5152,11 +5113,9 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress,
     };
 
     const handleDownload = async () => {
-        // If it's a file URL, open it
         if (resource.fileURL) {
             window.open(resource.fileURL, '_blank');
         } else if (resource.content) {
-            // Create a blob and download
             const blob = new Blob([resource.content], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -5180,7 +5139,6 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress,
             zIndex: 9999,
             overflowY: 'auto'
         }}>
-            {/* Header */}
             <div style={{
                 background: 'linear-gradient(135deg, #9c27b0 0%, #673ab7 100%)',
                 padding: '20px',
@@ -5246,7 +5204,6 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress,
                     </div>
                 </div>
                 
-                {/* Progress Bar */}
                 <div style={{
                     marginTop: '15px',
                     display: 'flex',
@@ -5273,7 +5230,6 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress,
                 </div>
             </div>
 
-            {/* Content */}
             <div style={{padding: '20px', maxWidth: '800px', margin: '0 auto'}}>
                 {resource.content ? (
                     <div style={{
@@ -5323,7 +5279,6 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress,
                     </div>
                 )}
 
-                {/* Notes Section */}
                 <div style={{
                     marginTop: '40px',
                     padding: '20px',
@@ -5427,7 +5382,6 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote, progress,
                     )}
                 </div>
 
-                {/* Resource Metadata - Updated */}
                 <div style={{
                     marginTop: '20px',
                     padding: '15px',
