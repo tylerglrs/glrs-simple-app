@@ -4019,7 +4019,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose }) {
         </div>
     );
 }
-      // PIR-Centric Goals & Objectives Management View with Enhanced UI
+     // PIR-Centric Goals & Objectives Management View with Enhanced UI - FIXED VERSION
 function GoalsView({ searchQuery, user }) {
     const [selectedPIR, setSelectedPIR] = useState(null);
     const [pirs, setPirs] = useState([]);
@@ -4061,18 +4061,21 @@ function GoalsView({ searchQuery, user }) {
             for (const doc of pirsSnap.docs) {
                 const pirData = { id: doc.id, ...doc.data() };
                 
-                // Get goals and calculate stats
+                // Get ALL goals (both active and completed) for stats
                 const goalsSnap = await db.collection('goals')
                     .where('userId', '==', doc.id)
-                    .where('status', '==', 'active')
                     .get();
                 
                 let totalProgress = 0;
                 let overdueCount = 0;
                 let nearCompletion = 0;
+                let activeGoalsCount = 0;
+                let completedGoalsCount = 0;
                 
                 for (const goalDoc of goalsSnap.docs) {
                     const goalData = goalDoc.data();
+                    if (goalData.status === 'active') activeGoalsCount++;
+                    if (goalData.status === 'completed') completedGoalsCount++;
                     
                     // Get assignments for this goal
                     const assignmentsSnap = await db.collection('assignments')
@@ -4092,10 +4095,12 @@ function GoalsView({ searchQuery, user }) {
                     
                     const goalProgress = total > 0 ? (completed / total) * 100 : 0;
                     totalProgress += goalProgress;
-                    if (goalProgress >= 80) nearCompletion++;
+                    if (goalProgress >= 80 && goalData.status === 'active') nearCompletion++;
                 }
                 
-                pirData.activeGoals = goalsSnap.size;
+                pirData.activeGoals = activeGoalsCount;
+                pirData.completedGoals = completedGoalsCount;
+                pirData.totalGoals = goalsSnap.size;
                 pirData.overallProgress = goalsSnap.size > 0 ? Math.round(totalProgress / goalsSnap.size) : 0;
                 pirData.overdueAssignments = overdueCount;
                 pirData.nearCompletion = nearCompletion;
@@ -4115,6 +4120,7 @@ function GoalsView({ searchQuery, user }) {
         try {
             setLoading(true);
             
+            // Get ALL goals, not just active ones
             const goalsSnap = await db.collection('goals')
                 .where('userId', '==', pirId)
                 .orderBy('createdAt', 'desc')
@@ -4127,6 +4133,7 @@ function GoalsView({ searchQuery, user }) {
             for (const goalDoc of goalsSnap.docs) {
                 const goalData = { id: goalDoc.id, ...goalDoc.data() };
                 
+                // Get ALL objectives for this goal
                 const objectivesSnap = await db.collection('objectives')
                     .where('goalId', '==', goalDoc.id)
                     .orderBy('order', 'asc')
@@ -4139,6 +4146,7 @@ function GoalsView({ searchQuery, user }) {
                     const objData = { id: objDoc.id, ...objDoc.data() };
                     objectivesData.push(objData);
                     
+                    // Get ALL assignments for this objective
                     const assignmentsSnap = await db.collection('assignments')
                         .where('objectiveId', '==', objDoc.id)
                         .orderBy('createdAt', 'desc')
@@ -4324,7 +4332,7 @@ function GoalsView({ searchQuery, user }) {
             await db.collection('assignments').add({
                 goalId: assignmentData.goalId,
                 objectiveId: assignmentData.objectiveId,
-                pirId: selectedPIR.id,
+                userId: selectedPIR.id,  // CHANGED FROM pirId to userId
                 pirName: selectedPIR.displayName || selectedPIR.email,
                 coachId: user.uid,
                 coachName: user.displayName || user.email,
@@ -4332,6 +4340,16 @@ function GoalsView({ searchQuery, user }) {
                 description: assignmentData.description,
                 dueDate: assignmentData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignmentData.dueDate)) : null,
                 status: 'pending',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Send notification to PIR
+            await db.collection('notifications').add({
+                userId: selectedPIR.id,
+                type: 'assignment_created',
+                title: 'New Assignment',
+                message: `You have a new assignment: ${assignmentData.title}`,
+                read: false,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
@@ -4395,8 +4413,9 @@ function GoalsView({ searchQuery, user }) {
                         👤 {pir.displayName || `${pir.firstName} ${pir.lastName}` || pir.email}
                     </h3>
                     <div style={{ display: 'flex', gap: '20px', fontSize: '0.95em', opacity: '0.95' }}>
-                        <span>📊 {pir.activeGoals || 0} Active Goals</span>
-                        <span>✅ {pir.overallProgress || 0}% Complete</span>
+                        <span>📊 {pir.activeGoals || 0} Active</span>
+                        <span>✅ {pir.completedGoals || 0} Complete</span>
+                        <span>📈 {pir.overallProgress || 0}% Progress</span>
                     </div>
                 </div>
                 <div style={{ 
@@ -4479,15 +4498,17 @@ function GoalsView({ searchQuery, user }) {
     const GoalItem = ({ goal }) => {
         const isExpanded = expandedGoals.has(goal.id);
         const objectives = pirGoalsData.objectives.filter(obj => obj.goalId === goal.id);
+        const isCompleted = goal.status === 'completed';
         
         return (
             <div style={{
-                background: 'white',
+                background: isCompleted ? '#f0f8ff' : 'white',
                 borderRadius: '10px',
                 padding: '20px',
                 marginBottom: '15px',
                 boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                transition: 'all 0.3s'
+                transition: 'all 0.3s',
+                opacity: isCompleted ? 0.9 : 1
             }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div 
@@ -4498,54 +4519,62 @@ function GoalsView({ searchQuery, user }) {
                             <span>{isExpanded ? '▼' : '▶'}</span>
                             {goal.title}
                             <span style={{
-                                background: `linear-gradient(90deg, #667eea ${goal.progress}%, #e0e0e0 ${goal.progress}%)`,
+                                background: isCompleted ? '#4CAF50' : `linear-gradient(90deg, #667eea ${goal.progress}%, #e0e0e0 ${goal.progress}%)`,
                                 padding: '2px 10px',
                                 borderRadius: '12px',
                                 fontSize: '0.8em',
                                 color: 'white'
                             }}>
-                                {goal.progress}%
+                                {isCompleted ? 'Completed' : `${goal.progress}%`}
                             </span>
                         </h4>
                         <div style={{ marginTop: '5px', fontSize: '0.9em', color: '#666' }}>
                             Created: {formatDate(goal.createdAt)} 
                             {goal.dueDate && ` • Due: ${formatDate(goal.dueDate)}`}
+                            {goal.completedAt && ` • Completed: ${formatDate(goal.completedAt)}`}
                         </div>
+                        {goal.description && (
+                            <div style={{ marginTop: '8px', fontSize: '0.9em', color: '#555' }}>
+                                {goal.description}
+                            </div>
+                        )}
                     </div>
                     <div style={{ display: 'flex', gap: '10px' }}>
-                        <button
-                            onClick={() => {
-                                setSelectedParent({ type: 'goal', id: goal.id, title: goal.title });
-                                setModalType('objective');
-                                setShowCreateModal(true);
-                            }}
-                            style={{
-                                background: '#4CAF50',
-                                border: 'none',
-                                borderRadius: '6px',
-                                color: 'white',
-                                padding: '6px 12px',
-                                cursor: 'pointer',
-                                fontSize: '0.85em'
-                            }}
-                        >
-                            + Objective
-                        </button>
-                        {goal.status !== 'completed' && (
-                            <button
-                                onClick={() => handleCompleteGoal(goal.id)}
-                                style={{
-                                    background: '#2196F3',
-                                    border: 'none',
-                                    borderRadius: '6px',
-                                    color: 'white',
-                                    padding: '6px 12px',
-                                    cursor: 'pointer',
-                                    fontSize: '0.85em'
-                                }}
-                            >
-                                Complete
-                            </button>
+                        {!isCompleted && (
+                            <>
+                                <button
+                                    onClick={() => {
+                                        setSelectedParent({ type: 'goal', id: goal.id, title: goal.title });
+                                        setModalType('objective');
+                                        setShowCreateModal(true);
+                                    }}
+                                    style={{
+                                        background: '#4CAF50',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        color: 'white',
+                                        padding: '6px 12px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.85em'
+                                    }}
+                                >
+                                    + Objective
+                                </button>
+                                <button
+                                    onClick={() => handleCompleteGoal(goal.id)}
+                                    style={{
+                                        background: '#2196F3',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        color: 'white',
+                                        padding: '6px 12px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.85em'
+                                    }}
+                                >
+                                    Complete
+                                </button>
+                            </>
                         )}
                     </div>
                 </div>
@@ -4555,6 +4584,9 @@ function GoalsView({ searchQuery, user }) {
                         {objectives.map(objective => (
                             <ObjectiveItem key={objective.id} objective={objective} goal={goal} />
                         ))}
+                        {objectives.length === 0 && (
+                            <p style={{ color: '#999', fontSize: '0.9em' }}>No objectives yet</p>
+                        )}
                     </div>
                 )}
             </div>
@@ -4564,14 +4596,16 @@ function GoalsView({ searchQuery, user }) {
     const ObjectiveItem = ({ objective, goal }) => {
         const isExpanded = expandedObjectives.has(objective.id);
         const assignments = pirGoalsData.assignments.filter(a => a.objectiveId === objective.id);
+        const isCompleted = objective.status === 'completed';
         
         return (
             <div style={{
-                background: '#f8f9fa',
-                borderLeft: '3px solid #667eea',
+                background: isCompleted ? '#f5fff5' : '#f8f9fa',
+                borderLeft: `3px solid ${isCompleted ? '#4CAF50' : '#667eea'}`,
                 padding: '15px',
                 marginBottom: '10px',
-                borderRadius: '6px'
+                borderRadius: '6px',
+                opacity: isCompleted ? 0.9 : 1
             }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div 
@@ -4582,55 +4616,61 @@ function GoalsView({ searchQuery, user }) {
                             <span>{isExpanded ? '▼' : '▶'}</span>
                             {objective.title}
                             <span style={{
-                                background: objective.status === 'completed' ? '#4CAF50' : '#FFA726',
+                                background: isCompleted ? '#4CAF50' : '#FFA726',
                                 padding: '2px 8px',
                                 borderRadius: '10px',
                                 fontSize: '0.75em',
                                 color: 'white'
                             }}>
-                                {objective.status}
+                                {isCompleted ? 'completed' : 'active'}
                             </span>
                         </h5>
+                        <div style={{ marginTop: '5px', fontSize: '0.85em', color: '#777' }}>
+                            {objective.dueDate && `Due: ${formatDate(objective.dueDate)}`}
+                            {objective.completedAt && ` • Completed: ${formatDate(objective.completedAt)}`}
+                        </div>
                     </div>
                     <div style={{ display: 'flex', gap: '10px' }}>
-                        <button
-                            onClick={() => {
-                                setSelectedParent({
-                                    type: 'objective',
-                                    id: objective.id,
-                                    goalId: goal.id,
-                                    title: `${goal.title} > ${objective.title}`
-                                });
-                                setModalType('assignment');
-                                setShowCreateModal(true);
-                            }}
-                            style={{
-                                background: '#9C27B0',
-                                border: 'none',
-                                borderRadius: '6px',
-                                color: 'white',
-                                padding: '5px 10px',
-                                cursor: 'pointer',
-                                fontSize: '0.8em'
-                            }}
-                        >
-                            + Assignment
-                        </button>
-                        {objective.status !== 'completed' && (
-                            <button
-                                onClick={() => handleCompleteObjective(objective.id)}
-                                style={{
-                                    background: '#FF9800',
-                                    border: 'none',
-                                    borderRadius: '6px',
-                                    color: 'white',
-                                    padding: '5px 10px',
-                                    cursor: 'pointer',
-                                    fontSize: '0.8em'
-                                }}
-                            >
-                                Complete
-                            </button>
+                        {!isCompleted && (
+                            <>
+                                <button
+                                    onClick={() => {
+                                        setSelectedParent({
+                                            type: 'objective',
+                                            id: objective.id,
+                                            goalId: goal.id,
+                                            title: `${goal.title} > ${objective.title}`
+                                        });
+                                        setModalType('assignment');
+                                        setShowCreateModal(true);
+                                    }}
+                                    style={{
+                                        background: '#9C27B0',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        color: 'white',
+                                        padding: '5px 10px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8em'
+                                    }}
+                                >
+                                    + Assignment
+                                </button>
+                                <button
+                                    onClick={() => handleCompleteObjective(objective.id)}
+                                    style={{
+                                        background: '#FF9800',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        color: 'white',
+                                        padding: '5px 10px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8em'
+                                    }}
+                                >
+                                    Complete
+                                </button>
+                            </>
                         )}
                     </div>
                 </div>
@@ -4649,46 +4689,58 @@ function GoalsView({ searchQuery, user }) {
         );
     };
 
-    const AssignmentItem = ({ assignment }) => (
-        <div style={{
-            background: 'white',
-            border: '1px solid #e0e0e0',
-            padding: '12px',
-            marginBottom: '8px',
-            borderRadius: '4px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px'
-        }}>
-            <span style={{ fontSize: '1.2em' }}>
-                {assignment.status === 'completed' ? '✅' : '⏳'}
-            </span>
-            <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: '500', color: '#333' }}>{assignment.title}</div>
-                {assignment.description && (
-                    <div style={{ fontSize: '0.85em', color: '#666', marginTop: '4px' }}>
-                        {assignment.description}
+    const AssignmentItem = ({ assignment }) => {
+        const isCompleted = assignment.status === 'completed';
+        
+        return (
+            <div style={{
+                background: isCompleted ? '#f0fff0' : 'white',
+                border: `1px solid ${isCompleted ? '#c8e6c9' : '#e0e0e0'}`,
+                padding: '12px',
+                marginBottom: '8px',
+                borderRadius: '4px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '10px'
+            }}>
+                <span style={{ fontSize: '1.2em', marginTop: '2px' }}>
+                    {isCompleted ? '✅' : '⏳'}
+                </span>
+                <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: '500', color: '#333' }}>
+                        {assignment.title}
                     </div>
-                )}
-                {assignment.reflection && (
-                    <div style={{
-                        background: '#e3f2fd',
-                        padding: '8px',
-                        borderRadius: '4px',
-                        marginTop: '8px',
-                        fontSize: '0.85em'
-                    }}>
-                        <strong>PIR Reflection:</strong> {assignment.reflection}
+                    {assignment.description && (
+                        <div style={{ fontSize: '0.85em', color: '#666', marginTop: '4px' }}>
+                            {assignment.description}
+                        </div>
+                    )}
+                    {assignment.reflection && (
+                        <div style={{
+                            background: '#e3f2fd',
+                            padding: '8px',
+                            borderRadius: '4px',
+                            marginTop: '8px',
+                            fontSize: '0.85em',
+                            borderLeft: '3px solid #2196F3'
+                        }}>
+                            <strong style={{ color: '#1565C0' }}>PIR Reflection:</strong>
+                            <div style={{ marginTop: '4px', color: '#424242' }}>
+                                {assignment.reflection}
+                            </div>
+                        </div>
+                    )}
+                    <div style={{ fontSize: '0.8em', color: '#999', marginTop: '6px' }}>
+                        {assignment.createdAt && `Created: ${formatDate(assignment.createdAt)}`}
+                        {assignment.dueDate && ` • Due: ${formatDate(assignment.dueDate)}`}
+                        {assignment.completedAt && ` • Completed: ${formatDate(assignment.completedAt)}`}
                     </div>
-                )}
-                <div style={{ fontSize: '0.8em', color: '#999', marginTop: '4px' }}>
-                    {assignment.dueDate && `Due: ${formatDate(assignment.dueDate)}`}
-                    {assignment.completedAt && ` • Completed: ${formatDate(assignment.completedAt)}`}
                 </div>
             </div>
-        </div>
-    );
+        );
+    };
 
+    // Rest of component remains the same...
     if (loading) {
         return (
             <div style={{ 
@@ -4878,7 +4930,7 @@ function GoalsView({ searchQuery, user }) {
     );
 }
 
-// Enhanced Golden Thread Modal - KEEP YOUR EXISTING CreateGoalModal COMPONENT HERE
+// Enhanced Golden Thread Modal with FIXED userId field
 function CreateGoalModal({ type, selectedPIR, selectedParent, onSubmit, onClose }) {
     const [goldenThreadData, setGoldenThreadData] = useState({
         goals: [
@@ -5000,7 +5052,7 @@ function CreateGoalModal({ type, selectedPIR, selectedParent, onSubmit, onClose 
                         await db.collection('assignments').add({
                             goalId: goalRef.id,
                             objectiveId: objectiveRef.id,
-                            pirId: selectedPIR.id,
+                            userId: selectedPIR.id,  // CHANGED FROM pirId to userId
                             pirName: selectedPIR.displayName || selectedPIR.email,
                             coachId: auth.currentUser.uid,
                             coachName: auth.currentUser.displayName || auth.currentUser.email,
