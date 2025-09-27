@@ -4626,7 +4626,7 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote }) {
         </div>
     );
 }
-     // Goals and Tasks View Component with Popup Details - UPDATED
+     // Goals and Tasks View Component with Popup Details and Reflections - UPDATED
 function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onReflectionSave }) {
     const [expandedGoals, setExpandedGoals] = useState({});
     const [expandedAssignments, setExpandedAssignments] = useState({});
@@ -4634,6 +4634,8 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
     const [objectives, setObjectives] = useState([]);
     const [selectedItem, setSelectedItem] = useState(null);
     const [showModal, setShowModal] = useState(false);
+    const [showReflectionForm, setShowReflectionForm] = useState(false);
+    const [currentReflection, setCurrentReflection] = useState('');
     
     // Load objectives when component mounts or goals change
     useEffect(() => {
@@ -4668,11 +4670,15 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
     const openItemModal = (item, type) => {
         setSelectedItem({ ...item, type });
         setShowModal(true);
+        setShowReflectionForm(false);
+        setCurrentReflection('');
     };
     
     const closeModal = () => {
         setShowModal(false);
         setSelectedItem(null);
+        setShowReflectionForm(false);
+        setCurrentReflection('');
     };
     
     const calculateGoalProgress = (goalId) => {
@@ -4732,7 +4738,7 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
         });
     };
     
-    // Modal Component
+    // Modal Component with Reflection Support
     const ItemModal = () => {
         if (!selectedItem || !showModal) return null;
         
@@ -4928,7 +4934,7 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                             </span>
                         </div>
                         
-                        {/* Reflection if exists */}
+                        {/* Existing Reflection */}
                         {selectedItem.reflection && (
                             <div style={{
                                 marginTop: '15px',
@@ -4957,6 +4963,86 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                             </div>
                         )}
                         
+                        {/* Reflection Form for Incomplete Assignments */}
+                        {selectedItem.type === 'assignment' && !isCompleted && showReflectionForm && (
+                            <div style={{
+                                marginTop: '20px',
+                                padding: '15px',
+                                background: 'rgba(255,255,255,0.05)',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(255,255,255,0.1)'
+                            }}>
+                                <label style={{
+                                    color: 'white',
+                                    fontSize: '14px',
+                                    display: 'block',
+                                    marginBottom: '10px',
+                                    fontWeight: '500'
+                                }}>
+                                    Add your reflection:
+                                </label>
+                                <textarea 
+                                    value={currentReflection}
+                                    onChange={(e) => setCurrentReflection(e.target.value)}
+                                    placeholder="What did you learn? How did this help your recovery?"
+                                    style={{
+                                        width: '100%',
+                                        minHeight: '100px',
+                                        padding: '10px',
+                                        background: 'rgba(0,0,0,0.3)',
+                                        border: '1px solid rgba(255,255,255,0.2)',
+                                        borderRadius: '6px',
+                                        color: 'white',
+                                        fontSize: '14px',
+                                        resize: 'vertical'
+                                    }}
+                                    autoFocus
+                                />
+                                <div style={{
+                                    marginTop: '12px',
+                                    display: 'flex',
+                                    gap: '10px'
+                                }}>
+                                    <button
+                                        onClick={() => {
+                                            onReflectionSave(selectedItem.id, currentReflection);
+                                            closeModal();
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            padding: '10px',
+                                            background: '#4CAF50',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            color: 'white',
+                                            cursor: 'pointer',
+                                            fontWeight: '500',
+                                            fontSize: '14px'
+                                        }}
+                                    >
+                                        Submit Reflection & Complete
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setShowReflectionForm(false);
+                                            setCurrentReflection('');
+                                        }}
+                                        style={{
+                                            padding: '10px 20px',
+                                            background: 'rgba(255,255,255,0.1)',
+                                            border: '1px solid rgba(255,255,255,0.2)',
+                                            borderRadius: '6px',
+                                            color: 'white',
+                                            cursor: 'pointer',
+                                            fontSize: '14px'
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        
                         {/* Action buttons for assignments */}
                         {selectedItem.type === 'assignment' && !isCompleted && (
                             <div style={{
@@ -4964,25 +5050,45 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                 display: 'flex',
                                 gap: '10px'
                             }}>
-                                <button
-                                    onClick={() => {
-                                        onAssignmentComplete(selectedItem.id, true);
-                                        closeModal();
-                                    }}
-                                    style={{
-                                        flex: 1,
-                                        padding: '12px',
-                                        background: '#4CAF50',
-                                        border: 'none',
-                                        borderRadius: '8px',
-                                        color: 'white',
-                                        cursor: 'pointer',
-                                        fontWeight: '500',
-                                        fontSize: '14px'
-                                    }}
-                                >
-                                    Mark Complete
-                                </button>
+                                {!showReflectionForm && (
+                                    <>
+                                        <button
+                                            onClick={() => setShowReflectionForm(true)}
+                                            style={{
+                                                flex: 1,
+                                                padding: '12px',
+                                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                                border: 'none',
+                                                borderRadius: '8px',
+                                                color: 'white',
+                                                cursor: 'pointer',
+                                                fontWeight: '500',
+                                                fontSize: '14px'
+                                            }}
+                                        >
+                                            Complete with Reflection
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                onAssignmentComplete(selectedItem.id, true);
+                                                closeModal();
+                                            }}
+                                            style={{
+                                                flex: 1,
+                                                padding: '12px',
+                                                background: '#4CAF50',
+                                                border: 'none',
+                                                borderRadius: '8px',
+                                                color: 'white',
+                                                cursor: 'pointer',
+                                                fontWeight: '500',
+                                                fontSize: '14px'
+                                            }}
+                                        >
+                                            Mark Complete Only
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>
