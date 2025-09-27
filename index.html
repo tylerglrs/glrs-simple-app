@@ -6265,28 +6265,66 @@ function CommunityChat({ messages, onSendMessage, currentUserId, uploadChatImage
     );
 }
         
-        // Modal Container Component with ALL modals working
-        function ModalContainer({ type, onClose, data, handlers }) {
-            const [formData, setFormData] = useState({});
-            const [morningData, setMorningData] = useState({
-                mood: 3,
-                craving: 1,
-                sleepQuality: 3,
-                anxietyLevel: 2,
-                notes: ''
-            });
-            const [eveningData, setEveningData] = useState({
-                gratitude: '',
-                challenges: '',
-                tomorrowGoal: '',
-                overallDay: 3
-            });
-            const [topicMessage, setTopicMessage] = useState('');
-            
-            const renderModalContent = () => {
-                switch(type) {
-                    case 'notifications':
-                        return (
+       // Modal Container Component with ALL modals working
+function ModalContainer({ type, onClose, data, handlers }) {
+    const [formData, setFormData] = useState({});
+    const [morningData, setMorningData] = useState({
+        mood: 3,
+        craving: 1,
+        sleepQuality: 3,
+        anxietyLevel: 2,
+        notes: ''
+    });
+    const [eveningData, setEveningData] = useState({
+        gratitude: '',
+        challenges: '',
+        tomorrowGoal: '',
+        overallDay: 3
+    });
+    const [topicMessage, setTopicMessage] = useState('');
+    
+    // ADD THESE LINES HERE:
+    const [selectedImage, setSelectedImage] = useState(null);
+    const [newMessage, setNewMessage] = useState('');
+    const [uploading, setUploading] = useState(false);
+    
+    // Get user from data
+    const user = data.user || {};
+    
+    // Handler functions for topic room
+    const handleTopicImageSelect = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setSelectedImage(file);
+        }
+    };
+    
+    const handleSendMessage = async () => {
+        if (!newMessage.trim() && !selectedImage) return;
+        
+        setUploading(true);
+        try {
+            await handlers.sendTopicMessage(newMessage, selectedImage);
+            setNewMessage('');
+            setSelectedImage(null);
+        } catch (error) {
+            console.error('Error sending message:', error);
+        } finally {
+            setUploading(false);
+        }
+    };
+    
+    const handleFlagTopicMessage = (msg) => {
+        if (handlers.flagMessage) {
+            handlers.flagMessage(msg);
+        }
+    };
+    
+    const renderModalContent = () => {
+        switch(type) {
+            case 'notifications':
+                return (
+                
                             <div className="notification-panel">
                                 <h3 style={{marginBottom: '20px'}}>Notifications</h3>
                                 {data.notifications.length > 0 ? (
