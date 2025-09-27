@@ -1861,50 +1861,52 @@ const loadMeetings = async () => {
                 }
             };
 
-            // Load goals with objectives
-            const loadGoals = async () => {
-                try {
-                    const goalsSnap = await db.collection('goals')
-                        .where('userId', '==', user.uid)
-                        .where('status', '==', 'active')
-                        .get();
-                    
-                    const goalsData = [];
-                    for (const doc of goalsSnap.docs) {
-                        const goalData = { id: doc.id, ...doc.data() };
-                        
-                        // Load assignments for this goal
-                        const assignmentsSnap = await db.collection('assignments')
-                            .where('goalId', '==', doc.id)
-                            .where('userId', '==', user.uid)
-                            .get();
-                        
-                        const assignments = [];
-                        assignmentsSnap.forEach(aDoc => {
-                            assignments.push({ id: aDoc.id, ...aDoc.data() });
-                        });
-                        
-                        goalData.assignments = assignments;
-                        
-                        // Calculate goal progress
-                        const completed = assignments.filter(a => a.status === 'completed').length;
-                        goalData.progress = assignments.length > 0 ? 
-                            Math.round((completed / assignments.length) * 100) : 0;
-                        
-                        goalsData.push(goalData);
-                    }
-                    
-                    setGoals(goalsData);
-                } catch (error) {
-                    console.error('Error loading goals:', error);
-                }
-            };
+            // Load goals with objectives - UPDATED VERSION
+const loadGoals = async () => {
+    try {
+        // Load ALL goals, not just active ones
+        const goalsSnap = await db.collection('goals')
+            .where('userId', '==', user.uid)
+            .orderBy('createdAt', 'desc')
+            .get();
+        
+        const goalsData = [];
+        for (const doc of goalsSnap.docs) {
+            const goalData = { id: doc.id, ...doc.data() };
+            
+            // Load assignments for this goal
+            const assignmentsSnap = await db.collection('assignments')
+                .where('goalId', '==', doc.id)
+                .where('userId', '==', user.uid)
+                .get();
+            
+            const assignments = [];
+            assignmentsSnap.forEach(aDoc => {
+                assignments.push({ id: aDoc.id, ...aDoc.data() });
+            });
+            
+            goalData.assignments = assignments;
+            
+            // Calculate goal progress
+            const completed = assignments.filter(a => a.status === 'completed').length;
+            goalData.progress = assignments.length > 0 ? 
+                Math.round((completed / assignments.length) * 100) : 0;
+            
+            goalsData.push(goalData);
+        }
+        
+        setGoals(goalsData);
+    } catch (error) {
+        console.error('Error loading goals:', error);
+    }
+};
 
-            // Load standalone assignments - UPDATED VERSION
+// Load standalone assignments - UPDATED VERSION
 const loadAssignments = async () => {
     try {
         const assignmentsSnap = await db.collection('assignments')
             .where('userId', '==', user.uid)
+            .orderBy('createdAt', 'desc')
             .get();
         
         const assignmentsData = [];
@@ -1922,7 +1924,46 @@ const loadAssignments = async () => {
     }
 };
 
-// Handler for assignment completion - NEW
+// Check for upcoming due dates and create notifications
+const checkUpcomingDueDates = async (assignmentsData) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    for (const assignment of assignmentsData) {
+        if (assignment.dueDate && assignment.status !== 'completed') {
+            const dueDate = assignment.dueDate.toDate ? assignment.dueDate.toDate() : new Date(assignment.dueDate);
+            dueDate.setHours(0, 0, 0, 0);
+            
+            const daysUntilDue = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
+            
+            // Create notifications for upcoming due dates
+            if (daysUntilDue === 2) {
+                await db.collection('notifications').add({
+                    userId: user.uid,
+                    type: 'assignment_due_soon',
+                    title: 'Assignment Due Soon',
+                    message: `"${assignment.title}" is due in 2 days`,
+                    assignmentId: assignment.id,
+                    read: false,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } else if (daysUntilDue === 0) {
+                await db.collection('notifications').add({
+                    userId: user.uid,
+                    type: 'assignment_due_today',
+                    title: 'Assignment Due Today',
+                    message: `"${assignment.title}" is due today!`,
+                    assignmentId: assignment.id,
+                    read: false,
+                    urgent: true,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+    }
+};
+
+// Handler for assignment completion - UPDATED
 const handleAssignmentComplete = async (assignmentId, isCompleted) => {
     try {
         const updates = {
@@ -1941,16 +1982,18 @@ const handleAssignmentComplete = async (assignmentId, isCompleted) => {
         
         // Reload assignments to update UI
         loadAssignments();
+        loadGoals(); // Also reload goals to update progress
         
         // If completed, send notification to coach
         if (isCompleted && userData?.assignedCoach) {
             const assignment = assignments.find(a => a.id === assignmentId);
             if (assignment) {
                 await db.collection('notifications').add({
-                    recipientId: userData.assignedCoach,
+                    userId: userData.assignedCoach,
                     senderId: user.uid,
                     senderName: userData.displayName || userData.firstName || 'PIR',
                     type: 'assignment_completed',
+                    title: 'Assignment Completed',
                     message: `${userData.displayName || 'PIR'} completed: ${assignment.title}`,
                     assignmentId: assignmentId,
                     read: false,
@@ -1965,7 +2008,7 @@ const handleAssignmentComplete = async (assignmentId, isCompleted) => {
     }
 };
 
-// Handler for saving reflection with assignment - NEW
+// Handler for saving reflection with assignment
 const handleReflectionSave = async (assignmentId, reflection) => {
     try {
         await db.collection('assignments').doc(assignmentId).update({
@@ -1975,17 +2018,19 @@ const handleReflectionSave = async (assignmentId, reflection) => {
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        // Reload assignments
+        // Reload assignments and goals
         loadAssignments();
+        loadGoals();
         
         // Send notification to coach with reflection
         const assignment = assignments.find(a => a.id === assignmentId);
         if (assignment && userData?.assignedCoach) {
             await db.collection('notifications').add({
-                recipientId: userData.assignedCoach,
+                userId: userData.assignedCoach,
                 senderId: user.uid,
                 senderName: userData.displayName || userData.firstName || 'PIR',
                 type: 'assignment_reflection',
+                title: 'Assignment Completed with Reflection',
                 message: `${userData.displayName || 'PIR'} completed with reflection: ${assignment.title}`,
                 reflection: reflection,
                 assignmentId: assignmentId,
@@ -4605,7 +4650,7 @@ function ResourceViewer({ resource, onBack, onUpdateNote, currentNote }) {
         </div>
     );
 }
-        // Goals and Tasks View Component with Hierarchical Structure
+      // Goals and Tasks View Component with Hierarchical Structure - UPDATED
 function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onReflectionSave }) {
     const [expandedGoals, setExpandedGoals] = useState({});
     const [expandedAssignments, setExpandedAssignments] = useState({});
@@ -4619,8 +4664,10 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
     
     const loadObjectives = async () => {
         try {
+            // Load ALL objectives, not just active ones
             const objectivesSnap = await db.collection('objectives')
                 .where('userId', '==', user.uid)
+                .orderBy('order', 'asc')
                 .get();
             
             const objectivesList = [];
@@ -4670,7 +4717,14 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
         return dueDate.toLocaleDateString();
     };
     
-    const getDueDateColor = (date) => {
+    const formatCompletionDate = (date) => {
+        if (!date) return '';
+        const completedDate = date.toDate ? date.toDate() : new Date(date);
+        return `Completed: ${completedDate.toLocaleDateString()}`;
+    };
+    
+    const getDueDateColor = (date, isCompleted) => {
+        if (isCompleted) return '#4CAF50'; // Green for completed
         if (!date) return 'rgba(255,255,255,0.6)';
         const dueDate = date.toDate ? date.toDate() : new Date(date);
         const today = new Date();
@@ -4703,13 +4757,15 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                 const goalObjectives = objectives.filter(o => o.goalId === goal.id);
                 const goalProgress = calculateGoalProgress(goal.id);
                 const isExpanded = expandedGoals[goal.id];
+                const isGoalCompleted = goal.status === 'completed';
                 
                 return (
                     <div key={goal.id} style={{
-                        background: 'rgba(255,255,255,0.05)',
+                        background: isGoalCompleted ? 'rgba(76,175,80,0.1)' : 'rgba(255,255,255,0.05)',
                         borderRadius: '15px',
                         marginBottom: '20px',
-                        overflow: 'hidden'
+                        overflow: 'hidden',
+                        border: isGoalCompleted ? '1px solid rgba(76,175,80,0.3)' : 'none'
                     }}>
                         {/* Goal Header */}
                         <div 
@@ -4727,12 +4783,13 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                 marginBottom: '10px'
                             }}>
                                 <h3 style={{
-                                    color: 'white',
+                                    color: isGoalCompleted ? '#4CAF50' : 'white',
                                     margin: 0,
                                     fontSize: '18px',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: '10px'
+                                    gap: '10px',
+                                    textDecoration: isGoalCompleted ? 'line-through' : 'none'
                                 }}>
                                     <span style={{
                                         transform: isExpanded ? 'rotate(90deg)' : 'rotate(0)',
@@ -4741,12 +4798,15 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                         ▶
                                     </span>
                                     {goal.title}
+                                    {isGoalCompleted && <span style={{color: '#4CAF50'}}>✅</span>}
                                 </h3>
                                 <span style={{
-                                    color: getDueDateColor(goal.dueDate),
+                                    color: getDueDateColor(goal.dueDate, isGoalCompleted),
                                     fontSize: '14px'
                                 }}>
-                                    {formatDueDate(goal.dueDate)}
+                                    {isGoalCompleted && goal.completedAt ? 
+                                        formatCompletionDate(goal.completedAt) : 
+                                        formatDueDate(goal.dueDate)}
                                 </span>
                             </div>
                             
@@ -4758,7 +4818,9 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                 overflow: 'hidden'
                             }}>
                                 <div style={{
-                                    background: `linear-gradient(90deg, #4CAF50 0%, #45a049 100%)`,
+                                    background: isGoalCompleted ? 
+                                        '#4CAF50' : 
+                                        `linear-gradient(90deg, #4CAF50 0%, #45a049 100%)`,
                                     width: `${goalProgress}%`,
                                     height: '100%',
                                     transition: 'width 0.3s ease'
@@ -4797,10 +4859,12 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                 ) : (
                                     goalObjectives.map(objective => {
                                         const objectiveAssignments = assignments.filter(a => a.objectiveId === objective.id);
+                                        const isObjectiveCompleted = objective.status === 'completed';
                                         
                                         return (
                                             <div key={objective.id} style={{
-                                                marginBottom: '20px'
+                                                marginBottom: '20px',
+                                                opacity: isObjectiveCompleted ? 0.8 : 1
                                             }}>
                                                 {/* Objective Header */}
                                                 <div style={{
@@ -4810,17 +4874,21 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                                     marginBottom: '10px'
                                                 }}>
                                                     <h4 style={{
-                                                        color: '#f4c430',
+                                                        color: isObjectiveCompleted ? '#4CAF50' : '#f4c430',
                                                         margin: 0,
-                                                        fontSize: '16px'
+                                                        fontSize: '16px',
+                                                        textDecoration: isObjectiveCompleted ? 'line-through' : 'none'
                                                     }}>
                                                         📌 {objective.title}
+                                                        {isObjectiveCompleted && <span style={{marginLeft: '10px'}}>✅</span>}
                                                     </h4>
                                                     <span style={{
-                                                        color: getDueDateColor(objective.dueDate),
+                                                        color: getDueDateColor(objective.dueDate, isObjectiveCompleted),
                                                         fontSize: '12px'
                                                     }}>
-                                                        {formatDueDate(objective.dueDate)}
+                                                        {isObjectiveCompleted && objective.completedAt ? 
+                                                            formatCompletionDate(objective.completedAt) : 
+                                                            formatDueDate(objective.dueDate)}
                                                     </span>
                                                 </div>
                                                 
@@ -4836,14 +4904,20 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                                 ) : (
                                                     objectiveAssignments.map(assignment => {
                                                         const isAssignmentExpanded = expandedAssignments[assignment.id];
+                                                        const isAssignmentCompleted = assignment.status === 'completed';
                                                         
                                                         return (
                                                             <div key={assignment.id} style={{
-                                                                background: 'rgba(255,255,255,0.03)',
+                                                                background: isAssignmentCompleted ? 
+                                                                    'rgba(76,175,80,0.1)' : 
+                                                                    'rgba(255,255,255,0.03)',
                                                                 borderRadius: '10px',
                                                                 padding: '15px',
                                                                 marginLeft: '20px',
-                                                                marginBottom: '10px'
+                                                                marginBottom: '10px',
+                                                                border: isAssignmentCompleted ? 
+                                                                    '1px solid rgba(76,175,80,0.2)' : 
+                                                                    'none'
                                                             }}>
                                                                 <div style={{
                                                                     display: 'flex',
@@ -4858,7 +4932,7 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                                                         }}>
                                                                             <input 
                                                                                 type="checkbox"
-                                                                                checked={assignment.status === 'completed'}
+                                                                                checked={isAssignmentCompleted}
                                                                                 onChange={(e) => {
                                                                                     if (e.target.checked && !assignment.reflection) {
                                                                                         toggleAssignment(assignment.id);
@@ -4873,9 +4947,9 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                                                                 }}
                                                                             />
                                                                             <label style={{
-                                                                                color: assignment.status === 'completed' ? 
+                                                                                color: isAssignmentCompleted ? 
                                                                                     'rgba(255,255,255,0.5)' : 'white',
-                                                                                textDecoration: assignment.status === 'completed' ? 
+                                                                                textDecoration: isAssignmentCompleted ? 
                                                                                     'line-through' : 'none',
                                                                                 cursor: 'pointer'
                                                                             }}>
@@ -4896,18 +4970,33 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                                                                         
                                                                         <div style={{
                                                                             marginLeft: '30px',
-                                                                            marginTop: '5px'
+                                                                            marginTop: '5px',
+                                                                            display: 'flex',
+                                                                            gap: '15px',
+                                                                            flexWrap: 'wrap'
                                                                         }}>
+                                                                            {assignment.createdAt && (
+                                                                                <span style={{
+                                                                                    color: 'rgba(255,255,255,0.5)',
+                                                                                    fontSize: '12px'
+                                                                                }}>
+                                                                                    Created: {new Date(assignment.createdAt.toDate ? 
+                                                                                        assignment.createdAt.toDate() : 
+                                                                                        assignment.createdAt).toLocaleDateString()}
+                                                                                </span>
+                                                                            )}
                                                                             <span style={{
-                                                                                color: getDueDateColor(assignment.dueDate),
+                                                                                color: getDueDateColor(assignment.dueDate, isAssignmentCompleted),
                                                                                 fontSize: '12px'
                                                                             }}>
-                                                                                {formatDueDate(assignment.dueDate)}
+                                                                                {isAssignmentCompleted && assignment.completedAt ? 
+                                                                                    formatCompletionDate(assignment.completedAt) : 
+                                                                                    formatDueDate(assignment.dueDate)}
                                                                             </span>
                                                                         </div>
                                                                         
                                                                         {/* Inline Reflection Section */}
-                                                                        {isAssignmentExpanded && (
+                                                                        {isAssignmentExpanded && !isAssignmentCompleted && (
                                                                             <div style={{
                                                                                 marginTop: '15px',
                                                                                 marginLeft: '30px',
