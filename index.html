@@ -1397,6 +1397,7 @@ const { useState, useEffect, useRef } = React;
             const [checkInStatus, setCheckInStatus] = useState({ morning: false, evening: false });
             const [checkInStreak, setCheckInStreak] = useState(0);
             const [complianceRate, setComplianceRate] = useState({ checkIn: 0, assignment: 0 });
+            const [totalCheckIns, setTotalCheckIns] = useState(0);
             
             // Progress States
             const [checkIns, setCheckIns] = useState([]);
@@ -1664,26 +1665,25 @@ useEffect(() => {
 
             const loadAllData = async () => {
     try {
-        setLoading(true);
-        await loadUserData();
         await Promise.all([
-            loadTopicRooms(),
-            loadMeetings(),
-            loadEmergencyResources(),
-            loadGoals(),
-            loadAssignments(),
-            loadDailyInspiration(),
-            loadMilestones(),
-            loadBroadcasts(),
-            loadResources(),
-            loadSupportGroups(),
-            loadCheckIns(),
-            loadTodaysPledge(),
-            loadStreak(),
-            loadComplianceRates(),
-            checkMilestoneNotifications(),
-            loadDailyTasksStatus()  // ADD THIS LINE
-        ]);
+    loadTopicRooms(),
+    loadMeetings(),
+    loadEmergencyResources(),
+    loadGoals(),
+    loadAssignments(),
+    loadDailyInspiration(),
+    loadMilestones(),
+    loadBroadcasts(),
+    loadResources(),
+    loadSupportGroups(),
+    loadCheckIns(),
+    loadTodaysPledge(),
+    loadStreak(),
+    loadComplianceRates(),
+    checkMilestoneNotifications(),
+    loadDailyTasksStatus(),
+    calculateTotalCheckIns().then(count => setTotalCheckIns(count))  // ADD THIS
+]);
     } catch (error) {
         console.error('Error loading data:', error);
     } finally {
@@ -2648,8 +2648,6 @@ const prepareChartData = (checkInsList) => {
     const labels = [];
     const moodData = [];
     const cravingData = [];
-    const anxietyData = [];
-    const sleepData = [];
     
     // Get last 30 days
     for (let i = 29; i >= 0; i--) {
@@ -2672,13 +2670,9 @@ const prepareChartData = (checkInsList) => {
         if (checkIn?.morningData) {
             moodData.push(checkIn.morningData.mood || null);
             cravingData.push(checkIn.morningData.craving || null);
-            anxietyData.push(checkIn.morningData.anxietyLevel || null);
-            sleepData.push(checkIn.morningData.sleepQuality || null);
         } else {
             moodData.push(null);
             cravingData.push(null);
-            anxietyData.push(null);
-            sleepData.push(null);
         }
     }
     
@@ -2705,6 +2699,9 @@ const prepareChartData = (checkInsList) => {
             spanGaps: true
         }]
     });
+    
+    // REMOVED setAnxietyChartData and setSleepChartData - they don't exist
+};
     
     // Also set anxiety and sleep data if needed
     setAnxietyChartData({
@@ -2859,6 +2856,26 @@ const loadStreak = async () => {
         }
     } catch (error) {
         console.error('Error loading streak:', error);
+    }
+};
+        // Calculate total lifetime check-ins
+const calculateTotalCheckIns = async () => {
+    try {
+        const checkInsSnap = await db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .get();
+        
+        let totalCount = 0;
+        checkInsSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.morningData) totalCount++;
+            if (data.eveningData) totalCount++;
+        });
+        
+        return totalCount;
+    } catch (error) {
+        console.error('Error calculating total check-ins:', error);
+        return 0;
     }
 };
 
@@ -3846,17 +3863,15 @@ return (
                             <div className="stat-label">Day Streak</div>
                         </div>
                         <div className="stat-card">
-                            <div className="stat-icon">🎯</div>
-                            <div className="stat-value">{goals.length}</div>
-                            <div className="stat-label">Active Goals</div>
-                        </div>
+    <div className="stat-icon">📅</div>
+    <div className="stat-value">{Math.floor(sobrietyDays / 7)}</div>
+    <div className="stat-label">Weeks Clean</div>
+</div>
                         <div className="stat-card">
-                            <div className="stat-icon">✅</div>
-                            <div className="stat-value">
-                                {assignments.filter(a => a.status === 'completed').length}/{assignments.length}
-                            </div>
-                            <div className="stat-label">Todays Task</div>
-                        </div>
+    <div className="stat-icon">✅</div>
+    <div className="stat-value">{totalCheckIns}</div>
+    <div className="stat-label">Total Check-ins</div>
+</div>
                         <div className="stat-card">
                             <div className="stat-icon">📊</div>
                             <div className="stat-value">{complianceRate.checkIn}%</div>
@@ -3929,8 +3944,8 @@ return (
                         </div>
                     </div>
                     
-                    <div style={{background: 'white', borderRadius: '15px', padding: '20px', marginBottom: '20px'}}>
-                        <h3 style={{marginBottom: '20px'}}>30-Day Mood Trend</h3>
+                    <div style={{background: 'rgba(0, 0, 0, 0.3)', backdropFilter: 'blur(10px)', borderRadius: '15px', padding: '20px', marginBottom: '20px', border: '1px solid rgba(255, 255, 255, 0.1)'}}>
+    <h3 style={{marginBottom: '20px', color: 'white'}}>30-Day Mood Trend</h3>
                         <div style={{height: '250px', overflowX: 'auto', overflowY: 'hidden', position: 'relative'}}>
                             <div style={{minWidth: '800px', height: '100%'}}>
                                 <canvas id="moodChart"></canvas>
