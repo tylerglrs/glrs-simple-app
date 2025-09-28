@@ -1998,7 +1998,7 @@ const loadAssignments = async () => {
         console.error('Error loading assignments:', error);
     }
 };
-    // Calculate today's tasks (morning check-in + evening reflection + assignments)
+  // Calculate today's tasks (morning check-in + evening reflection + assignments)
 const loadDailyTasksStatus = async () => {
     try {
         // Get PST midnight boundaries
@@ -2024,35 +2024,52 @@ const loadDailyTasksStatus = async () => {
             if (data.eveningData) eveningDone = true;
         });
         
-        // Get today's incomplete assignments
+        // Get ALL assignments (not just incomplete) to properly track today's work
         const assignmentsSnap = await db.collection('assignments')
             .where('userId', '==', user.uid)
-            .where('status', '!=', 'completed')
             .get();
         
         const todayAssignments = [];
+        let todayCompletedAssignments = 0;
+        
         assignmentsSnap.forEach(doc => {
             const data = doc.data();
             const dueDate = data.dueDate?.toDate ? data.dueDate.toDate() : null;
+            const completedAt = data.completedAt?.toDate ? data.completedAt.toDate() : null;
             
-            // Include if due today or overdue
+            // Check if this assignment is relevant for today
+            let isRelevantForToday = false;
+            
             if (dueDate) {
                 const dueDateString = dueDate.toDateString();
                 const todayString = today.toDateString();
-                if (dueDateString === todayString || dueDate < today) {
-                    todayAssignments.push({ id: doc.id, ...data });
+                // Include if due today or overdue (and not completed before today)
+                if (dueDateString === todayString || (dueDate < today && (!completedAt || completedAt >= today))) {
+                    isRelevantForToday = true;
                 }
-            } else if (!data.dueDate) {
-                // Include assignments without due dates
+            } else if (!data.dueDate && (!completedAt || completedAt >= today)) {
+                // Include assignments without due dates that aren't already completed before today
+                isRelevantForToday = true;
+            }
+            
+            if (isRelevantForToday) {
                 todayAssignments.push({ id: doc.id, ...data });
+                
+                // Check if it was completed TODAY
+                if (completedAt && completedAt >= today && completedAt < tomorrow) {
+                    todayCompletedAssignments++;
+                }
             }
         });
+        
+        // Filter to get only incomplete assignments for display
+        const incompleteAssignments = todayAssignments.filter(a => a.status !== 'completed');
         
         // Calculate totals
         const totalDailyTasks = 2; // Morning + Evening
         const completedDailyTasks = (morningDone ? 1 : 0) + (eveningDone ? 1 : 0);
-        const totalTasks = totalDailyTasks + todayAssignments.length;
-        const completedTasks = completedDailyTasks + todayAssignments.filter(a => a.status === 'completed').length;
+        const totalTasks = totalDailyTasks + incompleteAssignments.length + todayCompletedAssignments;
+        const completedTasks = completedDailyTasks + todayCompletedAssignments;
         
         // Update dashboard display
         const tasksStatElement = document.querySelector('.tasks-stat');
@@ -2068,7 +2085,8 @@ const loadDailyTasksStatus = async () => {
             completedTasks,
             morningDone,
             eveningDone,
-            assignments: todayAssignments
+            assignments: incompleteAssignments, // Return only incomplete for display
+            completedAssignmentsToday: todayCompletedAssignments
         };
     } catch (error) {
         console.error('Error loading daily tasks:', error);
@@ -2077,7 +2095,8 @@ const loadDailyTasksStatus = async () => {
             completedTasks: 0,
             morningDone: false,
             eveningDone: false,
-            assignments: []
+            assignments: [],
+            completedAssignmentsToday: 0
         };
     }
 };
