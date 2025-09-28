@@ -1373,323 +1373,328 @@ const { useState, useEffect, useRef } = React;
             );
         }
 
-        // Main PIR App Component
-        function PIRApp({ user }) {
-            // CORRECTED NAVIGATION ORDER: Tasks-Home-Progress-Connect-Profile
-            const [currentView, setCurrentView] = useState('home');
-            const [loading, setLoading] = useState(true);
-            
-            // User Data States
-            const [userData, setUserData] = useState(null);
-            const [profileImage, setProfileImage] = useState(null);
-            const [coachInfo, setCoachInfo] = useState(null);
-            
-            // Home Section States
-            const [sobrietyDays, setSobrietyDays] = useState(0);
-            const [selectedMood, setSelectedMood] = useState(null);
-            const [pledgeMade, setPledgeMade] = useState(false);
-            const [moneySaved, setMoneySaved] = useState(0);
-            const [dailyQuote, setDailyQuote] = useState(null);
-            const [milestones, setMilestones] = useState([]);
-            const [nextMilestone, setNextMilestone] = useState(null);
-            const [activeBroadcast, setActiveBroadcast] = useState(null);
-            const [broadcastDismissed, setBroadcastDismissed] = useState(false);
-            const [checkInStatus, setCheckInStatus] = useState({ morning: false, evening: false });
-            const [checkInStreak, setCheckInStreak] = useState(0);
-            const [complianceRate, setComplianceRate] = useState({ checkIn: 0, assignment: 0 });
-            const [totalCheckIns, setTotalCheckIns] = useState(0);
-            
-            // Progress States
-            const [checkIns, setCheckIns] = useState([]);
-            const [moodChartData, setMoodChartData] = useState(null);
-            const [cravingChartData, setCravingChartData] = useState(null);
-            const chartRef = useRef(null);
-            const cravingChartRef = useRef(null);
-            
-            // Tasks States
-            const [goals, setGoals] = useState([]);
-            const [assignments, setAssignments] = useState([]);
-            
-            // Connect States
-            const [activeChat, setActiveChat] = useState('main');
-            const [communityMessages, setCommunityMessages] = useState([]);
-            const [topicRooms, setTopicRooms] = useState([]);
-            const [meetings, setMeetings] = useState([]);
-            const [supportGroups, setSupportGroups] = useState([]);
-            const [emergencyResources, setEmergencyResources] = useState([]);
-            const [activeTopicRoom, setActiveTopicRoom] = useState(null);
-            const [topicRoomMessages, setTopicRoomMessages] = useState([]);
-            
-            // Profile States
-            const [resources, setResources] = useState({
-                videos: [],
-                articles: [],
-                tools: [],
-                worksheets: []
-            });
-            
-            // General States
-            const [notifications, setNotifications] = useState([]);
-            const [unreadCount, setUnreadCount] = useState(0);
-            const [showModal, setShowModal] = useState(null);
-            const fileInputRef = useRef(null);
-
-            // Real-time listeners references
-            const listenersRef = useRef([]);
-
-            // Load all data on mount
-            useEffect(() => {
-                if (user) {
-                    loadAllData();
-                    setupRealtimeListeners();
-                }
-
-                return () => {
-                    // Cleanup listeners
-                    listenersRef.current.forEach(unsubscribe => unsubscribe());
-                };
-            }, [user]);
-
-            // Setup real-time listeners
-            const setupRealtimeListeners = () => {
-                // Notifications listener
-                const notifListener = db.collection('notifications')
-                    .where('userId', '==', user.uid)
-                    .orderBy('createdAt', 'desc')
-                    .limit(20)
-                    .onSnapshot(snapshot => {
-                        const notificationsList = [];
-                        let unread = 0;
-                        snapshot.forEach(doc => {
-                            const notification = { id: doc.id, ...doc.data() };
-                            notificationsList.push(notification);
-                            if (!notification.read) unread++;
-                        });
-                        setNotifications(notificationsList);
-                        setUnreadCount(unread);
-                    });
-                listenersRef.current.push(notifListener);
-
-                // Community messages listener
-                const messagesListener = db.collection('messages')
-                    .where('roomId', '==', 'main')
-                    .orderBy('createdAt', 'desc')
-                    .limit(50)
-                    .onSnapshot(snapshot => {
-                        const messages = [];
-                        snapshot.forEach(doc => {
-                            messages.push({ id: doc.id, ...doc.data() });
-                        });
-                        setCommunityMessages(messages.reverse());
-                    });
-                listenersRef.current.push(messagesListener);
-
-                // Goals listener
-                const goalsListener = db.collection('goals')
-                    .where('userId', '==', user.uid)
-                    .where('status', '==', 'active')
-                    .onSnapshot(snapshot => {
-                        loadGoals();
-                    });
-                listenersRef.current.push(goalsListener);
-
-                // Assignments listener
-                const assignmentsListener = db.collection('assignments')
-                    .where('userId', '==', user.uid)
-                    .onSnapshot(snapshot => {
-                        loadAssignments();
-                    });
-                listenersRef.current.push(assignmentsListener);
-
-                // Broadcasts listener
-                const broadcastsListener = db.collection('broadcasts')
-                    .where('active', '==', true)
-                    .orderBy('createdAt', 'desc')
-                    .limit(1)
-                    .onSnapshot(snapshot => {
-                        if (!snapshot.empty && !broadcastDismissed) {
-                            const broadcast = snapshot.docs[0].data();
-                            setActiveBroadcast(broadcast);
-                        }
-                    });
-                listenersRef.current.push(broadcastsListener);
-            };
-
-          // Correct sobriety days calculation function
-const calculateSobrietyDays = (sobrietyDate) => {
-    if (!sobrietyDate) return 0;
+       // Main PIR App Component
+function PIRApp({ user }) {
+    // CORRECTED NAVIGATION ORDER: Tasks-Home-Progress-Connect-Profile
+    const [currentView, setCurrentView] = useState('home');
+    const [loading, setLoading] = useState(true);
     
-    const sobrietyDateObj = new Date(sobrietyDate);
-    const today = new Date();
+    // User Data States
+    const [userData, setUserData] = useState(null);
+    const [profileImage, setProfileImage] = useState(null);
+    const [coachInfo, setCoachInfo] = useState(null);
     
-    // Reset time to start of day for accurate day counting
-    sobrietyDateObj.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
+    // Home Section States
+    const [sobrietyDays, setSobrietyDays] = useState(0);
+    const [selectedMood, setSelectedMood] = useState(null);
+    const [pledgeMade, setPledgeMade] = useState(false);
+    const [moneySaved, setMoneySaved] = useState(0);
+    const [dailyQuote, setDailyQuote] = useState(null);
+    const [milestones, setMilestones] = useState([]);
+    const [nextMilestone, setNextMilestone] = useState(null);
+    const [activeBroadcast, setActiveBroadcast] = useState(null);
+    const [broadcastDismissed, setBroadcastDismissed] = useState(false);
+    const [checkInStatus, setCheckInStatus] = useState({ morning: false, evening: false });
+    const [checkInStreak, setCheckInStreak] = useState(0);
+    const [complianceRate, setComplianceRate] = useState({ checkIn: 0, assignment: 0 });
+    const [totalCheckIns, setTotalCheckIns] = useState(0);
     
-    // Calculate difference in milliseconds
-    const diffTime = today - sobrietyDateObj;
+    // Progress States
+    const [checkIns, setCheckIns] = useState([]);
+    const [moodChartData, setMoodChartData] = useState(null);
+    const [cravingChartData, setCravingChartData] = useState(null);
+    const chartRef = useRef(null);
+    const cravingChartRef = useRef(null);
     
-    // Convert to days and add 1 (because day 1 is the sobriety date itself)
-    const sobrietyDays = window.getSobrietyDays(userData.sobrietyDate);
+    // Tasks States
+    const [goals, setGoals] = useState([]);
+    const [assignments, setAssignments] = useState([]);
     
-    // Return at least 1 if sobriety date is today or in the past
-    return Math.max(1, diffDays);
-};
+    // Connect States
+    const [activeChat, setActiveChat] = useState('main');
+    const [communityMessages, setCommunityMessages] = useState([]);
+    const [topicRooms, setTopicRooms] = useState([]);
+    const [meetings, setMeetings] = useState([]);
+    const [supportGroups, setSupportGroups] = useState([]);
+    const [emergencyResources, setEmergencyResources] = useState([]);
+    const [activeTopicRoom, setActiveTopicRoom] = useState(null);
+    const [topicRoomMessages, setTopicRoomMessages] = useState([]);
+    
+    // Profile States
+    const [resources, setResources] = useState({
+        videos: [],
+        articles: [],
+        tools: [],
+        worksheets: []
+    });
+    
+    // General States
+    const [notifications, setNotifications] = useState([]);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [showModal, setShowModal] = useState(null);
+    const fileInputRef = useRef(null);
 
-// Updated useEffect for PIRApp component
-useEffect(() => {
-    if (userData?.sobrietyDate) {
-        const calculateStats = () => {
-            const sobrietyDays = window.getSobrietyDays(userData.sobrietyDate);
-            setSobrietyDays(sobrietyDays);
-            
-            // Use the user's custom daily cost, default to 20 if not set
-            const dailyCost = userData.dailyCost || 20;
-            setMoneySaved(sobrietyDays * dailyCost);
+    // Real-time listeners references
+    const listenersRef = useRef([]);
+
+    // Load all data on mount
+    useEffect(() => {
+        if (user) {
+            loadAllData();
+            setupRealtimeListeners();
+        }
+
+        return () => {
+            // Cleanup listeners
+            listenersRef.current.forEach(unsubscribe => unsubscribe());
         };
-        
-        calculateStats();
-        const interval = setInterval(calculateStats, 60000);
-        return () => clearInterval(interval);
-    }
-}, [userData]);
+    }, [user]);
 
-            // Initialize charts when data changes
-            useEffect(() => {
-                if (currentView === 'progress' && moodChartData && cravingChartData) {
-                    setTimeout(() => {
-                        const moodCanvas = document.getElementById('moodChart');
-                        const cravingCanvas = document.getElementById('cravingChart');
-                        
-                        // Destroy existing charts
-                        if (chartRef.current) {
-                            chartRef.current.destroy();
-                        }
-                        if (cravingChartRef.current) {
-                            cravingChartRef.current.destroy();
-                        }
-                        
-                        if (moodCanvas) {
-                            const ctx = moodCanvas.getContext('2d');
-                            chartRef.current = new Chart(ctx, {
-                                type: 'line',
-                                data: moodChartData,
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    scales: {
-                                        y: {
-                                            beginAtZero: true,
-                                            max: 5
-                                        }
-                                    }
-                                }
-                            });
-                        }
-                        
-                        if (cravingCanvas) {
-                            const ctx = cravingCanvas.getContext('2d');
-                            cravingChartRef.current = new Chart(ctx, {
-                                type: 'line',
-                                data: cravingChartData,
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    scales: {
-                                        y: {
-                                            beginAtZero: true,
-                                            max: 5
-                                        }
-                                    }
-                                }
-                            });
-                        }
-                    }, 100);
-                }
-            }, [currentView, moodChartData, cravingChartData]);
+    // Setup real-time listeners
+    const setupRealtimeListeners = () => {
+        // Notifications listener
+        const notifListener = db.collection('notifications')
+            .where('userId', '==', user.uid)
+            .orderBy('createdAt', 'desc')
+            .limit(20)
+            .onSnapshot(snapshot => {
+                const notificationsList = [];
+                let unread = 0;
+                snapshot.forEach(doc => {
+                    const notification = { id: doc.id, ...doc.data() };
+                    notificationsList.push(notification);
+                    if (!notification.read) unread++;
+                });
+                setNotifications(notificationsList);
+                setUnreadCount(unread);
+            });
+        listenersRef.current.push(notifListener);
 
-            // Check profile completion
-            useEffect(() => {
-                if (userData && !userData.profileComplete) {
-                    const checkProfileCompletion = () => {
-                        if (userData.firstName && userData.lastName && userData.phone) {
-                            db.collection('users').doc(user.uid).update({
-                                profileComplete: true
-                            });
-                        } else if (!showModal) {
-                            setTimeout(() => {
-                                if (!localStorage.getItem('profilePromptShown')) {
-                                    setShowModal('profilePrompt');
-                                    localStorage.setItem('profilePromptShown', 'true');
-                                }
-                            }, 5000);
-                        }
-                    };
-                    checkProfileCompletion();
+        // Community messages listener
+        const messagesListener = db.collection('messages')
+            .where('roomId', '==', 'main')
+            .orderBy('createdAt', 'desc')
+            .limit(50)
+            .onSnapshot(snapshot => {
+                const messages = [];
+                snapshot.forEach(doc => {
+                    messages.push({ id: doc.id, ...doc.data() });
+                });
+                setCommunityMessages(messages.reverse());
+            });
+        listenersRef.current.push(messagesListener);
+
+        // Goals listener
+        const goalsListener = db.collection('goals')
+            .where('userId', '==', user.uid)
+            .where('status', '==', 'active')
+            .onSnapshot(snapshot => {
+                loadGoals();
+            });
+        listenersRef.current.push(goalsListener);
+
+        // Assignments listener
+        const assignmentsListener = db.collection('assignments')
+            .where('userId', '==', user.uid)
+            .onSnapshot(snapshot => {
+                loadAssignments();
+            });
+        listenersRef.current.push(assignmentsListener);
+
+        // Broadcasts listener
+        const broadcastsListener = db.collection('broadcasts')
+            .where('active', '==', true)
+            .orderBy('createdAt', 'desc')
+            .limit(1)
+            .onSnapshot(snapshot => {
+                if (!snapshot.empty && !broadcastDismissed) {
+                    const broadcast = snapshot.docs[0].data();
+                    setActiveBroadcast(broadcast);
                 }
-            }, [userData, showModal]);
-            // Auto-refresh tasks at midnight PST
-useEffect(() => {
-    const checkMidnightReset = () => {
-        const now = new Date();
-        const pstNow = new Date(now.toLocaleString("en-US", {timeZone: "America/Los_Angeles"}));
-        const hours = pstNow.getHours();
-        const minutes = pstNow.getMinutes();
-        const seconds = pstNow.getSeconds();
+            });
+        listenersRef.current.push(broadcastsListener);
+    };
+
+    // FIXED: Correct sobriety days calculation function
+    const calculateSobrietyDays = (sobrietyDate) => {
+        if (!sobrietyDate) return 0;
         
-        // Calculate milliseconds until midnight PST
-        const msUntilMidnight = ((23 - hours) * 60 * 60 + (59 - minutes) * 60 + (60 - seconds)) * 1000;
+        const sobrietyDateObj = new Date(sobrietyDate);
+        const today = new Date();
         
-        // Set timeout for midnight reset
-        const midnightTimer = setTimeout(() => {
-            // Reset daily tasks
-            loadDailyTasksStatus();
-            loadCheckIns();
-            setCheckInStatus({ morning: false, evening: false });
+        // Reset time to start of day for accurate day counting
+        sobrietyDateObj.setHours(0, 0, 0, 0);
+        today.setHours(0, 0, 0, 0);
+        
+        // Calculate difference in milliseconds
+        const diffTime = today - sobrietyDateObj;
+        
+        // Convert to days and add 1 (because day 1 is the sobriety date itself)
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+        
+        // Return at least 1 if sobriety date is today or in the past
+        return Math.max(1, diffDays);
+    };
+
+    // FIXED: Updated useEffect for PIRApp component
+    useEffect(() => {
+        if (userData?.sobrietyDate) {
+            const calculateStats = () => {
+                const days = calculateSobrietyDays(userData.sobrietyDate);
+                setSobrietyDays(days);
+                
+                // Use the user's custom daily cost, default to 20 if not set
+                const dailyCost = userData.dailyCost || 20;
+                setMoneySaved(days * dailyCost);
+            };
             
-            // Set up daily interval
-            const dailyInterval = setInterval(() => {
+            calculateStats();
+            const interval = setInterval(calculateStats, 60000);
+            return () => clearInterval(interval);
+        }
+    }, [userData]);
+
+    // Initialize charts when data changes
+    useEffect(() => {
+        if (currentView === 'progress' && moodChartData && cravingChartData) {
+            setTimeout(() => {
+                const moodCanvas = document.getElementById('moodChart');
+                const cravingCanvas = document.getElementById('cravingChart');
+                
+                // Destroy existing charts
+                if (chartRef.current) {
+                    chartRef.current.destroy();
+                }
+                if (cravingChartRef.current) {
+                    cravingChartRef.current.destroy();
+                }
+                
+                if (moodCanvas) {
+                    const ctx = moodCanvas.getContext('2d');
+                    chartRef.current = new Chart(ctx, {
+                        type: 'line',
+                        data: moodChartData,
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    max: 10
+                                }
+                            }
+                        }
+                    });
+                }
+                
+                if (cravingCanvas) {
+                    const ctx = cravingCanvas.getContext('2d');
+                    cravingChartRef.current = new Chart(ctx, {
+                        type: 'line',
+                        data: cravingChartData,
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    max: 10
+                                }
+                            }
+                        }
+                    });
+                }
+            }, 100);
+        }
+    }, [currentView, moodChartData, cravingChartData]);
+
+    // Check profile completion
+    useEffect(() => {
+        if (userData && !userData.profileComplete) {
+            const checkProfileCompletion = () => {
+                if (userData.firstName && userData.lastName && userData.phone) {
+                    db.collection('users').doc(user.uid).update({
+                        profileComplete: true
+                    });
+                } else if (!showModal) {
+                    setTimeout(() => {
+                        if (!localStorage.getItem('profilePromptShown')) {
+                            setShowModal('profilePrompt');
+                            localStorage.setItem('profilePromptShown', 'true');
+                        }
+                    }, 5000);
+                }
+            };
+            checkProfileCompletion();
+        }
+    }, [userData, showModal]);
+
+    // Auto-refresh tasks at midnight PST
+    useEffect(() => {
+        const checkMidnightReset = () => {
+            const now = new Date();
+            const pstNow = new Date(now.toLocaleString("en-US", {timeZone: "America/Los_Angeles"}));
+            const hours = pstNow.getHours();
+            const minutes = pstNow.getMinutes();
+            const seconds = pstNow.getSeconds();
+            
+            // Calculate milliseconds until midnight PST
+            const msUntilMidnight = ((23 - hours) * 60 * 60 + (59 - minutes) * 60 + (60 - seconds)) * 1000;
+            
+            // Set timeout for midnight reset
+            const midnightTimer = setTimeout(() => {
+                // Reset daily tasks
                 loadDailyTasksStatus();
                 loadCheckIns();
                 setCheckInStatus({ morning: false, evening: false });
-            }, 24 * 60 * 60 * 1000); // Every 24 hours
+                
+                // Set up daily interval
+                const dailyInterval = setInterval(() => {
+                    loadDailyTasksStatus();
+                    loadCheckIns();
+                    setCheckInStatus({ morning: false, evening: false });
+                }, 24 * 60 * 60 * 1000); // Every 24 hours
+                
+                return () => clearInterval(dailyInterval);
+            }, msUntilMidnight);
             
-            return () => clearInterval(dailyInterval);
-        }, msUntilMidnight);
+            return () => clearTimeout(midnightTimer);
+        };
         
-        return () => clearTimeout(midnightTimer);
-    };
-    
-    checkMidnightReset();
-}, []);
+        checkMidnightReset();
+    }, []);
 
-            const loadAllData = async () => {
-    try {
-        await Promise.all([
-    loadTopicRooms(),
-    loadMeetings(),
-    loadEmergencyResources(),
-    loadGoals(),
-    loadAssignments(),
-    loadDailyInspiration(),
-    loadMilestones(),
-    loadBroadcasts(),
-    loadResources(),
-    loadSupportGroups(),
-    loadCheckIns(),
-    loadTodaysPledge(),
-    loadStreak(),
-    loadComplianceRates(),
-    checkMilestoneNotifications(),
-    loadDailyTasksStatus(),
-    calculateTotalCheckIns().then(count => setTotalCheckIns(count))  // ADD THIS
-]);
-    } catch (error) {
-        console.error('Error loading data:', error);
-    } finally {
-        setLoading(false);
-    }
-};
+    // FIXED: Complete loadAllData function
+    const loadAllData = async () => {
+        try {
+            setLoading(true);
+            await loadUserData();
+            await Promise.all([
+                loadTopicRooms(),
+                loadMeetings(),
+                loadEmergencyResources(),
+                loadGoals(),
+                loadAssignments(),
+                loadDailyInspiration(),
+                loadMilestones(),
+                loadBroadcasts(),
+                loadResources(),
+                loadSupportGroups(),
+                loadCheckIns(),
+                loadTodaysPledge(),
+                loadStreak(),
+                loadComplianceRates(),
+                checkMilestoneNotifications(),
+                loadDailyTasksStatus(),
+                calculateTotalCheckIns().then(count => setTotalCheckIns(count))
+            ]);
+        } catch (error) {
+            console.error('Error loading data:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
 
             // Load user data and coach info
             const loadUserData = async () => {
