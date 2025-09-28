@@ -1627,6 +1627,40 @@ useEffect(() => {
                     checkProfileCompletion();
                 }
             }, [userData, showModal]);
+            // Auto-refresh tasks at midnight PST
+useEffect(() => {
+    const checkMidnightReset = () => {
+        const now = new Date();
+        const pstNow = new Date(now.toLocaleString("en-US", {timeZone: "America/Los_Angeles"}));
+        const hours = pstNow.getHours();
+        const minutes = pstNow.getMinutes();
+        const seconds = pstNow.getSeconds();
+        
+        // Calculate milliseconds until midnight PST
+        const msUntilMidnight = ((23 - hours) * 60 * 60 + (59 - minutes) * 60 + (60 - seconds)) * 1000;
+        
+        // Set timeout for midnight reset
+        const midnightTimer = setTimeout(() => {
+            // Reset daily tasks
+            loadDailyTasksStatus();
+            loadCheckIns();
+            setCheckInStatus({ morning: false, evening: false });
+            
+            // Set up daily interval
+            const dailyInterval = setInterval(() => {
+                loadDailyTasksStatus();
+                loadCheckIns();
+                setCheckInStatus({ morning: false, evening: false });
+            }, 24 * 60 * 60 * 1000); // Every 24 hours
+            
+            return () => clearInterval(dailyInterval);
+        }, msUntilMidnight);
+        
+        return () => clearTimeout(midnightTimer);
+    };
+    
+    checkMidnightReset();
+}, []);
 
             // Load all data
             const loadAllData = async () => {
@@ -1962,6 +1996,108 @@ const loadAssignments = async () => {
         
     } catch (error) {
         console.error('Error loading assignments:', error);
+    }
+};
+    // Calculate today's tasks (morning check-in + evening reflection + assignments)
+const loadDailyTasksStatus = async () => {
+    try {
+        // Get PST midnight boundaries
+        const pstNow = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Los_Angeles"}));
+        const today = new Date(pstNow);
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        // Check for today's check-ins
+        const todayCheckInsSnap = await db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .where('createdAt', '>=', today)
+            .where('createdAt', '<', tomorrow)
+            .get();
+        
+        let morningDone = false;
+        let eveningDone = false;
+        
+        todayCheckInsSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.morningData) morningDone = true;
+            if (data.eveningData) eveningDone = true;
+        });
+        
+        // Get today's incomplete assignments
+        const assignmentsSnap = await db.collection('assignments')
+            .where('userId', '==', user.uid)
+            .where('status', '!=', 'completed')
+            .get();
+        
+        const todayAssignments = [];
+        assignmentsSnap.forEach(doc => {
+            const data = doc.data();
+            const dueDate = data.dueDate?.toDate ? data.dueDate.toDate() : null;
+            
+            // Include if due today or overdue
+            if (dueDate) {
+                const dueDateString = dueDate.toDateString();
+                const todayString = today.toDateString();
+                if (dueDateString === todayString || dueDate < today) {
+                    todayAssignments.push({ id: doc.id, ...data });
+                }
+            } else if (!data.dueDate) {
+                // Include assignments without due dates
+                todayAssignments.push({ id: doc.id, ...data });
+            }
+        });
+        
+        // Calculate totals
+        const totalDailyTasks = 2; // Morning + Evening
+        const completedDailyTasks = (morningDone ? 1 : 0) + (eveningDone ? 1 : 0);
+        const totalTasks = totalDailyTasks + todayAssignments.length;
+        const completedTasks = completedDailyTasks + todayAssignments.filter(a => a.status === 'completed').length;
+        
+        // Update dashboard display
+        const tasksStatElement = document.querySelector('.tasks-stat');
+        if (tasksStatElement) {
+            tasksStatElement.textContent = `${completedTasks}/${totalTasks} Today`;
+        }
+        
+        // Set check-in status for UI
+        setCheckInStatus({ morning: morningDone, evening: eveningDone });
+        
+        return {
+            totalTasks,
+            completedTasks,
+            morningDone,
+            eveningDone,
+            assignments: todayAssignments
+        };
+    } catch (error) {
+        console.error('Error loading daily tasks:', error);
+        return {
+            totalTasks: 2,
+            completedTasks: 0,
+            morningDone: false,
+            eveningDone: false,
+            assignments: []
+        };
+    }
+};
+
+// Update lifetime stats with correct active goals calculation
+const updateLifetimeStats = (goalsData) => {
+    if (!goalsData) return;
+    
+    const completedGoals = goalsData.filter(g => g.status === 'completed').length;
+    const activeGoals = goalsData.filter(g => g.status === 'active').length;
+    const totalGoals = goalsData.length;
+    
+    // Update dashboard elements
+    const goalsStatElement = document.querySelector('.goals-stat');
+    if (goalsStatElement) {
+        if (activeGoals === 0) {
+            goalsStatElement.textContent = '0 Active';
+        } else {
+            goalsStatElement.textContent = `${activeGoals} Active / ${completedGoals} Complete`;
+        }
     }
 };
 
@@ -2504,19 +2640,24 @@ const loadCheckIns = async () => {
     }
 };
 
-// Prepare chart data for progress section
+// Prepare 30-day scrollable chart data
 const prepareChartData = (checkInsList) => {
     const labels = [];
     const moodData = [];
     const cravingData = [];
+    const anxietyData = [];
+    const sleepData = [];
     
-    // Get last 7 days
-    for (let i = 6; i >= 0; i--) {
+    // Get last 30 days
+    for (let i = 29; i >= 0; i--) {
         const date = new Date();
         date.setDate(date.getDate() - i);
         
-        const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-        labels.push(dayName);
+        const dateStr = date.toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric' 
+        });
+        labels.push(dateStr);
         
         // Find check-in for this date
         const checkIn = checkInsList.find(c => {
@@ -2526,11 +2667,15 @@ const prepareChartData = (checkInsList) => {
         });
         
         if (checkIn?.morningData) {
-            moodData.push(checkIn.morningData.mood || 0);
-            cravingData.push(checkIn.morningData.craving || 0);
+            moodData.push(checkIn.morningData.mood || null);
+            cravingData.push(checkIn.morningData.craving || null);
+            anxietyData.push(checkIn.morningData.anxietyLevel || null);
+            sleepData.push(checkIn.morningData.sleepQuality || null);
         } else {
-            moodData.push(0);
-            cravingData.push(0);
+            moodData.push(null);
+            cravingData.push(null);
+            anxietyData.push(null);
+            sleepData.push(null);
         }
     }
     
@@ -2541,7 +2686,8 @@ const prepareChartData = (checkInsList) => {
             data: moodData,
             borderColor: '#4caf50',
             backgroundColor: 'rgba(76, 175, 80, 0.1)',
-            tension: 0.4
+            tension: 0.4,
+            spanGaps: true
         }]
     });
     
@@ -2552,10 +2698,134 @@ const prepareChartData = (checkInsList) => {
             data: cravingData,
             borderColor: '#ff9800',
             backgroundColor: 'rgba(255, 152, 0, 0.1)',
-            tension: 0.4
+            tension: 0.4,
+            spanGaps: true
+        }]
+    });
+    
+    // Also set anxiety and sleep data if needed
+    setAnxietyChartData({
+        labels: labels,
+        datasets: [{
+            label: 'Anxiety',
+            data: anxietyData,
+            borderColor: '#f44336',
+            backgroundColor: 'rgba(244, 67, 54, 0.1)',
+            tension: 0.4,
+            spanGaps: true
+        }]
+    });
+    
+    setSleepChartData({
+        labels: labels,
+        datasets: [{
+            label: 'Sleep Quality',
+            data: sleepData,
+            borderColor: '#9c27b0',
+            backgroundColor: 'rgba(156, 39, 176, 0.1)',
+            tension: 0.4,
+            spanGaps: true
         }]
     });
 };
+
+// Enhanced chart initialization with scroll capability
+useEffect(() => {
+    if (currentView === 'progress' && moodChartData && cravingChartData) {
+        setTimeout(() => {
+            const moodCanvas = document.getElementById('moodChart');
+            const cravingCanvas = document.getElementById('cravingChart');
+            
+            // Destroy existing charts
+            if (chartRef.current) {
+                chartRef.current.destroy();
+            }
+            if (cravingChartRef.current) {
+                cravingChartRef.current.destroy();
+            }
+            
+            // Chart configuration for 30-day scrollable view
+            const chartConfig = {
+                type: 'line',
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                        },
+                        tooltip: {
+                            enabled: true,
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.parsed.y === null) {
+                                        return 'No data';
+                                    }
+                                    return `${context.dataset.label}: ${context.parsed.y}/10`;
+                                }
+                            }
+                        },
+                        zoom: {
+                            zoom: {
+                                wheel: {
+                                    enabled: true,
+                                },
+                                pinch: {
+                                    enabled: true
+                                },
+                                mode: 'x',
+                            },
+                            pan: {
+                                enabled: true,
+                                mode: 'x',
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 10,  // Changed from 5 to 10
+                            ticks: {
+                                stepSize: 1
+                            },
+                            title: {
+                                display: true,
+                                text: 'Level (0-10)'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    }
+                }
+            };
+            
+            if (moodCanvas) {
+                const ctx = moodCanvas.getContext('2d');
+                chartRef.current = new Chart(ctx, {
+                    ...chartConfig,
+                    data: moodChartData
+                });
+            }
+            
+            if (cravingCanvas) {
+                const ctx = cravingCanvas.getContext('2d');
+                cravingChartRef.current = new Chart(ctx, {
+                    ...chartConfig,
+                    data: cravingChartData
+                });
+            }
+        }, 100);
+    }
+}, [currentView, moodChartData, cravingChartData]);
 
 // Load today's pledge status
 const loadTodaysPledge = async () => {
@@ -2690,93 +2960,96 @@ const loadComplianceRates = async () => {
                 }
             };
 
-            // Handle morning check-in - SAVES REAL DATA AND CREATES ALERTS
-            const handleMorningCheckIn = async (data) => {
-                try {
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    const tomorrow = new Date(today);
-                    tomorrow.setDate(tomorrow.getDate() + 1);
-                    
-                    // Check if check-in already exists for today
-                    const existingCheckIn = await db.collection('checkIns')
-                        .where('userId', '==', user.uid)
-                        .where('createdAt', '>=', today)
-                        .where('createdAt', '<', tomorrow)
-                        .get();
-                    
-                    if (existingCheckIn.empty) {
-                        // Create new check-in
-                        await db.collection('checkIns').add({
-                            userId: user.uid,
-                            morningData: data,
-                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                    } else {
-                        // Update existing check-in
-                        await db.collection('checkIns').doc(existingCheckIn.docs[0].id).update({
-                            morningData: data,
-                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                    }
-                    
-                    setCheckInStatus(prev => ({ ...prev, morning: true }));
-                    
-                    // Update streak
-                    await updateStreak();
-                    
-                    // Check for auto-triggered alerts
-                    if (data.mood <= 2) {
-                        await db.collection('alerts').add({
-                            userId: user.uid,
-                            type: 'low_mood',
-                            status: 'active',
-                            severity: 'high',
-                            message: `Low mood detected (${data.mood}/5)`,
-                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                    }
-                    
-                    if (data.craving >= 4) {
-                        await db.collection('alerts').add({
-                            userId: user.uid,
-                            type: 'high_craving',
-                            status: 'active',
-                            severity: 'high',
-                            message: `High craving intensity detected (${data.craving}/5)`,
-                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                    }
-                    
-                    // Create activity log
-                    await db.collection('activities').add({
-                        userId: user.uid,
-                        type: 'check_in',
-                        description: 'Completed morning check-in',
-                        data: data,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    // Create notification for coach
-                    if (userData?.assignedCoach) {
-                        await db.collection('notifications').add({
-                            userId: userData.assignedCoach,
-                            type: 'check_in',
-                            title: 'Morning Check-in Completed',
-                            message: `${userData.displayName || user.email} completed morning check-in`,
-                            pirId: user.uid,
-                            read: false,
-                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                    }
-                    
-                    await loadCheckIns();
-                    alert('Morning check-in complete!');
-                } catch (error) {
-                    console.error('Error with morning check-in:', error);
-                    alert('Failed to save check-in');
-                }
-            };
+            // Handle morning check-in - UPDATED FOR 0-10 SCALE
+const handleMorningCheckIn = async (data) => {
+    try {
+        // Get PST midnight boundaries
+        const pstNow = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Los_Angeles"}));
+        const today = new Date(pstNow);
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        // Check if check-in already exists for today
+        const existingCheckIn = await db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .where('createdAt', '>=', today)
+            .where('createdAt', '<', tomorrow)
+            .get();
+        
+        if (existingCheckIn.empty) {
+            // Create new check-in
+            await db.collection('checkIns').add({
+                userId: user.uid,
+                morningData: data,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        } else {
+            // Update existing check-in
+            await db.collection('checkIns').doc(existingCheckIn.docs[0].id).update({
+                morningData: data,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        
+        setCheckInStatus(prev => ({ ...prev, morning: true }));
+        
+        // Update streak
+        await updateStreak();
+        
+        // Check for auto-triggered alerts with NEW THRESHOLDS (0-10 scale)
+        if (data.mood <= 3) {  // Changed from <= 2 (on 1-5 scale)
+            await db.collection('alerts').add({
+                userId: user.uid,
+                type: 'low_mood',
+                status: 'active',
+                severity: 'high',
+                message: `Low mood detected (${data.mood}/10)`,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        
+        if (data.craving >= 7) {  // Changed from >= 4 (on 1-5 scale)
+            await db.collection('alerts').add({
+                userId: user.uid,
+                type: 'high_craving',
+                status: 'active',
+                severity: 'high',
+                message: `High craving intensity detected (${data.craving}/10)`,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        
+        // Create activity log
+        await db.collection('activities').add({
+            userId: user.uid,
+            type: 'check_in',
+            description: 'Completed morning check-in',
+            data: data,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Create notification for coach
+        if (userData?.assignedCoach) {
+            await db.collection('notifications').add({
+                userId: userData.assignedCoach,
+                type: 'check_in',
+                title: 'Morning Check-in Completed',
+                message: `${userData.displayName || user.email} completed morning check-in`,
+                pirId: user.uid,
+                read: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        
+        await loadCheckIns();
+        await loadDailyTasksStatus(); // Update today's tasks
+        alert('Morning check-in complete!');
+    } catch (error) {
+        console.error('Error with morning check-in:', error);
+        alert('Failed to save check-in');
+    }
+};
 
             // Handle evening reflection - SAVES REAL DATA
             const handleEveningReflection = async (data) => {
@@ -3624,42 +3897,54 @@ const handleImageSelect = (e) => {
 )}
                         
                         {currentView === 'progress' && (
-                            <>
-                                <h2 style={{color: 'white', marginBottom: '20px'}}>My Progress</h2>
-                                
-                                <div className="compliance-card">
-                                    <h3 style={{color: '#9c27b0', marginBottom: '15px'}}>Compliance Metrics</h3>
-                                    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
-                                        <div>
-                                            <div style={{fontSize: '14px', opacity: 0.8}}>Check-in Compliance</div>
-                                            <div style={{fontSize: '24px', fontWeight: 'bold', color: '#f4c430'}}>
-                                                {complianceRate.checkIn}%
-                                            </div>
-                                            <small style={{opacity: 0.6}}>Last 30 days</small>
-                                        </div>
-                                        <div>
-                                            <div style={{fontSize: '14px', opacity: 0.8}}>Assignment Completion</div>
-                                            <div style={{fontSize: '24px', fontWeight: 'bold', color: '#4CAF50'}}>
-                                                {complianceRate.assignment}%
-                                            </div>
-                                            <small style={{opacity: 0.6}}>All time</small>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                {moodChartData && (
-                                    <div className="chart-container">
-                                        <h4 style={{color: '#4CAF50', marginBottom: '10px'}}>Mood Trend</h4>
-                                        <canvas id="moodChart"></canvas>
-                                    </div>
-                                )}
-                                
-                                {cravingChartData && (
-                                    <div className="chart-container">
-                                        <h4 style={{color: '#ff9800', marginBottom: '10px'}}>Craving Intensity</h4>
-                                        <canvas id="cravingChart"></canvas>
-                                    </div>
-                                )}
+    <>
+        <h2 style={{color: 'white', marginBottom: '20px'}}>My Progress</h2>
+        
+        <div className="compliance-card">
+            <h3 style={{color: '#9c27b0', marginBottom: '15px'}}>Compliance Metrics</h3>
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
+                <div>
+                    <div style={{fontSize: '14px', opacity: 0.8}}>Check-in Compliance</div>
+                    <div style={{fontSize: '24px', fontWeight: 'bold', color: '#f4c430'}}>
+                        {complianceRate.checkIn}%
+                    </div>
+                    <small style={{opacity: 0.6}}>Last 30 days</small>
+                </div>
+                <div>
+                    <div style={{fontSize: '14px', opacity: 0.8}}>Assignment Completion</div>
+                    <div style={{fontSize: '24px', fontWeight: 'bold', color: '#4CAF50'}}>
+                        {complianceRate.assignment}%
+                    </div>
+                    <small style={{opacity: 0.6}}>All time</small>
+                </div>
+            </div>
+        </div>
+        
+        <div style={{background: 'white', borderRadius: '15px', padding: '20px', marginBottom: '20px'}}>
+            <h3 style={{marginBottom: '20px'}}>30-Day Mood Trend</h3>
+            <div style={{height: '250px', overflowX: 'auto', overflowY: 'hidden', position: 'relative'}}>
+                <div style={{minWidth: '800px', height: '100%'}}>
+                    <canvas id="moodChart"></canvas>
+                </div>
+            </div>
+            <div style={{display: 'flex', justifyContent: 'center', marginTop: '10px', fontSize: '12px', color: '#666'}}>
+                <span>← Scroll to view more days →</span>
+            </div>
+        </div>
+
+        <div style={{background: 'white', borderRadius: '15px', padding: '20px'}}>
+            <h3 style={{marginBottom: '20px'}}>30-Day Craving Trend</h3>
+            <div style={{height: '250px', overflowX: 'auto', overflowY: 'hidden', position: 'relative'}}>
+                <div style={{minWidth: '800px', height: '100%'}}>
+                    <canvas id="cravingChart"></canvas>
+                </div>
+            </div>
+            <div style={{display: 'flex', justifyContent: 'center', marginTop: '10px', fontSize: '12px', color: '#666'}}>
+                <span>← Scroll to view more days →</span>
+            </div>
+        </div>
+    </>
+)}
                                 
                                 {/* Milestones Section - Separated */}
 <div style={{marginBottom: '20px'}}>
@@ -6719,17 +7004,17 @@ function CommunityChat({ messages, onSendMessage, currentUserId, uploadChatImage
 function ModalContainer({ type, onClose, data, handlers }) {
     const [formData, setFormData] = useState({});
     const [morningData, setMorningData] = useState({
-        mood: 3,
-        craving: 1,
-        sleepQuality: 3,
-        anxietyLevel: 2,
+        mood: 5,        // Changed from 3 to 5 (middle of 0-10)
+        craving: 0,     // Changed from 1 to 0 (start at no cravings)
+        sleepQuality: 5,  // Changed from 3 to 5 (middle of 0-10)
+        anxietyLevel: 0,  // Changed from 2 to 0 (start at no anxiety)
         notes: ''
     });
     const [eveningData, setEveningData] = useState({
         gratitude: '',
         challenges: '',
         tomorrowGoal: '',
-        overallDay: 3
+        overallDay: 5   // Changed from 3 to 5 (middle of 0-10)
     });
     const [topicMessage, setTopicMessage] = useState('');
     
@@ -6824,146 +7109,171 @@ const handleFlagTopicMessage = (msg) => {
                         );
                         
                     case 'checkIn':
-                        return (
-                            <div>
-                                <h3 style={{marginBottom: '20px'}}>Morning Check-in</h3>
-                                <div className="slider-group">
-                                    <div className="slider-label">
-                                        <span>Overall Mood</span>
-                                        <span className="slider-value">{morningData.mood}</span>
-                                    </div>
-                                    <input 
-                                        type="range"
-                                        className="slider"
-                                        min="1" max="5"
-                                        value={morningData.mood}
-                                        onChange={(e) => setMorningData({...morningData, mood: parseInt(e.target.value)})}
-                                    />
-                                </div>
-                                
-                                <div className="slider-group">
-                                    <div className="slider-label">
-                                        <span>Craving Intensity</span>
-                                        <span className="slider-value">{morningData.craving}</span>
-                                    </div>
-                                    <input 
-                                        type="range"
-                                        className="slider"
-                                        min="1" max="5"
-                                        value={morningData.craving}
-                                        onChange={(e) => setMorningData({...morningData, craving: parseInt(e.target.value)})}
-                                    />
-                                </div>
-                                
-                                <div className="slider-group">
-                                    <div className="slider-label">
-                                        <span>Sleep Quality</span>
-                                        <span className="slider-value">{morningData.sleepQuality}</span>
-                                    </div>
-                                    <input 
-                                        type="range"
-                                        className="slider"
-                                        min="1" max="5"
-                                        value={morningData.sleepQuality}
-                                        onChange={(e) => setMorningData({...morningData, sleepQuality: parseInt(e.target.value)})}
-                                    />
-                                </div>
-                                
-                                <div className="slider-group">
-                                    <div className="slider-label">
-                                        <span>Anxiety Level</span>
-                                        <span className="slider-value">{morningData.anxietyLevel}</span>
-                                    </div>
-                                    <input 
-                                        type="range"
-                                        className="slider"
-                                        min="1" max="5"
-                                        value={morningData.anxietyLevel}
-                                        onChange={(e) => setMorningData({...morningData, anxietyLevel: parseInt(e.target.value)})}
-                                    />
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label className="form-label">Notes (Optional)</label>
-                                    <textarea 
-                                        className="textarea"
-                                        placeholder="Any thoughts or feelings you'd like to share?"
-                                        value={morningData.notes}
-                                        onChange={(e) => setMorningData({...morningData, notes: e.target.value})}
-                                    />
-                                </div>
-                                
-                                <button 
-                                    className="btn-primary"
-                                    onClick={async () => {
-                                        await handlers.handleMorningCheckIn(morningData);
-                                        onClose();
-                                    }}
-                                >
-                                    Submit Check-in
-                                </button>
-                            </div>
-                        );
-                        
-                    case 'reflection':
-                        return (
-                            <div>
-                                <h3 style={{marginBottom: '20px'}}>Evening Reflection</h3>
-                                <div className="form-group">
-                                    <label className="form-label">What are you grateful for today?</label>
-                                    <textarea 
-                                        className="textarea"
-                                        placeholder="List 3 things you're grateful for..."
-                                        value={eveningData.gratitude}
-                                        onChange={(e) => setEveningData({...eveningData, gratitude: e.target.value})}
-                                    />
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label className="form-label">What challenges did you face?</label>
-                                    <textarea 
-                                        className="textarea"
-                                        placeholder="Describe any difficulties..."
-                                        value={eveningData.challenges}
-                                        onChange={(e) => setEveningData({...eveningData, challenges: e.target.value})}
-                                    />
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label className="form-label">What's one goal for tomorrow?</label>
-                                    <textarea 
-                                        className="textarea"
-                                        placeholder="Set an intention..."
-                                        value={eveningData.tomorrowGoal}
-                                        onChange={(e) => setEveningData({...eveningData, tomorrowGoal: e.target.value})}
-                                    />
-                                </div>
-                                
-                                <div className="slider-group">
-                                    <div className="slider-label">
-                                        <span>Overall Day Rating</span>
-                                        <span className="slider-value">{eveningData.overallDay}</span>
-                                    </div>
-                                    <input 
-                                        type="range"
-                                        className="slider"
-                                        min="1" max="5"
-                                        value={eveningData.overallDay}
-                                        onChange={(e) => setEveningData({...eveningData, overallDay: parseInt(e.target.value)})}
-                                    />
-                                </div>
-                                
-                                <button 
-                                    className="btn-primary"
-                                    onClick={async () => {
-                                        await handlers.handleEveningReflection(eveningData);
-                                        onClose();
-                                    }}
-                                >
-                                    Submit Reflection
-                                </button>
-                            </div>
-                        );
+    return (
+        <div>
+            <h3 style={{marginBottom: '20px'}}>Morning Check-in</h3>
+            <div className="slider-group">
+                <div className="slider-label">
+                    <span>Overall Mood</span>
+                    <span className="slider-value">{morningData.mood}</span>
+                </div>
+                <input 
+                    type="range"
+                    className="slider"
+                    min="0" max="10"
+                    value={morningData.mood}
+                    onChange={(e) => setMorningData({...morningData, mood: parseInt(e.target.value)})}
+                />
+                <div style={{display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#666', marginTop: '5px'}}>
+                    <span>0 (Worst)</span>
+                    <span>5 (Neutral)</span>
+                    <span>10 (Best)</span>
+                </div>
+            </div>
+            
+            <div className="slider-group">
+                <div className="slider-label">
+                    <span>Craving Intensity</span>
+                    <span className="slider-value">{morningData.craving}</span>
+                </div>
+                <input 
+                    type="range"
+                    className="slider"
+                    min="0" max="10"
+                    value={morningData.craving}
+                    onChange={(e) => setMorningData({...morningData, craving: parseInt(e.target.value)})}
+                />
+                <div style={{display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#666', marginTop: '5px'}}>
+                    <span>0 (None)</span>
+                    <span>5 (Moderate)</span>
+                    <span>10 (Intense)</span>
+                </div>
+            </div>
+            
+            <div className="slider-group">
+                <div className="slider-label">
+                    <span>Sleep Quality</span>
+                    <span className="slider-value">{morningData.sleepQuality}</span>
+                </div>
+                <input 
+                    type="range"
+                    className="slider"
+                    min="0" max="10"
+                    value={morningData.sleepQuality}
+                    onChange={(e) => setMorningData({...morningData, sleepQuality: parseInt(e.target.value)})}
+                />
+                <div style={{display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#666', marginTop: '5px'}}>
+                    <span>0 (Terrible)</span>
+                    <span>5 (Fair)</span>
+                    <span>10 (Excellent)</span>
+                </div>
+            </div>
+            
+            <div className="slider-group">
+                <div className="slider-label">
+                    <span>Anxiety Level</span>
+                    <span className="slider-value">{morningData.anxietyLevel}</span>
+                </div>
+                <input 
+                    type="range"
+                    className="slider"
+                    min="0" max="10"
+                    value={morningData.anxietyLevel}
+                    onChange={(e) => setMorningData({...morningData, anxietyLevel: parseInt(e.target.value)})}
+                />
+                <div style={{display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#666', marginTop: '5px'}}>
+                    <span>0 (Calm)</span>
+                    <span>5 (Moderate)</span>
+                    <span>10 (Severe)</span>
+                </div>
+            </div>
+            
+            <div className="form-group">
+                <label className="form-label">Notes (Optional)</label>
+                <textarea 
+                    className="textarea"
+                    placeholder="Any thoughts or feelings you'd like to share?"
+                    value={morningData.notes}
+                    onChange={(e) => setMorningData({...morningData, notes: e.target.value})}
+                />
+            </div>
+            
+            <button 
+                className="btn-primary"
+                onClick={async () => {
+                    await handlers.handleMorningCheckIn(morningData);
+                    onClose();
+                }}
+            >
+                Submit Check-in
+            </button>
+        </div>
+    );
+
+case 'reflection':
+    return (
+        <div>
+            <h3 style={{marginBottom: '20px'}}>Evening Reflection</h3>
+            <div className="form-group">
+                <label className="form-label">What are you grateful for today?</label>
+                <textarea 
+                    className="textarea"
+                    placeholder="List 3 things you're grateful for..."
+                    value={eveningData.gratitude}
+                    onChange={(e) => setEveningData({...eveningData, gratitude: e.target.value})}
+                />
+            </div>
+            
+            <div className="form-group">
+                <label className="form-label">What challenges did you face?</label>
+                <textarea 
+                    className="textarea"
+                    placeholder="Describe any difficulties..."
+                    value={eveningData.challenges}
+                    onChange={(e) => setEveningData({...eveningData, challenges: e.target.value})}
+                />
+            </div>
+            
+            <div className="form-group">
+                <label className="form-label">What's one goal for tomorrow?</label>
+                <textarea 
+                    className="textarea"
+                    placeholder="Set an intention..."
+                    value={eveningData.tomorrowGoal}
+                    onChange={(e) => setEveningData({...eveningData, tomorrowGoal: e.target.value})}
+                />
+            </div>
+            
+            <div className="slider-group">
+                <div className="slider-label">
+                    <span>Overall Day Rating</span>
+                    <span className="slider-value">{eveningData.overallDay}</span>
+                </div>
+                <input 
+                    type="range"
+                    className="slider"
+                    min="0" max="10"
+                    value={eveningData.overallDay}
+                    onChange={(e) => setEveningData({...eveningData, overallDay: parseInt(e.target.value)})}
+                />
+                <div style={{display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#666', marginTop: '5px'}}>
+                    <span>0 (Terrible)</span>
+                    <span>5 (OK)</span>
+                    <span>10 (Excellent)</span>
+                </div>
+            </div>
+            
+            <button 
+                className="btn-primary"
+                onClick={async () => {
+                    await handlers.handleEveningReflection(eveningData);
+                    onClose();
+                }}
+            >
+                Submit Reflection
+            </button>
+        </div>
+    );
                         
                   case 'topicRoom':
     return (
