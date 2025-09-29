@@ -2991,7 +2991,65 @@ const handlePledge = async () => {
     }
 };
 
-
+// Handle morning check-in - UPDATED FOR 0-10 SCALE
+const handleMorningCheckIn = async (data) => {
+    try {
+        // Get PST midnight boundaries
+        const pstNow = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Los_Angeles"}));
+        const today = new Date(pstNow);
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        // Check if check-in already exists for today
+        const existingCheckIn = await db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .where('createdAt', '>=', today)
+            .where('createdAt', '<', tomorrow)
+            .get();
+        
+        if (existingCheckIn.empty) {
+            // Create new check-in
+            await db.collection('checkIns').add({
+                userId: user.uid,
+                morningData: data,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        } else {
+            // Update existing check-in
+            await db.collection('checkIns').doc(existingCheckIn.docs[0].id).update({
+                morningData: data,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        
+        setCheckInStatus(prev => ({ ...prev, morning: true }));
+        
+        // Update streak
+        await updateStreak();
+        
+        // Check for auto-triggered alerts with NEW THRESHOLDS (0-10 scale)
+        if (data.mood <= 3) {  // Changed from <= 2 (on 1-5 scale)
+            await db.collection('alerts').add({
+                userId: user.uid,
+                type: 'low_mood',
+                status: 'active',
+                severity: 'high',
+                message: `Low mood detected (${data.mood}/10)`,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        
+        if (data.craving >= 7) {  // Changed from >= 4 (on 1-5 scale)
+            await db.collection('alerts').add({
+                userId: user.uid,
+                type: 'high_craving',
+                status: 'active',
+                severity: 'high',
+                message: `High craving intensity detected (${data.craving}/10)`,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
         
        
 // Handle evening reflection - SAVES REAL DATA
