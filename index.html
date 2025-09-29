@@ -1407,6 +1407,8 @@ function PIRApp({ user }) {
     const cravingChartRef = useRef(null);
     const [anxietyChartData, setAnxietyChartData] = useState(null);
 const anxietyChartRef = useRef(null);
+    const [sleepChartData, setSleepChartData] = useState(null);
+const sleepChartRef = useRef(null);
     
     // Tasks States
     const [goals, setGoals] = useState([]);
@@ -2656,6 +2658,7 @@ const prepareChartData = (checkInsList) => {
     const moodData = [];
     const cravingData = [];
     const anxietyData = [];
+    const sleepData = [];
     
     // Get last 30 days
     for (let i = 29; i >= 0; i--) {
@@ -2680,10 +2683,12 @@ const prepareChartData = (checkInsList) => {
             moodData.push(checkIn.morningData.mood ?? null);
             cravingData.push(checkIn.morningData.craving ?? null);
             anxietyData.push(checkIn.morningData.anxietyLevel ?? null);
+            sleepData.push(checkIn.morningData.sleepQuality ?? null);
         } else {
             moodData.push(null);
             cravingData.push(null);
             anxietyData.push(null);
+            sleepData.push(null);
         }
     }
     
@@ -2722,16 +2727,29 @@ const prepareChartData = (checkInsList) => {
             spanGaps: true
         }]
     });
+    
+    setSleepChartData({
+        labels: labels,
+        datasets: [{
+            label: 'Sleep Quality',
+            data: sleepData,
+            borderColor: '#9c27b0',
+            backgroundColor: 'rgba(156, 39, 176, 0.1)',
+            tension: 0.4,
+            spanGaps: true
+        }]
+    });
 };
    
 
 // Enhanced chart initialization with scroll capability
 useEffect(() => {
-    if (currentView === 'progress' && moodChartData && cravingChartData && anxietyChartData) {
+    if (currentView === 'progress' && moodChartData && cravingChartData && anxietyChartData && sleepChartData) {
         setTimeout(() => {
             const moodCanvas = document.getElementById('moodChart');
             const cravingCanvas = document.getElementById('cravingChart');
             const anxietyCanvas = document.getElementById('anxietyChart');
+            const sleepCanvas = document.getElementById('sleepChart');
             
             // Destroy existing charts
             if (chartRef.current) {
@@ -2743,8 +2761,11 @@ useEffect(() => {
             if (anxietyChartRef.current) {
                 anxietyChartRef.current.destroy();
             }
+            if (sleepChartRef.current) {
+                sleepChartRef.current.destroy();
+            }
             
-            // Chart configuration for 30-day scrollable view
+            // Chart configuration remains the same
             const chartConfig = {
                 type: 'line',
                 options: {
@@ -2831,10 +2852,18 @@ useEffect(() => {
                     data: anxietyChartData
                 });
             }
+            
+            if (sleepCanvas) {
+                const ctx = sleepCanvas.getContext('2d');
+                sleepChartRef.current = new Chart(ctx, {
+                    ...chartConfig,
+                    data: sleepChartData
+                });
+            }
         }, 100);
     }
-}, [currentView, moodChartData, cravingChartData, anxietyChartData]);
-
+}, [currentView, moodChartData, cravingChartData, anxietyChartData, sleepChartData]);
+    
 // Load today's pledge status
 const loadTodaysPledge = async () => {
     try {
@@ -3960,10 +3989,18 @@ return (
                     <canvas id="anxietyChart"></canvas>
                 </div>
             </div>
-            <div style={{display: 'flex', justifyContent: 'center', marginTop: '10px', fontSize: '12px', color: '#666'}}>
-                <span>← Scroll to view more days →</span>
-            </div>
+            <div style={{background: 'rgba(0, 0, 0, 0.3)', backdropFilter: 'blur(10px)', borderRadius: '15px', padding: '20px', marginBottom: '20px', border: '1px solid rgba(255, 255, 255, 0.1)'}}>
+    <h3 style={{marginBottom: '20px', color: 'white'}}>30-Day Sleep Quality Trend</h3>
+    <div style={{height: '250px', overflowX: 'auto', overflowY: 'hidden', position: 'relative'}}>
+        <div style={{minWidth: '800px', height: '100%'}}>
+            <canvas id="sleepChart"></canvas>
         </div>
+    </div>
+    <div style={{display: 'flex', justifyContent: 'center', marginTop: '10px', fontSize: '12px', color: '#666'}}>
+        <span>← Scroll to view more days →</span>
+    </div>
+</div>
+        
         
         <div style={{marginBottom: '20px'}}>
             <div style={{
