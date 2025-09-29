@@ -9702,18 +9702,47 @@ function ResourceModal({ type, resource, allPIRs, onSave, onClose }) {
             );
         }
 
-    // Enhanced PIR Detail View Component - Fixed version without undefined functions
+   // Complete Enhanced PIR Detail View Component - No Demo Data, Fully Functional
 function UserDetailModal({ user, onClose, onUpdate }) {
     // Extract ID from user object
     const pirId = user?.id;
     
+    // Core States
     const [pirData, setPirData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('overview');
+    
+    // Data States
     const [activities, setActivities] = useState([]);
     const [checkIns, setCheckIns] = useState([]);
     const [assignments, setAssignments] = useState([]);
+    const [goals, setGoals] = useState([]);
+    const [objectives, setObjectives] = useState([]);
+    const [alerts, setAlerts] = useState([]);
+    const [meetings, setMeetings] = useState([]);
+    const [resources, setResources] = useState([]);
+    const [milestones, setMilestones] = useState([]);
+    const [messages, setMessages] = useState([]);
+    const [supportGroups, setSupportGroups] = useState([]);
+    const [pledges, setPledges] = useState([]);
+    const [notifications, setNotifications] = useState([]);
+    const [topicRooms, setTopicRooms] = useState([]);
+    const [resourceProgress, setResourceProgress] = useState({});
+    const [resourceNotes, setResourceNotes] = useState({});
+    const [streakData, setStreakData] = useState({});
+    const [complianceData, setComplianceData] = useState({});
+    
+    // UI States
+    const [editing, setEditing] = useState(false);
+    const [editData, setEditData] = useState({});
     const [chartData, setChartData] = useState(null);
+    const [expandedGoals, setExpandedGoals] = useState({});
+    
+    // Chart refs
+    const moodChartRef = useRef(null);
+    const cravingChartRef = useRef(null);
+    const anxietyChartRef = useRef(null);
+    const sleepChartRef = useRef(null);
 
     useEffect(() => {
         if (pirId) {
@@ -9735,18 +9764,36 @@ function UserDetailModal({ user, onClose, onUpdate }) {
             
             const userData = { id: userDoc.id, ...userDoc.data() };
             
-            // Calculate derived stats
+            // Calculate derived stats with timezone fixes
             userData.sobrietyDays = calculateSobrietyDays(userData.sobrietyDate);
             userData.accountAge = daysSince(userData.createdAt);
-            userData.lastLoginFormatted = userData.lastLogin ? 
-                formatTimeAgo(userData.lastLogin) : 'Never';
+            userData.lastLoginFormatted = formatLastLogin(userData.lastLogin);
+            userData.moneySaved = userData.sobrietyDays * (userData.dailyCost || 20);
             
             setPirData(userData);
+            setEditData(userData);
             
-            // Load related data
-            await loadActivitiesData();
-            await loadCheckInsData();
-            await loadAssignmentsData();
+            // Load all related data in parallel
+            await Promise.all([
+                loadActivitiesData(),
+                loadCheckInsData(),
+                loadAssignmentsData(),
+                loadGoalsData(),
+                loadObjectivesData(),
+                loadAlertsData(),
+                loadMeetingsData(),
+                loadResourcesData(),
+                loadMilestonesData(),
+                loadMessagesData(),
+                loadSupportGroupsData(),
+                loadPledgesData(),
+                loadNotificationsData(),
+                loadTopicRoomsData(),
+                loadResourceProgressData(),
+                loadStreakData(),
+                loadComplianceData(),
+                loadProgressChartData()
+            ]);
             
         } catch (error) {
             console.error('Error loading PIR data:', error);
@@ -9756,12 +9803,13 @@ function UserDetailModal({ user, onClose, onUpdate }) {
         }
     };
 
+    // All data loading functions
     const loadActivitiesData = async () => {
         try {
             const activitiesSnap = await db.collection('activities')
                 .where('userId', '==', pirId)
                 .orderBy('createdAt', 'desc')
-                .limit(50)
+                .limit(100)
                 .get();
             
             const activitiesList = [];
@@ -9780,7 +9828,7 @@ function UserDetailModal({ user, onClose, onUpdate }) {
             const checkInsSnap = await db.collection('checkIns')
                 .where('userId', '==', pirId)
                 .orderBy('createdAt', 'desc')
-                .limit(30)
+                .limit(60)
                 .get();
             
             const checkInsList = [];
@@ -9798,7 +9846,6 @@ function UserDetailModal({ user, onClose, onUpdate }) {
         try {
             const assignmentsSnap = await db.collection('assignments')
                 .where('userId', '==', pirId)
-                .limit(50)
                 .get();
             
             const assignmentsList = [];
@@ -9812,12 +9859,340 @@ function UserDetailModal({ user, onClose, onUpdate }) {
         }
     };
 
+    const loadGoalsData = async () => {
+        try {
+            const goalsSnap = await db.collection('goals')
+                .where('userId', '==', pirId)
+                .orderBy('createdAt', 'desc')
+                .get();
+            
+            const goalsList = [];
+            goalsSnap.forEach(doc => {
+                const goalData = { id: doc.id, ...doc.data() };
+                // Calculate goal progress
+                goalData.progress = await calculateGoalProgress(doc.id);
+                goalsList.push(goalData);
+            });
+            setGoals(goalsList);
+        } catch (error) {
+            console.error('Error loading goals:', error);
+            setGoals([]);
+        }
+    };
+
+    const loadObjectivesData = async () => {
+        try {
+            const objectivesSnap = await db.collection('objectives')
+                .where('userId', '==', pirId)
+                .orderBy('order', 'asc')
+                .get();
+            
+            const objectivesList = [];
+            objectivesSnap.forEach(doc => {
+                objectivesList.push({ id: doc.id, ...doc.data() });
+            });
+            setObjectives(objectivesList);
+        } catch (error) {
+            console.error('Error loading objectives:', error);
+            setObjectives([]);
+        }
+    };
+
+    const loadAlertsData = async () => {
+        try {
+            const alertsSnap = await db.collection('alerts')
+                .where('userId', '==', pirId)
+                .orderBy('createdAt', 'desc')
+                .limit(50)
+                .get();
+            
+            const alertsList = [];
+            alertsSnap.forEach(doc => {
+                alertsList.push({ id: doc.id, ...doc.data() });
+            });
+            setAlerts(alertsList);
+        } catch (error) {
+            console.error('Error loading alerts:', error);
+            setAlerts([]);
+        }
+    };
+
+    const loadMeetingsData = async () => {
+        try {
+            const meetingsSnap = await db.collection('meetings')
+                .where('pirId', '==', pirId)
+                .orderBy('scheduledTime', 'desc')
+                .get();
+            
+            const meetingsList = [];
+            meetingsSnap.forEach(doc => {
+                meetingsList.push({ id: doc.id, ...doc.data() });
+            });
+            setMeetings(meetingsList);
+        } catch (error) {
+            console.error('Error loading meetings:', error);
+            setMeetings([]);
+        }
+    };
+
+    const loadResourcesData = async () => {
+        try {
+            const resourcesSnap = await db.collection('resources')
+                .where('assignedTo', 'array-contains', pirId)
+                .where('active', '==', true)
+                .get();
+            
+            const resourcesList = [];
+            resourcesSnap.forEach(doc => {
+                resourcesList.push({ id: doc.id, ...doc.data() });
+            });
+            setResources(resourcesList);
+        } catch (error) {
+            console.error('Error loading resources:', error);
+            setResources([]);
+        }
+    };
+
+    const loadMilestonesData = async () => {
+        try {
+            const milestonesSnap = await db.collection('milestones')
+                .where('userId', '==', pirId)
+                .orderBy('targetDate', 'asc')
+                .get();
+            
+            const milestonesList = [];
+            milestonesSnap.forEach(doc => {
+                milestonesList.push({ id: doc.id, ...doc.data() });
+            });
+            
+            // Add standard recovery milestones
+            const sobrietyDate = pirData?.sobrietyDate ? new Date(pirData.sobrietyDate) : null;
+            if (sobrietyDate) {
+                const standardMilestones = getRecoveryMilestones(sobrietyDate);
+                milestonesList.push(...standardMilestones);
+            }
+            
+            setMilestones(milestonesList);
+        } catch (error) {
+            console.error('Error loading milestones:', error);
+            setMilestones([]);
+        }
+    };
+
+    const loadMessagesData = async () => {
+        try {
+            const messagesSnap = await db.collection('messages')
+                .where('senderId', '==', pirId)
+                .orderBy('createdAt', 'desc')
+                .limit(50)
+                .get();
+            
+            const messagesList = [];
+            messagesSnap.forEach(doc => {
+                messagesList.push({ id: doc.id, ...doc.data() });
+            });
+            setMessages(messagesList);
+        } catch (error) {
+            console.error('Error loading messages:', error);
+            setMessages([]);
+        }
+    };
+
+    const loadSupportGroupsData = async () => {
+        try {
+            const supportGroupsSnap = await db.collection('supportGroups')
+                .where('active', '==', true)
+                .get();
+            
+            const supportGroupsList = [];
+            supportGroupsSnap.forEach(doc => {
+                supportGroupsList.push({ id: doc.id, ...doc.data() });
+            });
+            setSupportGroups(supportGroupsList);
+        } catch (error) {
+            console.error('Error loading support groups:', error);
+            setSupportGroups([]);
+        }
+    };
+
+    const loadPledgesData = async () => {
+        try {
+            const pledgesSnap = await db.collection('pledges')
+                .where('userId', '==', pirId)
+                .orderBy('createdAt', 'desc')
+                .limit(30)
+                .get();
+            
+            const pledgesList = [];
+            pledgesSnap.forEach(doc => {
+                pledgesList.push({ id: doc.id, ...doc.data() });
+            });
+            setPledges(pledgesList);
+        } catch (error) {
+            console.error('Error loading pledges:', error);
+            setPledges([]);
+        }
+    };
+
+    const loadNotificationsData = async () => {
+        try {
+            const notificationsSnap = await db.collection('notifications')
+                .where('userId', '==', pirId)
+                .orderBy('createdAt', 'desc')
+                .limit(50)
+                .get();
+            
+            const notificationsList = [];
+            notificationsSnap.forEach(doc => {
+                notificationsList.push({ id: doc.id, ...doc.data() });
+            });
+            setNotifications(notificationsList);
+        } catch (error) {
+            console.error('Error loading notifications:', error);
+            setNotifications([]);
+        }
+    };
+
+    const loadTopicRoomsData = async () => {
+        try {
+            const topicRoomsSnap = await db.collection('topicRooms')
+                .get();
+            
+            const topicRoomsList = [];
+            topicRoomsSnap.forEach(doc => {
+                topicRoomsList.push({ id: doc.id, ...doc.data() });
+            });
+            setTopicRooms(topicRoomsList);
+        } catch (error) {
+            console.error('Error loading topic rooms:', error);
+            setTopicRooms([]);
+        }
+    };
+
+    const loadResourceProgressData = async () => {
+        try {
+            const progressDoc = await db.collection('users').doc(pirId)
+                .collection('resourcePreferences').doc('progress').get();
+            
+            if (progressDoc.exists) {
+                setResourceProgress(progressDoc.data() || {});
+            }
+            
+            const notesDoc = await db.collection('users').doc(pirId)
+                .collection('resourcePreferences').doc('notes').get();
+            
+            if (notesDoc.exists) {
+                setResourceNotes(notesDoc.data() || {});
+            }
+        } catch (error) {
+            console.error('Error loading resource progress:', error);
+        }
+    };
+
+    const loadStreakData = async () => {
+        try {
+            const streakDoc = await db.collection('streaks').doc(pirId).get();
+            if (streakDoc.exists) {
+                setStreakData(streakDoc.data());
+            }
+        } catch (error) {
+            console.error('Error loading streak data:', error);
+        }
+    };
+
+    const loadComplianceData = async () => {
+        try {
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            
+            // Calculate check-in compliance
+            const checkInsSnap = await db.collection('checkIns')
+                .where('userId', '==', pirId)
+                .where('createdAt', '>=', thirtyDaysAgo)
+                .get();
+            
+            let morningCount = 0;
+            let eveningCount = 0;
+            checkInsSnap.forEach(doc => {
+                const data = doc.data();
+                if (data.morningData) morningCount++;
+                if (data.eveningData) eveningCount++;
+            });
+            
+            // Calculate assignment compliance
+            const completedAssignments = assignments.filter(a => a.status === 'completed').length;
+            const totalAssignments = assignments.length;
+            
+            setComplianceData({
+                morningRate: Math.round((morningCount / 30) * 100),
+                eveningRate: Math.round((eveningCount / 30) * 100),
+                assignmentRate: totalAssignments > 0 ? Math.round((completedAssignments / totalAssignments) * 100) : 0,
+                totalCheckIns: morningCount + eveningCount
+            });
+        } catch (error) {
+            console.error('Error calculating compliance:', error);
+        }
+    };
+
+    const loadProgressChartData = async () => {
+        try {
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            
+            const checkInsSnap = await db.collection('checkIns')
+                .where('userId', '==', pirId)
+                .where('createdAt', '>=', thirtyDaysAgo)
+                .orderBy('createdAt', 'asc')
+                .get();
+            
+            const chartLabels = [];
+            const moodData = [];
+            const cravingData = [];
+            const anxietyData = [];
+            const sleepData = [];
+            
+            // Fill in all 30 days
+            for (let i = 29; i >= 0; i--) {
+                const date = new Date();
+                date.setDate(date.getDate() - i);
+                chartLabels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+                
+                // Find check-in for this date
+                let dayCheckIn = null;
+                checkInsSnap.forEach(doc => {
+                    const checkInDate = doc.data().createdAt?.toDate() || new Date(doc.data().createdAt);
+                    if (checkInDate.toDateString() === date.toDateString()) {
+                        dayCheckIn = doc.data();
+                    }
+                });
+                
+                moodData.push(dayCheckIn?.morningData?.mood ?? null);
+                cravingData.push(dayCheckIn?.morningData?.craving ?? null);
+                anxietyData.push(dayCheckIn?.morningData?.anxietyLevel ?? null);
+                sleepData.push(dayCheckIn?.morningData?.sleepQuality ?? null);
+            }
+            
+            setChartData({
+                labels: chartLabels,
+                mood: moodData,
+                craving: cravingData,
+                anxiety: anxietyData,
+                sleep: sleepData
+            });
+        } catch (error) {
+            console.error('Error loading chart data:', error);
+        }
+    };
+
+    // Utility functions
     const calculateSobrietyDays = (sobrietyDate) => {
         if (!sobrietyDate) return 0;
         const sobriety = new Date(sobrietyDate);
+        sobriety.setHours(0, 0, 0, 0);
         const today = new Date();
-        const diffTime = Math.abs(today - sobriety);
-        return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        today.setHours(0, 0, 0, 0);
+        const diffTime = today - sobriety;
+        return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     };
 
     const daysSince = (date) => {
@@ -9826,6 +10201,19 @@ function UserDetailModal({ user, onClose, onUpdate }) {
         const today = new Date();
         const diffTime = Math.abs(today - start);
         return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    };
+
+    const formatLastLogin = (lastLogin) => {
+        if (!lastLogin) return 'First login';
+        const date = lastLogin?.toDate ? lastLogin.toDate() : new Date(lastLogin);
+        return date.toLocaleString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            year: 'numeric',
+            hour: 'numeric', 
+            minute: '2-digit', 
+            hour12: true 
+        });
     };
 
     const formatTimeAgo = (date) => {
@@ -9837,7 +10225,8 @@ function UserDetailModal({ user, onClose, onUpdate }) {
         if (diff < 60) return 'Just now';
         if (diff < 3600) return Math.floor(diff / 60) + ' minutes ago';
         if (diff < 86400) return Math.floor(diff / 3600) + ' hours ago';
-        return Math.floor(diff / 86400) + ' days ago';
+        if (diff < 604800) return Math.floor(diff / 86400) + ' days ago';
+        return d.toLocaleDateString();
     };
 
     const formatDate = (date) => {
@@ -9846,10 +10235,1290 @@ function UserDetailModal({ user, onClose, onUpdate }) {
         return d.toLocaleDateString();
     };
 
-    if (!user) {
-        return null;
-    }
+    const formatDateTime = (date) => {
+        if (!date) return 'N/A';
+        const d = date?.toDate ? date.toDate() : new Date(date);
+        return d.toLocaleString();
+    };
 
+    const calculateGoalProgress = async (goalId) => {
+        const goalAssignments = assignments.filter(a => a.goalId === goalId);
+        const completed = goalAssignments.filter(a => a.status === 'completed').length;
+        return goalAssignments.length > 0 ? Math.round((completed / goalAssignments.length) * 100) : 0;
+    };
+
+    const getRecoveryMilestones = (sobrietyDate) => {
+        const milestones = [
+            { days: 1, title: '24 Hours', icon: '🌅' },
+            { days: 7, title: 'One Week', icon: '📅' },
+            { days: 30, title: 'One Month', icon: '📆' },
+            { days: 60, title: 'Two Months', icon: '📅' },
+            { days: 90, title: 'Three Months', icon: '🏆' },
+            { days: 180, title: 'Six Months', icon: '⭐' },
+            { days: 365, title: 'One Year', icon: '🎉' }
+        ];
+        
+        return milestones.map(m => {
+            const targetDate = new Date(sobrietyDate);
+            targetDate.setDate(targetDate.getDate() + m.days);
+            const achieved = new Date() >= targetDate;
+            return {
+                ...m,
+                targetDate,
+                achieved,
+                type: 'standard'
+            };
+        });
+    };
+
+    const getActivityIcon = (type) => {
+        const icons = {
+            'check_in': '✅',
+            'assignment_completed': '📝',
+            'goal_completed': '🎯',
+            'objective_completed': '🎯',
+            'message_sent': '💬',
+            'sos_triggered': '🚨',
+            'login': '🔑',
+            'profile_updated': '👤',
+            'pledge_completed': '🤝',
+            'resource_viewed': '📚',
+            'milestone_achieved': '🏆',
+            'streak_update': '🔥'
+        };
+        return icons[type] || '📌';
+    };
+
+    const getActivityColor = (type) => {
+        const colors = {
+            'check_in': '#4CAF50',
+            'assignment_completed': '#2196F3',
+            'goal_completed': '#FF9800',
+            'message_sent': '#9C27B0',
+            'sos_triggered': '#F44336',
+            'login': '#607D8B',
+            'profile_updated': '#795548'
+        };
+        return colors[type] || '#9E9E9E';
+    };
+
+    // Chart rendering
+    useEffect(() => {
+        if (chartData && activeTab === 'progress') {
+            setTimeout(() => {
+                renderCharts();
+            }, 100);
+        }
+    }, [chartData, activeTab]);
+
+    const renderCharts = () => {
+        const chartConfig = {
+            type: 'line',
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 10,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true
+                    },
+                    tooltip: {
+                        enabled: true
+                    }
+                }
+            }
+        };
+
+        // Destroy existing charts
+        if (moodChartRef.current) moodChartRef.current.destroy();
+        if (cravingChartRef.current) cravingChartRef.current.destroy();
+        if (anxietyChartRef.current) anxietyChartRef.current.destroy();
+        if (sleepChartRef.current) sleepChartRef.current.destroy();
+
+        // Mood Chart
+        const moodCanvas = document.getElementById(`mood-chart-${pirId}`);
+        if (moodCanvas) {
+            moodChartRef.current = new Chart(moodCanvas, {
+                ...chartConfig,
+                data: {
+                    labels: chartData.labels,
+                    datasets: [{
+                        label: 'Mood',
+                        data: chartData.mood,
+                        borderColor: '#4CAF50',
+                        backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                        tension: 0.4,
+                        spanGaps: true
+                    }]
+                }
+            });
+        }
+
+        // Craving Chart
+        const cravingCanvas = document.getElementById(`craving-chart-${pirId}`);
+        if (cravingCanvas) {
+            cravingChartRef.current = new Chart(cravingCanvas, {
+                ...chartConfig,
+                data: {
+                    labels: chartData.labels,
+                    datasets: [{
+                        label: 'Craving',
+                        data: chartData.craving,
+                        borderColor: '#ff9800',
+                        backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                        tension: 0.4,
+                        spanGaps: true
+                    }]
+                }
+            });
+        }
+
+        // Anxiety Chart
+        const anxietyCanvas = document.getElementById(`anxiety-chart-${pirId}`);
+        if (anxietyCanvas) {
+            anxietyChartRef.current = new Chart(anxietyCanvas, {
+                ...chartConfig,
+                data: {
+                    labels: chartData.labels,
+                    datasets: [{
+                        label: 'Anxiety',
+                        data: chartData.anxiety,
+                        borderColor: '#f44336',
+                        backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                        tension: 0.4,
+                        spanGaps: true
+                    }]
+                }
+            });
+        }
+
+        // Sleep Chart
+        const sleepCanvas = document.getElementById(`sleep-chart-${pirId}`);
+        if (sleepCanvas) {
+            sleepChartRef.current = new Chart(sleepCanvas, {
+                ...chartConfig,
+                data: {
+                    labels: chartData.labels,
+                    datasets: [{
+                        label: 'Sleep Quality',
+                        data: chartData.sleep,
+                        borderColor: '#9c27b0',
+                        backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                        tension: 0.4,
+                        spanGaps: true
+                    }]
+                }
+            });
+        }
+    };
+
+    // Save profile
+    const handleSaveProfile = async () => {
+        try {
+            await db.collection('users').doc(pirId).update({
+                ...editData,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            await db.collection('activities').add({
+                userId: pirId,
+                type: 'profile_updated',
+                description: 'Profile information updated',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            setPirData(editData);
+            setEditing(false);
+            alert('Profile updated successfully');
+            if (onUpdate) onUpdate();
+        } catch (error) {
+            console.error('Error updating profile:', error);
+            alert('Failed to update profile');
+        }
+    };
+
+    // Tab rendering functions
+    const renderOverviewTab = () => (
+        <div style={{ padding: '20px' }}>
+            {/* Key Metrics Cards */}
+            <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                gap: '20px',
+                marginBottom: '30px'
+            }}>
+                <div style={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    padding: '20px',
+                    borderRadius: '15px',
+                    color: 'white',
+                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                }}>
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Sobriety Days</div>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
+                        {pirData.sobrietyDays}
+                    </div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>
+                        Since {formatDate(pirData.sobrietyDate)}
+                    </div>
+                </div>
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                    padding: '20px',
+                    borderRadius: '15px',
+                    color: 'white',
+                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                }}>
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Current Streak</div>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
+                        {streakData.currentStreak || 0} 🔥
+                    </div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>
+                        Best: {streakData.longestStreak || 0} days
+                    </div>
+                </div>
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                    padding: '20px',
+                    borderRadius: '15px',
+                    color: 'white',
+                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                }}>
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Last Login</div>
+                    <div style={{ fontSize: '16px', fontWeight: 'bold' }}>
+                        {pirData.lastLoginFormatted}
+                    </div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>
+                        Account age: {pirData.accountAge} days
+                    </div>
+                </div>
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+                    padding: '20px',
+                    borderRadius: '15px',
+                    color: 'white',
+                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                }}>
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Money Saved</div>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
+                        ${pirData.moneySaved}
+                    </div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>
+                        ${pirData.dailyCost || 20}/day saved
+                    </div>
+                </div>
+            </div>
+
+            {/* Profile Information */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '25px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                marginBottom: '20px'
+            }}>
+                <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    marginBottom: '20px'
+                }}>
+                    <h3 style={{ margin: 0, color: '#333' }}>Profile Information</h3>
+                    {!editing ? (
+                        <button 
+                            className="btn btn-secondary"
+                            onClick={() => setEditing(true)}
+                        >
+                            Edit Profile
+                        </button>
+                    ) : (
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button 
+                                className="btn btn-primary"
+                                onClick={handleSaveProfile}
+                            >
+                                Save Changes
+                            </button>
+                            <button 
+                                className="btn btn-secondary"
+                                onClick={() => {
+                                    setEditing(false);
+                                    setEditData(pirData);
+                                }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: '#666' }}>Full Name</label>
+                        {editing ? (
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <input
+                                    type="text"
+                                    value={editData.firstName || ''}
+                                    onChange={(e) => setEditData({...editData, firstName: e.target.value})}
+                                    style={{ flex: 1, padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
+                                />
+                                <input
+                                    type="text"
+                                    value={editData.lastName || ''}
+                                    onChange={(e) => setEditData({...editData, lastName: e.target.value})}
+                                    style={{ flex: 1, padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
+                                />
+                            </div>
+                        ) : (
+                            <p style={{ color: '#333' }}>{pirData.firstName} {pirData.lastName}</p>
+                        )}
+                    </div>
+
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: '#666' }}>Email</label>
+                        <p style={{ color: '#333' }}>{pirData.email}</p>
+                    </div>
+
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: '#666' }}>Phone</label>
+                        {editing ? (
+                            <input
+                                type="tel"
+                                value={editData.phone || ''}
+                                onChange={(e) => setEditData({...editData, phone: e.target.value})}
+                                style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
+                            />
+                        ) : (
+                            <p style={{ color: '#333' }}>{pirData.phone || 'Not provided'}</p>
+                        )}
+                    </div>
+
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: '#666' }}>Date of Birth</label>
+                        {editing ? (
+                            <input
+                                type="date"
+                                value={editData.dateOfBirth || ''}
+                                onChange={(e) => setEditData({...editData, dateOfBirth: e.target.value})}
+                                style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
+                            />
+                        ) : (
+                            <p style={{ color: '#333' }}>{pirData.dateOfBirth || 'Not provided'}</p>
+                        )}
+                    </div>
+
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: '#666' }}>Substance</label>
+                        <p style={{ color: '#333' }}>{pirData.substance || 'Not specified'}</p>
+                    </div>
+
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: '#666' }}>Timezone</label>
+                        <p style={{ color: '#333' }}>{pirData.timezone || 'Not set'}</p>
+                    </div>
+
+                    <div style={{ gridColumn: 'span 2' }}>
+                        <label style={{ fontWeight: 'bold', color: '#666' }}>Address</label>
+                        {editing ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '10px' }}>
+                                <input
+                                    type="text"
+                                    value={editData.address?.street || ''}
+                                    onChange={(e) => setEditData({
+                                        ...editData, 
+                                        address: {...editData.address, street: e.target.value}
+                                    })}
+                                    placeholder="Street Address"
+                                    style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
+                                />
+                                <input
+                                    type="text"
+                                    value={editData.address?.city || ''}
+                                    onChange={(e) => setEditData({
+                                        ...editData, 
+                                        address: {...editData.address, city: e.target.value}
+                                    })}
+                                    placeholder="City"
+                                    style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
+                                />
+                                <input
+                                    type="text"
+                                    value={editData.address?.state || ''}
+                                    onChange={(e) => setEditData({
+                                        ...editData, 
+                                        address: {...editData.address, state: e.target.value}
+                                    })}
+                                    placeholder="State"
+                                    style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
+                                />
+                                <input
+                                    type="text"
+                                    value={editData.address?.zip || ''}
+                                    onChange={(e) => setEditData({
+                                        ...editData, 
+                                        address: {...editData.address, zip: e.target.value}
+                                    })}
+                                    placeholder="ZIP"
+                                    style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
+                                />
+                            </div>
+                        ) : (
+                            <p style={{ color: '#333' }}>
+                                {pirData.address ? 
+                                    `${pirData.address.street}, ${pirData.address.city}, ${pirData.address.state} ${pirData.address.zip}` : 
+                                    'Not provided'}
+                            </p>
+                        )}
+                    </div>
+
+                    <div style={{ gridColumn: 'span 2' }}>
+                        <label style={{ fontWeight: 'bold', color: '#666' }}>Recovery Goals</label>
+                        <p style={{ color: '#333' }}>{pirData.recoveryGoals || 'Not specified'}</p>
+                    </div>
+
+                    <div style={{ gridColumn: 'span 2' }}>
+                        <label style={{ fontWeight: 'bold', color: '#666' }}>Known Triggers</label>
+                        <p style={{ color: '#333' }}>{pirData.triggers || 'Not specified'}</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Insurance Information */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '25px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                marginBottom: '20px'
+            }}>
+                <h3 style={{ marginBottom: '20px', color: '#333' }}>Insurance Information</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: '#666' }}>Provider</label>
+                        <p style={{ color: '#333' }}>{pirData.insurance || 'Not provided'}</p>
+                    </div>
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: '#666' }}>Insurance ID</label>
+                        <p style={{ color: '#333' }}>{pirData.insuranceId || 'Not provided'}</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Emergency Contacts */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '25px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                marginBottom: '20px'
+            }}>
+                <h3 style={{ marginBottom: '20px', color: '#333' }}>Emergency Contacts</h3>
+                {pirData.emergencyContacts && pirData.emergencyContacts.length > 0 ? (
+                    <div style={{ display: 'grid', gap: '15px' }}>
+                        {pirData.emergencyContacts.map((contact, index) => (
+                            <div key={index} style={{
+                                padding: '15px',
+                                background: contact.isPrimary ? '#f0f8ff' : '#f9f9f9',
+                                borderRadius: '10px',
+                                border: contact.isPrimary ? '2px solid #4CAF50' : '1px solid #ddd'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                        <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#333' }}>
+                                            {contact.name} 
+                                            {contact.isPrimary && (
+                                                <span style={{
+                                                    marginLeft: '10px',
+                                                    background: '#4CAF50',
+                                                    color: 'white',
+                                                    padding: '2px 8px',
+                                                    borderRadius: '12px',
+                                                    fontSize: '12px'
+                                                }}>PRIMARY</span>
+                                            )}
+                                        </div>
+                                        <div style={{ color: '#666', marginTop: '5px' }}>
+                                            {contact.relationship} • {contact.phone}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p style={{ color: '#666' }}>No emergency contacts configured</p>
+                )}
+            </div>
+
+            {/* Sponsor Information */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '25px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <h3 style={{ marginBottom: '20px', color: '#333' }}>Sponsor Information</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: '#666' }}>Sponsor Name</label>
+                        <p style={{ color: '#333' }}>{pirData.sponsorName || 'Not assigned'}</p>
+                    </div>
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: '#666' }}>Sponsor Phone</label>
+                        <p style={{ color: '#333' }}>{pirData.sponsorPhone || 'Not provided'}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderGoldenThreadTab = () => (
+        <div style={{ padding: '20px' }}>
+            <h3 style={{ marginBottom: '20px', color: '#333' }}>Recovery Journey Structure</h3>
+            
+            {goals.length > 0 ? (
+                goals.map(goal => (
+                    <div key={goal.id} style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '20px',
+                        marginBottom: '20px',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                        borderLeft: `4px solid ${goal.status === 'completed' ? '#4CAF50' : '#2196F3'}`
+                    }}>
+                        <div 
+                            style={{ 
+                                display: 'flex', 
+                                justifyContent: 'space-between', 
+                                alignItems: 'center',
+                                cursor: 'pointer'
+                            }}
+                            onClick={() => setExpandedGoals({...expandedGoals, [goal.id]: !expandedGoals[goal.id]})}
+                        >
+                            <div>
+                                <h4 style={{ margin: 0, color: '#333' }}>
+                                    {expandedGoals[goal.id] ? '▼' : '▶'} {goal.title}
+                                </h4>
+                                <p style={{ margin: '5px 0', color: '#666' }}>{goal.description}</p>
+                                <small style={{ color: '#999' }}>
+                                    Created: {formatDate(goal.createdAt)} 
+                                    {goal.dueDate && ` • Due: ${formatDate(goal.dueDate)}`}
+                                </small>
+                            </div>
+                            <div style={{
+                                background: `conic-gradient(#4CAF50 0% ${goal.progress}%, #e0e0e0 ${goal.progress}% 100%)`,
+                                width: '60px',
+                                height: '60px',
+                                borderRadius: '50%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}>
+                                <div style={{
+                                    background: 'white',
+                                    width: '50px',
+                                    height: '50px',
+                                    borderRadius: '50%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontWeight: 'bold',
+                                    color: '#333'
+                                }}>
+                                    {goal.progress}%
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {expandedGoals[goal.id] && (
+                            <div style={{ marginTop: '20px' }}>
+                                {/* Objectives */}
+                                <div style={{ marginBottom: '15px' }}>
+                                    <h5 style={{ color: '#666', marginBottom: '10px' }}>Objectives</h5>
+                                    {objectives.filter(o => o.goalId === goal.id).map(objective => (
+                                        <div key={objective.id} style={{
+                                            background: '#f9f9f9',
+                                            padding: '10px',
+                                            borderRadius: '8px',
+                                            marginBottom: '10px',
+                                            borderLeft: `3px solid ${objective.status === 'completed' ? '#4CAF50' : '#FF9800'}`
+                                        }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <div>
+                                                    <strong style={{ color: '#333' }}>#{objective.order} - {objective.title}</strong>
+                                                    <div style={{ fontSize: '12px', color: '#666' }}>
+                                                        Due: {formatDate(objective.dueDate)}
+                                                    </div>
+                                                </div>
+                                                <span style={{
+                                                    background: objective.status === 'completed' ? '#4CAF50' : '#FF9800',
+                                                    color: 'white',
+                                                    padding: '2px 8px',
+                                                    borderRadius: '12px',
+                                                    fontSize: '12px'
+                                                }}>
+                                                    {objective.status}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                
+                                {/* Assignments */}
+                                <div>
+                                    <h5 style={{ color: '#666', marginBottom: '10px' }}>Assignments</h5>
+                                    {assignments.filter(a => a.goalId === goal.id).map(assignment => (
+                                        <div key={assignment.id} style={{
+                                            background: '#f5f5f5',
+                                            padding: '10px',
+                                            borderRadius: '8px',
+                                            marginBottom: '10px',
+                                            borderLeft: `3px solid ${assignment.status === 'completed' ? '#4CAF50' : '#2196F3'}`
+                                        }}>
+                                            <div>
+                                                <strong style={{ color: '#333' }}>{assignment.title}</strong>
+                                                <div style={{ fontSize: '12px', color: '#666' }}>
+                                                    {assignment.description}
+                                                </div>
+                                                <div style={{ fontSize: '11px', color: '#999', marginTop: '5px' }}>
+                                                    Assigned by: {assignment.coachName} • Due: {formatDate(assignment.dueDate)}
+                                                </div>
+                                                {assignment.reflection && (
+                                                    <div style={{
+                                                        background: 'white',
+                                                        padding: '8px',
+                                                        borderRadius: '5px',
+                                                        marginTop: '8px',
+                                                        fontSize: '12px',
+                                                        color: '#555'
+                                                    }}>
+                                                        <strong>Reflection:</strong> {assignment.reflection}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                ))
+            ) : (
+                <p style={{ color: '#666' }}>No goals configured yet</p>
+            )}
+        </div>
+    );
+
+    const renderProgressTab = () => (
+        <div style={{ padding: '20px' }}>
+            {/* Compliance Metrics */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                marginBottom: '20px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <h3 style={{ marginBottom: '20px', color: '#333' }}>Compliance Metrics</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '20px' }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#4CAF50' }}>
+                            {complianceData.morningRate}%
+                        </div>
+                        <div style={{ color: '#666' }}>Morning Check-ins</div>
+                        <small style={{ color: '#999' }}>Last 30 days</small>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#2196F3' }}>
+                            {complianceData.eveningRate}%
+                        </div>
+                        <div style={{ color: '#666' }}>Evening Reflections</div>
+                        <small style={{ color: '#999' }}>Last 30 days</small>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#FF9800' }}>
+                            {complianceData.assignmentRate}%
+                        </div>
+                        <div style={{ color: '#666' }}>Assignments Complete</div>
+                        <small style={{ color: '#999' }}>All time</small>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#9C27B0' }}>
+                            {complianceData.totalCheckIns}
+                        </div>
+                        <div style={{ color: '#666' }}>Total Check-ins</div>
+                        <small style={{ color: '#999' }}>Last 30 days</small>
+                    </div>
+                </div>
+            </div>
+
+            {/* Progress Charts */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '20px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                }}>
+                    <h4 style={{ marginBottom: '15px', color: '#333' }}>30-Day Mood Trend</h4>
+                    <div style={{ height: '200px' }}>
+                        <canvas id={`mood-chart-${pirId}`}></canvas>
+                    </div>
+                </div>
+                
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '20px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                }}>
+                    <h4 style={{ marginBottom: '15px', color: '#333' }}>30-Day Craving Trend</h4>
+                    <div style={{ height: '200px' }}>
+                        <canvas id={`craving-chart-${pirId}`}></canvas>
+                    </div>
+                </div>
+                
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '20px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                }}>
+                    <h4 style={{ marginBottom: '15px', color: '#333' }}>30-Day Anxiety Trend</h4>
+                    <div style={{ height: '200px' }}>
+                        <canvas id={`anxiety-chart-${pirId}`}></canvas>
+                    </div>
+                </div>
+                
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '20px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                }}>
+                    <h4 style={{ marginBottom: '15px', color: '#333' }}>30-Day Sleep Quality Trend</h4>
+                    <div style={{ height: '200px' }}>
+                        <canvas id={`sleep-chart-${pirId}`}></canvas>
+                    </div>
+                </div>
+            </div>
+
+            {/* Recent Check-ins Table */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                marginTop: '20px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <h4 style={{ marginBottom: '15px', color: '#333' }}>Recent Check-ins</h4>
+                {checkIns.length > 0 ? (
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                                <tr style={{ borderBottom: '2px solid #ddd' }}>
+                                    <th style={{ padding: '10px', textAlign: 'left', color: '#666' }}>Date</th>
+                                    <th style={{ padding: '10px', textAlign: 'center', color: '#666' }}>Mood</th>
+                                    <th style={{ padding: '10px', textAlign: 'center', color: '#666' }}>Craving</th>
+                                    <th style={{ padding: '10px', textAlign: 'center', color: '#666' }}>Anxiety</th>
+                                    <th style={{ padding: '10px', textAlign: 'center', color: '#666' }}>Sleep</th>
+                                    <th style={{ padding: '10px', textAlign: 'left', color: '#666' }}>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {checkIns.slice(0, 10).map(checkIn => (
+                                    <tr key={checkIn.id} style={{ borderBottom: '1px solid #eee' }}>
+                                        <td style={{ padding: '10px', color: '#333' }}>{formatDate(checkIn.createdAt)}</td>
+                                        <td style={{ padding: '10px', textAlign: 'center', color: '#333' }}>
+                                            {checkIn.morningData?.mood ?? '-'}/10
+                                        </td>
+                                        <td style={{ padding: '10px', textAlign: 'center', color: '#333' }}>
+                                            {checkIn.morningData?.craving ?? '-'}/10
+                                        </td>
+                                        <td style={{ padding: '10px', textAlign: 'center', color: '#333' }}>
+                                            {checkIn.morningData?.anxietyLevel ?? '-'}/10
+                                        </td>
+                                        <td style={{ padding: '10px', textAlign: 'center', color: '#333' }}>
+                                            {checkIn.morningData?.sleepQuality ?? '-'}/10
+                                        </td>
+                                        <td style={{ padding: '10px', color: '#333' }}>
+                                            {checkIn.morningData?.notes || checkIn.eveningData?.reflection || '-'}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <p style={{ color: '#666' }}>No check-ins recorded</p>
+                )}
+            </div>
+        </div>
+    );
+
+    const renderMilestonesTab = () => (
+        <div style={{ padding: '20px' }}>
+            <h3 style={{ marginBottom: '20px', color: '#333' }}>Recovery Milestones</h3>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
+                {milestones.map((milestone, index) => (
+                    <div key={index} style={{
+                        background: milestone.achieved ? 
+                            'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)' : 
+                            'white',
+                        borderRadius: '15px',
+                        padding: '20px',
+                        boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                        border: milestone.achieved ? 'none' : '2px solid #ddd',
+                        position: 'relative',
+                        overflow: 'hidden'
+                    }}>
+                        {milestone.achieved && (
+                            <div style={{
+                                position: 'absolute',
+                                top: '10px',
+                                right: '10px',
+                                fontSize: '24px'
+                            }}>
+                                ✓
+                            </div>
+                        )}
+                        <div style={{
+                            fontSize: '36px',
+                            marginBottom: '10px',
+                            textAlign: 'center'
+                        }}>
+                            {milestone.icon || '🎯'}
+                        </div>
+                        <h4 style={{
+                            margin: '0 0 10px 0',
+                            color: milestone.achieved ? 'white' : '#333',
+                            textAlign: 'center'
+                        }}>
+                            {milestone.title}
+                        </h4>
+                        {milestone.description && (
+                            <p style={{
+                                fontSize: '12px',
+                                color: milestone.achieved ? 'rgba(255,255,255,0.9)' : '#666',
+                                textAlign: 'center'
+                            }}>
+                                {milestone.description}
+                            </p>
+                        )}
+                        <div style={{
+                            marginTop: '10px',
+                            fontSize: '12px',
+                            color: milestone.achieved ? 'rgba(255,255,255,0.8)' : '#999',
+                            textAlign: 'center'
+                        }}>
+                            {milestone.achieved ? 
+                                `Achieved on ${formatDate(milestone.targetDate)}` : 
+                                `Target: ${formatDate(milestone.targetDate)}`}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+
+    const renderActivityTab = () => (
+        <div style={{ padding: '20px' }}>
+            <h3 style={{ marginBottom: '20px', color: '#333' }}>Complete Activity Feed</h3>
+            
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
+                    {activities.length > 0 ? (
+                        activities.map(activity => (
+                            <div key={activity.id} style={{
+                                padding: '15px',
+                                borderBottom: '1px solid #eee',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '15px'
+                            }}>
+                                <div style={{
+                                    width: '40px',
+                                    height: '40px',
+                                    borderRadius: '50%',
+                                    background: getActivityColor(activity.type),
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: '20px'
+                                }}>
+                                    {getActivityIcon(activity.type)}
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontWeight: 'bold', color: '#333' }}>
+                                        {activity.description || activity.type?.replace(/_/g, ' ').toUpperCase()}
+                                    </div>
+                                    {activity.data && (
+                                        <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                                            {JSON.stringify(activity.data).substring(0, 100)}...
+                                        </div>
+                                    )}
+                                    <div style={{ fontSize: '11px', color: '#999', marginTop: '5px' }}>
+                                        {formatTimeAgo(activity.createdAt)}
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <p style={{ color: '#666' }}>No activity recorded</p>
+                    )}
+                </div>
+            </div>
+
+            {/* Activity Stats */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                marginTop: '20px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <h4 style={{ marginBottom: '15px', color: '#333' }}>Activity Summary</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px' }}>
+                    <div style={{ textAlign: 'center', padding: '10px', background: '#f5f5f5', borderRadius: '8px' }}>
+                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#4CAF50' }}>
+                            {activities.filter(a => a.type === 'check_in').length}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#666' }}>Check-ins</div>
+                    </div>
+                    <div style={{ textAlign: 'center', padding: '10px', background: '#f5f5f5', borderRadius: '8px' }}>
+                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#2196F3' }}>
+                            {activities.filter(a => a.type === 'assignment_completed').length}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#666' }}>Assignments</div>
+                    </div>
+                    <div style={{ textAlign: 'center', padding: '10px', background: '#f5f5f5', borderRadius: '8px' }}>
+                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#FF9800' }}>
+                            {activities.filter(a => a.type === 'goal_completed').length}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#666' }}>Goals</div>
+                    </div>
+                    <div style={{ textAlign: 'center', padding: '10px', background: '#f5f5f5', borderRadius: '8px' }}>
+                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#9C27B0' }}>
+                            {messages.length}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#666' }}>Messages</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderResourcesTab = () => (
+        <div style={{ padding: '20px' }}>
+            <h3 style={{ marginBottom: '20px', color: '#333' }}>Assigned Resources</h3>
+            
+            {['education', 'coping', 'daily', 'life', 'support', 'relapse'].map(category => {
+                const categoryResources = resources.filter(r => r.category === category);
+                if (categoryResources.length === 0) return null;
+                
+                return (
+                    <div key={category} style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '20px',
+                        marginBottom: '20px',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                    }}>
+                        <h4 style={{ marginBottom: '15px', color: '#333', textTransform: 'capitalize' }}>
+                            {category} Resources ({categoryResources.length})
+                        </h4>
+                        <div style={{ display: 'grid', gap: '10px' }}>
+                            {categoryResources.map(resource => (
+                                <div key={resource.id} style={{
+                                    padding: '15px',
+                                    background: '#f9f9f9',
+                                    borderRadius: '8px',
+                                    borderLeft: `3px solid ${
+                                        resourceProgress[resource.id]?.status === 'completed' ? '#4CAF50' :
+                                        resourceProgress[resource.id]?.status === 'in-progress' ? '#FF9800' :
+                                        '#2196F3'
+                                    }`
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <strong style={{ color: '#333' }}>{resource.title}</strong>
+                                            <p style={{ fontSize: '12px', color: '#666', margin: '5px 0' }}>
+                                                {resource.description}
+                                            </p>
+                                            {resourceNotes[resource.id] && (
+                                                <div style={{
+                                                    background: 'white',
+                                                    padding: '8px',
+                                                    borderRadius: '5px',
+                                                    marginTop: '8px',
+                                                    fontSize: '11px',
+                                                    color: '#555'
+                                                }}>
+                                                    <strong>Note:</strong> {resourceNotes[resource.id]}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div style={{
+                                            background: resourceProgress[resource.id]?.status === 'completed' ? '#4CAF50' :
+                                                       resourceProgress[resource.id]?.status === 'in-progress' ? '#FF9800' :
+                                                       '#e0e0e0',
+                                            color: 'white',
+                                            padding: '4px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '10px',
+                                            height: 'fit-content'
+                                        }}>
+                                            {resourceProgress[resource.id]?.status || 'Not Started'}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+
+    const renderCommunicationsTab = () => (
+        <div style={{ padding: '20px' }}>
+            <h3 style={{ marginBottom: '20px', color: '#333' }}>Communication Activity</h3>
+            
+            {/* Message Stats */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                marginBottom: '20px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <h4 style={{ marginBottom: '15px', color: '#333' }}>Engagement Metrics</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '20px' }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#2196F3' }}>
+                            {messages.length}
+                        </div>
+                        <div style={{ color: '#666' }}>Messages Sent</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#4CAF50' }}>
+                            {notifications.filter(n => !n.read).length}
+                        </div>
+                        <div style={{ color: '#666' }}>Unread Notifications</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#FF9800' }}>
+                            {topicRooms.length}
+                        </div>
+                        <div style={{ color: '#666' }}>Topic Rooms</div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Recent Messages */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <h4 style={{ marginBottom: '15px', color: '#333' }}>Recent Community Activity</h4>
+                {messages.length > 0 ? (
+                    <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                        {messages.slice(0, 20).map(message => (
+                            <div key={message.id} style={{
+                                padding: '10px',
+                                borderBottom: '1px solid #eee'
+                            }}>
+                                <div style={{ fontSize: '12px', color: '#999', marginBottom: '5px' }}>
+                                    Room: {message.roomId} • {formatTimeAgo(message.createdAt)}
+                                </div>
+                                <div style={{ color: '#333' }}>
+                                    {message.content.substring(0, 100)}
+                                    {message.content.length > 100 && '...'}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p style={{ color: '#666' }}>No messages sent yet</p>
+                )}
+            </div>
+        </div>
+    );
+
+    const renderMeetingsTab = () => (
+        <div style={{ padding: '20px' }}>
+            <h3 style={{ marginBottom: '20px', color: '#333' }}>Meetings & Sessions</h3>
+            
+            {/* Upcoming Meetings */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                marginBottom: '20px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <h4 style={{ marginBottom: '15px', color: '#333' }}>Scheduled Meetings</h4>
+                {meetings.filter(m => new Date(m.scheduledTime?.toDate ? m.scheduledTime.toDate() : m.scheduledTime) > new Date()).length > 0 ? (
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                        {meetings.filter(m => new Date(m.scheduledTime?.toDate ? m.scheduledTime.toDate() : m.scheduledTime) > new Date())
+                            .map(meeting => (
+                            <div key={meeting.id} style={{
+                                padding: '15px',
+                                background: '#f0f8ff',
+                                borderRadius: '8px',
+                                borderLeft: '3px solid #2196F3'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <div>
+                                        <strong style={{ color: '#333' }}>
+                                            {meeting.type === 'virtual' ? '💻' : '👥'} {meeting.type} Meeting
+                                        </strong>
+                                        <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                                            {formatDateTime(meeting.scheduledTime)}
+                                        </div>
+                                        {meeting.notes && (
+                                            <div style={{ fontSize: '11px', color: '#555', marginTop: '5px' }}>
+                                                {meeting.notes}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <span style={{
+                                        background: meeting.status === 'scheduled' ? '#2196F3' : '#4CAF50',
+                                        color: 'white',
+                                        padding: '2px 8px',
+                                        borderRadius: '12px',
+                                        fontSize: '10px',
+                                        height: 'fit-content'
+                                    }}>
+                                        {meeting.status}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p style={{ color: '#666' }}>No upcoming meetings scheduled</p>
+                )}
+            </div>
+
+            {/* Support Groups */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <h4 style={{ marginBottom: '15px', color: '#333' }}>Support Groups</h4>
+                {supportGroups.length > 0 ? (
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                        {supportGroups.map(group => (
+                            <div key={group.id} style={{
+                                padding: '15px',
+                                background: '#f5f5f5',
+                                borderRadius: '8px'
+                            }}>
+                                <strong style={{ color: '#333' }}>{group.name}</strong>
+                                <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                                    {group.type} • {group.day}s at {group.time}
+                                </div>
+                                {group.link && (
+                                    <a href={group.link} style={{
+                                        fontSize: '11px',
+                                        color: '#2196F3',
+                                        marginTop: '5px',
+                                        display: 'inline-block'
+                                    }}>
+                                        Join Meeting
+                                    </a>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p style={{ color: '#666' }}>No support groups enrolled</p>
+                )}
+            </div>
+        </div>
+    );
+
+    const renderFinancialTab = () => (
+        <div style={{ padding: '20px' }}>
+            <h3 style={{ marginBottom: '20px', color: '#333' }}>Financial Impact</h3>
+            
+            <div style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                borderRadius: '15px',
+                padding: '30px',
+                marginBottom: '20px',
+                color: 'white',
+                textAlign: 'center'
+            }}>
+                <div style={{ fontSize: '48px', fontWeight: 'bold' }}>
+                    ${pirData?.moneySaved || 0}
+                </div>
+                <div style={{ fontSize: '18px', opacity: 0.9 }}>
+                    Total Saved in Recovery
+                </div>
+                <div style={{ fontSize: '14px', opacity: 0.8, marginTop: '10px' }}>
+                    Based on ${pirData?.dailyCost || 20}/day
+                </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '20px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                }}>
+                    <h4 style={{ marginBottom: '15px', color: '#333' }}>Monthly Projection</h4>
+                    <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#4CAF50' }}>
+                        ${(pirData?.dailyCost || 20) * 30}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#666' }}>
+                        Saved per month
+                    </div>
+                </div>
+
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '20px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                }}>
+                    <h4 style={{ marginBottom: '15px', color: '#333' }}>Yearly Projection</h4>
+                    <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#2196F3' }}>
+                        ${(pirData?.dailyCost || 20) * 365}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#666' }}>
+                        Saved per year
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    // Loading state
     if (loading) {
         return (
             <div style={{
@@ -9871,12 +11540,17 @@ function UserDetailModal({ user, onClose, onUpdate }) {
                     textAlign: 'center'
                 }}>
                     <div className="loading-spinner"></div>
-                    <p>Loading PIR data...</p>
+                    <p style={{ color: '#333' }}>Loading PIR data...</p>
                 </div>
             </div>
         );
     }
 
+    if (!user) {
+        return null;
+    }
+
+    // Main render
     return (
         <div style={{
             position: 'fixed',
@@ -9892,8 +11566,8 @@ function UserDetailModal({ user, onClose, onUpdate }) {
         }}>
             <div style={{
                 background: '#f5f5f5',
-                width: '90%',
-                height: '90%',
+                width: '95%',
+                height: '95%',
                 borderRadius: '15px',
                 display: 'flex',
                 flexDirection: 'column',
@@ -9909,7 +11583,7 @@ function UserDetailModal({ user, onClose, onUpdate }) {
                     alignItems: 'center'
                 }}>
                     <div>
-                        <h2 style={{ margin: 0 }}>
+                        <h2 style={{ margin: 0, color: '#333' }}>
                             {pirData?.firstName} {pirData?.lastName || pirData?.email}
                         </h2>
                         <p style={{ margin: 0, color: '#666' }}>{pirData?.email}</p>
@@ -9920,7 +11594,8 @@ function UserDetailModal({ user, onClose, onUpdate }) {
                             background: 'none',
                             border: 'none',
                             fontSize: '24px',
-                            cursor: 'pointer'
+                            cursor: 'pointer',
+                            color: '#666'
                         }}
                     >
                         ✕
@@ -9928,200 +11603,57 @@ function UserDetailModal({ user, onClose, onUpdate }) {
                 </div>
 
                 {/* Tab Navigation */}
-                <div className="tab-nav" style={{
+                <div style={{
                     background: 'white',
                     padding: '0 20px',
-                    borderBottom: '1px solid #ddd'
+                    borderBottom: '1px solid #ddd',
+                    display: 'flex',
+                    overflowX: 'auto',
+                    gap: '5px'
                 }}>
-                    {['overview', 'activity', 'check-ins', 'tasks'].map(tab => (
+                    {[
+                        'overview', 
+                        'golden-thread', 
+                        'progress', 
+                        'milestones', 
+                        'activity', 
+                        'resources', 
+                        'communications', 
+                        'meetings',
+                        'financial'
+                    ].map(tab => (
                         <button
                             key={tab}
                             className={`tab-btn ${activeTab === tab ? 'active' : ''}`}
                             onClick={() => setActiveTab(tab)}
+                            style={{
+                                padding: '15px 20px',
+                                border: 'none',
+                                background: activeTab === tab ? '#2196F3' : 'transparent',
+                                color: activeTab === tab ? 'white' : '#666',
+                                cursor: 'pointer',
+                                borderRadius: '5px 5px 0 0',
+                                whiteSpace: 'nowrap'
+                            }}
                         >
-                            {tab.charAt(0).toUpperCase() + tab.slice(1).replace('-', ' ')}
+                            {tab.split('-').map(word => 
+                                word.charAt(0).toUpperCase() + word.slice(1)
+                            ).join(' ')}
                         </button>
                     ))}
                 </div>
 
                 {/* Content */}
-                <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-                    {activeTab === 'overview' && (
-                        <div>
-                            {/* Key Metrics */}
-                            <div style={{ 
-                                display: 'grid', 
-                                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-                                gap: '20px',
-                                marginBottom: '30px'
-                            }}>
-                                <div style={{
-                                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                    padding: '20px',
-                                    borderRadius: '15px',
-                                    color: 'white'
-                                }}>
-                                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Sobriety Days</div>
-                                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
-                                        {pirData?.sobrietyDays || 0}
-                                    </div>
-                                </div>
-
-                                <div style={{
-                                    background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-                                    padding: '20px',
-                                    borderRadius: '15px',
-                                    color: 'white'
-                                }}>
-                                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Last Login</div>
-                                    <div style={{ fontSize: '20px', fontWeight: 'bold' }}>
-                                        {pirData?.lastLoginFormatted}
-                                    </div>
-                                </div>
-
-                                <div style={{
-                                    background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-                                    padding: '20px',
-                                    borderRadius: '15px',
-                                    color: 'white'
-                                }}>
-                                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Active Tasks</div>
-                                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
-                                        {assignments.filter(a => a.status !== 'completed').length}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Profile Information */}
-                            <div style={{
-                                background: 'white',
-                                borderRadius: '15px',
-                                padding: '25px',
-                                marginBottom: '20px'
-                            }}>
-                                <h3>Profile Information</h3>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                    <div>
-                                        <strong>Name:</strong> {pirData?.firstName} {pirData?.lastName}
-                                    </div>
-                                    <div>
-                                        <strong>Email:</strong> {pirData?.email}
-                                    </div>
-                                    <div>
-                                        <strong>Phone:</strong> {pirData?.phone || 'Not provided'}
-                                    </div>
-                                    <div>
-                                        <strong>Sobriety Date:</strong> {formatDate(pirData?.sobrietyDate)}
-                                    </div>
-                                    <div>
-                                        <strong>Substance:</strong> {pirData?.substance || 'Not specified'}
-                                    </div>
-                                    <div>
-                                        <strong>Account Created:</strong> {formatDate(pirData?.createdAt)}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Emergency Contacts */}
-                            {pirData?.emergencyContacts && pirData.emergencyContacts.length > 0 && (
-                                <div style={{
-                                    background: 'white',
-                                    borderRadius: '15px',
-                                    padding: '25px'
-                                }}>
-                                    <h3>Emergency Contacts</h3>
-                                    {pirData.emergencyContacts.map((contact, index) => (
-                                        <div key={index} style={{
-                                            padding: '10px',
-                                            background: '#f9f9f9',
-                                            borderRadius: '10px',
-                                            marginBottom: '10px'
-                                        }}>
-                                            <strong>{contact.name}</strong> ({contact.relationship}): {contact.phone}
-                                            {contact.isPrimary && <span style={{ marginLeft: '10px', color: '#4CAF50' }}>[PRIMARY]</span>}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {activeTab === 'activity' && (
-                        <div style={{ background: 'white', borderRadius: '15px', padding: '20px' }}>
-                            <h3>Recent Activity</h3>
-                            {activities.length > 0 ? (
-                                activities.map(activity => (
-                                    <div key={activity.id} style={{
-                                        padding: '15px',
-                                        borderBottom: '1px solid #eee'
-                                    }}>
-                                        <strong>{activity.description || activity.type}</strong>
-                                        <div style={{ fontSize: '12px', color: '#666' }}>
-                                            {formatTimeAgo(activity.createdAt)}
-                                        </div>
-                                    </div>
-                                ))
-                            ) : (
-                                <p>No recent activity</p>
-                            )}
-                        </div>
-                    )}
-
-                    {activeTab === 'check-ins' && (
-                        <div style={{ background: 'white', borderRadius: '15px', padding: '20px' }}>
-                            <h3>Recent Check-ins</h3>
-                            {checkIns.length > 0 ? (
-                                <table style={{ width: '100%' }}>
-                                    <thead>
-                                        <tr>
-                                            <th>Date</th>
-                                            <th>Mood</th>
-                                            <th>Craving</th>
-                                            <th>Anxiety</th>
-                                            <th>Sleep</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {checkIns.map(checkIn => (
-                                            <tr key={checkIn.id}>
-                                                <td>{formatDate(checkIn.createdAt)}</td>
-                                                <td>{checkIn.morningData?.mood || '-'}/10</td>
-                                                <td>{checkIn.morningData?.craving || '-'}/10</td>
-                                                <td>{checkIn.morningData?.anxietyLevel || '-'}/10</td>
-                                                <td>{checkIn.morningData?.sleepQuality || '-'}/10</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            ) : (
-                                <p>No check-ins recorded</p>
-                            )}
-                        </div>
-                    )}
-
-                    {activeTab === 'tasks' && (
-                        <div style={{ background: 'white', borderRadius: '15px', padding: '20px' }}>
-                            <h3>Assignments</h3>
-                            {assignments.length > 0 ? (
-                                assignments.map(assignment => (
-                                    <div key={assignment.id} style={{
-                                        padding: '15px',
-                                        borderLeft: `4px solid ${assignment.status === 'completed' ? '#4CAF50' : '#FF9800'}`,
-                                        marginBottom: '10px',
-                                        background: '#f9f9f9'
-                                    }}>
-                                        <strong>{assignment.title}</strong>
-                                        <div>{assignment.description}</div>
-                                        <div style={{ fontSize: '12px', color: '#666' }}>
-                                            Status: {assignment.status} | Due: {formatDate(assignment.dueDate)}
-                                        </div>
-                                    </div>
-                                ))
-                            ) : (
-                                <p>No assignments</p>
-                            )}
-                        </div>
-                    )}
+                <div style={{ flex: 1, overflowY: 'auto', background: '#f5f5f5' }}>
+                    {activeTab === 'overview' && renderOverviewTab()}
+                    {activeTab === 'golden-thread' && renderGoldenThreadTab()}
+                    {activeTab === 'progress' && renderProgressTab()}
+                    {activeTab === 'milestones' && renderMilestonesTab()}
+                    {activeTab === 'activity' && renderActivityTab()}
+                    {activeTab === 'resources' && renderResourcesTab()}
+                    {activeTab === 'communications' && renderCommunicationsTab()}
+                    {activeTab === 'meetings' && renderMeetingsTab()}
+                    {activeTab === 'financial' && renderFinancialTab()}
                 </div>
             </div>
         </div>
