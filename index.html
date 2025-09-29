@@ -1405,6 +1405,8 @@ function PIRApp({ user }) {
     const [cravingChartData, setCravingChartData] = useState(null);
     const chartRef = useRef(null);
     const cravingChartRef = useRef(null);
+    const [anxietyChartData, setAnxietyChartData] = useState(null);
+const anxietyChartRef = useRef(null);
     
     // Tasks States
     const [goals, setGoals] = useState([]);
@@ -2653,6 +2655,7 @@ const prepareChartData = (checkInsList) => {
     const labels = [];
     const moodData = [];
     const cravingData = [];
+    const anxietyData = [];
     
     // Get last 30 days
     for (let i = 29; i >= 0; i--) {
@@ -2673,11 +2676,14 @@ const prepareChartData = (checkInsList) => {
         });
         
         if (checkIn?.morningData) {
-            moodData.push(checkIn.morningData.mood || null);
-            cravingData.push(checkIn.morningData.craving || null);
+            // Use nullish coalescing to properly handle 0 values
+            moodData.push(checkIn.morningData.mood ?? null);
+            cravingData.push(checkIn.morningData.craving ?? null);
+            anxietyData.push(checkIn.morningData.anxietyLevel ?? null);
         } else {
             moodData.push(null);
             cravingData.push(null);
+            anxietyData.push(null);
         }
     }
     
@@ -2705,16 +2711,27 @@ const prepareChartData = (checkInsList) => {
         }]
     });
     
-    
+    setAnxietyChartData({
+        labels: labels,
+        datasets: [{
+            label: 'Anxiety',
+            data: anxietyData,
+            borderColor: '#f44336',
+            backgroundColor: 'rgba(244, 67, 54, 0.1)',
+            tension: 0.4,
+            spanGaps: true
+        }]
+    });
 };
    
 
 // Enhanced chart initialization with scroll capability
 useEffect(() => {
-    if (currentView === 'progress' && moodChartData && cravingChartData) {
+    if (currentView === 'progress' && moodChartData && cravingChartData && anxietyChartData) {
         setTimeout(() => {
             const moodCanvas = document.getElementById('moodChart');
             const cravingCanvas = document.getElementById('cravingChart');
+            const anxietyCanvas = document.getElementById('anxietyChart');
             
             // Destroy existing charts
             if (chartRef.current) {
@@ -2722,6 +2739,9 @@ useEffect(() => {
             }
             if (cravingChartRef.current) {
                 cravingChartRef.current.destroy();
+            }
+            if (anxietyChartRef.current) {
+                anxietyChartRef.current.destroy();
             }
             
             // Chart configuration for 30-day scrollable view
@@ -2769,7 +2789,7 @@ useEffect(() => {
                     scales: {
                         y: {
                             beginAtZero: true,
-                            max: 10,  // Changed from 5 to 10
+                            max: 10,
                             ticks: {
                                 stepSize: 1
                             },
@@ -2803,9 +2823,17 @@ useEffect(() => {
                     data: cravingChartData
                 });
             }
+            
+            if (anxietyCanvas) {
+                const ctx = anxietyCanvas.getContext('2d');
+                anxietyChartRef.current = new Chart(ctx, {
+                    ...chartConfig,
+                    data: anxietyChartData
+                });
+            }
         }, 100);
     }
-}, [currentView, moodChartData, cravingChartData]);
+}, [currentView, moodChartData, cravingChartData, anxietyChartData]);
 
 // Load today's pledge status
 const loadTodaysPledge = async () => {
@@ -2963,65 +2991,7 @@ const handlePledge = async () => {
     }
 };
 
-// Handle morning check-in - UPDATED FOR 0-10 SCALE
-const handleMorningCheckIn = async (data) => {
-    try {
-        // Get PST midnight boundaries
-        const pstNow = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Los_Angeles"}));
-        const today = new Date(pstNow);
-        today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        
-        // Check if check-in already exists for today
-        const existingCheckIn = await db.collection('checkIns')
-            .where('userId', '==', user.uid)
-            .where('createdAt', '>=', today)
-            .where('createdAt', '<', tomorrow)
-            .get();
-        
-        if (existingCheckIn.empty) {
-            // Create new check-in
-            await db.collection('checkIns').add({
-                userId: user.uid,
-                morningData: data,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        } else {
-            // Update existing check-in
-            await db.collection('checkIns').doc(existingCheckIn.docs[0].id).update({
-                morningData: data,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        }
-        
-        setCheckInStatus(prev => ({ ...prev, morning: true }));
-        
-        // Update streak
-        await updateStreak();
-        
-        // Check for auto-triggered alerts with NEW THRESHOLDS (0-10 scale)
-        if (data.mood <= 3) {  // Changed from <= 2 (on 1-5 scale)
-            await db.collection('alerts').add({
-                userId: user.uid,
-                type: 'low_mood',
-                status: 'active',
-                severity: 'high',
-                message: `Low mood detected (${data.mood}/10)`,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        }
-        
-        if (data.craving >= 7) {  // Changed from >= 4 (on 1-5 scale)
-            await db.collection('alerts').add({
-                userId: user.uid,
-                type: 'high_craving',
-                status: 'active',
-                severity: 'high',
-                message: `High craving intensity detected (${data.craving}/10)`,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        }
+
         
         // Create activity log
         await db.collection('activities').add({
@@ -3903,60 +3873,72 @@ return (
             )}
 
             {currentView === 'progress' && (
-                <div className="section-content">
-                    <h2 style={{color: 'white', marginBottom: '20px'}}>My Progress</h2>
-                    
-                    <div className="compliance-card">
-                        <h3 style={{color: '#9c27b0', marginBottom: '15px'}}>Compliance Metrics</h3>
-                        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
-                            <div>
-                                <div style={{fontSize: '14px', opacity: 0.8}}>Check-in Compliance</div>
-                                <div style={{fontSize: '24px', fontWeight: 'bold', color: '#f4c430'}}>
-                                    {complianceRate.checkIn}%
-                                </div>
-                                <small style={{opacity: 0.6}}>Last 30 days</small>
-                            </div>
-                            <div>
-                                <div style={{fontSize: '14px', opacity: 0.8}}>Assignment Completion</div>
-                                <div style={{fontSize: '24px', fontWeight: 'bold', color: '#4CAF50'}}>
-                                    {complianceRate.assignment}%
-                                </div>
-                                <small style={{opacity: 0.6}}>All time</small>
-                            </div>
-                        </div>
+    <div className="section-content">
+        <h2 style={{color: 'white', marginBottom: '20px'}}>My Progress</h2>
+        
+        <div className="compliance-card">
+            <h3 style={{color: '#9c27b0', marginBottom: '15px'}}>Compliance Metrics</h3>
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
+                <div>
+                    <div style={{fontSize: '14px', opacity: 0.8}}>Check-in Compliance</div>
+                    <div style={{fontSize: '24px', fontWeight: 'bold', color: '#f4c430'}}>
+                        {complianceRate.checkIn}%
                     </div>
-                    
-                    <div style={{background: 'rgba(0, 0, 0, 0.3)', backdropFilter: 'blur(10px)', borderRadius: '15px', padding: '20px', marginBottom: '20px', border: '1px solid rgba(255, 255, 255, 0.1)'}}>
-    <h3 style={{marginBottom: '20px', color: 'white'}}>30-Day Mood Trend</h3>
-                        <div style={{height: '250px', overflowX: 'auto', overflowY: 'hidden', position: 'relative'}}>
-                            <div style={{minWidth: '800px', height: '100%'}}>
-                                <canvas id="moodChart"></canvas>
-                            </div>
-                        </div>
-                        <div style={{display: 'flex', justifyContent: 'center', marginTop: '10px', fontSize: '12px', color: '#666'}}>
-                            <span>← Scroll to view more days →</span>
-                        </div>
+                    <small style={{opacity: 0.6}}>Last 30 days</small>
+                </div>
+                <div>
+                    <div style={{fontSize: '14px', opacity: 0.8}}>Assignment Completion</div>
+                    <div style={{fontSize: '24px', fontWeight: 'bold', color: '#4CAF50'}}>
+                        {complianceRate.assignment}%
                     </div>
-                    
-                    <div style={{background: 'white', borderRadius: '15px', padding: '20px'}}>
-                        <h3 style={{marginBottom: '20px'}}>30-Day Craving Trend</h3>
-                        <div style={{height: '250px', overflowX: 'auto', overflowY: 'hidden', position: 'relative'}}>
-                            <div style={{minWidth: '800px', height: '100%'}}>
-                                <canvas id="cravingChart"></canvas>
-                            </div>
-                        </div>
-                        <div style={{display: 'flex', justifyContent: 'center', marginTop: '10px', fontSize: '12px', color: '#666'}}>
-                            <span>← Scroll to view more days →</span>
-                        </div>
-                    </div>
-
-                    <div style={{marginBottom: '20px'}}>
-                        <div style={{
-                            background: 'rgba(76, 175, 80, 0.1)',
-                            borderRadius: '15px',
-                            padding: '15px',
-                            marginBottom: '15px'
-                        }}>
+                    <small style={{opacity: 0.6}}>All time</small>
+                </div>
+            </div>
+        </div>
+        
+        <div style={{background: 'rgba(0, 0, 0, 0.3)', backdropFilter: 'blur(10px)', borderRadius: '15px', padding: '20px', marginBottom: '20px', border: '1px solid rgba(255, 255, 255, 0.1)'}}>
+            <h3 style={{marginBottom: '20px', color: 'white'}}>30-Day Mood Trend</h3>
+            <div style={{height: '250px', overflowX: 'auto', overflowY: 'hidden', position: 'relative'}}>
+                <div style={{minWidth: '800px', height: '100%'}}>
+                    <canvas id="moodChart"></canvas>
+                </div>
+            </div>
+            <div style={{display: 'flex', justifyContent: 'center', marginTop: '10px', fontSize: '12px', color: '#666'}}>
+                <span>← Scroll to view more days →</span>
+            </div>
+        </div>
+        
+        <div style={{background: 'rgba(0, 0, 0, 0.3)', backdropFilter: 'blur(10px)', borderRadius: '15px', padding: '20px', marginBottom: '20px', border: '1px solid rgba(255, 255, 255, 0.1)'}}>
+            <h3 style={{marginBottom: '20px', color: 'white'}}>30-Day Craving Trend</h3>
+            <div style={{height: '250px', overflowX: 'auto', overflowY: 'hidden', position: 'relative'}}>
+                <div style={{minWidth: '800px', height: '100%'}}>
+                    <canvas id="cravingChart"></canvas>
+                </div>
+            </div>
+            <div style={{display: 'flex', justifyContent: 'center', marginTop: '10px', fontSize: '12px', color: '#666'}}>
+                <span>← Scroll to view more days →</span>
+            </div>
+        </div>
+        
+        <div style={{background: 'rgba(0, 0, 0, 0.3)', backdropFilter: 'blur(10px)', borderRadius: '15px', padding: '20px', marginBottom: '20px', border: '1px solid rgba(255, 255, 255, 0.1)'}}>
+            <h3 style={{marginBottom: '20px', color: 'white'}}>30-Day Anxiety Trend</h3>
+            <div style={{height: '250px', overflowX: 'auto', overflowY: 'hidden', position: 'relative'}}>
+                <div style={{minWidth: '800px', height: '100%'}}>
+                    <canvas id="anxietyChart"></canvas>
+                </div>
+            </div>
+            <div style={{display: 'flex', justifyContent: 'center', marginTop: '10px', fontSize: '12px', color: '#666'}}>
+                <span>← Scroll to view more days →</span>
+            </div>
+        </div>
+        
+        <div style={{marginBottom: '20px'}}>
+            <div style={{
+                background: 'rgba(76, 175, 80, 0.1)',
+                borderRadius: '15px',
+                padding: '15px',
+                marginBottom: '15px'
+            }}>
                             <h3 style={{color: '#4CAF50', marginBottom: '10px'}}>
                                 🏆 Recovery Milestones
                             </h3>
