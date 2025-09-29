@@ -9702,34 +9702,23 @@ function ResourceModal({ type, resource, allPIRs, onSave, onClose }) {
             );
         }
 
-     // Enhanced PIR Detail View Component
+    // Enhanced PIR Detail View Component - Fixed version without undefined functions
 function UserDetailModal({ user, onClose, onUpdate }) {
+    // Extract ID from user object
     const pirId = user?.id;
+    
     const [pirData, setPirData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('overview');
     const [activities, setActivities] = useState([]);
     const [checkIns, setCheckIns] = useState([]);
     const [assignments, setAssignments] = useState([]);
-    const [goals, setGoals] = useState([]);
-    const [alerts, setAlerts] = useState([]);
-    const [meetings, setMeetings] = useState([]);
-    const [resources, setResources] = useState([]);
-    const [notes, setNotes] = useState('');
-    const [editing, setEditing] = useState(false);
-    const [editData, setEditData] = useState({});
     const [chartData, setChartData] = useState(null);
 
     useEffect(() => {
         if (pirId) {
             loadCompletePIRData();
-            setupRealtimeListeners();
         }
-        
-        return () => {
-            // Cleanup listeners
-            cleanupListeners();
-        };
     }, [pirId]);
 
     const loadCompletePIRData = async () => {
@@ -9753,77 +9742,74 @@ function UserDetailModal({ user, onClose, onUpdate }) {
                 formatTimeAgo(userData.lastLogin) : 'Never';
             
             setPirData(userData);
-            setEditData(userData);
             
-            // Load related data in parallel
-            await Promise.all([
-                loadActivities(),
-                loadCheckIns(),
-                loadAssignments(),
-                loadGoals(),
-                loadAlerts(),
-                loadMeetings(),
-                loadResources(),
-                loadProgressData()
-            ]);
+            // Load related data
+            await loadActivitiesData();
+            await loadCheckInsData();
+            await loadAssignmentsData();
             
         } catch (error) {
             console.error('Error loading PIR data:', error);
-            alert('Failed to load PIR data');
+            alert('Failed to load PIR data: ' + error.message);
         } finally {
             setLoading(false);
         }
     };
 
-    const loadActivities = async () => {
-        const activitiesSnap = await db.collection('activities')
-            .where('userId', '==', pirId)
-            .orderBy('createdAt', 'desc')
-            .limit(50)
-            .get();
-        
-        const activitiesList = [];
-        activitiesSnap.forEach(doc => {
-            activitiesList.push({ id: doc.id, ...doc.data() });
-        });
-        setActivities(activitiesList);
+    const loadActivitiesData = async () => {
+        try {
+            const activitiesSnap = await db.collection('activities')
+                .where('userId', '==', pirId)
+                .orderBy('createdAt', 'desc')
+                .limit(50)
+                .get();
+            
+            const activitiesList = [];
+            activitiesSnap.forEach(doc => {
+                activitiesList.push({ id: doc.id, ...doc.data() });
+            });
+            setActivities(activitiesList);
+        } catch (error) {
+            console.error('Error loading activities:', error);
+            setActivities([]);
+        }
     };
 
-    const loadProgressData = async () => {
-        // Load last 30 days of check-ins for charts
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        
-        const checkInsSnap = await db.collection('checkIns')
-            .where('userId', '==', pirId)
-            .where('createdAt', '>=', thirtyDaysAgo)
-            .orderBy('createdAt', 'asc')
-            .get();
-        
-        const chartLabels = [];
-        const moodData = [];
-        const cravingData = [];
-        const anxietyData = [];
-        const sleepData = [];
-        
-        checkInsSnap.forEach(doc => {
-            const data = doc.data();
-            const date = data.createdAt?.toDate() || new Date();
-            chartLabels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    const loadCheckInsData = async () => {
+        try {
+            const checkInsSnap = await db.collection('checkIns')
+                .where('userId', '==', pirId)
+                .orderBy('createdAt', 'desc')
+                .limit(30)
+                .get();
             
-            moodData.push(data.morningData?.mood ?? null);
-            cravingData.push(data.morningData?.craving ?? null);
-            anxietyData.push(data.morningData?.anxietyLevel ?? null);
-            sleepData.push(data.morningData?.sleepQuality ?? null);
-        });
-        
-        setChartData({
-            labels: chartLabels,
-            mood: moodData,
-            craving: cravingData,
-            anxiety: anxietyData,
-            sleep: sleepData
-        });
+            const checkInsList = [];
+            checkInsSnap.forEach(doc => {
+                checkInsList.push({ id: doc.id, ...doc.data() });
+            });
+            setCheckIns(checkInsList);
+        } catch (error) {
+            console.error('Error loading check-ins:', error);
+            setCheckIns([]);
+        }
+    };
+
+    const loadAssignmentsData = async () => {
+        try {
+            const assignmentsSnap = await db.collection('assignments')
+                .where('userId', '==', pirId)
+                .limit(50)
+                .get();
+            
+            const assignmentsList = [];
+            assignmentsSnap.forEach(doc => {
+                assignmentsList.push({ id: doc.id, ...doc.data() });
+            });
+            setAssignments(assignmentsList);
+        } catch (error) {
+            console.error('Error loading assignments:', error);
+            setAssignments([]);
+        }
     };
 
     const calculateSobrietyDays = (sobrietyDate) => {
@@ -9836,566 +9822,33 @@ function UserDetailModal({ user, onClose, onUpdate }) {
 
     const daysSince = (date) => {
         if (!date) return 0;
-        const start = date.toDate ? date.toDate() : new Date(date);
+        const start = date?.toDate ? date.toDate() : new Date(date);
         const today = new Date();
         const diffTime = Math.abs(today - start);
         return Math.floor(diffTime / (1000 * 60 * 60 * 24));
     };
 
-    const handleSaveProfile = async () => {
-        try {
-            await db.collection('users').doc(pirId).update({
-                ...editData,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            setPirData(editData);
-            setEditing(false);
-            alert('Profile updated successfully');
-            if (onUpdate) onUpdate();
-        } catch (error) {
-            console.error('Error updating profile:', error);
-            alert('Failed to update profile');
-        }
+    const formatTimeAgo = (date) => {
+        if (!date) return 'Never';
+        const d = date?.toDate ? date.toDate() : new Date(date);
+        const now = new Date();
+        const diff = Math.floor((now - d) / 1000);
+        
+        if (diff < 60) return 'Just now';
+        if (diff < 3600) return Math.floor(diff / 60) + ' minutes ago';
+        if (diff < 86400) return Math.floor(diff / 3600) + ' hours ago';
+        return Math.floor(diff / 86400) + ' days ago';
     };
 
-    const renderOverviewTab = () => (
-        <div style={{ padding: '20px' }}>
-            {/* Key Metrics Cards */}
-            <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-                gap: '20px',
-                marginBottom: '30px'
-            }}>
-                <div className="metric-card" style={{
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    padding: '20px',
-                    borderRadius: '15px',
-                    color: 'white',
-                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-                }}>
-                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Sobriety Days</div>
-                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
-                        {pirData.sobrietyDays}
-                    </div>
-                    <div style={{ fontSize: '12px', opacity: 0.8 }}>
-                        Since {new Date(pirData.sobrietyDate).toLocaleDateString()}
-                    </div>
-                </div>
-
-                <div className="metric-card" style={{
-                    background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-                    padding: '20px',
-                    borderRadius: '15px',
-                    color: 'white',
-                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-                }}>
-                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Check-in Streak</div>
-                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
-                        {pirData.currentStreak || 0}
-                    </div>
-                    <div style={{ fontSize: '12px', opacity: 0.8 }}>
-                        Days consecutive
-                    </div>
-                </div>
-
-                <div className="metric-card" style={{
-                    background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-                    padding: '20px',
-                    borderRadius: '15px',
-                    color: 'white',
-                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-                }}>
-                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Last Login</div>
-                    <div style={{ fontSize: '20px', fontWeight: 'bold' }}>
-                        {pirData.lastLoginFormatted}
-                    </div>
-                    <div style={{ fontSize: '12px', opacity: 0.8 }}>
-                        Account age: {pirData.accountAge} days
-                    </div>
-                </div>
-
-                <div className="metric-card" style={{
-                    background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-                    padding: '20px',
-                    borderRadius: '15px',
-                    color: 'white',
-                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-                }}>
-                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Active Tasks</div>
-                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
-                        {assignments.filter(a => a.status !== 'completed').length}
-                    </div>
-                    <div style={{ fontSize: '12px', opacity: 0.8 }}>
-                        {assignments.filter(a => a.status === 'completed').length} completed
-                    </div>
-                </div>
-            </div>
-
-            {/* Profile Information */}
-            <div style={{
-                background: 'white',
-                borderRadius: '15px',
-                padding: '25px',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                marginBottom: '20px'
-            }}>
-                <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    marginBottom: '20px'
-                }}>
-                    <h3 style={{ margin: 0 }}>Profile Information</h3>
-                    {!editing ? (
-                        <button 
-                            className="btn btn-secondary"
-                            onClick={() => setEditing(true)}
-                        >
-                            Edit Profile
-                        </button>
-                    ) : (
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                            <button 
-                                className="btn btn-primary"
-                                onClick={handleSaveProfile}
-                            >
-                                Save Changes
-                            </button>
-                            <button 
-                                className="btn btn-secondary"
-                                onClick={() => {
-                                    setEditing(false);
-                                    setEditData(pirData);
-                                }}
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    )}
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                    <div>
-                        <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>
-                            Full Name
-                        </label>
-                        {editing ? (
-                            <div style={{ display: 'flex', gap: '10px' }}>
-                                <input
-                                    type="text"
-                                    value={editData.firstName || ''}
-                                    onChange={(e) => setEditData({...editData, firstName: e.target.value})}
-                                    placeholder="First Name"
-                                    style={{ flex: 1, padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                                />
-                                <input
-                                    type="text"
-                                    value={editData.lastName || ''}
-                                    onChange={(e) => setEditData({...editData, lastName: e.target.value})}
-                                    placeholder="Last Name"
-                                    style={{ flex: 1, padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                                />
-                            </div>
-                        ) : (
-                            <p>{pirData.firstName} {pirData.lastName}</p>
-                        )}
-                    </div>
-
-                    <div>
-                        <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>
-                            Email
-                        </label>
-                        <p>{pirData.email}</p>
-                    </div>
-
-                    <div>
-                        <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>
-                            Phone
-                        </label>
-                        {editing ? (
-                            <input
-                                type="tel"
-                                value={editData.phone || ''}
-                                onChange={(e) => setEditData({...editData, phone: e.target.value})}
-                                style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                            />
-                        ) : (
-                            <p>{pirData.phone || 'Not provided'}</p>
-                        )}
-                    </div>
-
-                    <div>
-                        <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>
-                            Date of Birth
-                        </label>
-                        {editing ? (
-                            <input
-                                type="date"
-                                value={editData.dateOfBirth || ''}
-                                onChange={(e) => setEditData({...editData, dateOfBirth: e.target.value})}
-                                style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                            />
-                        ) : (
-                            <p>{pirData.dateOfBirth || 'Not provided'}</p>
-                        )}
-                    </div>
-
-                    <div style={{ gridColumn: 'span 2' }}>
-                        <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>
-                            Address
-                        </label>
-                        {editing ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '10px' }}>
-                                <input
-                                    type="text"
-                                    value={editData.address?.street || ''}
-                                    onChange={(e) => setEditData({
-                                        ...editData, 
-                                        address: {...editData.address, street: e.target.value}
-                                    })}
-                                    placeholder="Street Address"
-                                    style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                                />
-                                <input
-                                    type="text"
-                                    value={editData.address?.city || ''}
-                                    onChange={(e) => setEditData({
-                                        ...editData, 
-                                        address: {...editData.address, city: e.target.value}
-                                    })}
-                                    placeholder="City"
-                                    style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                                />
-                                <input
-                                    type="text"
-                                    value={editData.address?.state || ''}
-                                    onChange={(e) => setEditData({
-                                        ...editData, 
-                                        address: {...editData.address, state: e.target.value}
-                                    })}
-                                    placeholder="State"
-                                    style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                                />
-                                <input
-                                    type="text"
-                                    value={editData.address?.zip || ''}
-                                    onChange={(e) => setEditData({
-                                        ...editData, 
-                                        address: {...editData.address, zip: e.target.value}
-                                    })}
-                                    placeholder="ZIP"
-                                    style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                                />
-                            </div>
-                        ) : (
-                            <p>
-                                {pirData.address ? 
-                                    `${pirData.address.street}, ${pirData.address.city}, ${pirData.address.state} ${pirData.address.zip}` : 
-                                    'Not provided'}
-                            </p>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            {/* Emergency Contacts */}
-            <div style={{
-                background: 'white',
-                borderRadius: '15px',
-                padding: '25px',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                marginBottom: '20px'
-            }}>
-                <h3 style={{ marginBottom: '20px' }}>Emergency Contacts</h3>
-                {pirData.emergencyContacts && pirData.emergencyContacts.length > 0 ? (
-                    <div style={{ display: 'grid', gap: '15px' }}>
-                        {pirData.emergencyContacts.map((contact, index) => (
-                            <div key={index} style={{
-                                padding: '15px',
-                                background: contact.isPrimary ? '#f0f8ff' : '#f9f9f9',
-                                borderRadius: '10px',
-                                border: contact.isPrimary ? '2px solid #4CAF50' : '1px solid #ddd'
-                            }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div>
-                                        <div style={{ fontWeight: 'bold', fontSize: '16px' }}>
-                                            {contact.name} 
-                                            {contact.isPrimary && (
-                                                <span style={{
-                                                    marginLeft: '10px',
-                                                    background: '#4CAF50',
-                                                    color: 'white',
-                                                    padding: '2px 8px',
-                                                    borderRadius: '12px',
-                                                    fontSize: '12px'
-                                                }}>PRIMARY</span>
-                                            )}
-                                        </div>
-                                        <div style={{ color: '#666', marginTop: '5px' }}>
-                                            {contact.relationship} • {contact.phone}
-                                        </div>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '10px' }}>
-                                        <button 
-                                            className="btn btn-secondary"
-                                            onClick={() => window.location.href = `tel:${contact.phone}`}
-                                        >
-                                            📞 Call
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <p style={{ color: '#666' }}>No emergency contacts configured</p>
-                )}
-            </div>
-
-            {/* Recovery Information */}
-            <div style={{
-                background: 'white',
-                borderRadius: '15px',
-                padding: '25px',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-            }}>
-                <h3 style={{ marginBottom: '20px' }}>Recovery Information</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                    <div>
-                        <label style={{ fontWeight: 'bold' }}>Substance</label>
-                        <p>{pirData.substance || 'Not specified'}</p>
-                    </div>
-                    <div>
-                        <label style={{ fontWeight: 'bold' }}>Sobriety Date</label>
-                        <p>{new Date(pirData.sobrietyDate).toLocaleDateString()}</p>
-                    </div>
-                    <div>
-                        <label style={{ fontWeight: 'bold' }}>Sponsor Name</label>
-                        <p>{pirData.sponsorName || 'Not provided'}</p>
-                    </div>
-                    <div>
-                        <label style={{ fontWeight: 'bold' }}>Sponsor Phone</label>
-                        <p>{pirData.sponsorPhone || 'Not provided'}</p>
-                    </div>
-                    <div style={{ gridColumn: 'span 2' }}>
-                        <label style={{ fontWeight: 'bold' }}>Recovery Goals</label>
-                        <p>{pirData.recoveryGoals || 'Not specified'}</p>
-                    </div>
-                    <div style={{ gridColumn: 'span 2' }}>
-                        <label style={{ fontWeight: 'bold' }}>Known Triggers</label>
-                        <p>{pirData.triggers || 'Not specified'}</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-
-    const renderProgressTab = () => (
-        <div style={{ padding: '20px' }}>
-            <h3>30-Day Progress Trends</h3>
-            
-            {chartData && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '20px' }}>
-                    <div style={{
-                        background: 'white',
-                        borderRadius: '15px',
-                        padding: '20px',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                    }}>
-                        <h4>Mood Trend</h4>
-                        <canvas id={`mood-chart-${pirId}`}></canvas>
-                    </div>
-                    
-                    <div style={{
-                        background: 'white',
-                        borderRadius: '15px',
-                        padding: '20px',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                    }}>
-                        <h4>Craving Trend</h4>
-                        <canvas id={`craving-chart-${pirId}`}></canvas>
-                    </div>
-                    
-                    <div style={{
-                        background: 'white',
-                        borderRadius: '15px',
-                        padding: '20px',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                    }}>
-                        <h4>Anxiety Trend</h4>
-                        <canvas id={`anxiety-chart-${pirId}`}></canvas>
-                    </div>
-                    
-                    <div style={{
-                        background: 'white',
-                        borderRadius: '15px',
-                        padding: '20px',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                    }}>
-                        <h4>Sleep Quality Trend</h4>
-                        <canvas id={`sleep-chart-${pirId}`}></canvas>
-                    </div>
-                </div>
-            )}
-
-            {/* Recent Check-ins */}
-            <div style={{
-                background: 'white',
-                borderRadius: '15px',
-                padding: '20px',
-                marginTop: '30px',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-            }}>
-                <h4>Recent Check-ins</h4>
-                <div className="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Mood</th>
-                                <th>Craving</th>
-                                <th>Anxiety</th>
-                                <th>Sleep</th>
-                                <th>Notes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {checkIns.slice(0, 10).map(checkIn => (
-                                <tr key={checkIn.id}>
-                                    <td>{formatDate(checkIn.createdAt)}</td>
-                                    <td>{checkIn.morningData?.mood || '-'}/10</td>
-                                    <td>{checkIn.morningData?.craving || '-'}/10</td>
-                                    <td>{checkIn.morningData?.anxietyLevel || '-'}/10</td>
-                                    <td>{checkIn.morningData?.sleepQuality || '-'}/10</td>
-                                    <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                        {checkIn.morningData?.notes || checkIn.eveningData?.reflection || '-'}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    );
-
-    const renderActivityTab = () => (
-        <div style={{ padding: '20px' }}>
-            <h3>Recent Activity</h3>
-            <div style={{
-                background: 'white',
-                borderRadius: '15px',
-                padding: '20px',
-                marginTop: '20px',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-            }}>
-                <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
-                    {activities.map(activity => (
-                        <div key={activity.id} style={{
-                            padding: '15px',
-                            borderBottom: '1px solid #eee',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '15px'
-                        }}>
-                            <div style={{
-                                width: '40px',
-                                height: '40px',
-                                borderRadius: '50%',
-                                background: getActivityColor(activity.type),
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '20px'
-                            }}>
-                                {getActivityIcon(activity.type)}
-                            </div>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 'bold' }}>
-                                    {activity.description}
-                                </div>
-                                <div style={{ fontSize: '12px', color: '#666' }}>
-                                    {formatTimeAgo(activity.createdAt)}
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        </div>
-    );
-
-    const getActivityIcon = (type) => {
-        const icons = {
-            'check_in': '✅',
-            'assignment_completed': '📝',
-            'goal_completed': '🎯',
-            'message_sent': '💬',
-            'sos_triggered': '🚨',
-            'login': '🔑',
-            'profile_updated': '👤'
-        };
-        return icons[type] || '📌';
+    const formatDate = (date) => {
+        if (!date) return 'N/A';
+        const d = date?.toDate ? date.toDate() : new Date(date);
+        return d.toLocaleDateString();
     };
 
-    const getActivityColor = (type) => {
-        const colors = {
-            'check_in': '#4CAF50',
-            'assignment_completed': '#2196F3',
-            'goal_completed': '#FF9800',
-            'message_sent': '#9C27B0',
-            'sos_triggered': '#F44336',
-            'login': '#607D8B',
-            'profile_updated': '#795548'
-        };
-        return colors[type] || '#9E9E9E';
-    };
-
-    // Initialize charts when chart data is ready
-    useEffect(() => {
-        if (chartData && activeTab === 'progress') {
-            setTimeout(() => {
-                renderCharts();
-            }, 100);
-        }
-    }, [chartData, activeTab]);
-
-    const renderCharts = () => {
-        const chartConfig = {
-            type: 'line',
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        max: 10
-                    }
-                }
-            }
-        };
-
-        // Mood Chart
-        const moodCanvas = document.getElementById(`mood-chart-${pirId}`);
-        if (moodCanvas) {
-            new Chart(moodCanvas, {
-                ...chartConfig,
-                data: {
-                    labels: chartData.labels,
-                    datasets: [{
-                        label: 'Mood',
-                        data: chartData.mood,
-                        borderColor: '#4CAF50',
-                        tension: 0.4
-                    }]
-                }
-            });
-        }
-
-        // Similar for other charts...
-    };
+    if (!user) {
+        return null;
+    }
 
     if (loading) {
         return (
@@ -10457,7 +9910,7 @@ function UserDetailModal({ user, onClose, onUpdate }) {
                 }}>
                     <div>
                         <h2 style={{ margin: 0 }}>
-                            {pirData?.firstName} {pirData?.lastName}
+                            {pirData?.firstName} {pirData?.lastName || pirData?.email}
                         </h2>
                         <p style={{ margin: 0, color: '#666' }}>{pirData?.email}</p>
                     </div>
@@ -10480,23 +9933,195 @@ function UserDetailModal({ user, onClose, onUpdate }) {
                     padding: '0 20px',
                     borderBottom: '1px solid #ddd'
                 }}>
-                    {['overview', 'progress', 'activity', 'tasks', 'alerts', 'meetings'].map(tab => (
+                    {['overview', 'activity', 'check-ins', 'tasks'].map(tab => (
                         <button
                             key={tab}
                             className={`tab-btn ${activeTab === tab ? 'active' : ''}`}
                             onClick={() => setActiveTab(tab)}
                         >
-                            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                            {tab.charAt(0).toUpperCase() + tab.slice(1).replace('-', ' ')}
                         </button>
                     ))}
                 </div>
 
                 {/* Content */}
-                <div style={{ flex: 1, overflowY: 'auto', background: '#f5f5f5' }}>
-                    {activeTab === 'overview' && renderOverviewTab()}
-                    {activeTab === 'progress' && renderProgressTab()}
-                    {activeTab === 'activity' && renderActivityTab()}
-                    {/* Add other tabs as needed */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+                    {activeTab === 'overview' && (
+                        <div>
+                            {/* Key Metrics */}
+                            <div style={{ 
+                                display: 'grid', 
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                                gap: '20px',
+                                marginBottom: '30px'
+                            }}>
+                                <div style={{
+                                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                    padding: '20px',
+                                    borderRadius: '15px',
+                                    color: 'white'
+                                }}>
+                                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Sobriety Days</div>
+                                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
+                                        {pirData?.sobrietyDays || 0}
+                                    </div>
+                                </div>
+
+                                <div style={{
+                                    background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                                    padding: '20px',
+                                    borderRadius: '15px',
+                                    color: 'white'
+                                }}>
+                                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Last Login</div>
+                                    <div style={{ fontSize: '20px', fontWeight: 'bold' }}>
+                                        {pirData?.lastLoginFormatted}
+                                    </div>
+                                </div>
+
+                                <div style={{
+                                    background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                                    padding: '20px',
+                                    borderRadius: '15px',
+                                    color: 'white'
+                                }}>
+                                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Active Tasks</div>
+                                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
+                                        {assignments.filter(a => a.status !== 'completed').length}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Profile Information */}
+                            <div style={{
+                                background: 'white',
+                                borderRadius: '15px',
+                                padding: '25px',
+                                marginBottom: '20px'
+                            }}>
+                                <h3>Profile Information</h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                    <div>
+                                        <strong>Name:</strong> {pirData?.firstName} {pirData?.lastName}
+                                    </div>
+                                    <div>
+                                        <strong>Email:</strong> {pirData?.email}
+                                    </div>
+                                    <div>
+                                        <strong>Phone:</strong> {pirData?.phone || 'Not provided'}
+                                    </div>
+                                    <div>
+                                        <strong>Sobriety Date:</strong> {formatDate(pirData?.sobrietyDate)}
+                                    </div>
+                                    <div>
+                                        <strong>Substance:</strong> {pirData?.substance || 'Not specified'}
+                                    </div>
+                                    <div>
+                                        <strong>Account Created:</strong> {formatDate(pirData?.createdAt)}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Emergency Contacts */}
+                            {pirData?.emergencyContacts && pirData.emergencyContacts.length > 0 && (
+                                <div style={{
+                                    background: 'white',
+                                    borderRadius: '15px',
+                                    padding: '25px'
+                                }}>
+                                    <h3>Emergency Contacts</h3>
+                                    {pirData.emergencyContacts.map((contact, index) => (
+                                        <div key={index} style={{
+                                            padding: '10px',
+                                            background: '#f9f9f9',
+                                            borderRadius: '10px',
+                                            marginBottom: '10px'
+                                        }}>
+                                            <strong>{contact.name}</strong> ({contact.relationship}): {contact.phone}
+                                            {contact.isPrimary && <span style={{ marginLeft: '10px', color: '#4CAF50' }}>[PRIMARY]</span>}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {activeTab === 'activity' && (
+                        <div style={{ background: 'white', borderRadius: '15px', padding: '20px' }}>
+                            <h3>Recent Activity</h3>
+                            {activities.length > 0 ? (
+                                activities.map(activity => (
+                                    <div key={activity.id} style={{
+                                        padding: '15px',
+                                        borderBottom: '1px solid #eee'
+                                    }}>
+                                        <strong>{activity.description || activity.type}</strong>
+                                        <div style={{ fontSize: '12px', color: '#666' }}>
+                                            {formatTimeAgo(activity.createdAt)}
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <p>No recent activity</p>
+                            )}
+                        </div>
+                    )}
+
+                    {activeTab === 'check-ins' && (
+                        <div style={{ background: 'white', borderRadius: '15px', padding: '20px' }}>
+                            <h3>Recent Check-ins</h3>
+                            {checkIns.length > 0 ? (
+                                <table style={{ width: '100%' }}>
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Mood</th>
+                                            <th>Craving</th>
+                                            <th>Anxiety</th>
+                                            <th>Sleep</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {checkIns.map(checkIn => (
+                                            <tr key={checkIn.id}>
+                                                <td>{formatDate(checkIn.createdAt)}</td>
+                                                <td>{checkIn.morningData?.mood || '-'}/10</td>
+                                                <td>{checkIn.morningData?.craving || '-'}/10</td>
+                                                <td>{checkIn.morningData?.anxietyLevel || '-'}/10</td>
+                                                <td>{checkIn.morningData?.sleepQuality || '-'}/10</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <p>No check-ins recorded</p>
+                            )}
+                        </div>
+                    )}
+
+                    {activeTab === 'tasks' && (
+                        <div style={{ background: 'white', borderRadius: '15px', padding: '20px' }}>
+                            <h3>Assignments</h3>
+                            {assignments.length > 0 ? (
+                                assignments.map(assignment => (
+                                    <div key={assignment.id} style={{
+                                        padding: '15px',
+                                        borderLeft: `4px solid ${assignment.status === 'completed' ? '#4CAF50' : '#FF9800'}`,
+                                        marginBottom: '10px',
+                                        background: '#f9f9f9'
+                                    }}>
+                                        <strong>{assignment.title}</strong>
+                                        <div>{assignment.description}</div>
+                                        <div style={{ fontSize: '12px', color: '#666' }}>
+                                            Status: {assignment.status} | Due: {formatDate(assignment.dueDate)}
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <p>No assignments</p>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
