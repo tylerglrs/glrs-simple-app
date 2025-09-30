@@ -11802,75 +11802,264 @@ const renderProgressTab = () => (
     </div>
 );
 
-    const renderMilestonesTab = () => (
-        <div style={{ padding: '20px' }}>
-            <h3 style={{ marginBottom: '20px', color: '#333' }}>Recovery Milestones</h3>
+    const renderMilestonesTab = () => {
+    // Calculate milestones based on sobriety date
+    const calculateMilestones = () => {
+        if (!pirData?.sobrietyDate) return [];
+        
+        const sobrietyDate = pirData.sobrietyDate?.toDate ? pirData.sobrietyDate.toDate() : new Date(pirData.sobrietyDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        sobriety.setHours(0, 0, 0, 0);
+        
+        const standardMilestones = [
+            { days: 1, title: '24 Hours', icon: '🌅', description: 'The first day - the hardest step' },
+            { days: 3, title: '3 Days', icon: '💪', description: 'Past the acute phase' },
+            { days: 7, title: 'One Week', icon: '📅', description: 'A full week of sobriety' },
+            { days: 14, title: 'Two Weeks', icon: '🌟', description: 'Building momentum' },
+            { days: 30, title: 'One Month', icon: '📆', description: 'First major milestone' },
+            { days: 60, title: 'Two Months', icon: '🏃', description: 'Establishing new habits' },
+            { days: 90, title: 'Three Months', icon: '🏆', description: 'Quarter year achieved' },
+            { days: 120, title: 'Four Months', icon: '🎯', description: 'Solid foundation built' },
+            { days: 180, title: 'Six Months', icon: '⭐', description: 'Half year milestone' },
+            { days: 365, title: 'One Year', icon: '🎉', description: 'Full year of recovery' },
+            { days: 548, title: '18 Months', icon: '🌈', description: 'A year and a half strong' },
+            { days: 730, title: 'Two Years', icon: '🎊', description: 'Two years of sobriety' },
+            { days: 1095, title: 'Three Years', icon: '🏅', description: 'Three years of growth' },
+            { days: 1825, title: 'Five Years', icon: '👑', description: 'Half a decade of recovery' },
+            { days: 3650, title: 'Ten Years', icon: '💎', description: 'A decade of sobriety' }
+        ];
+        
+        return standardMilestones.map(m => {
+            const targetDate = new Date(sobrietyDate);
+            targetDate.setDate(targetDate.getDate() + m.days);
+            const achieved = today >= targetDate;
+            const daysUntil = Math.ceil((targetDate - today) / (1000 * 60 * 60 * 24));
             
-            {milestones.length > 0 ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
-                    {milestones.map((milestone, index) => (
-                        <div key={milestone.id || index} style={{
-                            background: milestone.achieved ? 
-                                'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)' : 
-                                'white',
-                            borderRadius: '15px',
-                            padding: '20px',
-                            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                            border: milestone.achieved ? 'none' : '2px solid #ddd',
-                            position: 'relative',
-                            overflow: 'hidden'
-                        }}>
-                            {milestone.achieved && (
+            return {
+                ...m,
+                targetDate,
+                achieved,
+                daysUntil: achieved ? 0 : daysUntil,
+                achievedDate: achieved ? targetDate : null,
+                id: `standard-${m.days}`
+            };
+        });
+    };
+    
+    const allMilestones = calculateMilestones();
+    const achievedMilestones = allMilestones.filter(m => m.achieved);
+    const upcomingMilestones = allMilestones.filter(m => !m.achieved).slice(0, 6); // Next 6 upcoming
+    
+    return (
+        <div style={{ padding: '20px' }}>
+            <h3 style={{ marginBottom: '30px', color: '#333' }}>Recovery Milestones</h3>
+            
+            {/* Summary Stats */}
+            <div style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                borderRadius: '15px',
+                padding: '25px',
+                marginBottom: '30px',
+                color: 'white',
+                textAlign: 'center'
+            }}>
+                <div style={{ fontSize: '48px', fontWeight: 'bold', marginBottom: '10px' }}>
+                    {achievedMilestones.length}
+                </div>
+                <div style={{ fontSize: '18px', opacity: 0.9 }}>
+                    Milestones Achieved
+                </div>
+                <div style={{ fontSize: '14px', opacity: 0.8, marginTop: '10px' }}>
+                    {pirData?.sobrietyDays || 0} days of continuous sobriety
+                </div>
+            </div>
+            
+            {/* Achieved Milestones Section */}
+            {achievedMilestones.length > 0 && (
+                <>
+                    <h4 style={{ marginBottom: '20px', color: '#333' }}>Achieved Milestones 🎉</h4>
+                    <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                        gap: '20px',
+                        marginBottom: '40px'
+                    }}>
+                        {achievedMilestones.map((milestone, index) => (
+                            <div key={milestone.id || index} style={{
+                                background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                                borderRadius: '15px',
+                                padding: '20px',
+                                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                position: 'relative',
+                                overflow: 'hidden',
+                                transform: 'scale(1)',
+                                transition: 'transform 0.2s',
+                                cursor: 'pointer'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}>
                                 <div style={{
                                     position: 'absolute',
                                     top: '10px',
                                     right: '10px',
-                                    fontSize: '24px'
+                                    fontSize: '24px',
+                                    color: 'rgba(255,255,255,0.9)'
                                 }}>
                                     ✓
                                 </div>
-                            )}
-                            <div style={{
-                                fontSize: '36px',
-                                marginBottom: '10px',
-                                textAlign: 'center'
-                            }}>
-                                {milestone.icon || '🎯'}
-                            </div>
-                            <h4 style={{
-                                margin: '0 0 10px 0',
-                                color: milestone.achieved ? 'white' : '#333',
-                                textAlign: 'center'
-                            }}>
-                                {milestone.title}
-                            </h4>
-                            {milestone.description && (
+                                <div style={{
+                                    fontSize: '36px',
+                                    marginBottom: '10px',
+                                    textAlign: 'center'
+                                }}>
+                                    {milestone.icon}
+                                </div>
+                                <h5 style={{
+                                    margin: '0 0 10px 0',
+                                    color: 'white',
+                                    textAlign: 'center',
+                                    fontSize: '16px',
+                                    fontWeight: 'bold'
+                                }}>
+                                    {milestone.title}
+                                </h5>
                                 <p style={{
                                     fontSize: '12px',
-                                    color: milestone.achieved ? 'rgba(255,255,255,0.9)' : '#666',
-                                    textAlign: 'center'
+                                    color: 'rgba(255,255,255,0.9)',
+                                    textAlign: 'center',
+                                    margin: '0 0 10px 0'
                                 }}>
                                     {milestone.description}
                                 </p>
-                            )}
-                            <div style={{
-                                marginTop: '10px',
-                                fontSize: '12px',
-                                color: milestone.achieved ? 'rgba(255,255,255,0.8)' : '#999',
-                                textAlign: 'center'
-                            }}>
-                                {milestone.achieved ? 
-                                    `Achieved!` : 
-                                    `In ${milestone.daysUntil} days`}
+                                <div style={{
+                                    fontSize: '11px',
+                                    color: 'rgba(255,255,255,0.8)',
+                                    textAlign: 'center',
+                                    fontWeight: 'bold'
+                                }}>
+                                    Achieved on {formatDate(milestone.achievedDate)}
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
+                </>
+            )}
+            
+            {/* Upcoming Milestones Section */}
+            {upcomingMilestones.length > 0 && (
+                <>
+                    <h4 style={{ marginBottom: '20px', color: '#333' }}>Upcoming Milestones 🎯</h4>
+                    <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                        gap: '20px' 
+                    }}>
+                        {upcomingMilestones.map((milestone, index) => (
+                            <div key={milestone.id || index} style={{
+                                background: 'white',
+                                borderRadius: '15px',
+                                padding: '20px',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                                border: '2px solid #e0e0e0',
+                                position: 'relative',
+                                overflow: 'hidden',
+                                transform: 'scale(1)',
+                                transition: 'all 0.2s',
+                                cursor: 'pointer'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'scale(1.05)';
+                                e.currentTarget.style.borderColor = '#667eea';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'scale(1)';
+                                e.currentTarget.style.borderColor = '#e0e0e0';
+                            }}>
+                                {milestone.daysUntil <= 7 && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: '10px',
+                                        right: '10px',
+                                        background: '#FF9800',
+                                        color: 'white',
+                                        padding: '2px 8px',
+                                        borderRadius: '12px',
+                                        fontSize: '10px',
+                                        fontWeight: 'bold'
+                                    }}>
+                                        SOON!
+                                    </div>
+                                )}
+                                <div style={{
+                                    fontSize: '36px',
+                                    marginBottom: '10px',
+                                    textAlign: 'center',
+                                    opacity: 0.7
+                                }}>
+                                    {milestone.icon}
+                                </div>
+                                <h5 style={{
+                                    margin: '0 0 10px 0',
+                                    color: '#333',
+                                    textAlign: 'center',
+                                    fontSize: '16px',
+                                    fontWeight: 'bold'
+                                }}>
+                                    {milestone.title}
+                                </h5>
+                                <p style={{
+                                    fontSize: '12px',
+                                    color: '#666',
+                                    textAlign: 'center',
+                                    margin: '0 0 15px 0'
+                                }}>
+                                    {milestone.description}
+                                </p>
+                                <div style={{
+                                    background: '#f5f5f5',
+                                    borderRadius: '20px',
+                                    padding: '8px',
+                                    textAlign: 'center'
+                                }}>
+                                    <div style={{
+                                        fontSize: '20px',
+                                        fontWeight: 'bold',
+                                        color: milestone.daysUntil <= 7 ? '#FF9800' : '#667eea'
+                                    }}>
+                                        {milestone.daysUntil}
+                                    </div>
+                                    <div style={{
+                                        fontSize: '11px',
+                                        color: '#999',
+                                        textTransform: 'uppercase'
+                                    }}>
+                                        days to go
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </>
+            )}
+            
+            {allMilestones.length === 0 && (
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '40px',
+                    textAlign: 'center',
+                    color: '#666'
+                }}>
+                    <p>No milestones configured yet</p>
+                    <p style={{ fontSize: '14px', marginTop: '10px' }}>
+                        Milestones will appear once a sobriety date is set
+                    </p>
                 </div>
-            ) : (
-                <p style={{ color: '#666' }}>No milestones configured</p>
             )}
         </div>
     );
+};
 
     const renderCommunicationsTab = () => (
         <div style={{ padding: '20px' }}>
