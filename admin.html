@@ -13225,10 +13225,1184 @@ const renderCommunicationsTab = () => {
         </div>
     </div>
 );
-      
+      // Enhanced Coach Detail Modal with Tabs for admin viewing coaches
+function CoachDetailModal({ coach, onClose, onUpdate, currentUserId }) {
+    const [activeTab, setActiveTab] = useState('overview');
+    const [loading, setLoading] = useState(true);
+    const [coachData, setCoachData] = useState({
+        assignedPIRs: [],
+        activities: [],
+        assignments: [],
+        checkInsReviewed: [],
+        alerts: [],
+        stats: {
+            totalPIRs: 0,
+            avgResponseTime: 0,
+            checkInComplianceRate: 0,
+            assignmentCompletionRate: 0,
+            alertsHandled: 0,
+            avgCaseloadDays: 0,
+            lastActive: null,
+            satisfactionScore: 0
+        }
+    });
 
-       
-        // Initialize App
+    useEffect(() => {
+        if (coach.role === 'coach' || coach.role === 'admin') {
+            loadCoachData();
+        } else {
+            setLoading(false);
+        }
+    }, [coach]);
+
+    const loadCoachData = async () => {
+        try {
+            setLoading(true);
+
+            // Get all PIRs assigned to this coach
+            const pirsSnap = await db.collection('users')
+                .where('assignedCoach', '==', coach.id)
+                .where('role', '==', 'pir')
+                .get();
+
+            const assignedPIRs = [];
+            const pirIds = [];
+            pirsSnap.forEach(doc => {
+                const pirData = { id: doc.id, ...doc.data() };
+                assignedPIRs.push(pirData);
+                pirIds.push(doc.id);
+            });
+
+            // If coach has no PIRs, set empty data
+            if (pirIds.length === 0) {
+                setCoachData({
+                    assignedPIRs: [],
+                    activities: [],
+                    assignments: [],
+                    checkInsReviewed: [],
+                    alerts: [],
+                    stats: {
+                        totalPIRs: 0,
+                        avgResponseTime: 0,
+                        checkInComplianceRate: 0,
+                        assignmentCompletionRate: 0,
+                        alertsHandled: 0,
+                        avgCaseloadDays: 0,
+                        lastActive: coach.lastActive || null,
+                        satisfactionScore: 0
+                    }
+                });
+                setLoading(false);
+                return;
+            }
+
+            // Get assignments created by this coach
+            const assignmentsSnap = await db.collection('assignments')
+                .where('createdBy', '==', coach.id)
+                .limit(50)
+                .get();
+
+            const assignments = [];
+            let completedAssignments = 0;
+            assignmentsSnap.forEach(doc => {
+                const data = { id: doc.id, ...doc.data() };
+                assignments.push(data);
+                if (data.status === 'completed') completedAssignments++;
+            });
+
+            // Get recent check-ins for coach's PIRs (last 30 days)
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            
+            // We'll need to batch query for PIR check-ins
+            const checkInsPromises = pirIds.map(pirId => 
+                db.collection('checkIns')
+                    .where('userId', '==', pirId)
+                    .where('createdAt', '>=', thirtyDaysAgo)
+                    .get()
+            );
+
+            const checkInsSnapshots = await Promise.all(checkInsPromises);
+            const allCheckIns = [];
+            checkInsSnapshots.forEach(snapshot => {
+                snapshot.forEach(doc => {
+                    allCheckIns.push({ id: doc.id, ...doc.data() });
+                });
+            });
+
+            // Get alerts for coach's PIRs
+            const alertsPromises = pirIds.map(pirId =>
+                db.collection('alerts')
+                    .where('userId', '==', pirId)
+                    .limit(10)
+                    .get()
+            );
+
+            const alertsSnapshots = await Promise.all(alertsPromises);
+            const alerts = [];
+            alertsSnapshots.forEach(snapshot => {
+                snapshot.forEach(doc => {
+                    alerts.push({ id: doc.id, ...doc.data() });
+                });
+            });
+
+            // Calculate statistics
+            const now = new Date();
+            const checkInComplianceRate = assignedPIRs.length > 0 ? 
+                Math.round((allCheckIns.length / (assignedPIRs.length * 30)) * 100) : 0;
+
+            const assignmentCompletionRate = assignments.length > 0 ?
+                Math.round((completedAssignments / assignments.length) * 100) : 0;
+
+            // Calculate average days with coach
+            let totalDays = 0;
+            assignedPIRs.forEach(pir => {
+                if (pir.assignedDate) {
+                    const assignedDate = pir.assignedDate.toDate ? pir.assignedDate.toDate() : new Date(pir.assignedDate);
+                    totalDays += Math.floor((now - assignedDate) / (1000 * 60 * 60 * 24));
+                }
+            });
+            const avgCaseloadDays = assignedPIRs.length > 0 ? Math.round(totalDays / assignedPIRs.length) : 0;
+
+            // Get feedback scores for satisfaction
+            const feedbackPromises = pirIds.map(pirId =>
+                db.collection('feedback')
+                    .where('userId', '==', pirId)
+                    .where('type', '==', 'coach_rating')
+                    .get()
+            );
+
+            const feedbackSnapshots = await Promise.all(feedbackPromises);
+            let totalRating = 0;
+            let ratingCount = 0;
+            feedbackSnapshots.forEach(snapshot => {
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.rating) {
+                        totalRating += data.rating;
+                        ratingCount++;
+                    }
+                });
+            });
+            const satisfactionScore = ratingCount > 0 ? (totalRating / ratingCount).toFixed(1) : 0;
+
+            // Sort data by date
+            assignments.sort((a, b) => {
+                const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+                const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+                return dateB - dateA;
+            });
+
+            alerts.sort((a, b) => {
+                const dateA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
+                const dateB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
+                return dateB - dateA;
+            });
+
+            setCoachData({
+                assignedPIRs,
+                activities: [], // Would need activity logging to populate
+                assignments,
+                checkInsReviewed: allCheckIns,
+                alerts,
+                stats: {
+                    totalPIRs: assignedPIRs.length,
+                    avgResponseTime: 0, // Would need response tracking
+                    checkInComplianceRate,
+                    assignmentCompletionRate,
+                    alertsHandled: alerts.filter(a => a.status === 'resolved').length,
+                    avgCaseloadDays,
+                    lastActive: coach.lastActive || null,
+                    satisfactionScore
+                }
+            });
+
+        } catch (error) {
+            console.error('Error loading coach data:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAssignPIR = async () => {
+        const pirEmail = prompt('Enter PIR email to assign:');
+        if (pirEmail) {
+            try {
+                // Find PIR by email
+                const pirQuery = await db.collection('users')
+                    .where('email', '==', pirEmail)
+                    .where('role', '==', 'pir')
+                    .limit(1)
+                    .get();
+
+                if (pirQuery.empty) {
+                    alert('PIR not found');
+                    return;
+                }
+
+                const pirDoc = pirQuery.docs[0];
+                await pirDoc.ref.update({
+                    assignedCoach: coach.id,
+                    assignedDate: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                alert('PIR assigned successfully!');
+                loadCoachData();
+            } catch (error) {
+                console.error('Error assigning PIR:', error);
+                alert('Failed to assign PIR');
+            }
+        }
+    };
+
+    const handleRemovePIR = async (pirId) => {
+        if (confirm('Remove this PIR from coach?')) {
+            try {
+                await db.collection('users').doc(pirId).update({
+                    assignedCoach: null,
+                    assignedDate: null
+                });
+                alert('PIR removed from coach');
+                loadCoachData();
+            } catch (error) {
+                console.error('Error removing PIR:', error);
+                alert('Failed to remove PIR');
+            }
+        }
+    };
+
+    const handleExportReport = () => {
+        const report = {
+            coach: {
+                name: coach.displayName || coach.email,
+                email: coach.email,
+                role: coach.role,
+                lastActive: coach.lastActive
+            },
+            stats: coachData.stats,
+            assignedPIRs: coachData.assignedPIRs.map(pir => ({
+                name: pir.displayName || pir.email,
+                email: pir.email,
+                daysWithCoach: pir.assignedDate ? 
+                    Math.floor((new Date() - new Date(pir.assignedDate)) / (1000 * 60 * 60 * 24)) : 0,
+                lastCheckIn: pir.lastCheckIn
+            })),
+            recentAssignments: coachData.assignments.slice(0, 20).map(a => ({
+                title: a.title,
+                status: a.status,
+                createdAt: formatDate(a.createdAt)
+            }))
+        };
+
+        const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `coach-report-${coach.email}-${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const renderOverviewTab = () => (
+        <div className="tab-content">
+            <div className="stats-grid">
+                <div className="stat-card">
+                    <div className="stat-label">Total PIRs</div>
+                    <div className="stat-value" style={{fontSize: '2em'}}>
+                        {coachData.stats.totalPIRs}
+                    </div>
+                </div>
+                
+                <div className="stat-card">
+                    <div className="stat-label">PIR Compliance Rate</div>
+                    <div className="stat-value" style={{fontSize: '2em', 
+                        color: coachData.stats.checkInComplianceRate >= 70 ? '#4CAF50' : '#ff9800'}}>
+                        {coachData.stats.checkInComplianceRate}%
+                    </div>
+                    <div className="stat-sublabel">Check-ins last 30 days</div>
+                </div>
+                
+                <div className="stat-card">
+                    <div className="stat-label">Assignment Completion</div>
+                    <div className="stat-value" style={{fontSize: '2em'}}>
+                        {coachData.stats.assignmentCompletionRate}%
+                    </div>
+                </div>
+                
+                <div className="stat-card">
+                    <div className="stat-label">Satisfaction Score</div>
+                    <div className="stat-value" style={{fontSize: '2em'}}>
+                        {coachData.stats.satisfactionScore}/5
+                    </div>
+                </div>
+            </div>
+
+            <div className="info-section">
+                <h4>Coach Information</h4>
+                <div className="info-grid">
+                    <div><strong>Email:</strong> {coach.email}</div>
+                    <div><strong>Name:</strong> {coach.displayName || 'N/A'}</div>
+                    <div><strong>Role:</strong> {coach.role}</div>
+                    <div><strong>Status:</strong> 
+                        <span className={`badge ${coach.active !== false ? 'badge-success' : 'badge-danger'}`}>
+                            {coach.active !== false ? 'Active' : 'Inactive'}
+                        </span>
+                    </div>
+                    <div><strong>Last Active:</strong> {coach.lastActive ? formatTimeAgo(coach.lastActive) : 'N/A'}</div>
+                    <div><strong>Joined:</strong> {formatDate(coach.createdAt)}</div>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderCaseloadTab = () => (
+        <div className="tab-content">
+            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '20px'}}>
+                <h4>Assigned PIRs ({coachData.assignedPIRs.length})</h4>
+                <button className="btn btn-primary" onClick={handleAssignPIR}>
+                    + Assign PIR
+                </button>
+            </div>
+            
+            <div className="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>PIR Name</th>
+                            <th>Email</th>
+                            <th>Days with Coach</th>
+                            <th>Last Check-in</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {coachData.assignedPIRs.map(pir => {
+                            const daysWithCoach = pir.assignedDate ? 
+                                Math.floor((new Date() - new Date(pir.assignedDate)) / (1000 * 60 * 60 * 24)) : 0;
+                            
+                            return (
+                                <tr key={pir.id}>
+                                    <td>{pir.displayName || 'N/A'}</td>
+                                    <td>{pir.email}</td>
+                                    <td>{daysWithCoach} days</td>
+                                    <td>{pir.lastCheckIn ? formatTimeAgo(pir.lastCheckIn) : 'Never'}</td>
+                                    <td>
+                                        <span className={`badge ${pir.active !== false ? 'badge-success' : 'badge-danger'}`}>
+                                            {pir.active !== false ? 'Active' : 'Inactive'}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button 
+                                            className="action-btn"
+                                            onClick={() => handleRemovePIR(pir.id)}
+                                        >
+                                            Remove
+                                        </button>
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+                {coachData.assignedPIRs.length === 0 && (
+                    <div className="empty-state">No PIRs assigned to this coach</div>
+                )}
+            </div>
+        </div>
+    );
+
+    const renderActivityTab = () => (
+        <div className="tab-content">
+            <h4>Recent Activity</h4>
+            
+            <div className="activity-section">
+                <h5>Recent Assignments Created ({coachData.assignments.length})</h5>
+                {coachData.assignments.slice(0, 10).map(assignment => (
+                    <div key={assignment.id} className="activity-item">
+                        <div className="activity-header">
+                            <span className="activity-title">{assignment.title}</span>
+                            <span className="activity-time">{formatTimeAgo(assignment.createdAt)}</span>
+                        </div>
+                        <div className="activity-meta">
+                            Status: <span className={`badge ${
+                                assignment.status === 'completed' ? 'badge-success' :
+                                assignment.status === 'in_progress' ? 'badge-warning' :
+                                'badge-secondary'
+                            }`}>{assignment.status}</span>
+                        </div>
+                    </div>
+                ))}
+                {coachData.assignments.length === 0 && (
+                    <div className="empty-state">No assignments created</div>
+                )}
+            </div>
+
+            <div className="activity-section">
+                <h5>Alerts from PIRs</h5>
+                {coachData.alerts.slice(0, 10).map(alert => (
+                    <div key={alert.id} className={`alert alert-${alert.type}`}>
+                        <div className="alert-header">
+                            <span className="alert-type">{alert.type.toUpperCase()}</span>
+                            <span className="alert-time">{formatTimeAgo(alert.timestamp)}</span>
+                        </div>
+                        <div className="alert-message">{alert.message}</div>
+                    </div>
+                ))}
+                {coachData.alerts.length === 0 && (
+                    <div className="empty-state">No alerts</div>
+                )}
+            </div>
+        </div>
+    );
+
+    const renderPerformanceTab = () => (
+        <div className="tab-content">
+            <h4>Performance Metrics</h4>
+            
+            <div className="performance-grid">
+                <div className="metric-card">
+                    <h5>PIR Outcomes</h5>
+                    <div className="metric-item">
+                        <span>Average Days with Coach:</span>
+                        <strong>{coachData.stats.avgCaseloadDays} days</strong>
+                    </div>
+                    <div className="metric-item">
+                        <span>Alerts Handled:</span>
+                        <strong>{coachData.stats.alertsHandled}</strong>
+                    </div>
+                </div>
+
+                <div className="metric-card">
+                    <h5>Engagement</h5>
+                    <div className="metric-item">
+                        <span>Assignments Created:</span>
+                        <strong>{coachData.assignments.length}</strong>
+                    </div>
+                    <div className="metric-item">
+                        <span>Completion Rate:</span>
+                        <strong>{coachData.stats.assignmentCompletionRate}%</strong>
+                    </div>
+                </div>
+
+                <div className="metric-card">
+                    <h5>Quality Indicators</h5>
+                    <div className="metric-item">
+                        <span>PIR Satisfaction:</span>
+                        <strong>{coachData.stats.satisfactionScore}/5</strong>
+                    </div>
+                    <div className="metric-item">
+                        <span>Check-in Compliance:</span>
+                        <strong>{coachData.stats.checkInComplianceRate}%</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderWorkloadTab = () => (
+        <div className="tab-content">
+            <h4>Workload Analysis</h4>
+            
+            <div className="workload-section">
+                <div className="workload-card">
+                    <h5>Current Capacity</h5>
+                    <div className="capacity-meter">
+                        <div className="capacity-bar" style={{
+                            width: `${Math.min(coachData.stats.totalPIRs * 10, 100)}%`,
+                            backgroundColor: coachData.stats.totalPIRs > 10 ? '#ff9800' : '#4CAF50'
+                        }}></div>
+                    </div>
+                    <p>{coachData.stats.totalPIRs} PIRs assigned (Recommended max: 10)</p>
+                </div>
+
+                <div className="workload-card">
+                    <h5>PIR Distribution</h5>
+                    {coachData.assignedPIRs.map(pir => {
+                        const daysClean = pir.sobrietyDate ? 
+                            Math.floor((new Date() - new Date(pir.sobrietyDate)) / (1000 * 60 * 60 * 24)) : 0;
+                        
+                        return (
+                            <div key={pir.id} className="pir-workload-item">
+                                <span>{pir.displayName || pir.email}</span>
+                                <span className="badge badge-info">{daysClean} days clean</span>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div className="workload-recommendations">
+                    <h5>Recommendations</h5>
+                    {coachData.stats.totalPIRs > 10 && (
+                        <div className="recommendation-item">
+                            ⚠️ Consider redistributing caseload - coach has more than 10 PIRs
+                        </div>
+                    )}
+                    {coachData.stats.checkInComplianceRate < 50 && (
+                        <div className="recommendation-item">
+                            ⚠️ Low check-in compliance - coach may need support or training
+                        </div>
+                    )}
+                    {coachData.stats.totalPIRs === 0 && (
+                        <div className="recommendation-item">
+                            ℹ️ Coach has no assigned PIRs - ready for new assignments
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderActionsTab = () => (
+        <div className="tab-content">
+            <h4>Admin Actions</h4>
+            <div className="actions-grid">
+                <button className="action-card" onClick={handleAssignPIR}>
+                    <span className="action-icon">➕</span>
+                    <span>Assign PIR</span>
+                </button>
+                
+                <button className="action-card" onClick={handleExportReport}>
+                    <span className="action-icon">📊</span>
+                    <span>Export Report</span>
+                </button>
+                
+                <button className="action-card" onClick={() => {
+                    const newStatus = coach.active === false ? true : false;
+                    db.collection('users').doc(coach.id).update({ active: newStatus })
+                        .then(() => {
+                            alert(`Coach ${newStatus ? 'activated' : 'deactivated'}`);
+                            onUpdate();
+                        });
+                }}>
+                    <span className="action-icon">{coach.active !== false ? '🚫' : '✅'}</span>
+                    <span>{coach.active !== false ? 'Deactivate' : 'Activate'}</span>
+                </button>
+                
+                <button className="action-card" onClick={() => loadCoachData()}>
+                    <span className="action-icon">🔄</span>
+                    <span>Refresh Data</span>
+                </button>
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="modal-overlay">
+            <div className="modal-content" style={{maxWidth: '900px', maxHeight: '80vh', overflowY: 'auto'}}>
+                <div className="modal-header">
+                    <h3>{coach.displayName || coach.email} - Coach View</h3>
+                    <button className="close-btn" onClick={onClose}>×</button>
+                </div>
+                
+                {coach.role === 'coach' || coach.role === 'admin' ? (
+                    <>
+                        <div className="tab-nav">
+                            <button 
+                                className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('overview')}
+                            >
+                                Overview
+                            </button>
+                            <button 
+                                className={`tab-btn ${activeTab === 'caseload' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('caseload')}
+                            >
+                                Caseload
+                            </button>
+                            <button 
+                                className={`tab-btn ${activeTab === 'activity' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('activity')}
+                            >
+                                Activity
+                            </button>
+                            <button 
+                                className={`tab-btn ${activeTab === 'performance' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('performance')}
+                            >
+                                Performance
+                            </button>
+                            <button 
+                                className={`tab-btn ${activeTab === 'workload' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('workload')}
+                            >
+                                Workload
+                            </button>
+                            <button 
+                                className={`tab-btn ${activeTab === 'actions' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('actions')}
+                            >
+                                Actions
+                            </button>
+                        </div>
+                        
+                        {loading ? (
+                            <div className="loading-container">
+                                <div className="loading-spinner"></div>
+                            </div>
+                        ) : (
+                            <>
+                                {activeTab === 'overview' && renderOverviewTab()}
+                                {activeTab === 'caseload' && renderCaseloadTab()}
+                                {activeTab === 'activity' && renderActivityTab()}
+                                {activeTab === 'performance' && renderPerformanceTab()}
+                                {activeTab === 'workload' && renderWorkloadTab()}
+                                {activeTab === 'actions' && renderActionsTab()}
+                            </>
+                        )}
+                    </>
+                ) : (
+                    <div className="modal-body">
+                        <p>This user is not a coach.</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+        function CreateGroupModal({ onClose, onSuccess, adminId }) {
+            const [formData, setFormData] = useState({
+                name: '',
+                description: '',
+                dayOfWeek: 'Monday',
+                time: '18:00',
+                recurring: true,
+                link: '',
+                members: []
+            });
+            const [loading, setLoading] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                
+                try {
+                    await db.collection('groups').add({
+                        ...formData,
+                        coachId: adminId,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        nextMeeting: calculateNextMeeting(formData.dayOfWeek, formData.time),
+                        attendance: {}
+                    });
+                    
+                    alert('Group created successfully!');
+                    onSuccess();
+                } catch (error) {
+                    console.error('Error creating group:', error);
+                    alert('Failed to create group');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const calculateNextMeeting = (dayOfWeek, time) => {
+                const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                const targetDay = days.indexOf(dayOfWeek);
+                const now = new Date();
+                const currentDay = now.getDay();
+                
+                let daysUntilTarget = targetDay - currentDay;
+                if (daysUntilTarget <= 0) {
+                    daysUntilTarget += 7;
+                }
+                
+                const nextMeeting = new Date();
+                nextMeeting.setDate(nextMeeting.getDate() + daysUntilTarget);
+                const [hours, minutes] = time.split(':');
+                nextMeeting.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+                
+                return nextMeeting;
+            };
+
+            return (
+                <div className="modal-overlay">
+                    <div className="modal">
+                        <div className="modal-header">
+                            <div className="modal-title">Create New Group</div>
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                        
+                        <form onSubmit={handleSubmit}>
+                            <div className="form-group">
+                                <label className="form-label">Group Name *</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={formData.name}
+                                    onChange={(e) => setFormData({...formData, name: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Description *</label>
+                                <textarea
+                                    className="form-input"
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            
+                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
+                                <div className="form-group">
+                                    <label className="form-label">Day of Week *</label>
+                                    <select 
+                                        className="form-input"
+                                        value={formData.dayOfWeek}
+                                        onChange={(e) => setFormData({...formData, dayOfWeek: e.target.value})}
+                                        required
+                                    >
+                                        <option value="Monday">Monday</option>
+                                        <option value="Tuesday">Tuesday</option>
+                                        <option value="Wednesday">Wednesday</option>
+                                        <option value="Thursday">Thursday</option>
+                                        <option value="Friday">Friday</option>
+                                        <option value="Saturday">Saturday</option>
+                                        <option value="Sunday">Sunday</option>
+                                    </select>
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label className="form-label">Time *</label>
+                                    <input
+                                        type="time"
+                                        className="form-input"
+                                        value={formData.time}
+                                        onChange={(e) => setFormData({...formData, time: e.target.value})}
+                                        required
+                                    />
+                                </div>
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Meeting Link (optional)</label>
+                                <input
+                                    type="url"
+                                    className="form-input"
+                                    placeholder="https://zoom.us/..."
+                                    value={formData.link}
+                                    onChange={(e) => setFormData({...formData, link: e.target.value})}
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <div className="checkbox-group">
+                                    <input
+                                        type="checkbox"
+                                        id="recurring"
+                                        checked={formData.recurring}
+                                        onChange={(e) => setFormData({...formData, recurring: e.target.checked})}
+                                    />
+                                    <label htmlFor="recurring">Recurring Weekly</label>
+                                </div>
+                            </div>
+                            
+                            <div style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
+                                <button 
+                                    type="submit"
+                                    className="btn btn-primary"
+                                    disabled={loading}
+                                >
+                                    {loading ? 'Creating...' : 'Create Group'}
+                                </button>
+                                <button 
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={onClose}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        }
+ function GroupDetailModal({ group, onClose, onUpdate }) {
+            const [addingMember, setAddingMember] = useState(false);
+            const [newMemberEmail, setNewMemberEmail] = useState('');
+
+            const addMember = async () => {
+                if (!newMemberEmail) return;
+                
+                setAddingMember(true);
+                try {
+                    const userSnap = await db.collection('users')
+                        .where('email', '==', newMemberEmail)
+                        .get();
+                    
+                    if (userSnap.empty) {
+                        alert('User not found');
+                        return;
+                    }
+                    
+                    const userId = userSnap.docs[0].id;
+                    const members = group.members || [];
+                    
+                    if (members.includes(userId)) {
+                        alert('User is already a member');
+                        return;
+                    }
+                    
+                    members.push(userId);
+                    
+                    await db.collection('groups').doc(group.id).update({
+                        members: members
+                    });
+                    
+                    alert('Member added successfully');
+                    setNewMemberEmail('');
+                    onUpdate();
+                } catch (error) {
+                    console.error('Error adding member:', error);
+                    alert('Failed to add member');
+                } finally {
+                    setAddingMember(false);
+                }
+            };
+
+            return (
+                <div className="modal-overlay">
+                    <div className="modal">
+                        <div className="modal-header">
+                            <div className="modal-title">{group.name}</div>
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                        
+                        <p style={{marginBottom: '20px'}}>{group.description}</p>
+                        
+                        <div style={{marginBottom: '20px'}}>
+                            <strong>Schedule:</strong> {group.dayOfWeek} at {group.time}
+                            {group.recurring && ' (Recurring)'}
+                        </div>
+                        
+                        {group.link && (
+                            <div style={{marginBottom: '20px'}}>
+                                <strong>Meeting Link:</strong>{' '}
+                                <a href={group.link} target="_blank" rel="noopener noreferrer" style={{color: '#f4c430'}}>
+                                    {group.link}
+                                </a>
+                            </div>
+                        )}
+                        
+                        <div style={{marginBottom: '20px'}}>
+                            <h4 style={{marginBottom: '15px'}}>Members ({group.membersData?.length || 0})</h4>
+                            
+                            {group.membersData?.map(member => (
+                                <div key={member.id} style={{
+                                    padding: '10px',
+                                    background: 'rgba(255,255,255,0.05)',
+                                    borderRadius: '10px',
+                                    marginBottom: '10px'
+                                }}>
+                                    {member.name}
+                                </div>
+                            ))}
+                            
+                            <div style={{display: 'flex', gap: '10px', marginTop: '15px'}}>
+                                <input
+                                    type="email"
+                                    className="form-input"
+                                    placeholder="Enter member email..."
+                                    value={newMemberEmail}
+                                    onChange={(e) => setNewMemberEmail(e.target.value)}
+                                />
+                                <button 
+                                    className="btn btn-primary"
+                                    onClick={addMember}
+                                    disabled={addingMember}
+                                >
+                                    {addingMember ? 'Adding...' : 'Add Member'}
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <button className="btn btn-secondary" onClick={onClose}>Close</button>
+                    </div>
+                </div>
+            );
+        }
+
+        function CreateResourceModal({ onClose, onSuccess }) {
+            const [formData, setFormData] = useState({
+                title: '',
+                description: '',
+                type: 'Link',
+                url: '',
+                content: '',
+                category: 'General',
+                isGlobal: true,
+                assignedTo: []
+            });
+            const [file, setFile] = useState(null);
+            const [uploadProgress, setUploadProgress] = useState(0);
+            const [loading, setLoading] = useState(false);
+
+            const handleFileChange = (e) => {
+                const selectedFile = e.target.files[0];
+                if (selectedFile) {
+                    // Check file size (10MB limit)
+                    if (selectedFile.size > 10 * 1024 * 1024) {
+                        alert('File size must be less than 10MB');
+                        return;
+                    }
+                    
+                    // Check file type
+                    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+                    if (!allowedTypes.includes(selectedFile.type)) {
+                        alert('Only PDF and image files are allowed');
+                        return;
+                    }
+                    
+                    setFile(selectedFile);
+                }
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                
+                try {
+                    const resourceData = {
+                        ...formData,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        createdBy: auth.currentUser.uid
+                    };
+                    
+                    // If file upload is needed
+                    if (file && formData.type !== 'Link') {
+                        const resourceRef = db.collection('resources').doc();
+                        const storageRef = storage.ref(`resources/${resourceRef.id}/${file.name}`);
+                        
+                        // Upload file with progress tracking
+                        const uploadTask = storageRef.put(file);
+                        
+                        uploadTask.on('state_changed',
+                            (snapshot) => {
+                                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                                setUploadProgress(progress);
+                            },
+                            (error) => {
+                                console.error('Upload error:', error);
+                                alert('Failed to upload file');
+                                setLoading(false);
+                            },
+                            async () => {
+                                // Get download URL
+                                const downloadURL = await uploadTask.snapshot.ref.getDownloadURL();
+                                resourceData.fileURL = downloadURL;
+                                resourceData.fileName = file.name;
+                                
+                                // Save to Firestore
+                                await resourceRef.set(resourceData);
+                                alert('Resource created successfully!');
+                                onSuccess();
+                            }
+                        );
+                    } else {
+                        // No file upload, just save data
+                        await db.collection('resources').add(resourceData);
+                        alert('Resource created successfully!');
+                        onSuccess();
+                    }
+                } catch (error) {
+                    console.error('Error creating resource:', error);
+                    alert('Failed to create resource');
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="modal-overlay">
+                    <div className="modal">
+                        <div className="modal-header">
+                            <div className="modal-title">Add New Resource</div>
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                        
+                        <form onSubmit={handleSubmit}>
+                            <div className="form-group">
+                                <label className="form-label">Title *</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={formData.title}
+                                    onChange={(e) => setFormData({...formData, title: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Description *</label>
+                                <textarea
+                                    className="form-input"
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            
+                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
+                                <div className="form-group">
+                                    <label className="form-label">Type *</label>
+                                    <select 
+                                        className="form-input"
+                                        value={formData.type}
+                                        onChange={(e) => setFormData({...formData, type: e.target.value})}
+                                        required
+                                    >
+                                        <option value="Link">Link</option>
+                                        <option value="PDF">PDF</option>
+                                        <option value="Video">Video</option>
+                                        <option value="Article">Article</option>
+                                        <option value="Audio">Audio</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label className="form-label">Category</label>
+                                    <select 
+                                        className="form-input"
+                                        value={formData.category}
+                                        onChange={(e) => setFormData({...formData, category: e.target.value})}
+                                    >
+                                        <option value="General">General</option>
+                                        <option value="Educational">Educational</option>
+                                        <option value="Motivational">Motivational</option>
+                                        <option value="Tools">Tools</option>
+                                        <option value="Exercises">Exercises</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            {formData.type === 'Link' ? (
+                                <div className="form-group">
+                                    <label className="form-label">URL *</label>
+                                    <input
+                                        type="url"
+                                        className="form-input"
+                                        value={formData.url}
+                                        onChange={(e) => setFormData({...formData, url: e.target.value})}
+                                        required
+                                    />
+                                </div>
+                            ) : (
+                                <div className="form-group">
+                                    <label className="form-label">Upload File (Max 10MB)</label>
+                                    <input
+                                        type="file"
+                                        className="form-input"
+                                        onChange={handleFileChange}
+                                        accept=".pdf,image/*"
+                                    />
+                                    {uploadProgress > 0 && uploadProgress < 100 && (
+                                        <div style={{marginTop: '10px'}}>
+                                            <div className="progress-bar">
+                                                <div className="progress-fill" style={{width: `${uploadProgress}%`}}></div>
+                                            </div>
+                                            <div style={{fontSize: '12px', marginTop: '5px'}}>
+                                                Uploading: {Math.round(uploadProgress)}%
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            
+                            {formData.type !== 'Link' && (
+                                <div className="form-group">
+                                    <label className="form-label">Additional Content/Notes</label>
+                                    <textarea
+                                        className="form-input"
+                                        value={formData.content}
+                                        onChange={(e) => setFormData({...formData, content: e.target.value})}
+                                        placeholder="Add any additional notes or instructions..."
+                                        rows="3"
+                                    />
+                                </div>
+                            )}
+                            
+                            <div className="form-group">
+                                <div className="checkbox-group">
+                                    <input
+                                        type="checkbox"
+                                        id="isGlobal"
+                                        checked={formData.isGlobal}
+                                        onChange={(e) => setFormData({...formData, isGlobal: e.target.checked})}
+                                    />
+                                    <label htmlFor="isGlobal">Available to all PIRs</label>
+                                </div>
+                            </div>
+                            
+                            <div style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
+                                <button 
+                                    type="submit"
+                                    className="btn btn-primary"
+                                    disabled={loading}
+                                >
+                                    {loading ? 'Creating...' : 'Create Resource'}
+                                </button>
+                                <button 
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={onClose}
+                                    disabled={loading}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        }
+
+        function ResourceDetailModal({ resource, onClose }) {
+            return (
+                <div className="modal-overlay">
+                    <div className="modal">
+                        <div className="modal-header">
+                            <div className="modal-title">{resource.title}</div>
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                        
+                        <div style={{marginBottom: '20px'}}>
+                            <span className="badge badge-info">{resource.type}</span>
+                            <span className="badge badge-info" style={{marginLeft: '10px'}}>{resource.category}</span>
+                        </div>
+                        
+                        <p style={{marginBottom: '20px'}}>{resource.description}</p>
+                        
+                        {(resource.url || resource.fileURL) && (
+                            <div style={{marginBottom: '20px'}}>
+                                <a 
+                                    href={resource.url || resource.fileURL}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="btn btn-primary"
+                                >
+                                    Open Resource
+                                </a>
+                            </div>
+                        )}
+                        
+                        {resource.content && (
+                            <div style={{
+                                padding: '20px',
+                                background: 'rgba(255,255,255,0.05)',
+                                borderRadius: '10px',
+                                whiteSpace: 'pre-wrap'
+                            }}>
+                                {resource.content}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }     
+    // Initialize App
         ReactDOM.render(<AdminApp />, document.getElementById('root'));
     </script>
 </body>
