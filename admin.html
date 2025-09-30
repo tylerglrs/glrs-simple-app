@@ -10027,6 +10027,49 @@ const formatDate = (date) => {
     });
 };
 
+    const getLastLoginFormatted = async (userId, userData) => {
+        try {
+            // Try to get from user document first
+            if (userData.lastLogin) {
+                const lastLogin = userData.lastLogin.toDate ? userData.lastLogin.toDate() : new Date(userData.lastLogin);
+                return lastLogin.toLocaleString('en-US', { 
+                    month: 'short', 
+                    day: 'numeric', 
+                    year: 'numeric',
+                    hour: 'numeric', 
+                    minute: '2-digit', 
+                    hour12: true 
+                });
+            }
+            
+            // Check activities for last login
+            const loginActivity = await db.collection('activities')
+                .where('userId', '==', userId)
+                .where('type', '==', 'login')
+                .orderBy('createdAt', 'desc')
+                .limit(1)
+                .get();
+            
+            if (!loginActivity.empty) {
+                const lastLogin = loginActivity.docs[0].data().createdAt.toDate();
+                return lastLogin.toLocaleString('en-US', { 
+                    month: 'short', 
+                    day: 'numeric', 
+                    year: 'numeric',
+                    hour: 'numeric', 
+                    minute: '2-digit', 
+                    hour12: true 
+                });
+            }
+            
+            return 'No login recorded';
+        } catch (error) {
+            console.error('Error getting last login:', error);
+            return 'Unable to determine';
+        }
+    };
+
+
     const formatFirstLogin = (createdAt) => {
         if (!createdAt) return 'Unknown';
         const date = createdAt.toDate ? createdAt.toDate() : new Date(createdAt);
