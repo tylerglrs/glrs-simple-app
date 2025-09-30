@@ -5882,25 +5882,23 @@ function CreateGoalModal({ type, selectedPIR, selectedParent, onSubmit, onClose 
             );
         }
 
-        // Enhanced Resources Management View - Updated for 6 Categories
+       // Modern Enhanced Resources Management View - Resources Only
 function ResourcesView({ user, searchQuery }) {
-    const [activeTab, setActiveTab] = useState('resources');
     const [loading, setLoading] = useState(true);
     const [resources, setResources] = useState([]);
-    const [meetings, setMeetings] = useState([]);
-    const [emergencyContacts, setEmergencyContacts] = useState([]);
     const [filteredItems, setFilteredItems] = useState([]);
     const [showCreateModal, setShowCreateModal] = useState(false);
-    const [modalType, setModalType] = useState(''); // resource, meeting, emergency
     const [selectedItem, setSelectedItem] = useState(null);
     const [filterCategory, setFilterCategory] = useState('all');
-    const [allPIRs, setAllPIRs] = useState([]); // For PIR selection dropdown
+    const [allPIRs, setAllPIRs] = useState([]);
     const [stats, setStats] = useState({
-        totalResources: 0,
-        totalMeetings: 0,
-        featuredCount: 0,
-        totalViews: 0
+        activeResources: 0,
+        pirAssignments: 0,
+        completionRate: 0,
+        engagementScore: 0,
+        categoryBreakdown: {}
     });
+    const [topResources, setTopResources] = useState([]);
 
     useEffect(() => {
         loadResourcesData();
@@ -5909,7 +5907,7 @@ function ResourcesView({ user, searchQuery }) {
 
     useEffect(() => {
         filterItems();
-    }, [searchQuery, resources, meetings, emergencyContacts, activeTab, filterCategory]);
+    }, [searchQuery, resources, filterCategory]);
 
     const loadPIRs = async () => {
         try {
@@ -5936,47 +5934,97 @@ function ResourcesView({ user, searchQuery }) {
         try {
             setLoading(true);
 
-            // Load resources
+            // Load all resources
             const resourcesSnap = await db.collection('resources')
                 .orderBy('addedAt', 'desc')
                 .get();
             
             const resourcesData = [];
+            let activeCount = 0;
+            let assignedCount = 0;
             let totalViews = 0;
-            let featuredCount = 0;
+            let completedCount = 0;
+            let totalAssigned = 0;
+            const categoryCount = {
+                coping: 0,
+                relapse: 0,
+                daily: 0,
+                education: 0,
+                support: 0,
+                life: 0
+            };
+            const resourceViewCounts = [];
             
             for (const doc of resourcesSnap.docs) {
                 const data = { id: doc.id, ...doc.data() };
                 
+                // Count active resources
+                if (data.active) activeCount++;
+                
+                // Count PIR assignments
+                if (data.assignedTo && data.assignedTo.length > 0) {
+                    assignedCount += data.assignedTo.length;
+                    totalAssigned++;
+                }
+                
+                // Category breakdown
+                if (data.category && categoryCount[data.category] !== undefined) {
+                    categoryCount[data.category]++;
+                }
+                
                 // Count views from subcollections
-                const viewsSnap = await db.collectionGroup('resourceViews')
-                    .where('resourceId', '==', doc.id)
-                    .get();
-                data.viewCount = viewsSnap.size;
+                try {
+                    const viewsSnap = await db.collectionGroup('resourceViews')
+                        .where('resourceId', '==', doc.id)
+                        .get();
+                    data.viewCount = viewsSnap.size;
+                    totalViews += data.viewCount;
+                    
+                    resourceViewCounts.push({
+                        id: doc.id,
+                        title: data.title,
+                        viewCount: data.viewCount,
+                        category: data.category
+                    });
+                } catch (error) {
+                    data.viewCount = 0;
+                }
+                
+                // Count completions
+                try {
+                    const progressSnap = await db.collectionGroup('resourceProgress')
+                        .where('resourceId', '==', doc.id)
+                        .where('status', '==', 'completed')
+                        .get();
+                    data.completionCount = progressSnap.size;
+                    completedCount += data.completionCount;
+                } catch (error) {
+                    data.completionCount = 0;
+                }
                 
                 resourcesData.push(data);
-                totalViews += data.viewCount;
-                if (data.featured) featuredCount++;
             }
-            setResources(resourcesData);
-
-            // Load meetings (support groups)
-            const meetingsSnap = await db.collection('supportGroups')
-                .orderBy('createdAt', 'desc')
-                .get();
             
-            const meetingsData = [];
-            meetingsSnap.forEach(doc => {
-                meetingsData.push({ id: doc.id, ...doc.data() });
-            });
-            setMeetings(meetingsData);
-
+            // Sort for top resources
+            const sortedByViews = resourceViewCounts.sort((a, b) => b.viewCount - a.viewCount);
+            setTopResources(sortedByViews.slice(0, 5));
+            
+            // Calculate stats
+            const completionRate = totalAssigned > 0 ? 
+                Math.round((completedCount / assignedCount) * 100) : 0;
+            
+            const engagementScore = activeCount > 0 ? 
+                Math.round((totalViews / activeCount) * 10) : 0;
+            
             setStats({
-                totalResources: resourcesData.length,
-                totalMeetings: meetingsData.length,
-                featuredCount: featuredCount,
-                totalViews: totalViews
+                activeResources: activeCount,
+                pirAssignments: assignedCount,
+                completionRate: completionRate,
+                engagementScore: Math.min(engagementScore, 100),
+                categoryBreakdown: categoryCount
             });
+            
+            setResources(resourcesData);
 
         } catch (error) {
             console.error('Error loading resources:', error);
@@ -5986,21 +6034,14 @@ function ResourcesView({ user, searchQuery }) {
     };
 
     const filterItems = () => {
-        let items = [];
-        
-        if (activeTab === 'resources') {
-            items = filterCategory === 'all' ? 
-                resources : 
-                resources.filter(r => r.category === filterCategory);
-        } else if (activeTab === 'meetings') {
-            items = meetings;
-        }
+        let items = filterCategory === 'all' ? 
+            resources : 
+            resources.filter(r => r.category === filterCategory);
 
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
             items = items.filter(item =>
                 item.title?.toLowerCase().includes(query) ||
-                item.name?.toLowerCase().includes(query) ||
                 item.description?.toLowerCase().includes(query)
             );
         }
@@ -6052,264 +6093,457 @@ function ResourcesView({ user, searchQuery }) {
 
     const handleEdit = (item) => {
         setSelectedItem(item);
-        setModalType('resource');
         setShowCreateModal(true);
     };
 
-    const renderResourcesTab = () => (
-        <div className="resources-container">
-            <div className="resources-header">
-                <h3>Recovery Resources</h3>
-                <button 
-                    className="btn btn-primary"
-                    onClick={() => {
-                        setModalType('resource');
-                        setSelectedItem(null);
-                        setShowCreateModal(true);
-                    }}
-                >
-                    + Add Resource
-                </button>
-            </div>
-
-            <div className="filter-row">
-                <button 
-                    className={`filter-btn ${filterCategory === 'all' ? 'active' : ''}`}
-                    onClick={() => setFilterCategory('all')}
-                >
-                    All ({resources.length})
-                </button>
-                <button 
-                    className={`filter-btn ${filterCategory === 'coping' ? 'active' : ''}`}
-                    onClick={() => setFilterCategory('coping')}
-                >
-                    Coping Skills
-                </button>
-                <button 
-                    className={`filter-btn ${filterCategory === 'relapse' ? 'active' : ''}`}
-                    onClick={() => setFilterCategory('relapse')}
-                >
-                    Relapse Prevention
-                </button>
-                <button 
-                    className={`filter-btn ${filterCategory === 'daily' ? 'active' : ''}`}
-                    onClick={() => setFilterCategory('daily')}
-                >
-                    Daily Recovery
-                </button>
-                <button 
-                    className={`filter-btn ${filterCategory === 'education' ? 'active' : ''}`}
-                    onClick={() => setFilterCategory('education')}
-                >
-                    Education
-                </button>
-                <button 
-                    className={`filter-btn ${filterCategory === 'support' ? 'active' : ''}`}
-                    onClick={() => setFilterCategory('support')}
-                >
-                    Support
-                </button>
-                <button 
-                    className={`filter-btn ${filterCategory === 'life' ? 'active' : ''}`}
-                    onClick={() => setFilterCategory('life')}
-                >
-                    Life Skills
-                </button>
-            </div>
-
-            <div className="resources-grid">
-                {filteredItems.map(resource => (
-                    <div key={resource.id} className="resource-card">
-                        <div className="resource-header">
-                            <div className="resource-title-row">
-                                <h4>{resource.title}</h4>
-                                {resource.isGlobal && (
-                                    <span className="global-badge">🌍 Global</span>
-                                )}
-                            </div>
-                            <span className={`badge ${
-                                resource.category === 'coping' ? 'badge-primary' :
-                                resource.category === 'relapse' ? 'badge-danger' :
-                                resource.category === 'daily' ? 'badge-success' :
-                                resource.category === 'education' ? 'badge-info' :
-                                resource.category === 'support' ? 'badge-warning' :
-                                'badge-secondary'
-                            }`}>
-                                {resource.category === 'coping' ? 'Coping Skills' :
-                                 resource.category === 'relapse' ? 'Relapse Prevention' :
-                                 resource.category === 'daily' ? 'Daily Recovery' :
-                                 resource.category === 'education' ? 'Education' :
-                                 resource.category === 'support' ? 'Support' :
-                                 'Life Skills'}
-                            </span>
-                        </div>
-
-                        <p className="resource-description">{resource.description}</p>
-
-                        {resource.url && (
-                            <div className="resource-link">
-                                <a href={resource.url} target="_blank" rel="noopener noreferrer">
-                                    🔗 External Link
-                                </a>
-                            </div>
-                        )}
-                        
-                        {resource.fileURL && (
-                            <div className="resource-link">
-                                <a href={resource.fileURL} target="_blank" rel="noopener noreferrer">
-                                    📄 Download File
-                                </a>
-                            </div>
-                        )}
-
-                        <div className="resource-meta">
-                            <span className="meta-item">
-                                👁️ {resource.viewCount || 0} views
-                            </span>
-                            <span className="meta-item">
-                                📅 {formatDate(resource.addedAt)}
-                            </span>
-                        </div>
-
-                        {!resource.isGlobal && resource.assignedTo && (
-                            <div className="assigned-pirs">
-                                <strong>Assigned to:</strong> {resource.assignedTo.length} PIR(s)
-                            </div>
-                        )}
-
-                        <div className="resource-actions">
-                            <button 
-                                className={`btn btn-sm ${resource.active ? 'btn-success' : 'btn-secondary'}`}
-                                onClick={() => handleToggleActive(resource.id, resource.active)}
-                            >
-                                {resource.active ? 'Active' : 'Inactive'}
-                            </button>
-                            <button 
-                                className="btn btn-sm btn-info"
-                                onClick={() => handleEdit(resource)}
-                            >
-                                Edit
-                            </button>
-                            <button 
-                                className="btn btn-sm btn-danger"
-                                onClick={() => handleDelete(resource.id, resource.title)}
-                            >
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-                ))}
-            </div>
-
-            {filteredItems.length === 0 && (
-                <div className="empty-state">
-                    {resources.length === 0 ? 
-                        'No resources added yet. Add resources to help PIRs in their recovery.' : 
-                        'No resources match your filter.'}
-                </div>
-            )}
-        </div>
-    );
-
-    const renderMeetingsTab = () => (
-        <div className="meetings-container">
-            <div className="meetings-header">
-                <h3>Support Group Meetings</h3>
-                <button 
-                    className="btn btn-primary"
-                    onClick={() => {
-                        setModalType('meeting');
-                        setSelectedItem(null);
-                        setShowCreateModal(true);
-                    }}
-                >
-                    + Add Meeting
-                </button>
-            </div>
-
-            <div className="meetings-list">
-                {meetings.map(meeting => (
-                    <div key={meeting.id} className="meeting-card">
-                        <h4>{meeting.name}</h4>
-                        <div className="meeting-details">
-                            <span>📅 {meeting.day}</span>
-                            <span>🕐 {meeting.time}</span>
-                            <span>🏷️ {meeting.type}</span>
-                        </div>
-                        {meeting.link && (
-                            <a href={meeting.link} target="_blank" rel="noopener noreferrer">
-                                Join Meeting
-                            </a>
-                        )}
-                        <div className="meeting-actions">
-                            <button 
-                                className={`btn btn-sm ${meeting.active ? 'btn-success' : 'btn-secondary'}`}
-                                onClick={() => handleToggleActive(meeting.id, meeting.active)}
-                            >
-                                {meeting.active ? 'Active' : 'Inactive'}
-                            </button>
-                            <button 
-                                className="btn btn-sm btn-danger"
-                                onClick={() => handleDelete(meeting.id, meeting.name)}
-                            >
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
+    const formatDate = (date) => {
+        if (!date) return 'N/A';
+        const d = date?.toDate ? date.toDate() : new Date(date);
+        return d.toLocaleDateString();
+    };
 
     return (
         <div className="resources-view">
-            <div className="stats-row">
-                <div className="stat-card">
-                    <div className="stat-value">{stats.totalResources}</div>
-                    <div className="stat-label">Total Resources</div>
+            {/* Modern Stats Section */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '20px',
+                marginBottom: '30px'
+            }}>
+                <div style={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    borderRadius: '15px',
+                    padding: '20px',
+                    color: 'white',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+                    transform: 'translateY(0)',
+                    transition: 'transform 0.3s ease',
+                    cursor: 'pointer'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.activeResources}</div>
+                    <div style={{ fontSize: '14px', opacity: 0.9, marginTop: '5px' }}>Active Resources</div>
+                    <div style={{ fontSize: '12px', opacity: 0.7, marginTop: '5px' }}>
+                        Currently available
+                    </div>
                 </div>
-                <div className="stat-card">
-                    <div className="stat-value">{stats.totalMeetings}</div>
-                    <div className="stat-label">Support Groups</div>
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                    borderRadius: '15px',
+                    padding: '20px',
+                    color: 'white',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+                    transform: 'translateY(0)',
+                    transition: 'transform 0.3s ease',
+                    cursor: 'pointer'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.pirAssignments}</div>
+                    <div style={{ fontSize: '14px', opacity: 0.9, marginTop: '5px' }}>PIR Assignments</div>
+                    <div style={{ fontSize: '12px', opacity: 0.7, marginTop: '5px' }}>
+                        Total assigned
+                    </div>
                 </div>
-                <div className="stat-card">
-                    <div className="stat-value">{stats.totalViews}</div>
-                    <div className="stat-label">Total Views</div>
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                    borderRadius: '15px',
+                    padding: '20px',
+                    color: 'white',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+                    transform: 'translateY(0)',
+                    transition: 'transform 0.3s ease',
+                    cursor: 'pointer'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.completionRate}%</div>
+                    <div style={{ fontSize: '14px', opacity: 0.9, marginTop: '5px' }}>Completion Rate</div>
+                    <div style={{ fontSize: '12px', opacity: 0.7, marginTop: '5px' }}>
+                        Resource effectiveness
+                    </div>
+                </div>
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+                    borderRadius: '15px',
+                    padding: '20px',
+                    color: 'white',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+                    transform: 'translateY(0)',
+                    transition: 'transform 0.3s ease',
+                    cursor: 'pointer'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.engagementScore}</div>
+                    <div style={{ fontSize: '14px', opacity: 0.9, marginTop: '5px' }}>Engagement Score</div>
+                    <div style={{ fontSize: '12px', opacity: 0.7, marginTop: '5px' }}>
+                        Average views/resource
+                    </div>
                 </div>
             </div>
 
-            <div className="tab-nav">
-                <button 
-                    className={`tab-btn ${activeTab === 'resources' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('resources')}
-                >
-                    Resources ({resources.length})
-                </button>
-                <button 
-                    className={`tab-btn ${activeTab === 'meetings' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('meetings')}
-                >
-                    Meetings ({meetings.length})
-                </button>
+            {/* Category Distribution */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                marginBottom: '20px',
+                boxShadow: '0 5px 15px rgba(0,0,0,0.1)'
+            }}>
+                <h4 style={{ marginBottom: '15px', color: '#333' }}>Category Distribution</h4>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    {Object.entries(stats.categoryBreakdown).map(([category, count]) => (
+                        <div key={category} style={{
+                            background: count > 0 ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#e0e0e0',
+                            color: count > 0 ? 'white' : '#666',
+                            padding: '8px 16px',
+                            borderRadius: '20px',
+                            fontSize: '14px',
+                            fontWeight: '500'
+                        }}>
+                            {category}: {count}
+                        </div>
+                    ))}
+                </div>
             </div>
 
-            {loading ? (
-                <div className="loading-container">
+            {/* Top Resources */}
+            {topResources.length > 0 && (
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '20px',
+                    marginBottom: '20px',
+                    boxShadow: '0 5px 15px rgba(0,0,0,0.1)'
+                }}>
+                    <h4 style={{ marginBottom: '15px', color: '#333' }}>Most Viewed Resources</h4>
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                        {topResources.map((resource, index) => (
+                            <div key={resource.id} style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '10px',
+                                background: '#f5f5f5',
+                                borderRadius: '8px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span style={{
+                                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                        color: 'white',
+                                        width: '25px',
+                                        height: '25px',
+                                        borderRadius: '50%',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '12px',
+                                        fontWeight: 'bold'
+                                    }}>
+                                        {index + 1}
+                                    </span>
+                                    <span style={{ fontSize: '14px', color: '#333' }}>{resource.title}</span>
+                                </div>
+                                <span style={{
+                                    background: '#667eea',
+                                    color: 'white',
+                                    padding: '2px 8px',
+                                    borderRadius: '12px',
+                                    fontSize: '12px'
+                                }}>
+                                    {resource.viewCount} views
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Resources Section */}
+            <div className="resources-container">
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '20px'
+                }}>
+                    <h3 style={{ margin: 0, color: '#333' }}>Recovery Resources</h3>
+                    <button 
+                        onClick={() => {
+                            setSelectedItem(null);
+                            setShowCreateModal(true);
+                        }}
+                        style={{
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            color: 'white',
+                            border: 'none',
+                            padding: '12px 24px',
+                            borderRadius: '25px',
+                            cursor: 'pointer',
+                            fontWeight: '500',
+                            boxShadow: '0 5px 15px rgba(102, 126, 234, 0.4)',
+                            transition: 'all 0.3s ease',
+                            fontSize: '14px'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.target.style.transform = 'translateY(-2px)';
+                            e.target.style.boxShadow = '0 8px 20px rgba(102, 126, 234, 0.5)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.target.style.transform = 'translateY(0)';
+                            e.target.style.boxShadow = '0 5px 15px rgba(102, 126, 234, 0.4)';
+                        }}
+                    >
+                        + Add Resource
+                    </button>
+                </div>
+
+                <div className="filter-row" style={{
+                    display: 'flex',
+                    gap: '10px',
+                    marginBottom: '20px',
+                    flexWrap: 'wrap'
+                }}>
+                    <button 
+                        className={`filter-btn ${filterCategory === 'all' ? 'active' : ''}`}
+                        onClick={() => setFilterCategory('all')}
+                        style={{
+                            padding: '8px 16px',
+                            borderRadius: '20px',
+                            border: filterCategory === 'all' ? 'none' : '1px solid #ddd',
+                            background: filterCategory === 'all' ? 
+                                'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'white',
+                            color: filterCategory === 'all' ? 'white' : '#666',
+                            cursor: 'pointer',
+                            transition: 'all 0.3s ease'
+                        }}
+                    >
+                        All ({resources.length})
+                    </button>
+                    {['coping', 'relapse', 'daily', 'education', 'support', 'life'].map(category => (
+                        <button 
+                            key={category}
+                            className={`filter-btn ${filterCategory === category ? 'active' : ''}`}
+                            onClick={() => setFilterCategory(category)}
+                            style={{
+                                padding: '8px 16px',
+                                borderRadius: '20px',
+                                border: filterCategory === category ? 'none' : '1px solid #ddd',
+                                background: filterCategory === category ? 
+                                    'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'white',
+                                color: filterCategory === category ? 'white' : '#666',
+                                cursor: 'pointer',
+                                transition: 'all 0.3s ease',
+                                textTransform: 'capitalize'
+                            }}
+                        >
+                            {category === 'coping' ? 'Coping Skills' :
+                             category === 'relapse' ? 'Relapse Prevention' :
+                             category === 'daily' ? 'Daily Recovery' :
+                             category === 'education' ? 'Education' :
+                             category === 'support' ? 'Support' :
+                             'Life Skills'}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="resources-grid" style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
+                    gap: '20px'
+                }}>
+                    {filteredItems.map(resource => (
+                        <div key={resource.id} style={{
+                            background: 'white',
+                            borderRadius: '15px',
+                            padding: '20px',
+                            boxShadow: '0 5px 15px rgba(0,0,0,0.1)',
+                            transition: 'all 0.3s ease',
+                            cursor: 'pointer'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-5px)';
+                            e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.15)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 5px 15px rgba(0,0,0,0.1)';
+                        }}>
+                            <div style={{ marginBottom: '15px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                                    <h4 style={{ margin: 0, color: '#333' }}>{resource.title}</h4>
+                                    <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                                        {resource.isGlobal && (
+                                            <span style={{
+                                                background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                                                color: 'white',
+                                                padding: '4px 8px',
+                                                borderRadius: '12px',
+                                                fontSize: '10px'
+                                            }}>🌍 Global</span>
+                                        )}
+                                        <span style={{
+                                            background: resource.category === 'coping' ? '#4CAF50' :
+                                                       resource.category === 'relapse' ? '#ff9500' :
+                                                       resource.category === 'daily' ? '#2196F3' :
+                                                       resource.category === 'education' ? '#9c27b0' :
+                                                       resource.category === 'support' ? '#00bcd4' :
+                                                       '#ff5722',
+                                            color: 'white',
+                                            padding: '4px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '10px',
+                                            textTransform: 'capitalize'
+                                        }}>
+                                            {resource.category}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <p style={{ color: '#666', fontSize: '14px', marginBottom: '15px' }}>
+                                {resource.description}
+                            </p>
+
+                            {resource.url && (
+                                <a href={resource.url} target="_blank" rel="noopener noreferrer" 
+                                   style={{ color: '#667eea', fontSize: '13px', textDecoration: 'none' }}>
+                                    🔗 External Link
+                                </a>
+                            )}
+                            
+                            {resource.fileURL && (
+                                <a href={resource.fileURL} target="_blank" rel="noopener noreferrer"
+                                   style={{ color: '#667eea', fontSize: '13px', textDecoration: 'none', marginLeft: '10px' }}>
+                                    📄 Download
+                                </a>
+                            )}
+
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                marginTop: '15px',
+                                paddingTop: '15px',
+                                borderTop: '1px solid #eee'
+                            }}>
+                                <div style={{ display: 'flex', gap: '15px', fontSize: '12px', color: '#999' }}>
+                                    <span>👁️ {resource.viewCount || 0}</span>
+                                    <span>✅ {resource.completionCount || 0}</span>
+                                    <span>📅 {formatDate(resource.addedAt)}</span>
+                                </div>
+                                
+                                <div style={{ display: 'flex', gap: '5px' }}>
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleToggleActive(resource.id, resource.active);
+                                        }}
+                                        style={{
+                                            background: resource.active ? '#4CAF50' : '#999',
+                                            color: 'white',
+                                            border: 'none',
+                                            padding: '5px 10px',
+                                            borderRadius: '5px',
+                                            fontSize: '11px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        {resource.active ? 'Active' : 'Inactive'}
+                                    </button>
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleEdit(resource);
+                                        }}
+                                        style={{
+                                            background: '#2196F3',
+                                            color: 'white',
+                                            border: 'none',
+                                            padding: '5px 10px',
+                                            borderRadius: '5px',
+                                            fontSize: '11px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        Edit
+                                    </button>
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDelete(resource.id, resource.title);
+                                        }}
+                                        style={{
+                                            background: '#f44336',
+                                            color: 'white',
+                                            border: 'none',
+                                            padding: '5px 10px',
+                                            borderRadius: '5px',
+                                            fontSize: '11px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+
+                            {!resource.isGlobal && resource.assignedTo && resource.assignedTo.length > 0 && (
+                                <div style={{
+                                    marginTop: '10px',
+                                    padding: '8px',
+                                    background: '#f5f5f5',
+                                    borderRadius: '8px',
+                                    fontSize: '12px',
+                                    color: '#666'
+                                }}>
+                                    Assigned to {resource.assignedTo.length} PIR(s)
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+
+                {filteredItems.length === 0 && (
+                    <div style={{
+                        textAlign: 'center',
+                        padding: '60px 20px',
+                        color: '#999'
+                    }}>
+                        {resources.length === 0 ? 
+                            'No resources added yet. Click "Add Resource" to create your first resource.' : 
+                            'No resources match your filter.'}
+                    </div>
+                )}
+            </div>
+
+            {loading && (
+                <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(255,255,255,0.9)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                }}>
                     <div className="loading-spinner"></div>
                 </div>
-            ) : (
-                <>
-                    {activeTab === 'resources' && renderResourcesTab()}
-                    {activeTab === 'meetings' && renderMeetingsTab()}
-                </>
             )}
 
             {showCreateModal && (
                 <ResourceModal
-                    type={modalType}
                     resource={selectedItem}
                     allPIRs={allPIRs}
-                    onSave={modalType === 'resource' ? handleCreateResource : handleCreateMeeting}
+                    onSave={handleCreateResource}
                     onClose={() => {
                         setShowCreateModal(false);
                         setSelectedItem(null);
@@ -6320,8 +6554,9 @@ function ResourcesView({ user, searchQuery }) {
     );
 }
 
-// Resource Modal Component - Updated for 6 Categories and PIR Selection
-function ResourceModal({ type, resource, allPIRs, onSave, onClose }) {
+// Keep the existing ResourceModal component as-is but remove meeting functionality
+function ResourceModal({ resource, allPIRs, onSave, onClose }) {
+    // Keep only the resource part of the modal, same as before
     const [formData, setFormData] = useState(() => {
         if (resource) {
             return {
@@ -6330,30 +6565,19 @@ function ResourceModal({ type, resource, allPIRs, onSave, onClose }) {
             };
         }
         
-        if (type === 'resource') {
-            return {
-                title: '',
-                description: '',
-                category: 'coping',
-                contentType: 'link',
-                url: '',
-                content: '',
-                fileURL: '',
-                embedUrl: '',
-                isGlobal: false,
-                assignedTo: [],
-                active: true
-            };
-        } else if (type === 'meeting') {
-            return {
-                name: '',
-                type: 'AA',
-                day: 'Monday',
-                time: '',
-                link: '',
-                active: true
-            };
-        }
+        return {
+            title: '',
+            description: '',
+            category: 'coping',
+            contentType: 'link',
+            url: '',
+            content: '',
+            fileURL: '',
+            embedUrl: '',
+            isGlobal: false,
+            assignedTo: [],
+            active: true
+        };
     });
 
     const [selectedPIRs, setSelectedPIRs] = useState(resource?.assignedTo || []);
@@ -6361,36 +6585,28 @@ function ResourceModal({ type, resource, allPIRs, onSave, onClose }) {
     const handleSubmit = (e) => {
         e.preventDefault();
         
-        if (type === 'resource') {
-            if (!formData.title || !formData.description || !formData.category) {
-                alert('Please fill in all required fields');
-                return;
-            }
-            
-            // Validate content based on type
-            if (formData.contentType === 'link' && !formData.url) {
-                alert('Please provide a URL');
-                return;
-            }
-            if (formData.contentType === 'text' && !formData.content) {
-                alert('Please provide content');
-                return;
-            }
-            
-            // Set assignedTo based on global status
-            const finalData = {
-                ...formData,
-                assignedTo: formData.isGlobal ? [] : selectedPIRs
-            };
-            
-            onSave(finalData);
-        } else if (type === 'meeting') {
-            if (!formData.name || !formData.day || !formData.time) {
-                alert('Please fill in all required fields');
-                return;
-            }
-            onSave(formData);
+        if (!formData.title || !formData.description || !formData.category) {
+            alert('Please fill in all required fields');
+            return;
         }
+        
+        // Validate content based on type
+        if (formData.contentType === 'link' && !formData.url) {
+            alert('Please provide a URL');
+            return;
+        }
+        if (formData.contentType === 'text' && !formData.content) {
+            alert('Please provide content');
+            return;
+        }
+        
+        // Set assignedTo based on global status
+        const finalData = {
+            ...formData,
+            assignedTo: formData.isGlobal ? [] : selectedPIRs
+        };
+        
+        onSave(finalData);
     };
 
     const handlePIRSelection = (pirId) => {
@@ -6413,264 +6629,178 @@ function ResourceModal({ type, resource, allPIRs, onSave, onClose }) {
         <div className="modal-overlay">
             <div className="modal-content" style={{maxWidth: '700px', maxHeight: '90vh', overflowY: 'auto'}}>
                 <div className="modal-header">
-                    <h3>
-                        {resource ? 'Edit' : 'Create'} 
-                        {type === 'resource' ? ' Resource' : ' Support Group'}
-                    </h3>
+                    <h3>{resource ? 'Edit' : 'Create'} Resource</h3>
                     <button className="close-btn" onClick={onClose}>×</button>
                 </div>
                 
                 <form onSubmit={handleSubmit} className="modal-body">
-                    {type === 'resource' && (
-                        <>
-                            <div className="form-group">
-                                <label>Title *</label>
-                                <input
-                                    type="text"
-                                    value={formData.title}
-                                    onChange={(e) => setFormData({...formData, title: e.target.value})}
-                                    placeholder="Resource title"
-                                    required
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Description *</label>
-                                <textarea
-                                    value={formData.description}
-                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
-                                    placeholder="Describe this resource"
-                                    rows="3"
-                                    required
-                                />
-                            </div>
-                            
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label>Category *</label>
-                                    <select
-                                        value={formData.category}
-                                        onChange={(e) => setFormData({...formData, category: e.target.value})}
-                                    >
-                                        <option value="coping">Coping Skills</option>
-                                        <option value="relapse">Relapse Prevention</option>
-                                        <option value="daily">Daily Recovery</option>
-                                        <option value="education">Education</option>
-                                        <option value="support">Support</option>
-                                        <option value="life">Life Skills</option>
-                                    </select>
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label>Content Type</label>
-                                    <select
-                                        value={formData.contentType}
-                                        onChange={(e) => setFormData({...formData, contentType: e.target.value})}
-                                    >
-                                        <option value="link">External Link</option>
-                                        <option value="text">Text Content</option>
-                                        <option value="file">File Upload</option>
-                                        <option value="embed">Embedded Content</option>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            {formData.contentType === 'link' && (
-                                <div className="form-group">
-                                    <label>URL</label>
-                                    <input
-                                        type="url"
-                                        value={formData.url}
-                                        onChange={(e) => setFormData({...formData, url: e.target.value})}
-                                        placeholder="https://..."
-                                    />
-                                </div>
-                            )}
-                            
-                            {formData.contentType === 'text' && (
-                                <div className="form-group">
-                                    <label>Content</label>
-                                    <textarea
-                                        value={formData.content}
-                                        onChange={(e) => setFormData({...formData, content: e.target.value})}
-                                        placeholder="Enter content"
-                                        rows="6"
-                                    />
-                                </div>
-                            )}
-                            
-                            {formData.contentType === 'file' && (
-                                <div className="form-group">
-                                    <label>File URL</label>
-                                    <input
-                                        type="url"
-                                        value={formData.fileURL}
-                                        onChange={(e) => setFormData({...formData, fileURL: e.target.value})}
-                                        placeholder="URL to downloadable file"
-                                    />
-                                </div>
-                            )}
-                            
-                            {formData.contentType === 'embed' && (
-                                <div className="form-group">
-                                    <label>Embed URL</label>
-                                    <input
-                                        type="url"
-                                        value={formData.embedUrl}
-                                        onChange={(e) => setFormData({...formData, embedUrl: e.target.value})}
-                                        placeholder="YouTube, Vimeo, etc."
-                                    />
-                                </div>
-                            )}
-                            
-                            <div className="form-group">
-                                <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.isGlobal}
-                                        onChange={(e) => setFormData({...formData, isGlobal: e.target.checked})}
-                                    />
-                                    <span>Make this a global resource (available to all PIRs)</span>
-                                </label>
-                            </div>
-                            
-                            {!formData.isGlobal && (
-                                <div className="form-group">
-                                    <label>Assign to PIRs</label>
-                                    <div style={{marginBottom: '10px'}}>
-                                        <button type="button" className="btn btn-sm" onClick={selectAllPIRs}>
-                                            Select All
-                                        </button>
-                                        <button type="button" className="btn btn-sm" onClick={clearSelection} style={{marginLeft: '10px'}}>
-                                            Clear All
-                                        </button>
-                                        <span style={{marginLeft: '10px'}}>
-                                            {selectedPIRs.length} selected
-                                        </span>
-                                    </div>
-                                    <div style={{
-                                        maxHeight: '200px',
-                                        overflowY: 'auto',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        padding: '10px'
-                                    }}>
-                                        {allPIRs.map(pir => (
-                                            <label key={pir.id} style={{
-                                                display: 'block',
-                                                padding: '5px',
-                                                cursor: 'pointer',
-                                                backgroundColor: selectedPIRs.includes(pir.id) ? '#e3f2fd' : 'transparent'
-                                            }}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedPIRs.includes(pir.id)}
-                                                    onChange={() => handlePIRSelection(pir.id)}
-                                                    style={{marginRight: '10px'}}
-                                                />
-                                                {pir.name} ({pir.email})
-                                            </label>
-                                        ))}
-                                        {allPIRs.length === 0 && (
-                                            <div style={{color: '#999', textAlign: 'center'}}>
-                                                No PIRs available
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                            
-                            <div className="form-group">
-                                <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.active}
-                                        onChange={(e) => setFormData({...formData, active: e.target.checked})}
-                                    />
-                                    <span>Resource is active</span>
-                                </label>
-                            </div>
-                        </>
+                    <div className="form-group">
+                        <label>Title *</label>
+                        <input
+                            type="text"
+                            value={formData.title}
+                            onChange={(e) => setFormData({...formData, title: e.target.value})}
+                            placeholder="Resource title"
+                            required
+                        />
+                    </div>
+                    
+                    <div className="form-group">
+                        <label>Description *</label>
+                        <textarea
+                            value={formData.description}
+                            onChange={(e) => setFormData({...formData, description: e.target.value})}
+                            placeholder="Describe this resource"
+                            rows="3"
+                            required
+                        />
+                    </div>
+                    
+                    <div className="form-row">
+                        <div className="form-group">
+                            <label>Category *</label>
+                            <select
+                                value={formData.category}
+                                onChange={(e) => setFormData({...formData, category: e.target.value})}
+                            >
+                                <option value="coping">Coping Skills</option>
+                                <option value="relapse">Relapse Prevention</option>
+                                <option value="daily">Daily Recovery</option>
+                                <option value="education">Education</option>
+                                <option value="support">Support</option>
+                                <option value="life">Life Skills</option>
+                            </select>
+                        </div>
+                        
+                        <div className="form-group">
+                            <label>Content Type</label>
+                            <select
+                                value={formData.contentType}
+                                onChange={(e) => setFormData({...formData, contentType: e.target.value})}
+                            >
+                                <option value="link">External Link</option>
+                                <option value="text">Text Content</option>
+                                <option value="file">File Upload</option>
+                                <option value="embed">Embedded Content</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    {formData.contentType === 'link' && (
+                        <div className="form-group">
+                            <label>URL</label>
+                            <input
+                                type="url"
+                                value={formData.url}
+                                onChange={(e) => setFormData({...formData, url: e.target.value})}
+                                placeholder="https://..."
+                            />
+                        </div>
                     )}
                     
-                    {type === 'meeting' && (
-                        <>
-                            <div className="form-group">
-                                <label>Meeting Name *</label>
-                                <input
-                                    type="text"
-                                    value={formData.name}
-                                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                                    placeholder="e.g., Daily Recovery Meeting"
-                                    required
-                                />
-                            </div>
-                            
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label>Type *</label>
-                                    <select
-                                        value={formData.type}
-                                        onChange={(e) => setFormData({...formData, type: e.target.value})}
-                                    >
-                                        <option value="AA">AA</option>
-                                        <option value="NA">NA</option>
-                                        <option value="Al-Anon">Al-Anon</option>
-                                        <option value="SMART">SMART Recovery</option>
-                                        <option value="Other">Other</option>
-                                    </select>
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label>Day *</label>
-                                    <select
-                                        value={formData.day}
-                                        onChange={(e) => setFormData({...formData, day: e.target.value})}
-                                    >
-                                        <option value="Monday">Monday</option>
-                                        <option value="Tuesday">Tuesday</option>
-                                        <option value="Wednesday">Wednesday</option>
-                                        <option value="Thursday">Thursday</option>
-                                        <option value="Friday">Friday</option>
-                                        <option value="Saturday">Saturday</option>
-                                        <option value="Sunday">Sunday</option>
-                                        <option value="Daily">Daily</option>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Time *</label>
-                                <input
-                                    type="time"
-                                    value={formData.time}
-                                    onChange={(e) => setFormData({...formData, time: e.target.value})}
-                                    required
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Meeting Link (if virtual)</label>
-                                <input
-                                    type="url"
-                                    value={formData.link}
-                                    onChange={(e) => setFormData({...formData, link: e.target.value})}
-                                    placeholder="https://zoom.us/..."
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.active}
-                                        onChange={(e) => setFormData({...formData, active: e.target.checked})}
-                                    />
-                                    <span>Meeting is active</span>
-                                </label>
-                            </div>
-                        </>
+                    {formData.contentType === 'text' && (
+                        <div className="form-group">
+                            <label>Content</label>
+                            <textarea
+                                value={formData.content}
+                                onChange={(e) => setFormData({...formData, content: e.target.value})}
+                                placeholder="Enter content"
+                                rows="6"
+                            />
+                        </div>
                     )}
+                    
+                    {formData.contentType === 'file' && (
+                        <div className="form-group">
+                            <label>File URL</label>
+                            <input
+                                type="url"
+                                value={formData.fileURL}
+                                onChange={(e) => setFormData({...formData, fileURL: e.target.value})}
+                                placeholder="URL to downloadable file"
+                            />
+                        </div>
+                    )}
+                    
+                    {formData.contentType === 'embed' && (
+                        <div className="form-group">
+                            <label>Embed URL</label>
+                            <input
+                                type="url"
+                                value={formData.embedUrl}
+                                onChange={(e) => setFormData({...formData, embedUrl: e.target.value})}
+                                placeholder="YouTube, Vimeo, etc."
+                            />
+                        </div>
+                    )}
+                    
+                    <div className="form-group">
+                        <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                            <input
+                                type="checkbox"
+                                checked={formData.isGlobal}
+                                onChange={(e) => setFormData({...formData, isGlobal: e.target.checked})}
+                            />
+                            <span>Make this a global resource (available to all PIRs)</span>
+                        </label>
+                    </div>
+                    
+                    {!formData.isGlobal && (
+                        <div className="form-group">
+                            <label>Assign to PIRs</label>
+                            <div style={{marginBottom: '10px'}}>
+                                <button type="button" className="btn btn-sm" onClick={selectAllPIRs}>
+                                    Select All
+                                </button>
+                                <button type="button" className="btn btn-sm" onClick={clearSelection} style={{marginLeft: '10px'}}>
+                                    Clear All
+                                </button>
+                                <span style={{marginLeft: '10px'}}>
+                                    {selectedPIRs.length} selected
+                                </span>
+                            </div>
+                            <div style={{
+                                maxHeight: '200px',
+                                overflowY: 'auto',
+                                border: '1px solid #ddd',
+                                borderRadius: '4px',
+                                padding: '10px'
+                            }}>
+                                {allPIRs.map(pir => (
+                                    <label key={pir.id} style={{
+                                        display: 'block',
+                                        padding: '5px',
+                                        cursor: 'pointer',
+                                        backgroundColor: selectedPIRs.includes(pir.id) ? '#e3f2fd' : 'transparent'
+                                    }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedPIRs.includes(pir.id)}
+                                            onChange={() => handlePIRSelection(pir.id)}
+                                            style={{marginRight: '10px'}}
+                                        />
+                                        {pir.name} ({pir.email})
+                                    </label>
+                                ))}
+                                {allPIRs.length === 0 && (
+                                    <div style={{color: '#999', textAlign: 'center'}}>
+                                        No PIRs available
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    
+                    <div className="form-group">
+                        <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                            <input
+                                type="checkbox"
+                                checked={formData.active}
+                                onChange={(e) => setFormData({...formData, active: e.target.checked})}
+                            />
+                            <span>Resource is active</span>
+                        </label>
+                    </div>
                     
                     <div className="modal-footer">
                         <button type="submit" className="btn btn-primary">
@@ -6685,7 +6815,6 @@ function ResourceModal({ type, resource, allPIRs, onSave, onClose }) {
         </div>
     );
 }
-
         // FULLY FUNCTIONAL CheckInsView 
         function CheckInsView({ searchQuery }) {
             const [checkIns, setCheckIns] = useState([]);
