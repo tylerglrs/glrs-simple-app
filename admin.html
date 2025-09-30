@@ -11195,24 +11195,178 @@ const formatDate = (date) => {
     </div>
 );
 
-    const renderGoldenThreadTab = () => (
+   const renderGoldenThreadTab = () => {
+    // Additional state needed for this tab
+    const [showGoldenThread, setShowGoldenThread] = useState(false);
+    const [selectedGoalForObjective, setSelectedGoalForObjective] = useState(null);
+    const [selectedObjectiveForAssignment, setSelectedObjectiveForAssignment] = useState(null);
+    
+    // Handler functions for creating items
+    const handleCreateGoldenThread = async (threadData) => {
+        try {
+            for (const goal of threadData.goals) {
+                if (!goal.title) continue;
+                
+                const goalRef = await db.collection('goals').add({
+                    userId: pirId,
+                    title: goal.title,
+                    description: goal.description,
+                    dueDate: goal.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(goal.dueDate)) : null,
+                    status: 'active',
+                    createdBy: user.uid,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                for (let i = 0; i < goal.objectives.length; i++) {
+                    const objective = goal.objectives[i];
+                    if (!objective.title) continue;
+                    
+                    const objectiveRef = await db.collection('objectives').add({
+                        goalId: goalRef.id,
+                        userId: pirId,
+                        title: objective.title,
+                        order: i + 1,
+                        dueDate: objective.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(objective.dueDate)) : null,
+                        status: 'active',
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    for (const assignment of objective.assignments) {
+                        if (!assignment.title) continue;
+                        
+                        await db.collection('assignments').add({
+                            goalId: goalRef.id,
+                            objectiveId: objectiveRef.id,
+                            userId: pirId,
+                            pirName: pirData.displayName || pirData.email,
+                            coachId: user.uid,
+                            coachName: user.displayName || user.email,
+                            title: assignment.title,
+                            description: assignment.description,
+                            dueDate: assignment.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignment.dueDate)) : null,
+                            status: 'pending',
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                }
+            }
+            
+            await loadGoalsData();
+            await loadObjectivesData();
+            await loadAssignmentsData();
+            setShowGoldenThread(false);
+            alert('Golden Thread created successfully!');
+        } catch (error) {
+            console.error('Error creating golden thread:', error);
+            alert('Failed to create golden thread');
+        }
+    };
+
+    const handleAddGoal = async (goalData) => {
+        try {
+            await db.collection('goals').add({
+                userId: pirId,
+                title: goalData.title,
+                description: goalData.description,
+                dueDate: goalData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(goalData.dueDate)) : null,
+                status: 'active',
+                createdBy: user.uid,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            await loadGoalsData();
+            setShowAddGoal(false);
+            alert('Goal added successfully');
+        } catch (error) {
+            console.error('Error adding goal:', error);
+            alert('Failed to add goal');
+        }
+    };
+
+    const handleAddObjective = async (objectiveData) => {
+        try {
+            const objectivesCount = objectives.filter(o => o.goalId === selectedGoalForObjective.id).length;
+            
+            await db.collection('objectives').add({
+                goalId: selectedGoalForObjective.id,
+                userId: pirId,
+                title: objectiveData.title,
+                order: objectivesCount + 1,
+                dueDate: objectiveData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(objectiveData.dueDate)) : null,
+                status: 'active',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            await loadObjectivesData();
+            setShowAddObjective(false);
+            setSelectedGoalForObjective(null);
+            alert('Objective added successfully');
+        } catch (error) {
+            console.error('Error adding objective:', error);
+            alert('Failed to add objective');
+        }
+    };
+
+    const handleAddAssignment = async (assignmentData) => {
+        try {
+            await db.collection('assignments').add({
+                goalId: selectedObjectiveForAssignment.goalId,
+                objectiveId: selectedObjectiveForAssignment.id,
+                userId: pirId,
+                pirName: pirData.displayName || pirData.email,
+                coachId: user.uid,
+                coachName: user.displayName || user.email,
+                title: assignmentData.title,
+                description: assignmentData.description,
+                dueDate: assignmentData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignmentData.dueDate)) : null,
+                status: 'pending',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            await loadAssignmentsData();
+            setShowAddAssignment(false);
+            setSelectedObjectiveForAssignment(null);
+            alert('Assignment added successfully');
+        } catch (error) {
+            console.error('Error adding assignment:', error);
+            alert('Failed to add assignment');
+        }
+    };
+
+    return (
         <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <h3 style={{ margin: 0, color: '#333' }}>Recovery Journey Structure</h3>
-                <button
-                    className="btn btn-primary"
-                    onClick={() => setShowAddGoal(true)}
-                    style={{
-                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                        border: 'none',
-                        color: 'white',
-                        padding: '10px 20px',
-                        borderRadius: '8px',
-                        cursor: 'pointer'
-                    }}
-                >
-                    + Add Goal
-                </button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        className="btn btn-primary"
+                        onClick={() => setShowGoldenThread(true)}
+                        style={{
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            border: 'none',
+                            color: 'white',
+                            padding: '10px 20px',
+                            borderRadius: '8px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        + Golden Thread
+                    </button>
+                    <button
+                        className="btn btn-secondary"
+                        onClick={() => setShowAddGoal(true)}
+                        style={{
+                            background: '#4CAF50',
+                            border: 'none',
+                            color: 'white',
+                            padding: '10px 20px',
+                            borderRadius: '8px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        + Add Goal
+                    </button>
+                </div>
             </div>
             
             {/* Goals list with add objective/assignment capabilities */}
@@ -11242,7 +11396,7 @@ const formatDate = (date) => {
                                 <p style={{ margin: '5px 0', color: '#666' }}>{goal.description}</p>
                             </div>
                             <div style={{
-                                background: `conic-gradient(#4CAF50 0% ${goal.progress}%, #e0e0e0 ${goal.progress}% 100%)`,
+                                background: `conic-gradient(#4CAF50 0% ${goal.progress || 0}%, #e0e0e0 ${goal.progress || 0}% 100%)`,
                                 width: '60px',
                                 height: '60px',
                                 borderRadius: '50%',
@@ -11261,7 +11415,7 @@ const formatDate = (date) => {
                                     fontWeight: 'bold',
                                     color: '#333'
                                 }}>
-                                    {goal.progress}%
+                                    {goal.progress || 0}%
                                 </div>
                             </div>
                         </div>
@@ -11271,25 +11425,25 @@ const formatDate = (date) => {
                                 <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
                                     <button 
                                         className="btn btn-secondary"
-                                        onClick={() => {
-                                            setSelectedGoalId(goal.id);
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSelectedGoalForObjective(goal);
                                             setShowAddObjective(true);
+                                        }}
+                                        style={{
+                                            background: '#2196F3',
+                                            border: 'none',
+                                            color: 'white',
+                                            padding: '8px 16px',
+                                            borderRadius: '5px',
+                                            cursor: 'pointer'
                                         }}
                                     >
                                         + Add Objective
                                     </button>
-                                    <button 
-                                        className="btn btn-secondary"
-                                        onClick={() => {
-                                            setSelectedGoalId(goal.id);
-                                            setShowAddAssignment(true);
-                                        }}
-                                    >
-                                        + Add Assignment
-                                    </button>
                                 </div>
                                 
-                                {/* Objectives and Assignments display */}
+                                {/* Objectives */}
                                 <div style={{ marginBottom: '15px' }}>
                                     <h5 style={{ color: '#666', marginBottom: '10px' }}>Objectives</h5>
                                     {objectives.filter(o => o.goalId === goal.id).map(objective => (
@@ -11300,11 +11454,32 @@ const formatDate = (date) => {
                                             marginBottom: '10px',
                                             borderLeft: `3px solid ${objective.status === 'completed' ? '#4CAF50' : '#FF9800'}`
                                         }}>
-                                            <strong style={{ color: '#333' }}>{objective.title}</strong>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <strong style={{ color: '#333' }}>#{objective.order} - {objective.title}</strong>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedObjectiveForAssignment(objective);
+                                                        setShowAddAssignment(true);
+                                                    }}
+                                                    style={{
+                                                        background: '#9C27B0',
+                                                        border: 'none',
+                                                        color: 'white',
+                                                        padding: '4px 12px',
+                                                        borderRadius: '4px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '12px'
+                                                    }}
+                                                >
+                                                    + Assignment
+                                                </button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
                                 
+                                {/* Assignments */}
                                 <div>
                                     <h5 style={{ color: '#666', marginBottom: '10px' }}>Assignments</h5>
                                     {assignments.filter(a => a.goalId === goal.id).map(assignment => (
@@ -11316,6 +11491,12 @@ const formatDate = (date) => {
                                             borderLeft: `3px solid ${assignment.status === 'completed' ? '#4CAF50' : '#2196F3'}`
                                         }}>
                                             <strong style={{ color: '#333' }}>{assignment.title}</strong>
+                                            <div style={{ fontSize: '12px', color: '#666' }}>
+                                                {assignment.description}
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: '#999', marginTop: '5px' }}>
+                                                Due: {formatDate(assignment.dueDate)} • Status: {assignment.status}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -11324,11 +11505,70 @@ const formatDate = (date) => {
                     </div>
                 ))
             ) : (
-                <p style={{ color: '#666' }}>No goals configured yet</p>
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '40px',
+                    textAlign: 'center',
+                    color: '#666'
+                }}>
+                    <p>No goals configured yet</p>
+                    <p style={{ fontSize: '14px' }}>Click "Golden Thread" or "Add Goal" to get started</p>
+                </div>
+            )}
+
+            {/* Golden Thread Modal */}
+            {showGoldenThread && (
+                <CreateGoalModal
+                    type="goldenThread"
+                    selectedPIR={{ id: pirId, displayName: pirData?.displayName, email: pirData?.email }}
+                    selectedParent={null}
+                    onSubmit={handleCreateGoldenThread}
+                    onClose={() => setShowGoldenThread(false)}
+                />
+            )}
+
+            {/* Add Goal Modal */}
+            {showAddGoal && (
+                <CreateGoalModal
+                    type="goal"
+                    selectedPIR={{ id: pirId }}
+                    selectedParent={null}
+                    onSubmit={handleAddGoal}
+                    onClose={() => setShowAddGoal(false)}
+                />
+            )}
+
+            {/* Add Objective Modal */}
+            {showAddObjective && (
+                <CreateGoalModal
+                    type="objective"
+                    selectedPIR={{ id: pirId }}
+                    selectedParent={selectedGoalForObjective}
+                    onSubmit={handleAddObjective}
+                    onClose={() => {
+                        setShowAddObjective(false);
+                        setSelectedGoalForObjective(null);
+                    }}
+                />
+            )}
+
+            {/* Add Assignment Modal */}
+            {showAddAssignment && (
+                <CreateGoalModal
+                    type="assignment"
+                    selectedPIR={{ id: pirId }}
+                    selectedParent={selectedObjectiveForAssignment}
+                    onSubmit={handleAddAssignment}
+                    onClose={() => {
+                        setShowAddAssignment(false);
+                        setSelectedObjectiveForAssignment(null);
+                    }}
+                />
             )}
         </div>
     );
-
+};
     const renderProgressTab = () => (
         <div style={{ padding: '20px' }}>
             {/* Compliance Metrics */}
