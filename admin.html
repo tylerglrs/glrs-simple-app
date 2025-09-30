@@ -10037,65 +10037,115 @@ function UserDetailModal({ user, onClose, onUpdate }) {
         });
     };
 
-    // Fixed compliance calculation
-    const loadComplianceDataFixed = async (accountCreatedAt) => {
-        try {
-            // Calculate days since account creation
-            const accountDate = accountCreatedAt?.toDate ? accountCreatedAt.toDate() : new Date(accountCreatedAt);
-            const today = new Date();
-            const daysSinceCreation = Math.floor((today - accountDate) / (1000 * 60 * 60 * 24));
-            const daysToCheck = Math.min(daysSinceCreation, 30);
-            
-            if (daysToCheck <= 0) {
-                setComplianceData({
-                    morningRate: 0,
-                    eveningRate: 0,
-                    assignmentRate: 0,
-                    totalCheckIns: 0,
-                    daysTracked: 0
-                });
-                return;
-            }
-            
-            const startDate = new Date();
-            startDate.setDate(startDate.getDate() - daysToCheck);
-            
-            // Get check-ins since appropriate date
-            const checkInsSnap = await db.collection('checkIns')
-                .where('userId', '==', pirId)
-                .where('createdAt', '>=', startDate)
-                .get();
-            
-            let morningCount = 0;
-            let eveningCount = 0;
-            checkInsSnap.forEach(doc => {
-                const data = doc.data();
-                if (data.morningData) morningCount++;
-                if (data.eveningData) eveningCount++;
-            });
-            
-            // Calculate assignment compliance (all time)
-            const completedAssignments = assignments.filter(a => a.status === 'completed').length;
-            const totalAssignments = assignments.length;
-            
-            setComplianceData({
-                morningRate: Math.round((morningCount / daysToCheck) * 100),
-                eveningRate: Math.round((eveningCount / daysToCheck) * 100),
-                assignmentRate: totalAssignments > 0 ? Math.round((completedAssignments / totalAssignments) * 100) : 0,
-                totalCheckIns: morningCount + eveningCount,
-                daysTracked: daysToCheck
-            });
-        } catch (error) {
-            console.error('Error calculating compliance:', error);
+    // Fixed compliance calculation function
+const loadComplianceDataFixed = async (accountCreatedAt) => {
+    try {
+        // Calculate days since account creation
+        const accountDate = accountCreatedAt?.toDate ? accountCreatedAt.toDate() : new Date(accountCreatedAt);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        accountDate.setHours(0, 0, 0, 0);
+        
+        const daysSinceCreation = Math.floor((today - accountDate) / (1000 * 60 * 60 * 24));
+        const daysToCheck = Math.min(daysSinceCreation, 30); // Max 30 days
+        
+        if (daysToCheck <= 0) {
             setComplianceData({
                 morningRate: 0,
                 eveningRate: 0,
                 assignmentRate: 0,
                 totalCheckIns: 0,
-                daysTracked: 0
+                daysTracked: 0,
+                recentCheckIns: []
             });
+            return;
         }
-    };
+        
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - daysToCheck);
+        startDate.setHours(0, 0, 0, 0);
+        
+        // Get ALL check-ins for display
+        const allCheckInsSnap = await db.collection('checkIns')
+            .where('userId', '==', pirId)
+            .orderBy('createdAt', 'desc')
+            .get();
+        
+        // Get check-ins for compliance calculation (last 30 days max)
+        const complianceCheckInsSnap = await db.collection('checkIns')
+            .where('userId', '==', pirId)
+            .where('createdAt', '>=', startDate)
+            .get();
+        
+        // Process all check-ins for display
+        const allCheckInsData = [];
+        allCheckInsSnap.forEach(doc => {
+            const data = doc.data();
+            allCheckInsData.push({
+                id: doc.id,
+                ...data,
+                date: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt)
+            });
+        });
+        
+        // Calculate compliance metrics
+        let morningCount = 0;
+        let eveningCount = 0;
+        const dateMap = new Map();
+        
+        complianceCheckInsSnap.forEach(doc => {
+            const data = doc.data();
+            const checkInDate = data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+            const dateKey = checkInDate.toDateString();
+            
+            if (!dateMap.has(dateKey)) {
+                dateMap.set(dateKey, { morning: false, evening: false });
+            }
+            
+            if (data.morningData && !dateMap.get(dateKey).morning) {
+                morningCount++;
+                dateMap.get(dateKey).morning = true;
+            }
+            if (data.eveningData && !dateMap.get(dateKey).evening) {
+                eveningCount++;
+                dateMap.get(dateKey).evening = true;
+            }
+        });
+        
+        // Calculate assignment compliance
+        const completedAssignments = assignments.filter(a => a.status === 'completed').length;
+        const totalAssignments = assignments.length;
+        
+        // Cap percentages at 100%
+        const morningRate = Math.min(100, Math.round((morningCount / daysToCheck) * 100));
+        const eveningRate = Math.min(100, Math.round((eveningCount / daysToCheck) * 100));
+        const assignmentRate = totalAssignments > 0 ? 
+            Math.min(100, Math.round((completedAssignments / totalAssignments) * 100)) : 0;
+        
+        setComplianceData({
+            morningRate,
+            eveningRate,
+            assignmentRate,
+            totalCheckIns: morningCount + eveningCount,
+            daysTracked: daysToCheck,
+            recentCheckIns: allCheckInsData // Store all check-ins for display
+        });
+        
+        // Also update the checkIns state for the table
+        setCheckIns(allCheckInsData);
+        
+    } catch (error) {
+        console.error('Error calculating compliance:', error);
+        setComplianceData({
+            morningRate: 0,
+            eveningRate: 0,
+            assignmentRate: 0,
+            totalCheckIns: 0,
+            daysTracked: 0,
+            recentCheckIns: []
+        });
+    }
+};
 
     // Load all messages sent by user
     const loadAllUserMessages = async () => {
@@ -11570,99 +11620,185 @@ const formatDate = (date) => {
         </div>
     );
 };
-    const renderProgressTab = () => (
-        <div style={{ padding: '20px' }}>
-            {/* Compliance Metrics */}
+   // Updated renderProgressTab function
+const renderProgressTab = () => (
+    <div style={{ padding: '20px' }}>
+        {/* Compliance Metrics */}
+        <div style={{
+            background: 'white',
+            borderRadius: '15px',
+            padding: '20px',
+            marginBottom: '20px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+        }}>
+            <h3 style={{ marginBottom: '20px', color: '#333' }}>
+                Compliance Metrics (Last {complianceData.daysTracked} Days)
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '20px' }}>
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#4CAF50' }}>
+                        {complianceData.morningRate}%
+                    </div>
+                    <div style={{ color: '#666' }}>Morning Check-ins</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#2196F3' }}>
+                        {complianceData.eveningRate}%
+                    </div>
+                    <div style={{ color: '#666' }}>Evening Reflections</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#FF9800' }}>
+                        {complianceData.assignmentRate}%
+                    </div>
+                    <div style={{ color: '#666' }}>Assignments Complete</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#9C27B0' }}>
+                        {complianceData.totalCheckIns}
+                    </div>
+                    <div style={{ color: '#666' }}>Total Check-ins</div>
+                </div>
+            </div>
+        </div>
+
+        {/* Check-ins History Table */}
+        <div style={{
+            background: 'white',
+            borderRadius: '15px',
+            padding: '20px',
+            marginBottom: '20px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+        }}>
+            <h3 style={{ marginBottom: '20px', color: '#333' }}>Check-in History</h3>
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr style={{ borderBottom: '2px solid #ddd' }}>
+                            <th style={{ padding: '10px', textAlign: 'left', color: '#666' }}>Date</th>
+                            <th style={{ padding: '10px', textAlign: 'center', color: '#666' }}>Morning</th>
+                            <th style={{ padding: '10px', textAlign: 'center', color: '#666' }}>Evening</th>
+                            <th style={{ padding: '10px', textAlign: 'center', color: '#666' }}>Mood</th>
+                            <th style={{ padding: '10px', textAlign: 'center', color: '#666' }}>Craving</th>
+                            <th style={{ padding: '10px', textAlign: 'center', color: '#666' }}>Sleep</th>
+                            <th style={{ padding: '10px', textAlign: 'left', color: '#666' }}>Pledge</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {checkIns && checkIns.length > 0 ? (
+                            checkIns.map((checkIn, index) => (
+                                <tr key={checkIn.id} style={{ 
+                                    borderBottom: '1px solid #eee',
+                                    background: index % 2 === 0 ? 'white' : '#f9f9f9'
+                                }}>
+                                    <td style={{ padding: '10px' }}>
+                                        {formatDate(checkIn.createdAt)}
+                                    </td>
+                                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                                        {checkIn.morningData ? (
+                                            <span style={{ color: '#4CAF50' }}>✓</span>
+                                        ) : (
+                                            <span style={{ color: '#ccc' }}>-</span>
+                                        )}
+                                    </td>
+                                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                                        {checkIn.eveningData ? (
+                                            <span style={{ color: '#2196F3' }}>✓</span>
+                                        ) : (
+                                            <span style={{ color: '#ccc' }}>-</span>
+                                        )}
+                                    </td>
+                                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                                        {checkIn.morningData?.mood || checkIn.eveningData?.mood || '-'}/10
+                                    </td>
+                                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                                        {checkIn.morningData?.craving || checkIn.eveningData?.craving || '-'}/10
+                                    </td>
+                                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                                        {checkIn.morningData?.sleepQuality || '-'}/10
+                                    </td>
+                                    <td style={{ padding: '10px' }}>
+                                        <div style={{ 
+                                            maxWidth: '200px', 
+                                            overflow: 'hidden', 
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                            fontSize: '12px',
+                                            color: '#666'
+                                        }}>
+                                            {checkIn.morningData?.dailyPledge || checkIn.eveningData?.reflection || '-'}
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))
+                        ) : (
+                            <tr>
+                                <td colSpan="7" style={{ 
+                                    padding: '40px', 
+                                    textAlign: 'center', 
+                                    color: '#666' 
+                                }}>
+                                    No check-ins recorded yet
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {/* Progress Charts */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div style={{
                 background: 'white',
                 borderRadius: '15px',
                 padding: '20px',
-                marginBottom: '20px',
                 boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
             }}>
-                <h3 style={{ marginBottom: '20px', color: '#333' }}>
-                    Compliance Metrics (Last {complianceData.daysTracked} Days)
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '20px' }}>
-                    <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#4CAF50' }}>
-                            {complianceData.morningRate}%
-                        </div>
-                        <div style={{ color: '#666' }}>Morning Check-ins</div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#2196F3' }}>
-                            {complianceData.eveningRate}%
-                        </div>
-                        <div style={{ color: '#666' }}>Evening Reflections</div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#FF9800' }}>
-                            {complianceData.assignmentRate}%
-                        </div>
-                        <div style={{ color: '#666' }}>Assignments Complete</div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#9C27B0' }}>
-                            {complianceData.totalCheckIns}
-                        </div>
-                        <div style={{ color: '#666' }}>Total Check-ins</div>
-                    </div>
+                <h4 style={{ marginBottom: '15px', color: '#333' }}>30-Day Mood Trend</h4>
+                <div style={{ height: '200px' }}>
+                    <canvas id={`mood-chart-${pirId}`}></canvas>
                 </div>
             </div>
-
-            {/* Progress Charts */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div style={{
-                    background: 'white',
-                    borderRadius: '15px',
-                    padding: '20px',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                }}>
-                    <h4 style={{ marginBottom: '15px', color: '#333' }}>30-Day Mood Trend</h4>
-                    <div style={{ height: '200px' }}>
-                        <canvas id={`mood-chart-${pirId}`}></canvas>
-                    </div>
+            
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <h4 style={{ marginBottom: '15px', color: '#333' }}>30-Day Craving Trend</h4>
+                <div style={{ height: '200px' }}>
+                    <canvas id={`craving-chart-${pirId}`}></canvas>
                 </div>
-                
-                <div style={{
-                    background: 'white',
-                    borderRadius: '15px',
-                    padding: '20px',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                }}>
-                    <h4 style={{ marginBottom: '15px', color: '#333' }}>30-Day Craving Trend</h4>
-                    <div style={{ height: '200px' }}>
-                        <canvas id={`craving-chart-${pirId}`}></canvas>
-                    </div>
+            </div>
+            
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <h4 style={{ marginBottom: '15px', color: '#333' }}>30-Day Anxiety Trend</h4>
+                <div style={{ height: '200px' }}>
+                    <canvas id={`anxiety-chart-${pirId}`}></canvas>
                 </div>
-                
-                <div style={{
-                    background: 'white',
-                    borderRadius: '15px',
-                    padding: '20px',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                }}>
-                    <h4 style={{ marginBottom: '15px', color: '#333' }}>30-Day Anxiety Trend</h4>
-                    <div style={{ height: '200px' }}>
-                        <canvas id={`anxiety-chart-${pirId}`}></canvas>
-                    </div>
-                </div>
-                
-                <div style={{
-                    background: 'white',
-                    borderRadius: '15px',
-                    padding: '20px',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                }}>
-                    <h4 style={{ marginBottom: '15px', color: '#333' }}>30-Day Sleep Quality Trend</h4>
-                    <div style={{ height: '200px' }}>
-                        <canvas id={`sleep-chart-${pirId}`}></canvas>
-                    </div>
+            </div>
+            
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <h4 style={{ marginBottom: '15px', color: '#333' }}>30-Day Sleep Quality Trend</h4>
+                <div style={{ height: '200px' }}>
+                    <canvas id={`sleep-chart-${pirId}`}></canvas>
                 </div>
             </div>
         </div>
-    );
+    </div>
+);
 
     const renderMilestonesTab = () => (
         <div style={{ padding: '20px' }}>
