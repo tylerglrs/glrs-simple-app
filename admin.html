@@ -9944,53 +9944,39 @@ function UserDetailModal({ user, onClose, onUpdate }) {
         }
     };
 
-    // Fixed date calculation function - replace the existing one
-const calculateSobrietyDaysFixed = (sobrietyDate) => {
+   const calculateSobrietyDaysFixed = (sobrietyDate) => {
     if (!sobrietyDate) return 0;
     
     let sobriety;
     
-    // Handle Firestore Timestamp
-    if (sobrietyDate.toDate) {
-        sobriety = sobrietyDate.toDate();
-    } 
-    // Handle Firestore timestamp object with seconds
-    else if (sobrietyDate.seconds) {
-        sobriety = new Date(sobrietyDate.seconds * 1000);
-    }
-    // Handle ISO string or date string
-    else if (typeof sobrietyDate === 'string') {
-        // If it's just a date without time, add time to avoid timezone issues
-        if (!sobrietyDate.includes('T')) {
-            sobriety = new Date(sobrietyDate + 'T00:00:00');
+    // Handle string dates more carefully
+    if (typeof sobrietyDate === 'string') {
+        // For YYYY-MM-DD format, parse components directly to avoid timezone issues
+        if (sobrietyDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            const [year, month, day] = sobrietyDate.split('-').map(Number);
+            sobriety = new Date(year, month - 1, day); // month is 0-indexed
         } else {
             sobriety = new Date(sobrietyDate);
         }
-    }
-    // Handle Date object
-    else if (sobrietyDate instanceof Date) {
-        sobriety = new Date(sobrietyDate);
-    }
-    // Fallback
-    else {
+    } else if (sobrietyDate.toDate) {
+        sobriety = sobrietyDate.toDate();
+    } else if (sobrietyDate.seconds) {
+        sobriety = new Date(sobrietyDate.seconds * 1000);
+    } else {
         sobriety = new Date(sobrietyDate);
     }
     
-    // Set both dates to midnight local time to avoid timezone issues
+    // Set to midnight
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     sobriety.setHours(0, 0, 0, 0);
     
-    // Calculate difference in milliseconds
+    // Calculate difference
     const diffTime = today.getTime() - sobriety.getTime();
-    
-    // Convert to days and ensure positive number
     const days = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     
-    // Return 0 if negative (future date)
     return days >= 0 ? days : 0;
 };
-
 
     const getLastLoginFormatted = async (userId, userData) => {
         try {
