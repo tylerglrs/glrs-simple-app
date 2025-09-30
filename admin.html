@@ -9944,88 +9944,26 @@ function UserDetailModal({ user, onClose, onUpdate }) {
         }
     };
 
-    // Fixed date calculation function - replace the existing one
-const calculateSobrietyDaysFixed = (sobrietyDate) => {
-    if (!sobrietyDate) return 0;
-    
-    let sobriety;
-    
-    // Handle Firestore Timestamp
-    if (sobrietyDate.toDate) {
-        sobriety = sobrietyDate.toDate();
-    } 
-    // Handle Firestore timestamp object with seconds
-    else if (sobrietyDate.seconds) {
-        sobriety = new Date(sobrietyDate.seconds * 1000);
-    }
-    // Handle ISO string or date string
-    else if (typeof sobrietyDate === 'string') {
-        // If it's just a date without time, add time to avoid timezone issues
-        if (!sobrietyDate.includes('T')) {
+    // Fixed date calculation functions
+    const calculateSobrietyDaysFixed = (sobrietyDate) => {
+        if (!sobrietyDate) return 0;
+        
+        // Handle both string and timestamp formats
+        let sobriety;
+        if (sobrietyDate.toDate) {
+            sobriety = sobrietyDate.toDate();
+        } else {
             sobriety = new Date(sobrietyDate + 'T00:00:00');
-        } else {
-            sobriety = new Date(sobrietyDate);
         }
-    }
-    // Handle Date object
-    else if (sobrietyDate instanceof Date) {
-        sobriety = new Date(sobrietyDate);
-    }
-    // Fallback
-    else {
-        sobriety = new Date(sobrietyDate);
-    }
-    
-    // Set both dates to midnight local time to avoid timezone issues
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    sobriety.setHours(0, 0, 0, 0);
-    
-    // Calculate difference in milliseconds
-    const diffTime = today.getTime() - sobriety.getTime();
-    
-    // Convert to days and ensure positive number
-    const days = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-    
-    // Return 0 if negative (future date)
-    return days >= 0 ? days : 0;
-};
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        sobriety.setHours(0, 0, 0, 0);
+        
+        const diffTime = today - sobriety;
+        return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    };
 
-// Also fix the formatDate function to display dates correctly
-const formatDate = (date) => {
-    if (!date) return 'N/A';
-    
-    let d;
-    
-    // Handle Firestore Timestamp
-    if (date?.toDate) {
-        d = date.toDate();
-    }
-    // Handle timestamp object with seconds
-    else if (date?.seconds) {
-        d = new Date(date.seconds * 1000);
-    }
-    // Handle string
-    else if (typeof date === 'string') {
-        // Add timezone handling for date strings
-        if (!date.includes('T')) {
-            d = new Date(date + 'T00:00:00');
-        } else {
-            d = new Date(date);
-        }
-    }
-    // Handle Date object
-    else {
-        d = new Date(date);
-    }
-    
-    // Format as locale date string
-    return d.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    });
-};
 
     const getLastLoginFormatted = async (userId, userData) => {
         try {
