@@ -10835,6 +10835,103 @@ const formatDate = (date) => {
             alert('Failed to update profile');
         }
     };
+     // Fixed loadAllUserMessages function - add this to your load functions
+const loadAllUserMessages = async () => {
+    try {
+        const messagesData = [];
+        
+        // Get direct messages where user is the sender
+        try {
+            const directMessages = await db.collection('messages')
+                .where('senderId', '==', pirId)
+                .orderBy('createdAt', 'desc')
+                .get();
+            
+            directMessages.forEach(doc => {
+                messagesData.push({ 
+                    id: doc.id, 
+                    ...doc.data(), 
+                    type: 'direct' 
+                });
+            });
+        } catch (error) {
+            console.log('Error loading direct messages:', error);
+        }
+        
+        // Also get direct messages where user is the recipient
+        try {
+            const receivedMessages = await db.collection('messages')
+                .where('userId', '==', pirId)
+                .orderBy('createdAt', 'desc')
+                .get();
+            
+            receivedMessages.forEach(doc => {
+                const data = doc.data();
+                if (data.senderId === pirId) {  // Only include if they sent it
+                    messagesData.push({ 
+                        id: doc.id, 
+                        ...data, 
+                        type: 'direct' 
+                    });
+                }
+            });
+        } catch (error) {
+            console.log('Error loading received messages:', error);
+        }
+        
+        // Get community messages (if collection exists)
+        try {
+            const communityMessages = await db.collection('glrsChat')
+                .where('senderId', '==', pirId)
+                .orderBy('createdAt', 'desc')
+                .limit(50)
+                .get();
+            
+            communityMessages.forEach(doc => {
+                messagesData.push({ 
+                    id: doc.id, 
+                    ...doc.data(), 
+                    type: 'community' 
+                });
+            });
+        } catch (error) {
+            console.log('Community chat collection may not exist:', error);
+        }
+        
+        // Get topic room messages
+        try {
+            const topicMessages = await db.collection('topicRoomMessages')
+                .where('senderId', '==', pirId)
+                .orderBy('createdAt', 'desc')
+                .limit(50)
+                .get();
+            
+            topicMessages.forEach(doc => {
+                messagesData.push({ 
+                    id: doc.id, 
+                    ...doc.data(), 
+                    type: 'topic' 
+                });
+            });
+        } catch (error) {
+            console.log('Topic room messages may not exist:', error);
+        }
+        
+        // Sort all messages by date
+        messagesData.sort((a, b) => {
+            const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+            const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+            return dateB - dateA;
+        });
+        
+        setAllMessages(messagesData);
+        console.log(`Loaded ${messagesData.length} total messages for PIR`);
+        
+    } catch (error) {
+        console.error('Error loading user messages:', error);
+        setAllMessages([]);
+    }
+};
 
     // Delete message function
     const handleDeleteMessage = async (messageId, messageType) => {
@@ -12161,103 +12258,7 @@ const formatDate = (date) => {
     );
 };
 
-    // Fixed loadAllUserMessages function - add this to your load functions
-const loadAllUserMessages = async () => {
-    try {
-        const messagesData = [];
-        
-        // Get direct messages where user is the sender
-        try {
-            const directMessages = await db.collection('messages')
-                .where('senderId', '==', pirId)
-                .orderBy('createdAt', 'desc')
-                .get();
-            
-            directMessages.forEach(doc => {
-                messagesData.push({ 
-                    id: doc.id, 
-                    ...doc.data(), 
-                    type: 'direct' 
-                });
-            });
-        } catch (error) {
-            console.log('Error loading direct messages:', error);
-        }
-        
-        // Also get direct messages where user is the recipient
-        try {
-            const receivedMessages = await db.collection('messages')
-                .where('userId', '==', pirId)
-                .orderBy('createdAt', 'desc')
-                .get();
-            
-            receivedMessages.forEach(doc => {
-                const data = doc.data();
-                if (data.senderId === pirId) {  // Only include if they sent it
-                    messagesData.push({ 
-                        id: doc.id, 
-                        ...data, 
-                        type: 'direct' 
-                    });
-                }
-            });
-        } catch (error) {
-            console.log('Error loading received messages:', error);
-        }
-        
-        // Get community messages (if collection exists)
-        try {
-            const communityMessages = await db.collection('glrsChat')
-                .where('senderId', '==', pirId)
-                .orderBy('createdAt', 'desc')
-                .limit(50)
-                .get();
-            
-            communityMessages.forEach(doc => {
-                messagesData.push({ 
-                    id: doc.id, 
-                    ...doc.data(), 
-                    type: 'community' 
-                });
-            });
-        } catch (error) {
-            console.log('Community chat collection may not exist:', error);
-        }
-        
-        // Get topic room messages
-        try {
-            const topicMessages = await db.collection('topicRoomMessages')
-                .where('senderId', '==', pirId)
-                .orderBy('createdAt', 'desc')
-                .limit(50)
-                .get();
-            
-            topicMessages.forEach(doc => {
-                messagesData.push({ 
-                    id: doc.id, 
-                    ...doc.data(), 
-                    type: 'topic' 
-                });
-            });
-        } catch (error) {
-            console.log('Topic room messages may not exist:', error);
-        }
-        
-        // Sort all messages by date
-        messagesData.sort((a, b) => {
-            const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
-            const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
-            return dateB - dateA;
-        });
-        
-        setAllMessages(messagesData);
-        console.log(`Loaded ${messagesData.length} total messages for PIR`);
-        
-    } catch (error) {
-        console.error('Error loading user messages:', error);
-        setAllMessages([]);
-    }
-};
+   
 
 // Fixed renderCommunicationsTab
 const renderCommunicationsTab = () => {
@@ -13312,6 +13313,7 @@ const renderCommunicationsTab = () => {
         </div>
     );
 }  // This closes the UserDetailModal function
+    
       // Enhanced Coach Detail Modal with Tabs for admin viewing coaches
 function CoachDetailModal({ coach, onClose, onUpdate, currentUserId }) {
     const [activeTab, setActiveTab] = useState('overview');
