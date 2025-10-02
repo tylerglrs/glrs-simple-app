@@ -12402,424 +12402,908 @@ function AlertsView({ searchQuery, user }) {
             );
         }
 
-        // Modal Components
-        function CreateUserModal({ onClose, onSuccess, coaches }) {
-            const [formData, setFormData] = useState({
-                email: '',
-                password: 'TempPassword123!',
-                firstName: '',
-                lastName: '',
-                role: 'pir',
-                assignedCoach: '',
-                phone: ''
+// ENHANCED CreateUserModal
+function CreateUserModal({ onClose, onSuccess, defaultRole }) {
+    const [formData, setFormData] = useState({
+        email: '',
+        password: 'TempPassword123!',
+        firstName: '',
+        lastName: '',
+        role: defaultRole || 'pir',
+        assignedCoach: '',
+        phone: '',
+        sobrietyDate: ''
+    });
+    const [coachesList, setCoachesList] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [emailValid, setEmailValid] = useState(null);
+    const [step, setStep] = useState(1);
+
+    useEffect(() => {
+        loadCoaches();
+    }, []);
+
+    const loadCoaches = async () => {
+        const coachesSnap = await db.collection('users')
+            .where('role', '==', 'coach')
+            .get();
+        
+        const coachesData = [];
+        coachesSnap.forEach(doc => {
+            coachesData.push({ id: doc.id, ...doc.data() });
+        });
+        setCoachesList(coachesData);
+    };
+
+    const validateEmail = (email) => {
+        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return re.test(email);
+    };
+
+    const handleEmailChange = (email) => {
+        setFormData({...formData, email});
+        if (email.length > 0) {
+            setEmailValid(validateEmail(email));
+        } else {
+            setEmailValid(null);
+        }
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        
+        if (!validateEmail(formData.email)) {
+            alert('Please enter a valid email address');
+            return;
+        }
+        
+        setLoading(true);
+        
+        let secondaryApp;
+        try {
+            try {
+                secondaryApp = firebase.app('SecondaryApp');
+                await secondaryApp.delete();
+            } catch (e) {
+                // App doesn't exist
+            }
+            
+            secondaryApp = firebase.initializeApp(firebaseConfig, 'SecondaryApp');
+            const secondaryAuth = secondaryApp.auth();
+            
+            const userCredential = await secondaryAuth.createUserWithEmailAndPassword(
+                formData.email,
+                formData.password
+            );
+            
+            const userData = {
+                email: formData.email,
+                displayName: `${formData.firstName} ${formData.lastName}`,
+                firstName: formData.firstName,
+                lastName: formData.lastName,
+                phone: formData.phone,
+                role: formData.role,
+                active: true,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            
+            if (formData.role === 'pir') {
+                if (formData.assignedCoach) {
+                    userData.assignedCoach = formData.assignedCoach;
+                    const coach = coachesList.find(c => c.id === formData.assignedCoach);
+                    if (coach) {
+                        userData.assignedCoachName = coach.displayName || coach.email;
+                    }
+                }
+                if (formData.sobrietyDate) {
+                    userData.sobrietyDate = firebase.firestore.Timestamp.fromDate(new Date(formData.sobrietyDate));
+                }
+            }
+            
+            await db.collection('users').doc(userCredential.user.uid).set(userData);
+            await auth.sendPasswordResetEmail(formData.email);
+            
+            await db.collection('notifications').add({
+                type: 'user-created',
+                message: `New ${formData.role} created: ${userData.displayName}`,
+                recipientId: auth.currentUser.uid,
+                relatedId: userCredential.user.uid,
+                read: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            const [coachesList, setCoachesList] = useState([]);
-            const [loading, setLoading] = useState(false);
-
-            useEffect(() => {
-                loadCoaches();
-            }, []);
-
-            const loadCoaches = async () => {
-                const coachesSnap = await db.collection('users')
-                    .where('role', '==', 'coach')
-                    .get();
-                
-                const coachesData = [];
-                coachesSnap.forEach(doc => {
-                    coachesData.push({ id: doc.id, ...doc.data() });
-                });
-                setCoachesList(coachesData);
-            };
-
-            const validateEmail = (email) => {
-                const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                return re.test(email);
-            };
-
-            const handleSubmit = async (e) => {
-                e.preventDefault();
-                
-                if (!validateEmail(formData.email)) {
-                    alert('Please enter a valid email address');
-                    return;
-                }
-                
-                setLoading(true);
-                
-                let secondaryApp;
+            
+            await secondaryApp.delete();
+            
+            alert('User created successfully! Password reset email sent.');
+            onSuccess();
+        } catch (error) {
+            console.error('Error creating user:', error);
+            alert('Error creating user: ' + error.message);
+            
+            if (secondaryApp) {
                 try {
-                    // Clean up any existing secondary app
-                    try {
-                        secondaryApp = firebase.app('SecondaryApp');
-                        await secondaryApp.delete();
-                    } catch (e) {
-                        // App doesn't exist
-                    }
-                    
-                    // Create new secondary app
-                    secondaryApp = firebase.initializeApp(firebaseConfig, 'SecondaryApp');
-                    const secondaryAuth = secondaryApp.auth();
-                    
-                    // Create auth user
-                    const userCredential = await secondaryAuth.createUserWithEmailAndPassword(
-                        formData.email,
-                        formData.password
-                    );
-                    
-                    // Prepare user data
-                    const userData = {
-                        email: formData.email,
-                        displayName: `${formData.firstName} ${formData.lastName}`,
-                        firstName: formData.firstName,
-                        lastName: formData.lastName,
-                        phone: formData.phone,
-                        role: formData.role,
-                        active: true,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    };
-                    
-                    // Add coach assignment if PIR
-                    if (formData.role === 'pir' && formData.assignedCoach) {
-                        userData.assignedCoach = formData.assignedCoach;
-                        // Also denormalize coach name for performance
-                        const coach = coachesList.find(c => c.id === formData.assignedCoach);
-                        if (coach) {
-                            userData.assignedCoachName = coach.displayName || coach.email;
-                        }
-                    }
-                    
-                    // Create Firestore profile
-                    await db.collection('users').doc(userCredential.user.uid).set(userData);
-                    
-                    // Send password reset email
-                    await auth.sendPasswordResetEmail(formData.email);
-                    
-                    // Create notification
-                    await db.collection('notifications').add({
-                        type: 'user-created',
-                        message: `New ${formData.role} created: ${userData.displayName}`,
-                        recipientId: auth.currentUser.uid,
-                        relatedId: userCredential.user.uid,
-                        read: false,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    // Clean up secondary app
                     await secondaryApp.delete();
-                    
-                    alert('User created successfully! Password reset email sent.');
-                    onSuccess();
-                } catch (error) {
-                    console.error('Error creating user:', error);
-                    alert('Error creating user: ' + error.message);
-                    
-                    // Clean up on error
-                    if (secondaryApp) {
-                        try {
-                            await secondaryApp.delete();
-                        } catch (e) {
-                            // Ignore
-                        }
-                    }
-                } finally {
-                    setLoading(false);
+                } catch (e) {
+                    // Ignore
                 }
-            };
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
 
-            return (
-                <div className="modal-overlay">
-                    <div className="modal">
-                        <div className="modal-header">
-                            <div className="modal-title">Create New User</div>
-                            <button className="modal-close" onClick={onClose}>×</button>
+    const getRoleColor = (role) => {
+        if (role === 'pir') return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+        if (role === 'coach') return 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)';
+        return 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)';
+    };
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px',
+            animation: 'fadeIn 0.2s'
+        }}>
+            <div style={{
+                background: 'white',
+                borderRadius: '20px',
+                maxWidth: '600px',
+                width: '100%',
+                maxHeight: '90vh',
+                overflow: 'auto',
+                boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+                animation: 'slideUp 0.3s'
+            }}>
+                {/* Header */}
+                <div style={{
+                    background: getRoleColor(formData.role),
+                    padding: '25px 30px',
+                    borderRadius: '20px 20px 0 0',
+                    color: 'white',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 1
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                            <h2 style={{ margin: '0 0 5px 0', fontSize: '24px' }}>Create New User</h2>
+                            <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                                Step {step} of 2
+                            </div>
                         </div>
-                        
-                        <form onSubmit={handleSubmit}>
-                            <div className="form-group">
-                                <label className="form-label">Email *</label>
+                        <button 
+                            onClick={onClose}
+                            style={{
+                                background: 'rgba(255,255,255,0.2)',
+                                border: 'none',
+                                color: 'white',
+                                fontSize: '24px',
+                                width: '36px',
+                                height: '36px',
+                                borderRadius: '50%',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'background 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.3)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                        >
+                            ×
+                        </button>
+                    </div>
+                </div>
+
+                {/* Content */}
+                <form onSubmit={handleSubmit} style={{ padding: '30px' }}>
+                    {step === 1 && (
+                        <>
+                            {/* Role Selection */}
+                            <div style={{ marginBottom: '25px' }}>
+                                <label style={{ 
+                                    display: 'block', 
+                                    fontSize: '14px', 
+                                    fontWeight: '600', 
+                                    color: '#333', 
+                                    marginBottom: '10px' 
+                                }}>
+                                    User Role *
+                                </label>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                                    {['pir', 'coach', 'admin'].map(role => (
+                                        <button
+                                            key={role}
+                                            type="button"
+                                            onClick={() => setFormData({...formData, role})}
+                                            style={{
+                                                padding: '15px',
+                                                background: formData.role === role ? getRoleColor(role) : '#f0f0f0',
+                                                color: formData.role === role ? 'white' : '#666',
+                                                border: 'none',
+                                                borderRadius: '10px',
+                                                cursor: 'pointer',
+                                                fontSize: '14px',
+                                                fontWeight: '600',
+                                                textTransform: 'uppercase',
+                                                transition: 'all 0.2s'
+                                            }}
+                                            onMouseEnter={(e) => {
+                                                if (formData.role !== role) {
+                                                    e.currentTarget.style.background = '#e0e0e0';
+                                                }
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                if (formData.role !== role) {
+                                                    e.currentTarget.style.background = '#f0f0f0';
+                                                }
+                                            }}
+                                        >
+                                            {role}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Email */}
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ 
+                                    display: 'block', 
+                                    fontSize: '14px', 
+                                    fontWeight: '600', 
+                                    color: '#333', 
+                                    marginBottom: '8px' 
+                                }}>
+                                    Email Address *
+                                </label>
                                 <input
                                     type="email"
-                                    className="form-input"
                                     value={formData.email}
-                                    onChange={(e) => setFormData({...formData, email: e.target.value})}
+                                    onChange={(e) => handleEmailChange(e.target.value)}
                                     required
+                                    style={{
+                                        width: '100%',
+                                        padding: '12px 15px',
+                                        border: `2px solid ${emailValid === false ? '#f44336' : emailValid === true ? '#4CAF50' : '#e0e0e0'}`,
+                                        borderRadius: '10px',
+                                        fontSize: '14px',
+                                        transition: 'border-color 0.2s'
+                                    }}
+                                    onFocus={(e) => {
+                                        if (emailValid === null) e.currentTarget.style.borderColor = '#667eea';
+                                    }}
+                                    onBlur={(e) => {
+                                        if (emailValid === null) e.currentTarget.style.borderColor = '#e0e0e0';
+                                    }}
                                 />
+                                {emailValid === false && (
+                                    <div style={{ color: '#f44336', fontSize: '12px', marginTop: '5px' }}>
+                                        Please enter a valid email address
+                                    </div>
+                                )}
+                                {emailValid === true && (
+                                    <div style={{ color: '#4CAF50', fontSize: '12px', marginTop: '5px' }}>
+                                        ✓ Valid email address
+                                    </div>
+                                )}
                             </div>
-                            
-                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
-                                <div className="form-group">
-                                    <label className="form-label">First Name *</label>
+
+                            {/* Name Fields */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
+                                <div>
+                                    <label style={{ 
+                                        display: 'block', 
+                                        fontSize: '14px', 
+                                        fontWeight: '600', 
+                                        color: '#333', 
+                                        marginBottom: '8px' 
+                                    }}>
+                                        First Name *
+                                    </label>
                                     <input
                                         type="text"
-                                        className="form-input"
                                         value={formData.firstName}
                                         onChange={(e) => setFormData({...formData, firstName: e.target.value})}
                                         required
+                                        style={{
+                                            width: '100%',
+                                            padding: '12px 15px',
+                                            border: '2px solid #e0e0e0',
+                                            borderRadius: '10px',
+                                            fontSize: '14px',
+                                            transition: 'border-color 0.2s'
+                                        }}
+                                        onFocus={(e) => e.currentTarget.style.borderColor = '#667eea'}
+                                        onBlur={(e) => e.currentTarget.style.borderColor = '#e0e0e0'}
                                     />
                                 </div>
-                                
-                                <div className="form-group">
-                                    <label className="form-label">Last Name *</label>
+                                <div>
+                                    <label style={{ 
+                                        display: 'block', 
+                                        fontSize: '14px', 
+                                        fontWeight: '600', 
+                                        color: '#333', 
+                                        marginBottom: '8px' 
+                                    }}>
+                                        Last Name *
+                                    </label>
                                     <input
                                         type="text"
-                                        className="form-input"
                                         value={formData.lastName}
                                         onChange={(e) => setFormData({...formData, lastName: e.target.value})}
                                         required
+                                        style={{
+                                            width: '100%',
+                                            padding: '12px 15px',
+                                            border: '2px solid #e0e0e0',
+                                            borderRadius: '10px',
+                                            fontSize: '14px',
+                                            transition: 'border-color 0.2s'
+                                        }}
+                                        onFocus={(e) => e.currentTarget.style.borderColor = '#667eea'}
+                                        onBlur={(e) => e.currentTarget.style.borderColor = '#e0e0e0'}
                                     />
                                 </div>
                             </div>
-                            
-                            <div className="form-group">
-                                <label className="form-label">Phone</label>
+
+                            {/* Phone */}
+                            <div style={{ marginBottom: '25px' }}>
+                                <label style={{ 
+                                    display: 'block', 
+                                    fontSize: '14px', 
+                                    fontWeight: '600', 
+                                    color: '#333', 
+                                    marginBottom: '8px' 
+                                }}>
+                                    Phone Number
+                                </label>
                                 <input
                                     type="tel"
-                                    className="form-input"
                                     value={formData.phone}
                                     onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                                    placeholder="(555) 123-4567"
+                                    style={{
+                                        width: '100%',
+                                        padding: '12px 15px',
+                                        border: '2px solid #e0e0e0',
+                                        borderRadius: '10px',
+                                        fontSize: '14px',
+                                        transition: 'border-color 0.2s'
+                                    }}
+                                    onFocus={(e) => e.currentTarget.style.borderColor = '#667eea'}
+                                    onBlur={(e) => e.currentTarget.style.borderColor = '#e0e0e0'}
                                 />
                             </div>
-                            
-                            <div className="form-group">
-                                <label className="form-label">Role *</label>
-                                <select 
-                                    className="form-input"
-                                    value={formData.role}
-                                    onChange={(e) => setFormData({...formData, role: e.target.value})}
-                                    required
-                                >
-                                    <option value="pir">PIR</option>
-                                    <option value="coach">Coach</option>
-                                    <option value="admin">Admin</option>
-                                </select>
-                            </div>
-                            
+
+                            <button
+                                type="button"
+                                onClick={() => setStep(2)}
+                                style={{
+                                    width: '100%',
+                                    padding: '14px',
+                                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    fontSize: '16px',
+                                    fontWeight: '600',
+                                    transition: 'transform 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                            >
+                                Next Step →
+                            </button>
+                        </>
+                    )}
+
+                    {step === 2 && (
+                        <>
+                            {/* PIR-specific fields */}
                             {formData.role === 'pir' && (
-                                <div className="form-group">
-                                    <label className="form-label">Assigned Coach</label>
-                                    <select 
-                                        className="form-input"
-                                        value={formData.assignedCoach}
-                                        onChange={(e) => setFormData({...formData, assignedCoach: e.target.value})}
-                                    >
-                                        <option value="">Select Coach</option>
-                                        {coachesList.map(coach => (
-                                            <option key={coach.id} value={coach.id}>
-                                                {coach.displayName || coach.email}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
+                                <>
+                                    <div style={{ marginBottom: '20px' }}>
+                                        <label style={{ 
+                                            display: 'block', 
+                                            fontSize: '14px', 
+                                            fontWeight: '600', 
+                                            color: '#333', 
+                                            marginBottom: '8px' 
+                                        }}>
+                                            Assign Coach
+                                        </label>
+                                        <select
+                                            value={formData.assignedCoach}
+                                            onChange={(e) => setFormData({...formData, assignedCoach: e.target.value})}
+                                            style={{
+                                                width: '100%',
+                                                padding: '12px 15px',
+                                                border: '2px solid #e0e0e0',
+                                                borderRadius: '10px',
+                                                fontSize: '14px',
+                                                background: 'white',
+                                                cursor: 'pointer',
+                                                transition: 'border-color 0.2s'
+                                            }}
+                                            onFocus={(e) => e.currentTarget.style.borderColor = '#667eea'}
+                                            onBlur={(e) => e.currentTarget.style.borderColor = '#e0e0e0'}
+                                        >
+                                            <option value="">Select Coach (Optional)</option>
+                                            {coachesList.map(coach => (
+                                                <option key={coach.id} value={coach.id}>
+                                                    {coach.displayName || coach.email}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div style={{ marginBottom: '25px' }}>
+                                        <label style={{ 
+                                            display: 'block', 
+                                            fontSize: '14px', 
+                                            fontWeight: '600', 
+                                            color: '#333', 
+                                            marginBottom: '8px' 
+                                        }}>
+                                            Sobriety Start Date
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={formData.sobrietyDate}
+                                            onChange={(e) => setFormData({...formData, sobrietyDate: e.target.value})}
+                                            style={{
+                                                width: '100%',
+                                                padding: '12px 15px',
+                                                border: '2px solid #e0e0e0',
+                                                borderRadius: '10px',
+                                                fontSize: '14px',
+                                                transition: 'border-color 0.2s'
+                                            }}
+                                            onFocus={(e) => e.currentTarget.style.borderColor = '#667eea'}
+                                            onBlur={(e) => e.currentTarget.style.borderColor = '#e0e0e0'}
+                                        />
+                                    </div>
+                                </>
                             )}
-                            
-                            <div style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
-                                <button 
-                                    type="submit"
-                                    className="btn btn-primary"
-                                    disabled={loading}
-                                >
-                                    {loading ? 'Creating...' : 'Create User'}
-                                </button>
-                                <button 
+
+                            {/* Password Info */}
+                            <div style={{
+                                padding: '15px',
+                                background: '#e3f2fd',
+                                borderRadius: '10px',
+                                marginBottom: '25px'
+                            }}>
+                                <div style={{ fontSize: '14px', fontWeight: '600', color: '#1976d2', marginBottom: '5px' }}>
+                                    🔒 Password Reset Email
+                                </div>
+                                <div style={{ fontSize: '13px', color: '#1565c0' }}>
+                                    A password reset link will be sent to the user's email address. They will set their own secure password.
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <button
                                     type="button"
-                                    className="btn btn-secondary"
-                                    onClick={onClose}
+                                    onClick={() => setStep(1)}
+                                    style={{
+                                        flex: 1,
+                                        padding: '14px',
+                                        background: '#6c757d',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '10px',
+                                        cursor: 'pointer',
+                                        fontSize: '16px',
+                                        fontWeight: '600',
+                                        transition: 'background 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = '#5a6268'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = '#6c757d'}
                                 >
-                                    Cancel
+                                    ← Back
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    style={{
+                                        flex: 2,
+                                        padding: '14px',
+                                        background: loading ? '#ccc' : getRoleColor(formData.role),
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '10px',
+                                        cursor: loading ? 'not-allowed' : 'pointer',
+                                        fontSize: '16px',
+                                        fontWeight: '600',
+                                        transition: 'transform 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        if (!loading) e.currentTarget.style.transform = 'translateY(-2px)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                    }}
+                                >
+                                    {loading ? 'Creating User...' : 'Create User'}
                                 </button>
                             </div>
-                        </form>
-                    </div>
-                </div>
-            );
-        }
+                        </>
+                    )}
+                </form>
+            </div>
+        </div>
+    );
+}
 
-        // Additional Modal Components
-        function CheckInDetailModal({ checkIn, onClose }) {
-            return (
-                <div className="modal-overlay">
-                    <div className="modal">
-                        <div className="modal-header">
-                            <div className="modal-title">Check-in Details</div>
-                            <button className="modal-close" onClick={onClose}>×</button>
-                        </div>
-                        
-                        <div style={{marginBottom: '20px'}}>
-                            <strong>User:</strong> {checkIn.userName}<br />
-                            <strong>Date/Time:</strong> {formatDateTime(checkIn.createdAt)}
-                        </div>
-                        
-                        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px'}}>
-                            <div>
-                                <strong>Mood:</strong>
-                                <div className="mood-scale" style={{marginTop: '10px'}}>
-                                    <div className={`mood-circle mood-${checkIn.mood}`} style={{width: '40px', height: '40px', fontSize: '18px'}}>
-                                        {checkIn.mood}
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div>
-                                <strong>Cravings:</strong>
-                                <div className="mood-scale" style={{marginTop: '10px'}}>
-                                    <div className={`mood-circle mood-${11 - checkIn.cravings}`} style={{width: '40px', height: '40px', fontSize: '18px'}}>
-                                        {checkIn.cravings}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        {checkIn.gratitude && (
-                            <div style={{marginBottom: '20px'}}>
-                                <strong>Gratitude:</strong>
-                                <p style={{marginTop: '10px', padding: '15px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px'}}>
-                                    {checkIn.gratitude}
-                                </p>
-                            </div>
-                        )}
-                        
-                        {checkIn.notes && (
-                            <div style={{marginBottom: '20px'}}>
-                                <strong>Notes:</strong>
-                                <p style={{marginTop: '10px', padding: '15px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px'}}>
-                                    {checkIn.notes}
-                                </p>
-                            </div>
-                        )}
-                        
-                        <button className="btn btn-secondary" onClick={onClose}>Close</button>
-                    </div>
-                </div>
-            );
-        }
+// ENHANCED CreateAssignmentModal
+function CreateAssignmentModal({ onClose, onSuccess, users, createdBy }) {
+    const [formData, setFormData] = useState({
+        title: '',
+        description: '',
+        userId: '',
+        dueDate: '',
+        priority: 'medium',
+        status: 'pending',
+        category: 'general'
+    });
+    const [loading, setLoading] = useState(false);
 
-        function CreateAssignmentModal({ onClose, onSuccess, users, createdBy }) {
-            const [formData, setFormData] = useState({
-                title: '',
-                description: '',
-                userId: '',
-                dueDate: '',
-                priority: 'medium',
-                status: 'pending'
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        
+        try {
+            await db.collection('assignments').add({
+                ...formData,
+                createdBy: createdBy,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            const [loading, setLoading] = useState(false);
+            
+            // Create notification for PIR
+            if (formData.userId) {
+                await db.collection('notifications').add({
+                    type: 'assignment',
+                    message: `New assignment: ${formData.title}`,
+                    recipientId: formData.userId,
+                    relatedId: formData.userId,
+                    read: false,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+            
+            alert('Assignment created successfully!');
+            onSuccess();
+        } catch (error) {
+            console.error('Error creating assignment:', error);
+            alert('Failed to create assignment');
+        } finally {
+            setLoading(false);
+        }
+    };
 
-            const handleSubmit = async (e) => {
-                e.preventDefault();
-                setLoading(true);
-                
-                try {
-                    await db.collection('assignments').add({
-                        ...formData,
-                        createdBy: createdBy,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    alert('Assignment created successfully!');
-                    onSuccess();
-                } catch (error) {
-                    console.error('Error creating assignment:', error);
-                    alert('Failed to create assignment');
-                } finally {
-                    setLoading(false);
-                }
-            };
+    const getPriorityColor = (priority) => {
+        if (priority === 'high') return '#f44336';
+        if (priority === 'medium') return '#FF9800';
+        return '#4CAF50';
+    };
 
-            return (
-                <div className="modal-overlay">
-                    <div className="modal">
-                        <div className="modal-header">
-                            <div className="modal-title">Create Assignment</div>
-                            <button className="modal-close" onClick={onClose}>×</button>
-                        </div>
-                        
-                        <form onSubmit={handleSubmit}>
-                            <div className="form-group">
-                                <label className="form-label">Title *</label>
-                                <input
-                                    type="text"
-                                    className="form-input"
-                                    value={formData.title}
-                                    onChange={(e) => setFormData({...formData, title: e.target.value})}
-                                    required
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label className="form-label">Description *</label>
-                                <textarea
-                                    className="form-input"
-                                    value={formData.description}
-                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
-                                    required
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label className="form-label">Assign To *</label>
-                                <select 
-                                    className="form-input"
-                                    value={formData.userId}
-                                    onChange={(e) => setFormData({...formData, userId: e.target.value})}
-                                    required
-                                >
-                                    <option value="">Select PIR</option>
-                                    {users.map(user => (
-                                        <option key={user.id} value={user.id}>
-                                            {user.displayName || user.email}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            
-                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
-                                <div className="form-group">
-                                    <label className="form-label">Due Date</label>
-                                    <input
-                                        type="date"
-                                        className="form-input"
-                                        value={formData.dueDate}
-                                        onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
-                                    />
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label className="form-label">Priority</label>
-                                    <select 
-                                        className="form-input"
-                                        value={formData.priority}
-                                        onChange={(e) => setFormData({...formData, priority: e.target.value})}
-                                    >
-                                        <option value="low">Low</option>
-                                        <option value="medium">Medium</option>
-                                        <option value="high">High</option>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <div style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
-                                <button 
-                                    type="submit"
-                                    className="btn btn-primary"
-                                    disabled={loading}
-                                >
-                                    {loading ? 'Creating...' : 'Create Assignment'}
-                                </button>
-                                <button 
-                                    type="button"
-                                    className="btn btn-secondary"
-                                    onClick={onClose}
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </form>
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px',
+            animation: 'fadeIn 0.2s'
+        }}>
+            <div style={{
+                background: 'white',
+                borderRadius: '20px',
+                maxWidth: '600px',
+                width: '100%',
+                maxHeight: '90vh',
+                overflow: 'auto',
+                boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+                animation: 'slideUp 0.3s'
+            }}>
+                {/* Header */}
+                <div style={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    padding: '25px 30px',
+                    borderRadius: '20px 20px 0 0',
+                    color: 'white',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 1
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h2 style={{ margin: 0, fontSize: '24px' }}>Create Assignment</h2>
+                        <button 
+                            onClick={onClose}
+                            style={{
+                                background: 'rgba(255,255,255,0.2)',
+                                border: 'none',
+                                color: 'white',
+                                fontSize: '24px',
+                                width: '36px',
+                                height: '36px',
+                                borderRadius: '50%',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'background 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.3)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                        >
+                            ×
+                        </button>
                     </div>
                 </div>
-            );
-        }
 
+                {/* Content */}
+                <form onSubmit={handleSubmit} style={{ padding: '30px' }}>
+                    {/* Title */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '600', 
+                            color: '#333', 
+                            marginBottom: '8px' 
+                        }}>
+                            Assignment Title *
+                        </label>
+                        <input
+                            type="text"
+                            value={formData.title}
+                            onChange={(e) => setFormData({...formData, title: e.target.value})}
+                            required
+                            placeholder="e.g., Complete daily gratitude journal"
+                            style={{
+                                width: '100%',
+                                padding: '12px 15px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '10px',
+                                fontSize: '14px',
+                                transition: 'border-color 0.2s'
+                            }}
+                            onFocus={(e) => e.currentTarget.style.borderColor = '#667eea'}
+                            onBlur={(e) => e.currentTarget.style.borderColor = '#e0e0e0'}
+                        />
+                    </div>
+
+                    {/* Description */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '600', 
+                            color: '#333', 
+                            marginBottom: '8px' 
+                        }}>
+                            Description *
+                        </label>
+                        <textarea
+                            value={formData.description}
+                            onChange={(e) => setFormData({...formData, description: e.target.value})}
+                            required
+                            placeholder="Provide detailed instructions..."
+                            style={{
+                                width: '100%',
+                                minHeight: '100px',
+                                padding: '12px 15px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '10px',
+                                fontSize: '14px',
+                                fontFamily: 'inherit',
+                                resize: 'vertical',
+                                transition: 'border-color 0.2s'
+                            }}
+                            onFocus={(e) => e.currentTarget.style.borderColor = '#667eea'}
+                            onBlur={(e) => e.currentTarget.style.borderColor = '#e0e0e0'}
+                        />
+                    </div>
+
+                    {/* Assign To */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '600', 
+                            color: '#333', 
+                            marginBottom: '8px' 
+                        }}>
+                            Assign To *
+                        </label>
+                        <select
+                            value={formData.userId}
+                            onChange={(e) => setFormData({...formData, userId: e.target.value})}
+                            required
+                            style={{
+                                width: '100%',
+                                padding: '12px 15px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '10px',
+                                fontSize: '14px',
+                                background: 'white',
+                                cursor: 'pointer',
+                                transition: 'border-color 0.2s'
+                            }}
+                            onFocus={(e) => e.currentTarget.style.borderColor = '#667eea'}
+                            onBlur={(e) => e.currentTarget.style.borderColor = '#e0e0e0'}
+                        >
+                            <option value="">Select PIR</option>
+                            {users.map(user => (
+                                <option key={user.id} value={user.id}>
+                                    {user.displayName || user.email}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Priority Selection */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '600', 
+                            color: '#333', 
+                            marginBottom: '10px' 
+                        }}>
+                            Priority Level
+                        </label>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                            {['low', 'medium', 'high'].map(priority => (
+                                <button
+                                    key={priority}
+                                    type="button"
+                                    onClick={() => setFormData({...formData, priority})}
+                                    style={{
+                                        padding: '12px',
+                                        background: formData.priority === priority ? getPriorityColor(priority) : '#f0f0f0',
+                                        color: formData.priority === priority ? 'white' : '#666',
+                                        border: 'none',
+                                        borderRadius: '10px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        fontWeight: '600',
+                                        textTransform: 'capitalize',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    {priority}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Category and Due Date */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '25px' }}>
+                        <div>
+                            <label style={{ 
+                                display: 'block', 
+                                fontSize: '14px', 
+                                fontWeight: '600', 
+                                color: '#333', 
+                                marginBottom: '8px' 
+                            }}>
+                                Category
+                            </label>
+                            <select
+                                value={formData.category}
+                                onChange={(e) => setFormData({...formData, category: e.target.value})}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px 15px',
+                                    border: '2px solid #e0e0e0',
+                                    borderRadius: '10px',
+                                    fontSize: '14px',
+                                    background: 'white',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <option value="general">General</option>
+                                <option value="recovery">Recovery</option>
+                                <option value="wellness">Wellness</option>
+                                <option value="social">Social</option>
+                                <option value="education">Education</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style={{ 
+                                display: 'block', 
+                                fontSize: '14px', 
+                                fontWeight: '600', 
+                                color: '#333', 
+                                marginBottom: '8px' 
+                            }}>
+                                Due Date
+                            </label>
+                            <input
+                                type="date"
+                                value={formData.dueDate}
+                                onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px 15px',
+                                    border: '2px solid #e0e0e0',
+                                    borderRadius: '10px',
+                                    fontSize: '14px'
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            style={{
+                                flex: 1,
+                                padding: '14px',
+                                background: '#6c757d',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                fontSize: '16px',
+                                fontWeight: '600',
+                                transition: 'background 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#5a6268'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = '#6c757d'}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            style={{
+                                flex: 2,
+                                padding: '14px',
+                                background: loading ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: loading ? 'not-allowed' : 'pointer',
+                                fontSize: '16px',
+                                fontWeight: '600',
+                                transition: 'transform 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                                if (!loading) e.currentTarget.style.transform = 'translateY(-2px)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'translateY(0)';
+                            }}
+                        >
+                            {loading ? 'Creating...' : 'Create Assignment'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
        
 
        
