@@ -3797,29 +3797,64 @@ function UsersView({ searchQuery, user, onImpersonate }) {
         </div>
     );
 }
-        // My PIRs View - Admin's own caseload management
+       // FULLY ENHANCED MyPIRsView with All Features
 function MyPIRsView({ searchQuery, user }) {
     const [myPIRs, setMyPIRs] = useState([]);
     const [filteredPIRs, setFilteredPIRs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedPIR, setSelectedPIR] = useState(null);
-    const [activeFilter, setActiveFilter] = useState('all'); // all, needsAttention, compliant
+    const [activeFilter, setActiveFilter] = useState('all');
     const [recentCheckIns, setRecentCheckIns] = useState([]);
     const [pendingAlerts, setPendingAlerts] = useState([]);
+    const [showNotesModal, setShowNotesModal] = useState(false);
+    const [selectedPIRForNotes, setSelectedPIRForNotes] = useState(null);
+    const [pirNotes, setPirNotes] = useState({});
+    const [sortBy, setSortBy] = useState('daysClean'); // daysClean, compliance, lastCheckIn
+    const [viewMode, setViewMode] = useState('grid'); // grid or list
     
+    const moodChartRefs = useRef({});
+    const cravingChartRefs = useRef({});
+    const chartInstances = useRef({});
+
     useEffect(() => {
         loadMyPIRs();
+        loadPIRNotes();
     }, [user]);
 
     useEffect(() => {
         filterPIRs();
-    }, [searchQuery, myPIRs, activeFilter]);
+    }, [searchQuery, myPIRs, activeFilter, sortBy]);
+
+    useEffect(() => {
+        // Render mini charts when data is loaded
+        if (myPIRs.length > 0 && viewMode === 'grid') {
+            myPIRs.forEach(pir => {
+                if (pir.moodTrend) renderMiniChart(pir.id, 'mood', pir.moodTrend);
+                if (pir.cravingTrend) renderMiniChart(pir.id, 'craving', pir.cravingTrend);
+            });
+        }
+    }, [myPIRs, viewMode]);
+
+    const loadPIRNotes = async () => {
+        try {
+            const notesSnap = await db.collection('pirNotes')
+                .where('coachId', '==', user.uid)
+                .get();
+            
+            const notes = {};
+            notesSnap.forEach(doc => {
+                notes[doc.data().pirId] = doc.data().notes;
+            });
+            setPirNotes(notes);
+        } catch (error) {
+            console.error('Error loading PIR notes:', error);
+        }
+    };
 
     const loadMyPIRs = async () => {
         try {
             setLoading(true);
             
-            // Get PIRs assigned to current admin
             const pirsSnap = await db.collection('users')
                 .where('assignedCoach', '==', user.uid)
                 .where('role', '==', 'pir')
@@ -3832,7 +3867,7 @@ function MyPIRsView({ searchQuery, user }) {
                 const pirData = { id: doc.id, ...doc.data() };
                 pirIds.push(doc.id);
                 
-                // Get last check-in for each PIR
+                // Get last check-in
                 const lastCheckInSnap = await db.collection('checkIns')
                     .where('userId', '==', doc.id)
                     .orderBy('createdAt', 'desc')
@@ -3844,6 +3879,28 @@ function MyPIRsView({ searchQuery, user }) {
                     pirData.lastCheckInDate = lastCheckInSnap.docs[0].data().createdAt;
                 }
                 
+                // Get last 7 days of check-ins for trend
+                const sevenDaysAgo = new Date();
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                
+                const weekCheckInsSnap = await db.collection('checkIns')
+                    .where('userId', '==', doc.id)
+                    .where('createdAt', '>=', sevenDaysAgo)
+                    .orderBy('createdAt', 'asc')
+                    .get();
+                
+                const moodTrend = [];
+                const cravingTrend = [];
+                
+                weekCheckInsSnap.forEach(checkInDoc => {
+                    const data = checkInDoc.data();
+                    if (data.morningData?.mood) moodTrend.push(data.morningData.mood);
+                    if (data.morningData?.craving) cravingTrend.push(data.morningData.craving);
+                });
+                
+                pirData.moodTrend = moodTrend;
+                pirData.cravingTrend = cravingTrend;
+                
                 // Calculate days clean
                 if (pirData.sobrietyDate) {
                     const sobrietyDate = pirData.sobrietyDate.toDate ? 
@@ -3853,30 +3910,25 @@ function MyPIRsView({ searchQuery, user }) {
                     pirData.daysClean = 0;
                 }
                 
-                // Check compliance (last 7 days)
-                const sevenDaysAgo = new Date();
-                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-                
-                const recentCheckInsSnap = await db.collection('checkIns')
-                    .where('userId', '==', doc.id)
-                    .where('createdAt', '>=', sevenDaysAgo)
-                    .get();
-                
-                pirData.weeklyCheckIns = recentCheckInsSnap.size;
-                pirData.complianceRate = Math.round((recentCheckInsSnap.size / 7) * 100);
+                // Check compliance
+                pirData.weeklyCheckIns = weekCheckInsSnap.size;
+                pirData.complianceRate = Math.min(Math.round((weekCheckInsSnap.size / 14) * 100), 100);
                 
                 // Check for active alerts
                 const alertsSnap = await db.collection('alerts')
                     .where('userId', '==', doc.id)
-                    .where('status', '==', 'active')
+                    .where('resolved', '==', false)
                     .get();
                 
                 pirData.activeAlerts = alertsSnap.size;
                 
+                // Get milestone badge
+                pirData.milestone = getMilestone(pirData.daysClean);
+                
                 pirsData.push(pirData);
             }
             
-            // Load recent check-ins from all PIRs
+            // Load recent check-ins
             if (pirIds.length > 0) {
                 const checkInsPromises = pirIds.map(id =>
                     db.collection('checkIns')
@@ -3899,7 +3951,6 @@ function MyPIRsView({ searchQuery, user }) {
                     });
                 });
                 
-                // Sort by date
                 allCheckIns.sort((a, b) => {
                     const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
                     const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
@@ -3912,7 +3963,7 @@ function MyPIRsView({ searchQuery, user }) {
                 const alertsPromises = pirIds.map(id =>
                     db.collection('alerts')
                         .where('userId', '==', id)
-                        .where('status', '==', 'active')
+                        .where('resolved', '==', false)
                         .get()
                 );
                 
@@ -3942,10 +3993,56 @@ function MyPIRsView({ searchQuery, user }) {
         }
     };
 
+    const getMilestone = (days) => {
+        if (days >= 365) return { label: '1 Year+', color: '#9C27B0', icon: '👑' };
+        if (days >= 180) return { label: '6 Months', color: '#673AB7', icon: '💎' };
+        if (days >= 90) return { label: '90 Days', color: '#3F51B5', icon: '🌟' };
+        if (days >= 60) return { label: '60 Days', color: '#2196F3', icon: '⭐' };
+        if (days >= 30) return { label: '30 Days', color: '#4CAF50', icon: '🎯' };
+        if (days >= 7) return { label: '1 Week', color: '#8BC34A', icon: '✨' };
+        return null;
+    };
+
+    const renderMiniChart = (pirId, type, data) => {
+        const refKey = `${type}-${pirId}`;
+        const chartRef = type === 'mood' ? moodChartRefs.current[pirId] : cravingChartRefs.current[pirId];
+        
+        if (!chartRef) return;
+        
+        // Destroy existing chart
+        if (chartInstances.current[refKey]) {
+            chartInstances.current[refKey].destroy();
+        }
+        
+        const ctx = chartRef.getContext('2d');
+        chartInstances.current[refKey] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.map((_, i) => ''),
+                datasets: [{
+                    data: data,
+                    borderColor: type === 'mood' ? '#4CAF50' : '#FF9800',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { display: false, min: 0, max: 10 },
+                    x: { display: false }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+    };
+
     const filterPIRs = () => {
         let filtered = [...myPIRs];
         
-        // Apply status filter
         if (activeFilter === 'needsAttention') {
             filtered = filtered.filter(pir => 
                 pir.complianceRate < 50 || 
@@ -3960,7 +4057,6 @@ function MyPIRsView({ searchQuery, user }) {
             );
         }
         
-        // Apply search filter
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
             filtered = filtered.filter(pir =>
@@ -3971,12 +4067,42 @@ function MyPIRsView({ searchQuery, user }) {
             );
         }
         
+        // Sort
+        filtered.sort((a, b) => {
+            if (sortBy === 'daysClean') return b.daysClean - a.daysClean;
+            if (sortBy === 'compliance') return b.complianceRate - a.complianceRate;
+            if (sortBy === 'lastCheckIn') {
+                const dateA = a.lastCheckInDate?.toDate ? a.lastCheckInDate.toDate() : new Date(0);
+                const dateB = b.lastCheckInDate?.toDate ? b.lastCheckInDate.toDate() : new Date(0);
+                return dateB - dateA;
+            }
+            return 0;
+        });
+        
         setFilteredPIRs(filtered);
     };
 
     const daysSince = (date) => {
+        if (!date) return 999;
         const checkDate = date?.toDate ? date.toDate() : new Date(date);
         return Math.floor((new Date() - checkDate) / (1000 * 60 * 60 * 24));
+    };
+
+    const handleSaveNotes = async (pirId, notes) => {
+        try {
+            await db.collection('pirNotes').doc(`${user.uid}_${pirId}`).set({
+                coachId: user.uid,
+                pirId: pirId,
+                notes: notes,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            setPirNotes(prev => ({ ...prev, [pirId]: notes }));
+            alert('Notes saved successfully');
+        } catch (error) {
+            console.error('Error saving notes:', error);
+            alert('Failed to save notes');
+        }
     };
 
     const handleQuickAssignment = async (pirId) => {
@@ -4007,12 +4133,11 @@ function MyPIRsView({ searchQuery, user }) {
     const handleResolveAlert = async (alertId) => {
         try {
             await db.collection('alerts').doc(alertId).update({
-                status: 'resolved',
+                resolved: true,
                 resolvedAt: firebase.firestore.FieldValue.serverTimestamp(),
                 resolvedBy: user.uid
             });
             
-            // Reload data
             loadMyPIRs();
         } catch (error) {
             console.error('Error resolving alert:', error);
@@ -4020,11 +4145,29 @@ function MyPIRsView({ searchQuery, user }) {
         }
     };
 
+    const handleExportPIRReport = (pir) => {
+        const reportData = {
+            name: pir.displayName || pir.email,
+            email: pir.email,
+            daysClean: pir.daysClean,
+            complianceRate: `${pir.complianceRate}%`,
+            weeklyCheckIns: pir.weeklyCheckIns,
+            activeAlerts: pir.activeAlerts,
+            lastCheckIn: pir.lastCheckInDate ? formatDateTime(pir.lastCheckInDate) : 'Never',
+            lastMood: pir.lastCheckIn?.morningData?.mood || 'N/A',
+            lastCraving: pir.lastCheckIn?.morningData?.craving || 'N/A',
+            milestone: pir.milestone?.label || 'None',
+            notes: pirNotes[pir.id] || 'No notes'
+        };
+        
+        exportToPDF([reportData], `${pir.displayName || 'PIR'} Report`);
+    };
+
     const getStatusColor = (pir) => {
-        if (pir.activeAlerts > 0) return '#ff4757';
-        if (pir.complianceRate < 50) return '#ff9800';
+        if (pir.activeAlerts > 0) return '#f44336';
+        if (pir.complianceRate < 50) return '#FF9800';
         if (pir.complianceRate >= 70) return '#4CAF50';
-        return '#ffc107';
+        return '#FFC107';
     };
 
     const getStatusLabel = (pir) => {
@@ -4038,161 +4181,500 @@ function MyPIRsView({ searchQuery, user }) {
 
     if (loading) {
         return (
-            <div className="loading-container">
-                <div className="loading-spinner"></div>
+            <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: '400px',
+                gap: '20px'
+            }}>
+                <div style={{
+                    width: '60px',
+                    height: '60px',
+                    border: '4px solid #f3f3f3',
+                    borderTop: '4px solid #667eea',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite'
+                }}></div>
+                <p style={{ color: '#666' }}>Loading your PIRs...</p>
             </div>
         );
     }
 
     return (
-        <div className="my-pirs-container">
-            {/* Header Stats */}
-            <div className="stats-row">
-                <div className="stat-card">
-                    <div className="stat-value">{myPIRs.length}</div>
-                    <div className="stat-label">Total PIRs</div>
+        <div style={{ padding: '20px', animation: 'fadeIn 0.5s' }}>
+            {/* Enhanced Stats Cards */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                gap: '20px',
+                marginBottom: '30px'
+            }}>
+                <div style={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    color: 'white',
+                    boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+                    transition: 'transform 0.2s',
+                    cursor: 'pointer'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Total PIRs</div>
+                    <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                        {myPIRs.length}
+                    </div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>In your caseload</div>
                 </div>
-                <div className="stat-card">
-                    <div className="stat-value" style={{color: '#ff4757'}}>
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    color: 'white',
+                    boxShadow: '0 4px 15px rgba(240, 147, 251, 0.3)',
+                    transition: 'transform 0.2s',
+                    cursor: 'pointer'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Active Alerts</div>
+                    <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
                         {pendingAlerts.length}
                     </div>
-                    <div className="stat-label">Active Alerts</div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Need attention</div>
                 </div>
-                <div className="stat-card">
-                    <div className="stat-value">
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    color: 'white',
+                    boxShadow: '0 4px 15px rgba(79, 172, 254, 0.3)',
+                    transition: 'transform 0.2s',
+                    cursor: 'pointer'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Compliant PIRs</div>
+                    <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
                         {myPIRs.filter(p => p.complianceRate >= 70).length}
                     </div>
-                    <div className="stat-label">Compliant PIRs</div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>70%+ compliance</div>
                 </div>
-                <div className="stat-card">
-                    <div className="stat-value">
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    color: 'white',
+                    boxShadow: '0 4px 15px rgba(250, 112, 154, 0.3)',
+                    transition: 'transform 0.2s',
+                    cursor: 'pointer'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Avg Days Clean</div>
+                    <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
                         {Math.round(myPIRs.reduce((acc, p) => acc + p.daysClean, 0) / (myPIRs.length || 1))}
                     </div>
-                    <div className="stat-label">Avg Days Clean</div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>All PIRs average</div>
                 </div>
             </div>
 
-            {/* Alerts Section */}
+            {/* Pending Alerts Banner */}
             {pendingAlerts.length > 0 && (
-                <div className="alerts-section" style={{marginBottom: '20px'}}>
-                    <h3 style={{color: '#ff4757', marginBottom: '15px'}}>⚠️ Pending Alerts</h3>
-                    {pendingAlerts.map(alert => (
-                        <div key={alert.id} className="alert-item" style={{
-                            background: 'rgba(255, 71, 87, 0.1)',
-                            border: '1px solid #ff4757',
-                            borderRadius: '10px',
-                            padding: '15px',
-                            marginBottom: '10px'
-                        }}>
-                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                <div style={{
+                    background: 'linear-gradient(135deg, #ff4444, #cc0000)',
+                    padding: '20px',
+                    borderRadius: '15px',
+                    marginBottom: '20px',
+                    boxShadow: '0 4px 15px rgba(255, 68, 68, 0.4)'
+                }}>
+                    <div style={{ color: 'white', marginBottom: '15px', fontSize: '18px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '24px' }}>⚠️</span>
+                        {pendingAlerts.length} Pending Alert{pendingAlerts.length > 1 ? 's' : ''}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {pendingAlerts.slice(0, 3).map(alert => (
+                            <div key={alert.id} style={{
+                                background: 'rgba(255,255,255,0.15)',
+                                backdropFilter: 'blur(10px)',
+                                borderRadius: '10px',
+                                padding: '15px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                color: 'white'
+                            }}>
                                 <div>
-                                    <strong>{alert.pirName}</strong> - {alert.type}
-                                    <div style={{fontSize: '14px', opacity: 0.8}}>
+                                    <div style={{ fontWeight: '600', marginBottom: '5px' }}>
+                                        {alert.pirName} - {alert.type?.replace('_', ' ')}
+                                    </div>
+                                    <div style={{ fontSize: '13px', opacity: 0.9 }}>
                                         {alert.message}
                                     </div>
-                                    <div style={{fontSize: '12px', opacity: 0.6}}>
-                                        {formatTimeAgo(alert.timestamp)}
+                                    <div style={{ fontSize: '11px', opacity: 0.7, marginTop: '5px' }}>
+                                        {formatTimeAgo(alert.createdAt)}
                                     </div>
                                 </div>
                                 <button 
-                                    className="btn btn-sm btn-primary"
                                     onClick={() => handleResolveAlert(alert.id)}
+                                    style={{
+                                        padding: '8px 16px',
+                                        background: 'white',
+                                        color: '#f44336',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontSize: '13px',
+                                        fontWeight: '600',
+                                        transition: 'transform 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                                 >
                                     Resolve
                                 </button>
                             </div>
-                        </div>
-                    ))}
+                        ))}
+                        {pendingAlerts.length > 3 && (
+                            <div style={{ color: 'white', fontSize: '13px', opacity: 0.9, textAlign: 'center' }}>
+                                +{pendingAlerts.length - 3} more alerts
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
 
-            {/* Filter Buttons */}
-            <div className="filter-row" style={{marginBottom: '20px'}}>
-                <button 
-                    className={`filter-btn ${activeFilter === 'all' ? 'active' : ''}`}
-                    onClick={() => setActiveFilter('all')}
-                >
-                    All ({myPIRs.length})
-                </button>
-                <button 
-                    className={`filter-btn ${activeFilter === 'needsAttention' ? 'active' : ''}`}
-                    onClick={() => setActiveFilter('needsAttention')}
-                >
-                    Needs Attention ({myPIRs.filter(p => 
-                        p.complianceRate < 50 || p.activeAlerts > 0 || daysSince(p.lastCheckInDate) > 2
-                    ).length})
-                </button>
-                <button 
-                    className={`filter-btn ${activeFilter === 'compliant' ? 'active' : ''}`}
-                    onClick={() => setActiveFilter('compliant')}
-                >
-                    Compliant ({myPIRs.filter(p => p.complianceRate >= 70 && p.activeAlerts === 0).length})
-                </button>
+            {/* Filters and Controls */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                marginBottom: '20px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        <button 
+                            onClick={() => setActiveFilter('all')}
+                            style={{
+                                padding: '8px 16px',
+                                background: activeFilter === 'all' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#f0f0f0',
+                                color: activeFilter === 'all' ? 'white' : '#666',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            All ({myPIRs.length})
+                        </button>
+                        <button 
+                            onClick={() => setActiveFilter('needsAttention')}
+                            style={{
+                                padding: '8px 16px',
+                                background: activeFilter === 'needsAttention' ? 'linear-gradient(135deg, #f44336 0%, #e53935 100%)' : '#f0f0f0',
+                                color: activeFilter === 'needsAttention' ? 'white' : '#666',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            Needs Attention ({myPIRs.filter(p => 
+                                p.complianceRate < 50 || p.activeAlerts > 0 || daysSince(p.lastCheckInDate) > 2
+                            ).length})
+                        </button>
+                        <button 
+                            onClick={() => setActiveFilter('compliant')}
+                            style={{
+                                padding: '8px 16px',
+                                background: activeFilter === 'compliant' ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)' : '#f0f0f0',
+                                color: activeFilter === 'compliant' ? 'white' : '#666',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            Compliant ({myPIRs.filter(p => p.complianceRate >= 70 && p.activeAlerts === 0).length})
+                        </button>
+                    </div>
+                    
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <select
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value)}
+                            style={{
+                                padding: '8px 12px',
+                                borderRadius: '8px',
+                                border: '1px solid #ddd',
+                                background: 'white',
+                                cursor: 'pointer',
+                                fontSize: '14px'
+                            }}
+                        >
+                            <option value="daysClean">Sort by Days Clean</option>
+                            <option value="compliance">Sort by Compliance</option>
+                            <option value="lastCheckIn">Sort by Last Check-in</option>
+                        </select>
+                        
+                        <button
+                            onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+                            style={{
+                                padding: '8px 16px',
+                                background: '#6c757d',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '500'
+                            }}
+                        >
+                            {viewMode === 'grid' ? 'List View' : 'Grid View'}
+                        </button>
+                    </div>
+                </div>
             </div>
 
-            {/* PIRs Grid */}
-            <div className="pirs-grid">
+            {/* PIRs Grid/List */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: viewMode === 'grid' ? 'repeat(auto-fill, minmax(350px, 1fr))' : '1fr',
+                gap: '20px',
+                marginBottom: '30px'
+            }}>
                 {filteredPIRs.map(pir => (
-                    <div key={pir.id} className="pir-card" style={{
-                        borderLeft: `4px solid ${getStatusColor(pir)}`
-                    }}>
-                        <div className="pir-header">
-                            <div>
-                                <h4>{pir.displayName || pir.email}</h4>
-                                <span className="badge" style={{
-                                    backgroundColor: getStatusColor(pir)
-                                }}>
-                                    {getStatusLabel(pir)}
-                                </span>
+                    <div key={pir.id} style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '20px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        borderLeft: `4px solid ${getStatusColor(pir)}`,
+                        transition: 'all 0.2s',
+                        cursor: 'pointer'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-5px)';
+                        e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                    }}
+                    >
+                        {/* Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
+                            <div style={{ flex: 1 }}>
+                                <h4 style={{ margin: '0 0 5px 0', fontSize: '18px', color: '#333' }}>
+                                    {pir.displayName || pir.email}
+                                </h4>
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                    <span style={{
+                                        padding: '4px 12px',
+                                        borderRadius: '20px',
+                                        fontSize: '12px',
+                                        fontWeight: '500',
+                                        background: getStatusColor(pir),
+                                        color: 'white'
+                                    }}>
+                                        {getStatusLabel(pir)}
+                                    </span>
+                                    {pir.milestone && (
+                                        <span style={{
+                                            padding: '4px 12px',
+                                            borderRadius: '20px',
+                                            fontSize: '12px',
+                                            fontWeight: '500',
+                                            background: pir.milestone.color,
+                                            color: 'white'
+                                        }}>
+                                            {pir.milestone.icon} {pir.milestone.label}
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                             {pir.activeAlerts > 0 && (
-                                <span className="alert-badge">
-                                    🚨 {pir.activeAlerts}
-                                </span>
+                                <div style={{
+                                    background: '#f44336',
+                                    color: 'white',
+                                    borderRadius: '50%',
+                                    width: '30px',
+                                    height: '30px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: '14px',
+                                    fontWeight: 'bold'
+                                }}>
+                                    {pir.activeAlerts}
+                                </div>
                             )}
                         </div>
-                        
-                        <div className="pir-stats">
-                            <div className="stat-item">
-                                <span className="stat-label">Days Clean:</span>
-                                <span className="stat-value">{pir.daysClean}</span>
+
+                        {/* Stats Grid */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(2, 1fr)',
+                            gap: '10px',
+                            marginBottom: '15px',
+                            padding: '15px',
+                            background: '#f8f9fa',
+                            borderRadius: '10px'
+                        }}>
+                            <div>
+                                <div style={{ fontSize: '12px', color: '#999', marginBottom: '3px' }}>Days Clean</div>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#333' }}>{pir.daysClean}</div>
                             </div>
-                            <div className="stat-item">
-                                <span className="stat-label">Weekly Compliance:</span>
-                                <span className="stat-value">{pir.complianceRate}%</span>
+                            <div>
+                                <div style={{ fontSize: '12px', color: '#999', marginBottom: '3px' }}>Compliance</div>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: getStatusColor(pir) }}>
+                                    {pir.complianceRate}%
+                                </div>
                             </div>
-                            <div className="stat-item">
-                                <span className="stat-label">Last Check-in:</span>
-                                <span className="stat-value">
+                            <div>
+                                <div style={{ fontSize: '12px', color: '#999', marginBottom: '3px' }}>Last Check-in</div>
+                                <div style={{ fontSize: '13px', fontWeight: '500', color: '#666' }}>
                                     {pir.lastCheckInDate ? formatTimeAgo(pir.lastCheckInDate) : 'Never'}
-                                </span>
+                                </div>
                             </div>
-                            {pir.lastCheckIn && (
-                                <>
-                                    <div className="stat-item">
-    <span className="stat-label">Mood:</span>
-    <span className="stat-value">{pir.lastCheckIn.morningData?.mood || '--'}/5</span>
-</div>
-<div className="stat-item">
-    <span className="stat-label">Cravings:</span>
-    <span className="stat-value">{pir.lastCheckIn.morningData?.craving || '--'}/5</span>
-</div>
-</>
-)}
-</div>
-                        
-                        <div className="pir-actions">
-                            <button 
-                                className="action-btn btn-primary"
+                            <div>
+                                <div style={{ fontSize: '12px', color: '#999', marginBottom: '3px' }}>Weekly Check-ins</div>
+                                <div style={{ fontSize: '13px', fontWeight: '500', color: '#666' }}>
+                                    {pir.weeklyCheckIns}/14
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Trend Charts */}
+                        {viewMode === 'grid' && (pir.moodTrend?.length > 0 || pir.cravingTrend?.length > 0) && (
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: '1fr 1fr',
+                                gap: '10px',
+                                marginBottom: '15px'
+                            }}>
+                                {pir.moodTrend?.length > 0 && (
+                                    <div>
+                                        <div style={{ fontSize: '11px', color: '#999', marginBottom: '5px' }}>Mood Trend</div>
+                                        <canvas 
+                                            ref={el => moodChartRefs.current[pir.id] = el}
+                                            style={{ height: '40px' }}
+                                        ></canvas>
+                                    </div>
+                                )}
+                                {pir.cravingTrend?.length > 0 && (
+                                    <div>
+                                        <div style={{ fontSize: '11px', color: '#999', marginBottom: '5px' }}>Craving Trend</div>
+                                        <canvas 
+                                            ref={el => cravingChartRefs.current[pir.id] = el}
+                                            style={{ height: '40px' }}
+                                        ></canvas>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Quick Notes Preview */}
+                        {pirNotes[pir.id] && (
+                            <div style={{
+                                padding: '10px',
+                                background: '#fff3cd',
+                                borderRadius: '8px',
+                                fontSize: '12px',
+                                color: '#856404',
+                                marginBottom: '15px',
+                                maxHeight: '40px',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                            }}>
+                                📝 {pirNotes[pir.id]}
+                            </div>
+                        )}
+
+                        {/* Actions */}
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <button
                                 onClick={() => setSelectedPIR(pir)}
+                                style={{
+                                    flex: 1,
+                                    padding: '10px 16px',
+                                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    transition: 'transform 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
+                                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                             >
                                 View Details
                             </button>
-                            <button 
-                                className="action-btn btn-secondary"
-                                onClick={() => handleQuickAssignment(pir.id)}
+                            <button
+                                onClick={() => {
+                                    setSelectedPIRForNotes(pir);
+                                    setShowNotesModal(true);
+                                }}
+                                style={{
+                                    padding: '10px 16px',
+                                    background: '#6c757d',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
+                                }}
                             >
-                                + Assignment
+                                Notes
+                            </button>
+                            <button
+                                onClick={() => handleQuickAssignment(pir.id)}
+                                style={{
+                                    padding: '10px 16px',
+                                    background: '#4CAF50',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                + Task
+                            </button>
+                            <button
+                                onClick={() => handleExportPIRReport(pir)}
+                                style={{
+                                    padding: '10px 16px',
+                                    background: '#FF9800',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                Export
                             </button>
                         </div>
                     </div>
@@ -4200,40 +4682,82 @@ function MyPIRsView({ searchQuery, user }) {
             </div>
 
             {filteredPIRs.length === 0 && (
-                <div className="empty-state">
-                    {myPIRs.length === 0 ? 
-                        'You have no PIRs assigned to you.' : 
-                        'No PIRs match your filter criteria.'}
+                <div style={{
+                    padding: '60px 20px',
+                    textAlign: 'center',
+                    background: 'white',
+                    borderRadius: '15px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                }}>
+                    <div style={{ fontSize: '48px', marginBottom: '15px' }}>👥</div>
+                    <div style={{ fontSize: '18px', fontWeight: '500', color: '#333', marginBottom: '8px' }}>
+                        {myPIRs.length === 0 ? 'No PIRs Assigned' : 'No PIRs Match Filters'}
+                    </div>
+                    <div style={{ fontSize: '14px', color: '#999' }}>
+                        {myPIRs.length === 0 
+                            ? 'PIRs will appear here when assigned to you' 
+                            : 'Try adjusting your filters'}
+                    </div>
                 </div>
             )}
 
-           {/* Recent Check-ins Section */}
-{recentCheckIns.length > 0 && (
-    <div className="recent-section" style={{marginTop: '30px'}}>
-        <h3>Recent Check-ins</h3>
-        <div className="checkins-list">
-            {recentCheckIns.map(checkIn => (
-                <div key={checkIn.id} className="checkin-item">
-                    <div className="checkin-header">
-                        <strong>{checkIn.pirName}</strong>
-                        <span>{formatTimeAgo(checkIn.createdAt)}</span>
+            {/* Recent Check-ins Section */}
+            {recentCheckIns.length > 0 && (
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                    marginTop: '30px'
+                }}>
+                    <h3 style={{ margin: '0 0 20px 0', color: '#333' }}>Recent Check-ins</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {recentCheckIns.map(checkIn => (
+                            <div key={checkIn.id} style={{
+                                padding: '15px',
+                                background: '#f8f9fa',
+                                borderRadius: '10px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center'
+                            }}>
+                                <div>
+                                    <div style={{ fontWeight: '600', color: '#333', marginBottom: '5px' }}>
+                                        {checkIn.pirName}
+                                    </div>
+                                    <div style={{ fontSize: '13px', color: '#666', display: 'flex', gap: '15px' }}>
+                                        <span>Mood: {checkIn.morningData?.mood || '--'}/10</span>
+                                        <span>Craving: {checkIn.morningData?.craving || '--'}/10</span>
+                                        {checkIn.attendedMeeting && <span style={{ color: '#4CAF50' }}>✓ Meeting</span>}
+                                    </div>
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#999' }}>
+                                    {formatTimeAgo(checkIn.createdAt)}
+                                </div>
+                            </div>
+                        ))}
                     </div>
-                    <div className="checkin-content">
-                        <span>Mood: {checkIn.morningData?.mood || '--'}/5</span>
-                        <span>Cravings: {checkIn.morningData?.craving || '--'}/5</span>
-                        {checkIn.attendedMeeting && <span>✓ Attended Meeting</span>}
-                    </div>
-                    {checkIn.morningData?.notes && (
-                        <div className="checkin-notes">
-                            Notes: {checkIn.morningData.notes}
-                        </div>
-                    )}
                 </div>
-            ))}
-        </div>
-    </div>
-)}
-            {/* Show PIR Detail Modal if selected */}
+            )}
+
+            {/* Notes Modal */}
+            {showNotesModal && selectedPIRForNotes && (
+                <PIRNotesModal
+                    pir={selectedPIRForNotes}
+                    existingNotes={pirNotes[selectedPIRForNotes.id] || ''}
+                    onClose={() => {
+                        setShowNotesModal(false);
+                        setSelectedPIRForNotes(null);
+                    }}
+                    onSave={(notes) => {
+                        handleSaveNotes(selectedPIRForNotes.id, notes);
+                        setShowNotesModal(false);
+                        setSelectedPIRForNotes(null);
+                    }}
+                />
+            )}
+
+            {/* PIR Detail Modal */}
             {selectedPIR && (
                 <UserDetailModal
                     user={selectedPIR}
@@ -4245,6 +4769,122 @@ function MyPIRsView({ searchQuery, user }) {
                     currentUserId={user.uid}
                 />
             )}
+        </div>
+    );
+}
+
+// PIR Notes Modal Component
+function PIRNotesModal({ pir, existingNotes, onClose, onSave }) {
+    const [notes, setNotes] = useState(existingNotes);
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px',
+            animation: 'fadeIn 0.2s'
+        }}>
+            <div style={{
+                background: 'white',
+                borderRadius: '20px',
+                maxWidth: '600px',
+                width: '100%',
+                boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+                animation: 'slideUp 0.3s'
+            }}>
+                {/* Header */}
+                <div style={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    padding: '25px 30px',
+                    borderRadius: '20px 20px 0 0',
+                    color: 'white'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h2 style={{ margin: 0, fontSize: '24px' }}>
+                            Notes for {pir.displayName || pir.email}
+                        </h2>
+                        <button 
+                            onClick={onClose}
+                            style={{
+                                background: 'rgba(255,255,255,0.2)',
+                                border: 'none',
+                                color: 'white',
+                                fontSize: '24px',
+                                width: '36px',
+                                height: '36px',
+                                borderRadius: '50%',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                        >
+                            ×
+                        </button>
+                    </div>
+                </div>
+
+                {/* Content */}
+                <div style={{ padding: '30px' }}>
+                    <textarea
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="Add private notes about this PIR..."
+                        style={{
+                            width: '100%',
+                            minHeight: '200px',
+                            padding: '15px',
+                            border: '2px solid #e0e0e0',
+                            borderRadius: '10px',
+                            fontSize: '14px',
+                            fontFamily: 'inherit',
+                            resize: 'vertical',
+                            marginBottom: '20px'
+                        }}
+                    />
+
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                        <button
+                            onClick={onClose}
+                            style={{
+                                padding: '12px 24px',
+                                background: '#6c757d',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '500'
+                            }}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={() => onSave(notes)}
+                            style={{
+                                padding: '12px 24px',
+                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '500'
+                            }}
+                        >
+                            Save Notes
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }
