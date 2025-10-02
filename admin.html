@@ -1896,7 +1896,7 @@ function renderView(view, searchQuery, user, onImpersonate) {
             );
         }
 
-       // Users View - Optimized with tabs for role separation
+     // Enhanced Users View with Full Features
 function UsersView({ searchQuery, user, onImpersonate }) {
     const [users, setUsers] = useState([]);
     const [filteredUsers, setFilteredUsers] = useState([]);
@@ -1904,7 +1904,22 @@ function UsersView({ searchQuery, user, onImpersonate }) {
     const [currentPage, setCurrentPage] = useState(1);
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [selectedUser, setSelectedUser] = useState(null);
-    const [activeTab, setActiveTab] = useState('pir'); // 'pir', 'coach', 'admin'
+    const [activeTab, setActiveTab] = useState('pir');
+    
+    // New state for enhancements
+    const [stats, setStats] = useState({
+        totalPIRs: 0,
+        activePIRs: 0,
+        avgCompliance: 0,
+        criticalAlerts: 0,
+        newThisWeek: 0
+    });
+    const [selectedUsers, setSelectedUsers] = useState(new Set());
+    const [showBulkActions, setShowBulkActions] = useState(false);
+    const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'active', 'inactive', 'critical'
+    const [complianceFilter, setComplianceFilter] = useState('all'); // 'all', 'high', 'medium', 'low'
+    const [pirHealthData, setPirHealthData] = useState({}); // Store compliance and last check-in per PIR
+    
     const itemsPerPage = 20;
 
     // Separate users by role
@@ -1917,15 +1932,21 @@ function UsersView({ searchQuery, user, onImpersonate }) {
     }, []);
 
     useEffect(() => {
+        if (activeTab === 'pir') {
+            loadPIRHealthData();
+            calculateStats();
+        }
+    }, [users, activeTab]);
+
+    useEffect(() => {
         filterUsers();
-        setCurrentPage(1); // Reset to first page when tab changes
-    }, [users, searchQuery, activeTab]);
+        setCurrentPage(1);
+    }, [users, searchQuery, activeTab, statusFilter, complianceFilter]);
 
     const loadUsers = async () => {
         try {
             setLoading(true);
             
-            // Load all users first
             const usersSnap = await db.collection('users')
                 .orderBy('createdAt', 'desc')
                 .get();
@@ -1941,7 +1962,7 @@ function UsersView({ searchQuery, user, onImpersonate }) {
                 }
             });
             
-            // Batch load coaches if needed
+            // Batch load coaches
             const coachesMap = {};
             if (coachIds.size > 0) {
                 const coachResults = await batchQuery('users', 
@@ -1954,7 +1975,6 @@ function UsersView({ searchQuery, user, onImpersonate }) {
                 });
             }
             
-            // Add coach names to users
             usersData.forEach(user => {
                 if (user.assignedCoach && coachesMap[user.assignedCoach]) {
                     user.coachName = coachesMap[user.assignedCoach];
@@ -1971,8 +1991,94 @@ function UsersView({ searchQuery, user, onImpersonate }) {
         }
     };
 
+    const loadPIRHealthData = async () => {
+        try {
+            const healthData = {};
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            
+            // Load check-ins for all PIRs from last 7 days
+            const checkInsSnap = await db.collection('checkIns')
+                .where('createdAt', '>=', sevenDaysAgo)
+                .get();
+            
+            const pirCheckIns = {};
+            checkInsSnap.forEach(doc => {
+                const data = doc.data();
+                if (!pirCheckIns[data.userId]) {
+                    pirCheckIns[data.userId] = [];
+                }
+                pirCheckIns[data.userId].push(data);
+            });
+            
+            // Calculate compliance and last check-in for each PIR
+            pirUsers.forEach(pir => {
+                const checkIns = pirCheckIns[pir.id] || [];
+                const compliance = Math.round((checkIns.length / 14) * 100); // 2 check-ins per day * 7 days
+                
+                const lastCheckIn = checkIns.length > 0 
+                    ? checkIns.reduce((latest, current) => {
+                        const currentDate = current.createdAt?.toDate ? current.createdAt.toDate() : new Date(current.createdAt);
+                        const latestDate = latest.createdAt?.toDate ? latest.createdAt.toDate() : new Date(latest.createdAt);
+                        return currentDate > latestDate ? current : latest;
+                    }).createdAt
+                    : null;
+                
+                healthData[pir.id] = {
+                    compliance: Math.min(compliance, 100),
+                    lastCheckIn,
+                    checkInCount: checkIns.length,
+                    status: compliance >= 70 ? 'good' : compliance >= 40 ? 'moderate' : 'critical'
+                };
+            });
+            
+            setPirHealthData(healthData);
+            
+        } catch (error) {
+            console.error('Error loading PIR health data:', error);
+        }
+    };
+
+    const calculateStats = async () => {
+        try {
+            const oneWeekAgo = new Date();
+            oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+            
+            // Count active PIRs
+            const activePIRs = pirUsers.filter(p => p.active !== false).length;
+            
+            // Calculate average compliance
+            const complianceValues = Object.values(pirHealthData).map(h => h.compliance || 0);
+            const avgCompliance = complianceValues.length > 0 
+                ? Math.round(complianceValues.reduce((a, b) => a + b, 0) / complianceValues.length)
+                : 0;
+            
+            // Count critical alerts
+            const alertsSnap = await db.collection('alerts')
+                .where('resolved', '==', false)
+                .where('priority', '==', 'critical')
+                .get();
+            
+            // Count new PIRs this week
+            const newThisWeek = pirUsers.filter(p => {
+                const createdAt = p.createdAt?.toDate ? p.createdAt.toDate() : new Date(p.createdAt);
+                return createdAt >= oneWeekAgo;
+            }).length;
+            
+            setStats({
+                totalPIRs: pirUsers.length,
+                activePIRs,
+                avgCompliance,
+                criticalAlerts: alertsSnap.size,
+                newThisWeek
+            });
+            
+        } catch (error) {
+            console.error('Error calculating stats:', error);
+        }
+    };
+
     const filterUsers = () => {
-        // Start with users filtered by active tab
         let tabFiltered = [];
         if (activeTab === 'pir') {
             tabFiltered = pirUsers;
@@ -1982,22 +2088,45 @@ function UsersView({ searchQuery, user, onImpersonate }) {
             tabFiltered = adminUsers;
         }
 
-        // Then apply search filter
-        if (!searchQuery) {
-            setFilteredUsers(tabFiltered);
-            return;
+        // Apply status filter
+        if (statusFilter !== 'all') {
+            if (statusFilter === 'active') {
+                tabFiltered = tabFiltered.filter(u => u.active !== false);
+            } else if (statusFilter === 'inactive') {
+                tabFiltered = tabFiltered.filter(u => u.active === false);
+            } else if (statusFilter === 'critical') {
+                tabFiltered = tabFiltered.filter(u => pirHealthData[u.id]?.status === 'critical');
+            }
+        }
+
+        // Apply compliance filter (PIRs only)
+        if (activeTab === 'pir' && complianceFilter !== 'all') {
+            if (complianceFilter === 'high') {
+                tabFiltered = tabFiltered.filter(u => (pirHealthData[u.id]?.compliance || 0) >= 70);
+            } else if (complianceFilter === 'medium') {
+                tabFiltered = tabFiltered.filter(u => {
+                    const comp = pirHealthData[u.id]?.compliance || 0;
+                    return comp >= 40 && comp < 70;
+                });
+            } else if (complianceFilter === 'low') {
+                tabFiltered = tabFiltered.filter(u => (pirHealthData[u.id]?.compliance || 0) < 40);
+            }
+        }
+
+        // Apply search filter
+        if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            tabFiltered = tabFiltered.filter(user => 
+                user.email?.toLowerCase().includes(query) ||
+                user.displayName?.toLowerCase().includes(query) ||
+                user.firstName?.toLowerCase().includes(query) ||
+                user.lastName?.toLowerCase().includes(query) ||
+                user.phone?.toLowerCase().includes(query) ||
+                user.coachName?.toLowerCase().includes(query)
+            );
         }
         
-        const query = searchQuery.toLowerCase();
-        const filtered = tabFiltered.filter(user => 
-            user.email?.toLowerCase().includes(query) ||
-            user.displayName?.toLowerCase().includes(query) ||
-            user.firstName?.toLowerCase().includes(query) ||
-            user.lastName?.toLowerCase().includes(query) ||
-            user.phone?.toLowerCase().includes(query) ||
-            user.coachName?.toLowerCase().includes(query)
-        );
-        setFilteredUsers(filtered);
+        setFilteredUsers(tabFiltered);
     };
 
     const paginatedUsers = useMemo(() => {
@@ -2008,6 +2137,64 @@ function UsersView({ searchQuery, user, onImpersonate }) {
 
     const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
 
+    const handleSelectAll = () => {
+        if (selectedUsers.size === paginatedUsers.length) {
+            setSelectedUsers(new Set());
+        } else {
+            setSelectedUsers(new Set(paginatedUsers.map(u => u.id)));
+        }
+    };
+
+    const handleSelectUser = (userId) => {
+        const newSelected = new Set(selectedUsers);
+        if (newSelected.has(userId)) {
+            newSelected.delete(userId);
+        } else {
+            newSelected.add(userId);
+        }
+        setSelectedUsers(newSelected);
+    };
+
+    const handleBulkAssignCoach = async () => {
+        const coachId = prompt('Enter coach ID to assign:');
+        if (!coachId) return;
+        
+        try {
+            const batch = db.batch();
+            selectedUsers.forEach(userId => {
+                const userRef = db.collection('users').doc(userId);
+                batch.update(userRef, { assignedCoach: coachId });
+            });
+            
+            await batch.commit();
+            alert(`Assigned coach to ${selectedUsers.size} users`);
+            setSelectedUsers(new Set());
+            loadUsers();
+        } catch (error) {
+            console.error('Error in bulk assign:', error);
+            alert('Failed to assign coach');
+        }
+    };
+
+    const handleBulkToggleStatus = async () => {
+        try {
+            const batch = db.batch();
+            selectedUsers.forEach(userId => {
+                const user = users.find(u => u.id === userId);
+                const userRef = db.collection('users').doc(userId);
+                batch.update(userRef, { active: user.active === false });
+            });
+            
+            await batch.commit();
+            alert(`Updated status for ${selectedUsers.size} users`);
+            setSelectedUsers(new Set());
+            loadUsers();
+        } catch (error) {
+            console.error('Error in bulk status toggle:', error);
+            alert('Failed to update status');
+        }
+    };
+
     const handleExport = (format) => {
         const exportData = filteredUsers.map(user => ({
             name: user.displayName || 'N/A',
@@ -2015,6 +2202,7 @@ function UsersView({ searchQuery, user, onImpersonate }) {
             role: user.role,
             status: user.active !== false ? 'Active' : 'Inactive',
             coach: user.coachName || 'N/A',
+            compliance: activeTab === 'pir' ? `${pirHealthData[user.id]?.compliance || 0}%` : 'N/A',
             phone: user.phone || 'N/A',
             joined: formatDate(user.createdAt)
         }));
@@ -2028,106 +2216,566 @@ function UsersView({ searchQuery, user, onImpersonate }) {
         }
     };
 
+    const getHealthBadgeColor = (status) => {
+        if (status === 'good') return '#4CAF50';
+        if (status === 'moderate') return '#FF9800';
+        return '#f44336';
+    };
+
     if (loading) {
         return (
-            <div className="loading-container">
-                <div className="loading-spinner"></div>
+            <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: '400px',
+                gap: '20px'
+            }}>
+                <div style={{
+                    width: '60px',
+                    height: '60px',
+                    border: '4px solid #f3f3f3',
+                    borderTop: '4px solid #667eea',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite'
+                }}></div>
+                <p style={{ color: '#666', fontSize: '16px' }}>Loading users...</p>
             </div>
         );
     }
 
     return (
-        <div>
-            {/* Tab Navigation */}
-            <div className="tab-nav">
+        <div style={{ animation: 'fadeIn 0.3s ease-in' }}>
+            {/* Stats Cards - PIRs Only */}
+            {activeTab === 'pir' && (
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                    gap: '20px',
+                    marginBottom: '30px'
+                }}>
+                    <div style={{
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        borderRadius: '15px',
+                        padding: '25px',
+                        color: 'white',
+                        boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+                        transition: 'transform 0.2s',
+                        cursor: 'pointer'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                    >
+                        <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '10px' }}>Total PIRs</div>
+                        <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.totalPIRs}</div>
+                        <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '10px' }}>
+                            {stats.activePIRs} active
+                        </div>
+                    </div>
+
+                    <div style={{
+                        background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                        borderRadius: '15px',
+                        padding: '25px',
+                        color: 'white',
+                        boxShadow: '0 4px 15px rgba(240, 147, 251, 0.3)',
+                        transition: 'transform 0.2s',
+                        cursor: 'pointer'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                    >
+                        <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '10px' }}>Avg Compliance</div>
+                        <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.avgCompliance}%</div>
+                        <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '10px' }}>
+                            Last 7 days
+                        </div>
+                    </div>
+
+                    <div style={{
+                        background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                        borderRadius: '15px',
+                        padding: '25px',
+                        color: 'white',
+                        boxShadow: '0 4px 15px rgba(79, 172, 254, 0.3)',
+                        transition: 'transform 0.2s',
+                        cursor: 'pointer'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                    >
+                        <div style={{ fontSize: '14px', opacity: 0.9', marginBottom: '10px' }}>Critical Alerts</div>
+                        <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.criticalAlerts}</div>
+                        <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '10px' }}>
+                            Require attention
+                        </div>
+                    </div>
+
+                    <div style={{
+                        background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+                        borderRadius: '15px',
+                        padding: '25px',
+                        color: 'white',
+                        boxShadow: '0 4px 15px rgba(250, 112, 154, 0.3)',
+                        transition: 'transform 0.2s',
+                        cursor: 'pointer'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                    >
+                        <div style={{ fontSize: '14px', opacity: 0.9', marginBottom: '10px' }}>New This Week</div>
+                        <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.newThisWeek}</div>
+                        <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '10px' }}>
+                            Recent additions
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Tab Navigation with enhanced design */}
+            <div style={{
+                display: 'flex',
+                gap: '10px',
+                marginBottom: '25px',
+                borderBottom: '2px solid #e9ecef',
+                paddingBottom: '5px'
+            }}>
                 <button 
-                    className={`tab-btn ${activeTab === 'pir' ? 'active' : ''}`}
                     onClick={() => setActiveTab('pir')}
+                    style={{
+                        padding: '12px 24px',
+                        border: 'none',
+                        background: activeTab === 'pir' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'transparent',
+                        color: activeTab === 'pir' ? 'white' : '#666',
+                        borderRadius: '10px 10px 0 0',
+                        cursor: 'pointer',
+                        fontSize: '15px',
+                        fontWeight: activeTab === 'pir' ? '600' : '500',
+                        transition: 'all 0.3s',
+                        boxShadow: activeTab === 'pir' ? '0 -2px 10px rgba(102, 126, 234, 0.3)' : 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}
+                    onMouseEnter={(e) => {
+                        if (activeTab !== 'pir') {
+                            e.currentTarget.style.background = '#f8f9fa';
+                            e.currentTarget.style.color = '#333';
+                        }
+                    }}
+                    onMouseLeave={(e) => {
+                        if (activeTab !== 'pir') {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = '#666';
+                        }
+                    }}
                 >
+                    <span style={{ fontSize: '18px' }}>👥</span>
                     PIRs ({pirUsers.length})
                 </button>
                 <button 
-                    className={`tab-btn ${activeTab === 'coach' ? 'active' : ''}`}
                     onClick={() => setActiveTab('coach')}
+                    style={{
+                        padding: '12px 24px',
+                        border: 'none',
+                        background: activeTab === 'coach' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'transparent',
+                        color: activeTab === 'coach' ? 'white' : '#666',
+                        borderRadius: '10px 10px 0 0',
+                        cursor: 'pointer',
+                        fontSize: '15px',
+                        fontWeight: activeTab === 'coach' ? '600' : '500',
+                        transition: 'all 0.3s',
+                        boxShadow: activeTab === 'coach' ? '0 -2px 10px rgba(102, 126, 234, 0.3)' : 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}
+                    onMouseEnter={(e) => {
+                        if (activeTab !== 'coach') {
+                            e.currentTarget.style.background = '#f8f9fa';
+                            e.currentTarget.style.color = '#333';
+                        }
+                    }}
+                    onMouseLeave={(e) => {
+                        if (activeTab !== 'coach') {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = '#666';
+                        }
+                    }}
                 >
+                    <span style={{ fontSize: '18px' }}>🎓</span>
                     Coaches ({coachUsers.length})
                 </button>
                 <button 
-                    className={`tab-btn ${activeTab === 'admin' ? 'active' : ''}`}
                     onClick={() => setActiveTab('admin')}
+                    style={{
+                        padding: '12px 24px',
+                        border: 'none',
+                        background: activeTab === 'admin' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'transparent',
+                        color: activeTab === 'admin' ? 'white' : '#666',
+                        borderRadius: '10px 10px 0 0',
+                        cursor: 'pointer',
+                        fontSize: '15px',
+                        fontWeight: activeTab === 'admin' ? '600' : '500',
+                        transition: 'all 0.3s',
+                        boxShadow: activeTab === 'admin' ? '0 -2px 10px rgba(102, 126, 234, 0.3)' : 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}
+                    onMouseEnter={(e) => {
+                        if (activeTab !== 'admin') {
+                            e.currentTarget.style.background = '#f8f9fa';
+                            e.currentTarget.style.color = '#333';
+                        }
+                    }}
+                    onMouseLeave={(e) => {
+                        if (activeTab !== 'admin') {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = '#666';
+                        }
+                    }}
                 >
+                    <span style={{ fontSize: '18px' }}>⚙️</span>
                     Admins ({adminUsers.length})
                 </button>
             </div>
 
-            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '20px'}}>
-                <div>
-                    Showing {paginatedUsers.length} of {filteredUsers.length} {activeTab}s
-                    {searchQuery && ` (filtered)`}
+            {/* Filters and Actions Bar */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                marginBottom: '20px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '15px'
+            }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {/* Status Filter */}
+                    <select 
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        style={{
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #ddd',
+                            background: 'white',
+                            cursor: 'pointer',
+                            fontSize: '14px'
+                        }}
+                    >
+                        <option value="all">All Status</option>
+                        <option value="active">Active Only</option>
+                        <option value="inactive">Inactive Only</option>
+                        {activeTab === 'pir' && <option value="critical">Critical Status</option>}
+                    </select>
+
+                    {/* Compliance Filter - PIRs only */}
+                    {activeTab === 'pir' && (
+                        <select 
+                            value={complianceFilter}
+                            onChange={(e) => setComplianceFilter(e.target.value)}
+                            style={{
+                                padding: '8px 12px',
+                                borderRadius: '8px',
+                                border: '1px solid #ddd',
+                                background: 'white',
+                                cursor: 'pointer',
+                                fontSize: '14px'
+                            }}
+                        >
+                            <option value="all">All Compliance</option>
+                            <option value="high">High (70%+)</option>
+                            <option value="medium">Medium (40-70%)</option>
+                            <option value="low">Low (&lt;40%)</option>
+                        </select>
+                    )}
+
+                    <div style={{ 
+                        fontSize: '14px', 
+                        color: '#666',
+                        padding: '8px 12px',
+                        background: '#f8f9fa',
+                        borderRadius: '8px'
+                    }}>
+                        Showing {paginatedUsers.length} of {filteredUsers.length} {activeTab}s
+                        {searchQuery && ' (filtered)'}
+                    </div>
                 </div>
-                <div style={{display: 'flex', gap: '10px'}}>
-                    <button className="btn btn-secondary" onClick={() => handleExport('csv')}>
+
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    {/* Bulk Actions - PIRs only */}
+                    {activeTab === 'pir' && selectedUsers.size > 0 && (
+                        <>
+                            <button 
+                                onClick={handleBulkAssignCoach}
+                                style={{
+                                    padding: '10px 16px',
+                                    background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '500',
+                                    transition: 'transform 0.2s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                            >
+                                Assign Coach ({selectedUsers.size})
+                            </button>
+                            <button 
+                                onClick={handleBulkToggleStatus}
+                                style={{
+                                    padding: '10px 16px',
+                                    background: 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '500',
+                                    transition: 'transform 0.2s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                            >
+                                Toggle Status ({selectedUsers.size})
+                            </button>
+                        </>
+                    )}
+
+                    {/* Export Buttons */}
+                    <button 
+                        onClick={() => handleExport('csv')}
+                        style={{
+                            padding: '10px 16px',
+                            background: '#6c757d',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#5a6268';
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = '#6c757d';
+                            e.currentTarget.style.transform = 'translateY(0)';
+                        }}
+                    >
                         Export CSV
                     </button>
-                    <button className="btn btn-secondary" onClick={() => handleExport('json')}>
-                        Export JSON
-                    </button>
-                    <button className="btn btn-secondary" onClick={() => handleExport('pdf')}>
-                        Export PDF
-                    </button>
-                    <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-                        + Create User
+                    
+                    <button 
+                        onClick={() => setShowCreateModal(true)}
+                        style={{
+                            padding: '10px 20px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            transition: 'all 0.2s',
+                            boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.5)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+                        }}
+                    >
+                        <span style={{ fontSize: '16px' }}>+</span> Create User
                     </button>
                 </div>
             </div>
             
-            <div className="table-container">
-                <table>
+            {/* Enhanced Table */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                overflow: 'hidden',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+            }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th>Status</th>
-                            {activeTab === 'pir' && <th>Assigned Coach</th>}
-                            {activeTab === 'pir' && <th>Last Check-in</th>}
-                            <th>Phone</th>
-                            <th>Joined</th>
-                            <th>Actions</th>
+                        <tr style={{ background: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
+                            {activeTab === 'pir' && (
+                                <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#495057' }}>
+                                    <input 
+                                        type="checkbox"
+                                        checked={selectedUsers.size === paginatedUsers.length && paginatedUsers.length > 0}
+                                        onChange={handleSelectAll}
+                                        style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                                    />
+                                </th>
+                            )}
+                            <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#495057' }}>Name</th>
+                            <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#495057' }}>Email</th>
+                            <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#495057' }}>Status</th>
+                            {activeTab === 'pir' && <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#495057' }}>Health</th>}
+                            {activeTab === 'pir' && <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#495057' }}>Assigned Coach</th>}
+                            {activeTab === 'pir' && <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#495057' }}>Last Check-in</th>}
+                            <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#495057' }}>Phone</th>
+                            <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#495057' }}>Joined</th>
+                            <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#495057' }}>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {paginatedUsers.map(user => (
-                            <tr key={user.id}>
-                                <td>
-                                    <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                                        <div className="user-avatar">
+                        {paginatedUsers.map((user, index) => (
+                            <tr key={user.id} style={{
+                                borderBottom: '1px solid #f0f0f0',
+                                transition: 'all 0.2s',
+                                background: selectedUsers.has(user.id) ? '#f0f4ff' : 'white'
+                            }}
+                            onMouseEnter={(e) => {
+                                if (!selectedUsers.has(user.id)) {
+                                    e.currentTarget.style.background = '#f8f9fa';
+                                }
+                            }}
+                            onMouseLeave={(e) => {
+                                if (!selectedUsers.has(user.id)) {
+                                    e.currentTarget.style.background = 'white';
+                                }
+                            }}
+                            >
+                                {activeTab === 'pir' && (
+                                    <td style={{ padding: '15px' }}>
+                                        <input 
+                                            type="checkbox"
+                                            checked={selectedUsers.has(user.id)}
+                                            onChange={() => handleSelectUser(user.id)}
+                                            style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                                        />
+                                    </td>
+                                )}
+                                <td style={{ padding: '15px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <div style={{
+                                            width: '40px',
+                                            height: '40px',
+                                            borderRadius: '50%',
+                                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            color: 'white',
+                                            fontWeight: '600',
+                                            fontSize: '16px'
+                                        }}>
                                             {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
                                         </div>
-                                        <span>{user.displayName || 'N/A'}</span>
+                                        <span style={{ fontWeight: '500', color: '#333' }}>
+                                            {user.displayName || 'N/A'}
+                                        </span>
                                     </div>
                                 </td>
-                                <td>{user.email}</td>
-                                <td>
-                                    <span className={`badge ${user.active !== false ? 'badge-success' : 'badge-danger'}`}>
+                                <td style={{ padding: '15px', color: '#666' }}>{user.email}</td>
+                                <td style={{ padding: '15px' }}>
+                                    <span style={{
+                                        padding: '4px 12px',
+                                        borderRadius: '20px',
+                                        fontSize: '12px',
+                                        fontWeight: '500',
+                                        background: user.active !== false ? '#d4edda' : '#f8d7da',
+                                        color: user.active !== false ? '#155724' : '#721c24'
+                                    }}>
                                         {user.active !== false ? 'Active' : 'Inactive'}
                                     </span>
                                 </td>
-                                {activeTab === 'pir' && <td>{user.coachName || '-'}</td>}
-                                {activeTab === 'pir' && <td>{user.lastCheckIn ? formatTimeAgo(user.lastCheckIn) : 'Never'}</td>}
-                                <td>{user.phone || '-'}</td>
-                                <td>{formatDate(user.createdAt)}</td>
-                                <td>
-                                    <div className="action-buttons">
+                                {activeTab === 'pir' && (
+                                    <td style={{ padding: '15px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <div style={{
+                                                width: '8px',
+                                                height: '8px',
+                                                borderRadius: '50%',
+                                                background: getHealthBadgeColor(pirHealthData[user.id]?.status)
+                                            }}></div>
+                                            <span style={{ 
+                                                fontSize: '13px',
+                                                fontWeight: '500',
+                                                color: '#666'
+                                            }}>
+                                                {pirHealthData[user.id]?.compliance || 0}%
+                                            </span>
+                                        </div>
+                                    </td>
+                                )}
+                                {activeTab === 'pir' && <td style={{ padding: '15px', color: '#666' }}>{user.coachName || '-'}</td>}
+                                {activeTab === 'pir' && (
+                                    <td style={{ padding: '15px', color: '#666' }}>
+                                        {pirHealthData[user.id]?.lastCheckIn ? formatTimeAgo(pirHealthData[user.id].lastCheckIn) : 'Never'}
+                                    </td>
+                                )}
+                                <td style={{ padding: '15px', color: '#666' }}>{user.phone || '-'}</td>
+                                <td style={{ padding: '15px', color: '#666' }}>{formatDate(user.createdAt)}</td>
+                                <td style={{ padding: '15px' }}>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
                                         <button 
-                                            className="action-btn"
                                             onClick={() => setSelectedUser(user)}
+                                            style={{
+                                                padding: '6px 12px',
+                                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '6px',
+                                                cursor: 'pointer',
+                                                fontSize: '13px',
+                                                fontWeight: '500',
+                                                transition: 'transform 0.2s'
+                                            }}
+                                            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                                            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                                         >
                                             View
                                         </button>
                                         {user.role === 'pir' && (
                                             <button 
-                                                className="action-btn"
                                                 onClick={() => onImpersonate(user)}
+                                                style={{
+                                                    padding: '6px 12px',
+                                                    background: '#6c757d',
+                                                    color: 'white',
+                                                    border: 'none',
+                                                    borderRadius: '6px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '13px',
+                                                    fontWeight: '500',
+                                                    transition: 'all 0.2s'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.background = '#5a6268';
+                                                    e.currentTarget.style.transform = 'scale(1.05)';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.background = '#6c757d';
+                                                    e.currentTarget.style.transform = 'scale(1)';
+                                                }}
                                             >
                                                 View As
                                             </button>
@@ -2140,20 +2788,30 @@ function UsersView({ searchQuery, user, onImpersonate }) {
                 </table>
                 
                 {filteredUsers.length === 0 && (
-                    <div className="empty-state">
-                        <div className="empty-state-text">
+                    <div style={{
+                        padding: '60px 20px',
+                        textAlign: 'center',
+                        color: '#999'
+                    }}>
+                        <div style={{ fontSize: '48px', marginBottom: '15px' }}>🔍</div>
+                        <div style={{ fontSize: '18px', fontWeight: '500', marginBottom: '8px' }}>
                             {searchQuery ? `No ${activeTab}s found matching your search` : `No ${activeTab}s found`}
+                        </div>
+                        <div style={{ fontSize: '14px' }}>
+                            {searchQuery ? 'Try adjusting your search terms' : `Click "Create User" to add a new ${activeTab}`}
                         </div>
                     </div>
                 )}
             </div>
             
             {totalPages > 1 && (
-                <Pagination 
-                    currentPage={currentPage}
-                    totalPages={totalPages}
-                    onPageChange={setCurrentPage}
-                />
+                <div style={{ marginTop: '20px' }}>
+                    <Pagination 
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        onPageChange={setCurrentPage}
+                    />
+                </div>
             )}
             
             {showCreateModal && (
@@ -2166,29 +2824,29 @@ function UsersView({ searchQuery, user, onImpersonate }) {
                 />
             )}
             
-           {selectedUser && (
-    selectedUser.role === 'coach' || selectedUser.role === 'admin' ? (
-        <CoachDetailModal 
-            coach={selectedUser}
-            onClose={() => setSelectedUser(null)}
-            onUpdate={() => {
-                setSelectedUser(null);
-                loadUsers();
-            }}
-            currentUserId={user.uid}
-        />
-    ) : (
-        <UserDetailModal 
-            user={selectedUser}
-            onClose={() => setSelectedUser(null)}
-            onUpdate={() => {
-                setSelectedUser(null);
-                loadUsers();
-            }}
-            currentUserId={user.uid}
-        />
-    )
-)}
+            {selectedUser && (
+                selectedUser.role === 'coach' || selectedUser.role === 'admin' ? (
+                    <CoachDetailModal 
+                        coach={selectedUser}
+                        onClose={() => setSelectedUser(null)}
+                        onUpdate={() => {
+                            setSelectedUser(null);
+                            loadUsers();
+                        }}
+                        currentUserId={user.uid}
+                    />
+                ) : (
+                    <UserDetailModal 
+                        user={selectedUser}
+                        onClose={() => setSelectedUser(null)}
+                        onUpdate={() => {
+                            setSelectedUser(null);
+                            loadUsers();
+                        }}
+                        currentUserId={user.uid}
+                    />
+                )
+            )}
         </div>
     );
 }
