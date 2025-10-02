@@ -1328,12 +1328,13 @@ function renderView(view, searchQuery, user, onImpersonate) {
     }
 }
 
-  // Top Navigation Component with Staggered Layout and Right Side Content
+ // Top Navigation Component with Staggered Layout and Functional Quick Actions
 function TopNav({ currentView, setCurrentView }) {
     const [user, setUser] = useState(null);
+    const [showCreateUserModal, setShowCreateUserModal] = useState(false);
+    const [createUserRole, setCreateUserRole] = useState('pir');
 
     useEffect(() => {
-        // Get current user data
         const currentUser = auth.currentUser;
         if (currentUser) {
             db.collection('users').doc(currentUser.uid).get()
@@ -1345,6 +1346,24 @@ function TopNav({ currentView, setCurrentView }) {
                 .catch(err => console.error('Error loading user:', err));
         }
     }, []);
+
+    const handleCreatePIR = () => {
+        setCreateUserRole('pir');
+        setShowCreateUserModal(true);
+    };
+
+    const handleAddCoach = () => {
+        setCreateUserRole('coach');
+        setShowCreateUserModal(true);
+    };
+
+    const handleAddResource = () => {
+        setCurrentView('resources');
+    };
+
+    const handleCreateGroup = () => {
+        setCurrentView('groups');
+    };
 
     const menuItems = [
         { id: 'dashboard', label: 'Dashboard', icon: '📊' },
@@ -1369,408 +1388,424 @@ function TopNav({ currentView, setCurrentView }) {
     const row4 = [menuItems[12], menuItems[13]];
 
     return (
-        <div style={{
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            padding: '12px 20px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            position: 'sticky',
-            top: 0,
-            zIndex: 100
-        }}>
+        <>
             <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                marginBottom: '12px'
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                padding: '8px 20px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                position: 'sticky',
+                top: 0,
+                zIndex: 100
             }}>
-                {/* Left Side - Logo */}
                 <div style={{
-                    color: 'white',
-                    fontSize: '20px',
-                    fontWeight: 'bold',
                     display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    marginBottom: '8px'
                 }}>
-                    🛡️ GLRS Admin
-                </div>
-
-                {/* Right Side - User Profile Card */}
-                <div style={{
-                    background: 'rgba(255,255,255,0.15)',
-                    backdropFilter: 'blur(10px)',
-                    borderRadius: '12px',
-                    padding: '15px 20px',
-                    minWidth: '280px',
-                    border: '1px solid rgba(255,255,255,0.2)'
-                }}>
+                    {/* Left Side - Logo */}
                     <div style={{
+                        color: 'white',
+                        fontSize: '18px',
+                        fontWeight: 'bold',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '12px',
-                        marginBottom: '12px'
+                        gap: '6px'
+                    }}>
+                        🛡️ GLRS Admin
+                    </div>
+
+                    {/* Right Side - User Profile Card */}
+                    <div style={{
+                        background: 'rgba(255,255,255,0.15)',
+                        backdropFilter: 'blur(10px)',
+                        borderRadius: '10px',
+                        padding: '10px 15px',
+                        minWidth: '260px',
+                        border: '1px solid rgba(255,255,255,0.2)'
                     }}>
                         <div style={{
-                            width: '45px',
-                            height: '45px',
-                            borderRadius: '50%',
-                            background: 'white',
                             display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#667eea',
-                            fontWeight: 'bold',
-                            fontSize: '18px'
+                            gap: '10px',
+                            marginBottom: '8px'
                         }}>
-                            {user?.displayName?.charAt(0) || user?.email?.charAt(0) || 'A'}
+                            <div style={{
+                                width: '35px',
+                                height: '35px',
+                                borderRadius: '50%',
+                                background: 'white',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#667eea',
+                                fontWeight: 'bold',
+                                fontSize: '16px'
+                            }}>
+                                {user?.displayName?.charAt(0) || user?.email?.charAt(0) || 'A'}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{
+                                    color: 'white',
+                                    fontWeight: '600',
+                                    fontSize: '13px',
+                                    marginBottom: '2px'
+                                }}>
+                                    {user?.displayName || user?.email || 'Admin User'}
+                                </div>
+                                <div style={{
+                                    color: 'rgba(255,255,255,0.8)',
+                                    fontSize: '11px',
+                                    textTransform: 'capitalize'
+                                }}>
+                                    {user?.role || 'Admin'} • Online
+                                </div>
+                            </div>
                         </div>
-                        <div style={{ flex: 1 }}>
-                            <div style={{
-                                color: 'white',
-                                fontWeight: '600',
-                                fontSize: '15px',
-                                marginBottom: '3px'
-                            }}>
-                                {user?.displayName || user?.email || 'Admin User'}
-                            </div>
-                            <div style={{
-                                color: 'rgba(255,255,255,0.8)',
-                                fontSize: '12px',
-                                textTransform: 'capitalize'
-                            }}>
-                                {user?.role || 'Admin'} • Online
-                            </div>
+
+                        {/* Quick Action Buttons */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: '6px'
+                        }}>
+                            <button
+                                onClick={handleCreatePIR}
+                                style={{
+                                    padding: '6px 10px',
+                                    background: 'white',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    color: '#667eea',
+                                    cursor: 'pointer',
+                                    fontSize: '11px',
+                                    fontWeight: '600',
+                                    transition: 'all 0.2s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '4px'
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(-2px)';
+                                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.boxShadow = 'none';
+                                }}
+                            >
+                                + Create PIR
+                            </button>
+
+                            <button
+                                onClick={handleAddCoach}
+                                style={{
+                                    padding: '6px 10px',
+                                    background: 'white',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    color: '#667eea',
+                                    cursor: 'pointer',
+                                    fontSize: '11px',
+                                    fontWeight: '600',
+                                    transition: 'all 0.2s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '4px'
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(-2px)';
+                                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.boxShadow = 'none';
+                                }}
+                            >
+                                + Add Coach
+                            </button>
+
+                            <button
+                                onClick={handleAddResource}
+                                style={{
+                                    padding: '6px 10px',
+                                    background: 'white',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    color: '#667eea',
+                                    cursor: 'pointer',
+                                    fontSize: '11px',
+                                    fontWeight: '600',
+                                    transition: 'all 0.2s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '4px'
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(-2px)';
+                                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.boxShadow = 'none';
+                                }}
+                            >
+                                + Add Resource
+                            </button>
+
+                            <button
+                                onClick={handleCreateGroup}
+                                style={{
+                                    padding: '6px 10px',
+                                    background: 'white',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    color: '#667eea',
+                                    cursor: 'pointer',
+                                    fontSize: '11px',
+                                    fontWeight: '600',
+                                    transition: 'all 0.2s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '4px'
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(-2px)';
+                                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.boxShadow = 'none';
+                                }}
+                            >
+                                + Create Group
+                            </button>
                         </div>
                     </div>
+                </div>
 
-                    {/* Quick Action Buttons */}
+                {/* Navigation Buttons - Staggered */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {/* Row 1 */}
                     <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: '8px'
+                        display: 'flex',
+                        gap: '12px',
+                        paddingLeft: '0px'
                     }}>
-                        <button
-                            onClick={() => setCurrentView('users')}
-                            style={{
-                                padding: '8px 12px',
-                                background: 'white',
-                                border: 'none',
-                                borderRadius: '8px',
-                                color: '#667eea',
-                                cursor: 'pointer',
-                                fontSize: '12px',
-                                fontWeight: '600',
-                                transition: 'all 0.2s',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '6px'
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.transform = 'translateY(-2px)';
-                                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.transform = 'translateY(0)';
-                                e.currentTarget.style.boxShadow = 'none';
-                            }}
-                        >
-                            + Create PIR
-                        </button>
+                        {row1.map(item => (
+                            <button
+                                key={item.id}
+                                onClick={() => setCurrentView(item.id)}
+                                style={{
+                                    padding: '8px 20px',
+                                    background: currentView === item.id ? 'white' : 'rgba(255,255,255,0.1)',
+                                    border: currentView === item.id 
+                                        ? '2px solid rgba(255,255,255,0.8)' 
+                                        : '2px solid transparent',
+                                    borderRadius: '8px',
+                                    color: currentView === item.id ? '#667eea' : 'white',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: currentView === item.id ? '600' : '500',
+                                    transition: 'all 0.3s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    backdropFilter: 'blur(10px)',
+                                    boxShadow: currentView === item.id 
+                                        ? '0 4px 12px rgba(0,0,0,0.2)' 
+                                        : 'none',
+                                    whiteSpace: 'nowrap'
+                                }}
+                                onMouseEnter={(e) => {
+                                    if (currentView !== item.id) {
+                                        e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
+                                        e.currentTarget.style.transform = 'translateY(-2px)';
+                                    }
+                                }}
+                                onMouseLeave={(e) => {
+                                    if (currentView !== item.id) {
+                                        e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                    }
+                                }}
+                            >
+                                <span style={{ fontSize: '16px' }}>{item.icon}</span>
+                                {item.label}
+                            </button>
+                        ))}
+                    </div>
 
-                        <button
-                            onClick={() => setCurrentView('users')}
-                            style={{
-                                padding: '8px 12px',
-                                background: 'white',
-                                border: 'none',
-                                borderRadius: '8px',
-                                color: '#667eea',
-                                cursor: 'pointer',
-                                fontSize: '12px',
-                                fontWeight: '600',
-                                transition: 'all 0.2s',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '6px'
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.transform = 'translateY(-2px)';
-                                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.transform = 'translateY(0)';
-                                e.currentTarget.style.boxShadow = 'none';
-                            }}
-                        >
-                            + Add Coach
-                        </button>
+                    {/* Row 2 - Offset */}
+                    <div style={{
+                        display: 'flex',
+                        gap: '12px',
+                        paddingLeft: '80px'
+                    }}>
+                        {row2.map(item => (
+                            <button
+                                key={item.id}
+                                onClick={() => setCurrentView(item.id)}
+                                style={{
+                                    padding: '8px 20px',
+                                    background: currentView === item.id ? 'white' : 'rgba(255,255,255,0.1)',
+                                    border: currentView === item.id 
+                                        ? '2px solid rgba(255,255,255,0.8)' 
+                                        : '2px solid transparent',
+                                    borderRadius: '8px',
+                                    color: currentView === item.id ? '#667eea' : 'white',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: currentView === item.id ? '600' : '500',
+                                    transition: 'all 0.3s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    backdropFilter: 'blur(10px)',
+                                    boxShadow: currentView === item.id 
+                                        ? '0 4px 12px rgba(0,0,0,0.2)' 
+                                        : 'none',
+                                    whiteSpace: 'nowrap'
+                                }}
+                                onMouseEnter={(e) => {
+                                    if (currentView !== item.id) {
+                                        e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
+                                        e.currentTarget.style.transform = 'translateY(-2px)';
+                                    }
+                                }}
+                                onMouseLeave={(e) => {
+                                    if (currentView !== item.id) {
+                                        e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                    }
+                                }}
+                            >
+                                <span style={{ fontSize: '16px' }}>{item.icon}</span>
+                                {item.label}
+                            </button>
+                        ))}
+                    </div>
 
-                        <button
-                            onClick={() => setCurrentView('resources')}
-                            style={{
-                                padding: '8px 12px',
-                                background: 'white',
-                                border: 'none',
-                                borderRadius: '8px',
-                                color: '#667eea',
-                                cursor: 'pointer',
-                                fontSize: '12px',
-                                fontWeight: '600',
-                                transition: 'all 0.2s',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '6px'
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.transform = 'translateY(-2px)';
-                                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.transform = 'translateY(0)';
-                                e.currentTarget.style.boxShadow = 'none';
-                            }}
-                        >
-                            + Add Resource
-                        </button>
+                    {/* Row 3 - Offset */}
+                    <div style={{
+                        display: 'flex',
+                        gap: '12px',
+                        paddingLeft: '40px'
+                    }}>
+                        {row3.map(item => (
+                            <button
+                                key={item.id}
+                                onClick={() => setCurrentView(item.id)}
+                                style={{
+                                    padding: '8px 20px',
+                                    background: currentView === item.id ? 'white' : 'rgba(255,255,255,0.1)',
+                                    border: currentView === item.id 
+                                        ? '2px solid rgba(255,255,255,0.8)' 
+                                        : '2px solid transparent',
+                                    borderRadius: '8px',
+                                    color: currentView === item.id ? '#667eea' : 'white',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: currentView === item.id ? '600' : '500',
+                                    transition: 'all 0.3s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    backdropFilter: 'blur(10px)',
+                                    boxShadow: currentView === item.id 
+                                        ? '0 4px 12px rgba(0,0,0,0.2)' 
+                                        : 'none',
+                                    whiteSpace: 'nowrap'
+                                }}
+                                onMouseEnter={(e) => {
+                                    if (currentView !== item.id) {
+                                        e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
+                                        e.currentTarget.style.transform = 'translateY(-2px)';
+                                    }
+                                }}
+                                onMouseLeave={(e) => {
+                                    if (currentView !== item.id) {
+                                        e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                    }
+                                }}
+                            >
+                                <span style={{ fontSize: '16px' }}>{item.icon}</span>
+                                {item.label}
+                            </button>
+                        ))}
+                    </div>
 
-                        <button
-                            onClick={() => setCurrentView('groups')}
-                            style={{
-                                padding: '8px 12px',
-                                background: 'white',
-                                border: 'none',
-                                borderRadius: '8px',
-                                color: '#667eea',
-                                cursor: 'pointer',
-                                fontSize: '12px',
-                                fontWeight: '600',
-                                transition: 'all 0.2s',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '6px'
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.transform = 'translateY(-2px)';
-                                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.transform = 'translateY(0)';
-                                e.currentTarget.style.boxShadow = 'none';
-                            }}
-                        >
-                            + Create Group
-                        </button>
+                    {/* Row 4 - Offset */}
+                    <div style={{
+                        display: 'flex',
+                        gap: '12px',
+                        paddingLeft: '120px'
+                    }}>
+                        {row4.map(item => (
+                            <button
+                                key={item.id}
+                                onClick={() => setCurrentView(item.id)}
+                                style={{
+                                    padding: '8px 20px',
+                                    background: currentView === item.id ? 'white' : 'rgba(255,255,255,0.1)',
+                                    border: currentView === item.id 
+                                        ? '2px solid rgba(255,255,255,0.8)' 
+                                        : '2px solid transparent',
+                                    borderRadius: '8px',
+                                    color: currentView === item.id ? '#667eea' : 'white',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: currentView === item.id ? '600' : '500',
+                                    transition: 'all 0.3s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    backdropFilter: 'blur(10px)',
+                                    boxShadow: currentView === item.id 
+                                        ? '0 4px 12px rgba(0,0,0,0.2)' 
+                                        : 'none',
+                                    whiteSpace: 'nowrap'
+                                }}
+                                onMouseEnter={(e) => {
+                                    if (currentView !== item.id) {
+                                        e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
+                                        e.currentTarget.style.transform = 'translateY(-2px)';
+                                    }
+                                }}
+                                onMouseLeave={(e) => {
+                                    if (currentView !== item.id) {
+                                        e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                    }
+                                }}
+                            >
+                                <span style={{ fontSize: '16px' }}>{item.icon}</span>
+                                {item.label}
+                            </button>
+                        ))}
                     </div>
                 </div>
             </div>
 
-            {/* Navigation Buttons - Staggered */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {/* Row 1 */}
-                <div style={{
-                    display: 'flex',
-                    gap: '12px',
-                    paddingLeft: '0px'
-                }}>
-                    {row1.map(item => (
-                        <button
-                            key={item.id}
-                            onClick={() => setCurrentView(item.id)}
-                            style={{
-                                padding: '12px 24px',
-                                background: currentView === item.id ? 'white' : 'rgba(255,255,255,0.1)',
-                                border: currentView === item.id 
-                                    ? '2px solid rgba(255,255,255,0.8)' 
-                                    : '2px solid transparent',
-                                borderRadius: '10px',
-                                color: currentView === item.id ? '#667eea' : 'white',
-                                cursor: 'pointer',
-                                fontSize: '15px',
-                                fontWeight: currentView === item.id ? '600' : '500',
-                                transition: 'all 0.3s',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                backdropFilter: 'blur(10px)',
-                                boxShadow: currentView === item.id 
-                                    ? '0 4px 12px rgba(0,0,0,0.2)' 
-                                    : 'none',
-                                whiteSpace: 'nowrap'
-                            }}
-                            onMouseEnter={(e) => {
-                                if (currentView !== item.id) {
-                                    e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
-                                    e.currentTarget.style.transform = 'translateY(-2px)';
-                                }
-                            }}
-                            onMouseLeave={(e) => {
-                                if (currentView !== item.id) {
-                                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                }
-                            }}
-                        >
-                            <span style={{ fontSize: '17px' }}>{item.icon}</span>
-                            {item.label}
-                        </button>
-                    ))}
-                </div>
-
-                {/* Row 2 - Offset */}
-                <div style={{
-                    display: 'flex',
-                    gap: '12px',
-                    paddingLeft: '80px'
-                }}>
-                    {row2.map(item => (
-                        <button
-                            key={item.id}
-                            onClick={() => setCurrentView(item.id)}
-                            style={{
-                                padding: '12px 24px',
-                                background: currentView === item.id ? 'white' : 'rgba(255,255,255,0.1)',
-                                border: currentView === item.id 
-                                    ? '2px solid rgba(255,255,255,0.8)' 
-                                    : '2px solid transparent',
-                                borderRadius: '10px',
-                                color: currentView === item.id ? '#667eea' : 'white',
-                                cursor: 'pointer',
-                                fontSize: '15px',
-                                fontWeight: currentView === item.id ? '600' : '500',
-                                transition: 'all 0.3s',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                backdropFilter: 'blur(10px)',
-                                boxShadow: currentView === item.id 
-                                    ? '0 4px 12px rgba(0,0,0,0.2)' 
-                                    : 'none',
-                                whiteSpace: 'nowrap'
-                            }}
-                            onMouseEnter={(e) => {
-                                if (currentView !== item.id) {
-                                    e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
-                                    e.currentTarget.style.transform = 'translateY(-2px)';
-                                }
-                            }}
-                            onMouseLeave={(e) => {
-                                if (currentView !== item.id) {
-                                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                }
-                            }}
-                        >
-                            <span style={{ fontSize: '17px' }}>{item.icon}</span>
-                            {item.label}
-                        </button>
-                    ))}
-                </div>
-
-                {/* Row 3 - Offset */}
-                <div style={{
-                    display: 'flex',
-                    gap: '12px',
-                    paddingLeft: '40px'
-                }}>
-                    {row3.map(item => (
-                        <button
-                            key={item.id}
-                            onClick={() => setCurrentView(item.id)}
-                            style={{
-                                padding: '12px 24px',
-                                background: currentView === item.id ? 'white' : 'rgba(255,255,255,0.1)',
-                                border: currentView === item.id 
-                                    ? '2px solid rgba(255,255,255,0.8)' 
-                                    : '2px solid transparent',
-                                borderRadius: '10px',
-                                color: currentView === item.id ? '#667eea' : 'white',
-                                cursor: 'pointer',
-                                fontSize: '15px',
-                                fontWeight: currentView === item.id ? '600' : '500',
-                                transition: 'all 0.3s',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                backdropFilter: 'blur(10px)',
-                                boxShadow: currentView === item.id 
-                                    ? '0 4px 12px rgba(0,0,0,0.2)' 
-                                    : 'none',
-                                whiteSpace: 'nowrap'
-                            }}
-                            onMouseEnter={(e) => {
-                                if (currentView !== item.id) {
-                                    e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
-                                    e.currentTarget.style.transform = 'translateY(-2px)';
-                                }
-                            }}
-                            onMouseLeave={(e) => {
-                                if (currentView !== item.id) {
-                                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                }
-                            }}
-                        >
-                            <span style={{ fontSize: '17px' }}>{item.icon}</span>
-                            {item.label}
-                        </button>
-                    ))}
-                </div>
-
-                {/* Row 4 - Offset */}
-                <div style={{
-                    display: 'flex',
-                    gap: '12px',
-                    paddingLeft: '120px'
-                }}>
-                    {row4.map(item => (
-                        <button
-                            key={item.id}
-                            onClick={() => setCurrentView(item.id)}
-                            style={{
-                                padding: '12px 24px',
-                                background: currentView === item.id ? 'white' : 'rgba(255,255,255,0.1)',
-                                border: currentView === item.id 
-                                    ? '2px solid rgba(255,255,255,0.8)' 
-                                    : '2px solid transparent',
-                                borderRadius: '10px',
-                                color: currentView === item.id ? '#667eea' : 'white',
-                                cursor: 'pointer',
-                                fontSize: '15px',
-                                fontWeight: currentView === item.id ? '600' : '500',
-                                transition: 'all 0.3s',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                backdropFilter: 'blur(10px)',
-                                boxShadow: currentView === item.id 
-                                    ? '0 4px 12px rgba(0,0,0,0.2)' 
-                                    : 'none',
-                                whiteSpace: 'nowrap'
-                            }}
-                            onMouseEnter={(e) => {
-                                if (currentView !== item.id) {
-                                    e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
-                                    e.currentTarget.style.transform = 'translateY(-2px)';
-                                }
-                            }}
-                            onMouseLeave={(e) => {
-                                if (currentView !== item.id) {
-                                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                }
-                            }}
-                        >
-                            <span style={{ fontSize: '17px' }}>{item.icon}</span>
-                            {item.label}
-                        </button>
-                    ))}
-                </div>
-            </div>
-        </div>
+            {/* Create User Modal */}
+            {showCreateUserModal && (
+                <CreateUserModal 
+                    onClose={() => setShowCreateUserModal(false)}
+                    onSuccess={() => {
+                        setShowCreateUserModal(false);
+                        if (currentView === 'users') {
+                            window.location.reload(); // Refresh to show new user
+                        }
+                    }}
+                    defaultRole={createUserRole}
+                />
+            )}
+        </>
     );
 }
       // Enhanced Header Component  
