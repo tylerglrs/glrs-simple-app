@@ -1263,11 +1263,7 @@ function AdminApp() {
         </div>
         
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-            <TopNav 
-                currentView={currentView}
-                setCurrentView={setCurrentView}
-            />
-            
+            {/* Header FIRST */}
             <Header 
                 currentView={currentView}
                 searchQuery={searchQuery}
@@ -1279,13 +1275,19 @@ function AdminApp() {
                 user={user}
             />
             
+            {/* TopNav SECOND */}
+            <TopNav 
+                currentView={currentView}
+                setCurrentView={setCurrentView}
+            />
+            
             <div className="content" style={{ flex: 1, background: '#f5f7fa' }}>
                 {renderView(currentView, debouncedSearchQuery, user, handleImpersonate)}
             </div>
         </div>
     </>
 );
-}  // <-- ADD THIS CLOSING BRACE
+}
 
 // View Renderer - NO HOOKS HERE
 function renderView(view, searchQuery, user, onImpersonate) {
@@ -1583,169 +1585,274 @@ function TopNav({ currentView, setCurrentView }) {
     );
 }
 
-        // Header Component  
-        function Header({ currentView, searchQuery, setSearchQuery, notifications, showNotifications, setShowNotifications, onLogout, user }) {
-            const [refreshing, setRefreshing] = useState(false);
-            const notificationRef = useRef(null);
-            const debouncedSearchQuery = useDebounce(searchQuery, 300);
-            
-            const unreadCount = notifications.filter(n => !n.read).length;
+      // Enhanced Header Component  
+function Header({ currentView, searchQuery, setSearchQuery, notifications, showNotifications, setShowNotifications, onLogout, user }) {
+    const [refreshing, setRefreshing] = useState(false);
+    const notificationRef = useRef(null);
+    
+    const unreadCount = notifications.filter(n => !n.read).length;
 
-            const handleRefresh = () => {
-                setRefreshing(true);
-                setTimeout(() => {
-                    window.location.reload();
-                }, 500);
-            };
+    const handleRefresh = () => {
+        setRefreshing(true);
+        setTimeout(() => {
+            window.location.reload();
+        }, 500);
+    };
 
-            const handleSearchKeyPress = (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    // Search is reactive through useEffect in views
+    const clearNotification = async (notifId) => {
+        try {
+            await db.collection('notifications').doc(notifId).update({ read: true });
+        } catch (error) {
+            console.error('Error clearing notification:', error);
+        }
+    };
+
+    const clearAllNotifications = async () => {
+        try {
+            const batch = db.batch();
+            notifications.forEach(notif => {
+                if (!notif.read) {
+                    batch.update(db.collection('notifications').doc(notif.id), { read: true });
                 }
-            };
+            });
+            await batch.commit();
+        } catch (error) {
+            console.error('Error clearing all notifications:', error);
+        }
+    };
 
-            const clearNotification = async (notifId) => {
-                try {
-                    await db.collection('notifications').doc(notifId).update({ read: true });
-                } catch (error) {
-                    console.error('Error clearing notification:', error);
-                }
-            };
+    const handleNotificationClick = (notif) => {
+        clearNotification(notif.id);
+        setShowNotifications(false);
+    };
 
-            const clearAllNotifications = async () => {
-                try {
-                    const batch = db.batch();
-                    notifications.forEach(notif => {
-                        if (!notif.read) {
-                            batch.update(db.collection('notifications').doc(notif.id), { read: true });
-                        }
-                    });
-                    await batch.commit();
-                } catch (error) {
-                    console.error('Error clearing all notifications:', error);
-                }
-            };
-
-            const handleNotificationClick = (notif) => {
-                clearNotification(notif.id);
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (notificationRef.current && !notificationRef.current.contains(event.target)) {
                 setShowNotifications(false);
+            }
+        };
+        
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    return (
+        <div style={{
+            background: 'white',
+            padding: '15px 30px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            position: 'sticky',
+            top: 0,
+            zIndex: 99
+        }}>
+            <div style={{
+                fontSize: '18px',
+                fontWeight: '600',
+                color: '#333'
+            }}>
+                {user.displayName || user.email}
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                <input
+                    type="text"
+                    placeholder="Search users, messages, resources..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{
+                        padding: '10px 20px',
+                        borderRadius: '25px',
+                        border: '2px solid #e0e0e0',
+                        width: '350px',
+                        fontSize: '14px',
+                        transition: 'all 0.3s'
+                    }}
+                    onFocus={(e) => e.currentTarget.style.borderColor = '#667eea'}
+                    onBlur={(e) => e.currentTarget.style.borderColor = '#e0e0e0'}
+                />
                 
-                // Navigate based on notification type - using React state navigation
-                if (notif.type === 'sos' || notif.type === 'user-created') {
-                    // Would navigate to user view with the relatedId
-                } else if (notif.type === 'checkin') {
-                    // Would navigate to check-in view
-                } else if (notif.type === 'message') {
-                    // Would navigate to messages
-                }
-            };
-
-            // Close notifications when clicking outside
-            useEffect(() => {
-                const handleClickOutside = (event) => {
-                    if (notificationRef.current && !notificationRef.current.contains(event.target)) {
-                        setShowNotifications(false);
-                    }
-                };
+                <button 
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    style={{
+                        padding: '10px 20px',
+                        background: refreshing ? '#e0e0e0' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: refreshing ? 'not-allowed' : 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                    }}
+                    onMouseEnter={(e) => {
+                        if (!refreshing) {
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+                        }
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = 'none';
+                    }}
+                >
+                    {refreshing ? '⟳' : '↻'} Refresh
+                </button>
                 
-                document.addEventListener('mousedown', handleClickOutside);
-                return () => document.removeEventListener('mousedown', handleClickOutside);
-            }, []);
-
-            const getViewTitle = () => {
-                const titles = {
-                    dashboard: 'Dashboard',
-                    users: 'User Management',
-                    profile: 'My Profile',
-                    messages: 'Messages',
-                    feedback: 'Feedback',
-                    resources: 'Resources',
-                    groups: 'Groups & Workshops',
-                    checkins: 'Check-ins',
-                    assignments: 'Assignments',
-                    alerts: 'Alerts',
-                    reports: 'Reports',
-                    settings: 'System Settings'
-                };
-                return titles[currentView] || 'Admin Portal';
-            };
-
-            return (
-                <div className="header">
-                    <div className="header-title">{getViewTitle()}</div>
+                <div style={{ position: 'relative' }} ref={notificationRef}>
+                    <button
+                        onClick={() => setShowNotifications(!showNotifications)}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '24px',
+                            position: 'relative',
+                            padding: '8px'
+                        }}
+                    >
+                        🔔
+                        {unreadCount > 0 && (
+                            <div style={{
+                                position: 'absolute',
+                                top: '4px',
+                                right: '4px',
+                                background: '#f44336',
+                                color: 'white',
+                                borderRadius: '50%',
+                                width: '20px',
+                                height: '20px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '10px',
+                                fontWeight: 'bold'
+                            }}>
+                                {unreadCount > 99 ? '99+' : unreadCount}
+                            </div>
+                        )}
+                    </button>
                     
-                    <div className="header-actions">
-                        <input
-                            type="text"
-                            className="search-bar"
-                            placeholder="Search users, messages, resources..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onKeyPress={handleSearchKeyPress}
-                        />
-                        
-                        <button 
-                            className="refresh-btn"
-                            onClick={handleRefresh}
-                            disabled={refreshing}
-                        >
-                            {refreshing ? '⟳' : '↻'} Refresh
-                        </button>
-                        
-                        <div className="notification-bell" ref={notificationRef}>
-                            <div onClick={() => setShowNotifications(!showNotifications)}>
-                                🔔
-                                {unreadCount > 0 && (
-                                    <div className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</div>
-                                )}
+                    {showNotifications && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '100%',
+                            right: 0,
+                            marginTop: '10px',
+                            background: 'white',
+                            borderRadius: '10px',
+                            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                            width: '350px',
+                            maxHeight: '400px',
+                            overflowY: 'auto',
+                            zIndex: 1000
+                        }}>
+                            <div style={{
+                                padding: '15px',
+                                borderBottom: '1px solid #f0f0f0',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                position: 'sticky',
+                                top: 0,
+                                background: 'white'
+                            }}>
+                                <span style={{ fontWeight: '600', color: '#333' }}>
+                                    Notifications ({unreadCount})
+                                </span>
+                                <button 
+                                    onClick={clearAllNotifications}
+                                    style={{
+                                        padding: '5px 10px',
+                                        fontSize: '12px',
+                                        background: '#f0f0f0',
+                                        border: 'none',
+                                        borderRadius: '5px',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    Clear All
+                                </button>
                             </div>
                             
-                            {showNotifications && (
-                                <div className="notification-dropdown">
-                                    <div className="notification-header">
-                                        <span>Notifications ({unreadCount})</span>
-                                        <button 
-                                            className="btn btn-secondary"
-                                            style={{padding: '5px 10px', fontSize: '12px'}}
-                                            onClick={clearAllNotifications}
-                                        >
-                                            Clear All
-                                        </button>
-                                    </div>
-                                    
-                                    {notifications.length === 0 ? (
-                                        <div className="empty-state" style={{padding: '20px'}}>
-                                            <div className="empty-state-text">No notifications</div>
-                                        </div>
-                                    ) : (
-                                        notifications.slice(0, 20).map(notif => (
-                                            <div 
-                                                key={notif.id}
-                                                className={`notification-item ${notif.read ? '' : 'unread'}`}
-                                                onClick={() => handleNotificationClick(notif)}
-                                            >
-                                                <div style={{display: 'flex', justifyContent: 'space-between'}}>
-                                                    <span>{notif.message}</span>
-                                                    {notif.urgent && <span className="badge badge-danger">Urgent</span>}
-                                                </div>
-                                                <div style={{fontSize: '12px', opacity: 0.7, marginTop: '5px'}}>
-                                                    {formatTimeAgo(notif.createdAt)}
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
+                            {notifications.length === 0 ? (
+                                <div style={{ padding: '30px', textAlign: 'center', color: '#999' }}>
+                                    No notifications
                                 </div>
+                            ) : (
+                                notifications.slice(0, 20).map(notif => (
+                                    <div 
+                                        key={notif.id}
+                                        onClick={() => handleNotificationClick(notif)}
+                                        style={{
+                                            padding: '15px',
+                                            borderBottom: '1px solid #f0f0f0',
+                                            cursor: 'pointer',
+                                            background: notif.read ? 'white' : '#f0f4ff',
+                                            transition: 'background 0.2s'
+                                        }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = '#f8f9fa'}
+                                        onMouseLeave={(e) => e.currentTarget.style.background = notif.read ? 'white' : '#f0f4ff'}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                                            <span style={{ fontSize: '14px', color: '#333' }}>{notif.message}</span>
+                                            {notif.urgent && (
+                                                <span style={{
+                                                    background: '#f44336',
+                                                    color: 'white',
+                                                    padding: '2px 6px',
+                                                    borderRadius: '10px',
+                                                    fontSize: '10px'
+                                                }}>
+                                                    Urgent
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: '#999' }}>
+                                            {formatTimeAgo(notif.createdAt)}
+                                        </div>
+                                    </div>
+                                ))
                             )}
                         </div>
-                        
-                        <button className="btn btn-secondary" onClick={onLogout}>
-                            Logout
-                        </button>
-                    </div>
+                    )}
                 </div>
-            );
-        }
+                
+                <button 
+                    onClick={onLogout}
+                    style={{
+                        padding: '10px 20px',
+                        background: '#6c757d',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#5a6268';
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.background = '#6c757d';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                >
+                    Logout
+                </button>
+            </div>
+        </div>
+    );
+}
 
         // Login Screen
         function LoginScreen() {
