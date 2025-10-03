@@ -4888,59 +4888,137 @@ function PIRNotesModal({ pir, existingNotes, onClose, onSave }) {
         </div>
     );
 }
-       // Community Management View - Enhanced with Groups, Support Groups, and Meetings
+// COMPLETE ENHANCED CommunityView - ALL FEATURES
 function CommunityView({ searchQuery, user }) {
-    const [activeTab, setActiveTab] = useState('chat');
+    const [activeTab, setActiveTab] = useState('analytics');
     const [loading, setLoading] = useState(true);
     const [messages, setMessages] = useState([]);
     const [topicRooms, setTopicRooms] = useState([]);
     const [flaggedMessages, setFlaggedMessages] = useState([]);
     const [supportGroups, setSupportGroups] = useState([]);
-    const [groups, setGroups] = useState([]);
     const [meetings, setMeetings] = useState([]);
     const [selectedRoom, setSelectedRoom] = useState('main');
     const [newMessage, setNewMessage] = useState('');
-    const [showCreateRoom, setShowCreateRoom] = useState(false);
     const [showCreateModal, setShowCreateModal] = useState(false);
-    const [modalType, setModalType] = useState(''); // room, supportGroup, group, meeting
+    const [modalType, setModalType] = useState('');
     const [selectedItem, setSelectedItem] = useState(null);
     const [selectedImage, setSelectedImage] = useState(null);
     const [messageListener, setMessageListener] = useState(null);
+    const [pinnedMessages, setPinnedMessages] = useState([]);
+    const [messageReactions, setMessageReactions] = useState({});
+    const [chatSearch, setChatSearch] = useState('');
+    const [filteredMessages, setFilteredMessages] = useState([]);
+    const [onlineUsers, setOnlineUsers] = useState(new Set());
+    const [typingUsers, setTypingUsers] = useState(new Set());
+    const [moderationKeywords, setModerationKeywords] = useState([]);
+    const [userWarnings, setUserWarnings] = useState({});
+    const [moderationHistory, setModerationHistory] = useState([]);
+    const [selectedMeeting, setSelectedMeeting] = useState(null);
+    const [attendanceData, setAttendanceData] = useState({});
+    const [showAttendanceModal, setShowAttendanceModal] = useState(false);
+    const [viewMode, setViewMode] = useState('messages'); // messages, threads
+    const [selectedThread, setSelectedThread] = useState(null);
+    
+    const activityChartRef = useRef(null);
+    const sentimentChartRef = useRef(null);
+    const engagementChartRef = useRef(null);
+    const chartInstances = useRef({});
+    
     const [stats, setStats] = useState({
         totalMessages: 0,
         activeUsers: 0,
         flaggedCount: 0,
         roomsCount: 0,
         supportGroupsCount: 0,
-        groupsCount: 0,
-        meetingsCount: 0
+        meetingsCount: 0,
+        todayMessages: 0,
+        weekMessages: 0,
+        avgMessagesPerUser: 0,
+        topContributors: [],
+        sentimentScore: 0,
+        engagementRate: 0
+    });
+
+    const [analyticsData, setAnalyticsData] = useState({
+        activityByHour: [],
+        activityByDay: [],
+        roomEngagement: [],
+        sentimentTrend: [],
+        topContributors: [],
+        messageVolume: []
     });
 
     useEffect(() => {
         loadCommunityData();
+        loadModerationKeywords();
+        setupPresenceListener();
+        
         return () => {
-            if (messageListener) {
-                messageListener();
-            }
+            if (messageListener) messageListener();
+            if (chartInstances.current.activity) chartInstances.current.activity.destroy();
+            if (chartInstances.current.sentiment) chartInstances.current.sentiment.destroy();
+            if (chartInstances.current.engagement) chartInstances.current.engagement.destroy();
         };
     }, []);
 
     useEffect(() => {
         if (selectedRoom) {
             loadMessages(selectedRoom);
+            loadPinnedMessages(selectedRoom);
         }
     }, [selectedRoom]);
+
+    useEffect(() => {
+        filterMessages();
+    }, [messages, chatSearch]);
+
+    useEffect(() => {
+        if (analyticsData.activityByHour.length > 0) {
+            renderAnalyticsCharts();
+        }
+    }, [analyticsData]);
+
+    const setupPresenceListener = () => {
+        const presenceRef = db.collection('presence');
+        
+        presenceRef.where('online', '==', true).onSnapshot(snapshot => {
+            const online = new Set();
+            snapshot.forEach(doc => {
+                online.add(doc.id);
+            });
+            setOnlineUsers(online);
+        });
+    };
+
+    const loadModerationKeywords = async () => {
+        try {
+            const keywordsDoc = await db.collection('settings').doc('moderation').get();
+            if (keywordsDoc.exists) {
+                setModerationKeywords(keywordsDoc.data().keywords || []);
+            }
+        } catch (error) {
+            console.error('Error loading moderation keywords:', error);
+        }
+    };
 
     const loadCommunityData = async () => {
         try {
             setLoading(true);
 
-            // Load topic rooms
+            // Load rooms
             const roomsSnap = await db.collection('topicRooms').get();
             const roomsData = [];
-            roomsSnap.forEach(doc => {
-                roomsData.push({ id: doc.id, ...doc.data() });
-            });
+            for (const doc of roomsSnap.docs) {
+                const roomData = { id: doc.id, ...doc.data() };
+                
+                // Get message count
+                const messagesCount = await db.collection('messages')
+                    .where('roomId', '==', doc.id)
+                    .get();
+                roomData.messageCount = messagesCount.size;
+                
+                roomsData.push(roomData);
+            }
             setTopicRooms(roomsData);
 
             // Load support groups
@@ -4953,33 +5031,38 @@ function CommunityView({ searchQuery, user }) {
             });
             setSupportGroups(supportGroupsData);
 
+            // Load meetings
+            const meetingsSnap = await db.collection('meetings')
+                .where('coachId', '==', user.uid)
+                .orderBy('scheduledTime', 'desc')
+                .limit(50)
+                .get();
             
-
-           // Load meetings (group sessions)
-const meetingsSnap = await db.collection('meetings')
-    .where('coachId', '==', user.uid)
-    .orderBy('scheduledTime', 'desc')
-    .limit(50)
-    .get();
-const meetingsData = [];
-for (const doc of meetingsSnap.docs) {
-    const meetingData = { id: doc.id, ...doc.data() };
-    
-    // Get PIR names if specific PIRs assigned
-    if (meetingData.assignedPIRs && meetingData.assignedPIRs.length > 0) {
-        const pirNames = [];
-        for (const pirId of meetingData.assignedPIRs) {
-            const pirDoc = await db.collection('users').doc(pirId).get();
-            if (pirDoc.exists) {
-                const pirData = pirDoc.data();
-                pirNames.push(pirData.displayName || `${pirData.firstName} ${pirData.lastName}` || pirData.email);
+            const meetingsData = [];
+            for (const doc of meetingsSnap.docs) {
+                const meetingData = { id: doc.id, ...doc.data() };
+                
+                if (meetingData.assignedPIRs && meetingData.assignedPIRs.length > 0) {
+                    const pirNames = [];
+                    for (const pirId of meetingData.assignedPIRs) {
+                        const pirDoc = await db.collection('users').doc(pirId).get();
+                        if (pirDoc.exists) {
+                            const pirData = pirDoc.data();
+                            pirNames.push(pirData.displayName || pirData.email);
+                        }
+                    }
+                    meetingData.pirNames = pirNames;
+                }
+                
+                // Load attendance data
+                const attendanceSnap = await db.collection('meetingAttendance')
+                    .where('meetingId', '==', doc.id)
+                    .get();
+                meetingData.attendanceCount = attendanceSnap.size;
+                
+                meetingsData.push(meetingData);
             }
-        }
-        meetingData.pirNames = pirNames;
-    }
-    meetingsData.push(meetingData);
-}
-setMeetings(meetingsData);
+            setMeetings(meetingsData);
 
             // Load flagged messages
             const flaggedSnap = await db.collection('messages')
@@ -5004,33 +5087,288 @@ setMeetings(meetingsData);
             }
             setFlaggedMessages(flaggedData);
 
-            // Calculate stats
-            const messagesSnap = await db.collection('messages')
-                .where('roomId', '==', 'main')
-                .orderBy('createdAt', 'desc')
-                .limit(100)
+            // Load moderation history
+            const moderationSnap = await db.collection('moderationActions')
+                .orderBy('timestamp', 'desc')
+                .limit(50)
                 .get();
-
-            const uniqueUsers = new Set();
-            messagesSnap.forEach(doc => {
-                const data = doc.data();
-                if (data.userId) uniqueUsers.add(data.userId);
+            
+            const moderationData = [];
+            moderationSnap.forEach(doc => {
+                moderationData.push({ id: doc.id, ...doc.data() });
             });
+            setModerationHistory(moderationData);
 
-            setStats({
-                totalMessages: messagesSnap.size,
-                activeUsers: uniqueUsers.size,
-                flaggedCount: flaggedData.length,
-                roomsCount: roomsData.length,
-                supportGroupsCount: supportGroupsData.length,
-                groupsCount: groupsData.length,
-                meetingsCount: meetingsData.length
+            // Load user warnings
+            const warningsSnap = await db.collection('userWarnings').get();
+            const warnings = {};
+            warningsSnap.forEach(doc => {
+                warnings[doc.id] = doc.data().warnings || [];
             });
+            setUserWarnings(warnings);
+
+            // Calculate comprehensive stats
+            await calculateStats(roomsData, supportGroupsData, meetingsData);
+            await calculateAnalytics();
 
         } catch (error) {
             console.error('Error loading community data:', error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const calculateStats = async (rooms, groups, meets) => {
+        try {
+            // Get all messages for analysis
+            const allMessagesSnap = await db.collection('messages')
+                .orderBy('createdAt', 'desc')
+                .limit(1000)
+                .get();
+
+            const allMessages = [];
+            const uniqueUsers = new Set();
+            const userMessageCounts = {};
+            
+            const now = new Date();
+            const todayStart = new Date(now.setHours(0, 0, 0, 0));
+            const weekStart = new Date(now.setDate(now.getDate() - 7));
+            
+            let todayCount = 0;
+            let weekCount = 0;
+            let positiveCount = 0;
+            let negativeCount = 0;
+
+            allMessagesSnap.forEach(doc => {
+                const msg = doc.data();
+                allMessages.push(msg);
+                
+                if (msg.userId) {
+                    uniqueUsers.add(msg.userId);
+                    userMessageCounts[msg.userId] = (userMessageCounts[msg.userId] || 0) + 1;
+                }
+                
+                const msgDate = msg.createdAt?.toDate ? msg.createdAt.toDate() : new Date(msg.createdAt);
+                if (msgDate >= todayStart) todayCount++;
+                if (msgDate >= weekStart) weekCount++;
+                
+                // Simple sentiment analysis
+                const content = (msg.content || '').toLowerCase();
+                const positive = ['great', 'good', 'thanks', 'helpful', 'love', 'appreciate', 'wonderful'];
+                const negative = ['bad', 'worst', 'hate', 'terrible', 'awful', 'struggling'];
+                
+                if (positive.some(word => content.includes(word))) positiveCount++;
+                if (negative.some(word => content.includes(word))) negativeCount++;
+            });
+
+            // Top contributors
+            const topContributors = Object.entries(userMessageCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10)
+                .map(([userId, count]) => ({ userId, count }));
+
+            // Load user names for top contributors
+            for (const contributor of topContributors) {
+                const userDoc = await db.collection('users').doc(contributor.userId).get();
+                if (userDoc.exists) {
+                    contributor.userName = userDoc.data().displayName || userDoc.data().email;
+                }
+            }
+
+            const totalMessages = allMessages.length;
+            const sentimentScore = totalMessages > 0 
+                ? Math.round(((positiveCount - negativeCount) / totalMessages) * 100) 
+                : 50;
+            
+            const engagementRate = uniqueUsers.size > 0 
+                ? Math.round((totalMessages / uniqueUsers.size) * 10) / 10 
+                : 0;
+
+            setStats({
+                totalMessages: totalMessages,
+                activeUsers: uniqueUsers.size,
+                flaggedCount: flaggedMessages.length,
+                roomsCount: rooms.length,
+                supportGroupsCount: groups.length,
+                meetingsCount: meets.length,
+                todayMessages: todayCount,
+                weekMessages: weekCount,
+                avgMessagesPerUser: engagementRate,
+                topContributors: topContributors,
+                sentimentScore: sentimentScore,
+                engagementRate: engagementRate
+            });
+
+        } catch (error) {
+            console.error('Error calculating stats:', error);
+        }
+    };
+
+    const calculateAnalytics = async () => {
+        try {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+            const messagesSnap = await db.collection('messages')
+                .where('createdAt', '>=', sevenDaysAgo)
+                .get();
+
+            // Activity by hour (0-23)
+            const hourlyActivity = new Array(24).fill(0);
+            
+            // Activity by day
+            const dailyActivity = {};
+            
+            // Room engagement
+            const roomEngagement = {};
+            
+            // Sentiment trend
+            const sentimentByDay = {};
+
+            messagesSnap.forEach(doc => {
+                const msg = doc.data();
+                const date = msg.createdAt?.toDate ? msg.createdAt.toDate() : new Date(msg.createdAt);
+                
+                // Hour analysis
+                hourlyActivity[date.getHours()]++;
+                
+                // Day analysis
+                const dayKey = date.toISOString().split('T')[0];
+                dailyActivity[dayKey] = (dailyActivity[dayKey] || 0) + 1;
+                
+                // Room engagement
+                roomEngagement[msg.roomId] = (roomEngagement[msg.roomId] || 0) + 1;
+                
+                // Sentiment by day
+                const content = (msg.content || '').toLowerCase();
+                const isPositive = ['great', 'good', 'thanks', 'helpful', 'love'].some(w => content.includes(w));
+                const isNegative = ['bad', 'worst', 'hate', 'terrible', 'awful'].some(w => content.includes(w));
+                
+                if (!sentimentByDay[dayKey]) sentimentByDay[dayKey] = { positive: 0, negative: 0, neutral: 0 };
+                if (isPositive) sentimentByDay[dayKey].positive++;
+                else if (isNegative) sentimentByDay[dayKey].negative++;
+                else sentimentByDay[dayKey].neutral++;
+            });
+
+            setAnalyticsData({
+                activityByHour: hourlyActivity,
+                activityByDay: Object.entries(dailyActivity).map(([day, count]) => ({ day, count })),
+                roomEngagement: Object.entries(roomEngagement).map(([room, count]) => ({ room, count })),
+                sentimentTrend: Object.entries(sentimentByDay).map(([day, data]) => ({ day, ...data })),
+                messageVolume: Object.entries(dailyActivity).map(([day, count]) => ({ day, count }))
+            });
+
+        } catch (error) {
+            console.error('Error calculating analytics:', error);
+        }
+    };
+
+    const renderAnalyticsCharts = () => {
+        // Activity by Hour Chart
+        if (activityChartRef.current) {
+            if (chartInstances.current.activity) {
+                chartInstances.current.activity.destroy();
+            }
+            
+            const ctx = activityChartRef.current.getContext('2d');
+            chartInstances.current.activity = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                    datasets: [{
+                        label: 'Messages',
+                        data: analyticsData.activityByHour,
+                        backgroundColor: 'rgba(102, 126, 234, 0.8)',
+                        borderColor: '#667eea',
+                        borderWidth: 2,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, ticks: { stepSize: 1 } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        // Sentiment Trend Chart
+        if (sentimentChartRef.current && analyticsData.sentimentTrend.length > 0) {
+            if (chartInstances.current.sentiment) {
+                chartInstances.current.sentiment.destroy();
+            }
+            
+            const ctx = sentimentChartRef.current.getContext('2d');
+            chartInstances.current.sentiment = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: analyticsData.sentimentTrend.map(d => new Date(d.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
+                    datasets: [
+                        {
+                            label: 'Positive',
+                            data: analyticsData.sentimentTrend.map(d => d.positive),
+                            borderColor: '#4CAF50',
+                            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Negative',
+                            data: analyticsData.sentimentTrend.map(d => d.negative),
+                            borderColor: '#f44336',
+                            backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        }
+
+        // Room Engagement Chart
+        if (engagementChartRef.current && analyticsData.roomEngagement.length > 0) {
+            if (chartInstances.current.engagement) {
+                chartInstances.current.engagement.destroy();
+            }
+            
+            const ctx = engagementChartRef.current.getContext('2d');
+            const roomNames = analyticsData.roomEngagement.map(r => {
+                if (r.room === 'main') return 'Main Chat';
+                const room = topicRooms.find(tr => tr.id === r.room);
+                return room?.name || 'Unknown';
+            });
+            
+            chartInstances.current.engagement = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: roomNames,
+                    datasets: [{
+                        data: analyticsData.roomEngagement.map(r => r.count),
+                        backgroundColor: [
+                            '#667eea',
+                            '#f093fb',
+                            '#4facfe',
+                            '#fa709a',
+                            '#43e97b',
+                            '#38f9d7'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
         }
     };
 
@@ -5042,7 +5380,7 @@ setMeetings(meetingsData);
         const listener = db.collection('messages')
             .where('roomId', '==', roomId)
             .orderBy('createdAt', 'desc')
-            .limit(50)
+            .limit(100)
             .onSnapshot(async snapshot => {
                 const messagesData = [];
                 
@@ -5058,6 +5396,27 @@ setMeetings(meetingsData);
                         }
                     }
                     
+                    // Load reactions
+                    const reactionsSnap = await db.collection('messageReactions')
+                        .where('messageId', '==', doc.id)
+                        .get();
+                    
+                    const reactions = {};
+                    reactionsSnap.forEach(reactionDoc => {
+                        const data = reactionDoc.data();
+                        if (!reactions[data.emoji]) {
+                            reactions[data.emoji] = [];
+                        }
+                        reactions[data.emoji].push(data.userId);
+                    });
+                    messageData.reactions = reactions;
+                    
+                    // Load replies count
+                    const repliesSnap = await db.collection('messages')
+                        .where('parentId', '==', doc.id)
+                        .get();
+                    messageData.repliesCount = repliesSnap.size;
+                    
                     messagesData.push(messageData);
                 }
                 
@@ -5067,10 +5426,62 @@ setMeetings(meetingsData);
         setMessageListener(() => listener);
     };
 
+    const loadPinnedMessages = async (roomId) => {
+        try {
+            const pinnedSnap = await db.collection('messages')
+                .where('roomId', '==', roomId)
+                .where('pinned', '==', true)
+                .orderBy('pinnedAt', 'desc')
+                .get();
+            
+            const pinned = [];
+            for (const doc of pinnedSnap.docs) {
+                const msgData = { id: doc.id, ...doc.data() };
+                
+                if (msgData.userId) {
+                    const userDoc = await db.collection('users').doc(msgData.userId).get();
+                    if (userDoc.exists) {
+                        msgData.userName = userDoc.data().displayName || userDoc.data().email;
+                    }
+                }
+                
+                pinned.push(msgData);
+            }
+            setPinnedMessages(pinned);
+        } catch (error) {
+            console.error('Error loading pinned messages:', error);
+        }
+    };
+
+    const filterMessages = () => {
+        if (!chatSearch) {
+            setFilteredMessages(messages);
+            return;
+        }
+        
+        const query = chatSearch.toLowerCase();
+        const filtered = messages.filter(msg =>
+            msg.content?.toLowerCase().includes(query) ||
+            msg.userName?.toLowerCase().includes(query)
+        );
+        setFilteredMessages(filtered);
+    };
+
     const handleSendMessage = async () => {
         if (!newMessage.trim()) return;
 
         try {
+            // Check for moderation keywords
+            const lowerMessage = newMessage.toLowerCase();
+            const hasBlockedKeyword = moderationKeywords.some(keyword => 
+                lowerMessage.includes(keyword.toLowerCase())
+            );
+
+            if (hasBlockedKeyword) {
+                alert('Your message contains inappropriate content and cannot be sent.');
+                return;
+            }
+
             await db.collection('messages').add({
                 roomId: selectedRoom,
                 userId: user.uid,
@@ -5079,13 +5490,52 @@ setMeetings(meetingsData);
                 edited: false,
                 flagged: false,
                 resolved: false,
-                fromAdmin: true
+                fromAdmin: true,
+                pinned: false,
+                parentId: selectedThread
             });
 
             setNewMessage('');
+            setSelectedThread(null);
         } catch (error) {
             console.error('Error sending message:', error);
             alert('Failed to send message');
+        }
+    };
+
+    const handleReaction = async (messageId, emoji) => {
+        try {
+            const reactionRef = db.collection('messageReactions')
+                .doc(`${messageId}_${user.uid}_${emoji}`);
+            
+            const reactionDoc = await reactionRef.get();
+            
+            if (reactionDoc.exists) {
+                await reactionRef.delete();
+            } else {
+                await reactionRef.set({
+                    messageId: messageId,
+                    userId: user.uid,
+                    emoji: emoji,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        } catch (error) {
+            console.error('Error handling reaction:', error);
+        }
+    };
+
+    const handlePinMessage = async (messageId, isPinned) => {
+        try {
+            await db.collection('messages').doc(messageId).update({
+                pinned: !isPinned,
+                pinnedAt: !isPinned ? firebase.firestore.FieldValue.serverTimestamp() : null,
+                pinnedBy: !isPinned ? user.uid : null
+            });
+            
+            loadPinnedMessages(selectedRoom);
+        } catch (error) {
+            console.error('Error pinning message:', error);
         }
     };
 
@@ -5093,11 +5543,50 @@ setMeetings(meetingsData);
         if (confirm('Delete this message permanently?')) {
             try {
                 await db.collection('messages').doc(messageId).delete();
+                
+                // Log moderation action
+                await db.collection('moderationActions').add({
+                    action: 'delete',
+                    messageId: messageId,
+                    moderatorId: user.uid,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
                 alert('Message deleted');
             } catch (error) {
                 console.error('Error deleting message:', error);
                 alert('Failed to delete message');
             }
+        }
+    };
+
+    const handleWarnUser = async (userId, reason) => {
+        try {
+            const warningData = {
+                userId: userId,
+                reason: reason,
+                issuedBy: user.uid,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            
+            await db.collection('userWarnings').doc(userId).set({
+                warnings: firebase.firestore.FieldValue.arrayUnion(warningData)
+            }, { merge: true });
+            
+            // Log moderation action
+            await db.collection('moderationActions').add({
+                action: 'warn',
+                userId: userId,
+                reason: reason,
+                moderatorId: user.uid,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            alert('Warning issued');
+            loadCommunityData();
+        } catch (error) {
+            console.error('Error warning user:', error);
+            alert('Failed to issue warning');
         }
     };
 
@@ -5113,6 +5602,14 @@ setMeetings(meetingsData);
                     resolvedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
             }
+            
+            // Log action
+            await db.collection('moderationActions').add({
+                action: action,
+                messageId: messageId,
+                moderatorId: user.uid,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
             
             loadCommunityData();
         } catch (error) {
@@ -5132,7 +5629,7 @@ setMeetings(meetingsData);
             });
 
             alert('Topic room created successfully!');
-            setShowCreateRoom(false);
+            setShowCreateModal(false);
             loadCommunityData();
         } catch (error) {
             console.error('Error creating room:', error);
@@ -5148,19 +5645,17 @@ setMeetings(meetingsData);
             loadCommunityData();
         } catch (error) {
             console.error('Error toggling room:', error);
-            alert('Failed to update room status');
         }
     };
 
     const handleDeleteRoom = async (roomId) => {
-        if (confirm('Delete this topic room? All messages will be preserved but the room will be removed.')) {
+        if (confirm('Delete this topic room?')) {
             try {
                 await db.collection('topicRooms').doc(roomId).delete();
                 alert('Room deleted');
                 loadCommunityData();
             } catch (error) {
                 console.error('Error deleting room:', error);
-                alert('Failed to delete room');
             }
         }
     };
@@ -5173,30 +5668,11 @@ setMeetings(meetingsData);
                 createdBy: user.uid,
                 active: true
             });
-            alert('Support group created successfully!');
+            alert('Support group created!');
             setShowCreateModal(false);
             loadCommunityData();
         } catch (error) {
             console.error('Error creating support group:', error);
-            alert('Failed to create support group');
-        }
-    };
-
-    const handleCreateGroup = async (groupData) => {
-        try {
-            await db.collection('groups').add({
-                ...groupData,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                createdBy: user.uid,
-                memberIds: [],
-                active: true
-            });
-            alert('Group created successfully!');
-            setShowCreateModal(false);
-            loadCommunityData();
-        } catch (error) {
-            console.error('Error creating group:', error);
-            alert('Failed to create group');
         }
     };
 
@@ -5208,167 +5684,1005 @@ setMeetings(meetingsData);
                 coachId: user.uid,
                 status: 'scheduled'
             });
-            alert('Meeting scheduled successfully!');
+            alert('Meeting scheduled!');
             setShowCreateModal(false);
             loadCommunityData();
         } catch (error) {
             console.error('Error creating meeting:', error);
-            alert('Failed to schedule meeting');
         }
     };
 
-    const renderChatTab = () => (
-        <div className="chat-container">
-            <div className="chat-sidebar">
-                <h4>Chat Rooms</h4>
-                <div 
-                    className={`room-item ${selectedRoom === 'main' ? 'active' : ''}`}
-                    onClick={() => setSelectedRoom('main')}
+    const handleRecordAttendance = async (meetingId, pirId, status) => {
+        try {
+            await db.collection('meetingAttendance').doc(`${meetingId}_${pirId}`).set({
+                meetingId: meetingId,
+                pirId: pirId,
+                status: status,
+                recordedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                recordedBy: user.uid
+            });
+            
+            alert('Attendance recorded');
+            loadCommunityData();
+        } catch (error) {
+            console.error('Error recording attendance:', error);
+        }
+    };
+
+    const exportData = (type, format) => {
+        let data = [];
+        let filename = '';
+        
+        if (type === 'messages') {
+            data = messages.map(msg => ({
+                room: selectedRoom,
+                user: msg.userName,
+                message: msg.content,
+                timestamp: formatDateTime(msg.createdAt),
+                flagged: msg.flagged ? 'Yes' : 'No'
+            }));
+            filename = 'chat-messages';
+        } else if (type === 'analytics') {
+            data = [
+                { metric: 'Total Messages', value: stats.totalMessages },
+                { metric: 'Active Users', value: stats.activeUsers },
+                { metric: 'Flagged Messages', value: stats.flaggedCount },
+                { metric: 'Sentiment Score', value: stats.sentimentScore },
+                { metric: 'Engagement Rate', value: stats.engagementRate }
+            ];
+            filename = 'community-analytics';
+        } else if (type === 'moderation') {
+            data = moderationHistory.map(action => ({
+                action: action.action,
+                moderator: action.moderatorId,
+                timestamp: formatDateTime(action.timestamp),
+                details: action.reason || 'N/A'
+            }));
+            filename = 'moderation-history';
+        }
+        
+        if (format === 'csv') {
+            exportToCSV(data, filename);
+        } else if (format === 'pdf') {
+            exportToPDF(data, `${filename} Report`);
+        } else {
+            exportToJSON(data, filename);
+        }
+    };
+
+    if (loading) {
+        return (
+            <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: '400px',
+                gap: '20px'
+            }}>
+                <div style={{
+                    width: '60px',
+                    height: '60px',
+                    border: '4px solid #f3f3f3',
+                    borderTop: '4px solid #667eea',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite'
+                }}></div>
+                <p style={{ color: '#666' }}>Loading community data...</p>
+            </div>
+        );
+    }
+
+    return (
+        <div style={{ padding: '20px', animation: 'fadeIn 0.5s' }}>
+            {/* Enhanced Navigation */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '15px 20px',
+                marginBottom: '20px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                display: 'flex',
+                gap: '10px',
+                flexWrap: 'wrap',
+                overflowX: 'auto'
+            }}>
+                {[
+                    { id: 'analytics', label: 'Analytics', icon: '📊' },
+                    { id: 'chat', label: 'Chat', icon: '💬' },
+                    { id: 'rooms', label: `Rooms (${topicRooms.length})`, icon: '🏠' },
+                    { id: 'supportGroups', label: `Support Groups (${supportGroups.length})`, icon: '🤝' },
+                    { id: 'meetings', label: `Meetings (${meetings.length})`, icon: '📅' },
+                    { id: 'moderation', label: `Moderation ${flaggedMessages.length > 0 ? `(${flaggedMessages.length})` : ''}`, icon: '🛡️' }
+                ].map(tab => (
+                    <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        style={{
+                            padding: '10px 20px',
+                            background: activeTab === tab.id 
+                                ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
+                                : '#f0f0f0',
+                            color: activeTab === tab.id ? 'white' : '#666',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            transition: 'all 0.2s',
+                            whiteSpace: 'nowrap'
+                        }}
+                    >
+                        {tab.icon} {tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* Render Active Tab */}
+            {activeTab === 'analytics' && (
+                <AnalyticsTab 
+                    stats={stats}
+                    analyticsData={analyticsData}
+                    activityChartRef={activityChartRef}
+                    sentimentChartRef={sentimentChartRef}
+                    engagementChartRef={engagementChartRef}
+                    exportData={exportData}
+                />
+            )}
+
+            {activeTab === 'chat' && (
+                <EnhancedChatTab
+                    messages={filteredMessages}
+                    selectedRoom={selectedRoom}
+                    setSelectedRoom={setSelectedRoom}
+                    topicRooms={topicRooms}
+                    newMessage={newMessage}
+                    setNewMessage={setNewMessage}
+                    handleSendMessage={handleSendMessage}
+                    handleReaction={handleReaction}
+                    handlePinMessage={handlePinMessage}
+                    handleDeleteMessage={handleDeleteMessage}
+                    handleWarnUser={handleWarnUser}
+                    pinnedMessages={pinnedMessages}
+                    chatSearch={chatSearch}
+                    setChatSearch={setChatSearch}
+                    onlineUsers={onlineUsers}
+                    setSelectedImage={setSelectedImage}
+                    viewMode={viewMode}
+                    setViewMode={setViewMode}
+                    selectedThread={selectedThread}
+                    setSelectedThread={setSelectedThread}
+                    user={user}
+                    exportData={exportData}
+                />
+            )}
+
+            {activeTab === 'rooms' && (
+                <RoomsTab
+                    topicRooms={topicRooms}
+                    handleToggleRoom={handleToggleRoom}
+                    handleDeleteRoom={handleDeleteRoom}
+                    setShowCreateModal={setShowCreateModal}
+                    setModalType={setModalType}
+                />
+            )}
+
+            {activeTab === 'supportGroups' && (
+                <SupportGroupsTab
+                    supportGroups={supportGroups}
+                    setShowCreateModal={setShowCreateModal}
+                    setModalType={setModalType}
+                    loadCommunityData={loadCommunityData}
+                />
+            )}
+
+            {activeTab === 'meetings' && (
+                <MeetingsTab
+                    meetings={meetings}
+                    setShowCreateModal={setShowCreateModal}
+                    setModalType={setModalType}
+                    setSelectedMeeting={setSelectedMeeting}
+                    setShowAttendanceModal={setShowAttendanceModal}
+                    loadCommunityData={loadCommunityData}
+                />
+            )}
+
+            {activeTab === 'moderation' && (
+                <ModerationTab
+                    flaggedMessages={flaggedMessages}
+                    moderationHistory={moderationHistory}
+                    userWarnings={userWarnings}
+                    moderationKeywords={moderationKeywords}
+                    setModerationKeywords={setModerationKeywords}
+                    handleFlagResolve={handleFlagResolve}
+                    stats={stats}
+                    exportData={exportData}
+                />
+            )}
+
+            {/* Modals */}
+            {selectedImage && (
+                <ImageModal image={selectedImage} onClose={() => setSelectedImage(null)} />
+            )}
+
+            {showCreateModal && (
+                <CommunityCreateModal
+                    type={modalType}
+                    item={selectedItem}
+                    onSubmit={(data) => {
+                        if (modalType === 'room') handleCreateRoom(data);
+                        else if (modalType === 'supportGroup') handleCreateSupportGroup(data);
+                        else if (modalType === 'meeting') handleCreateMeeting(data);
+                    }}
+                    onClose={() => {
+                        setShowCreateModal(false);
+                        setSelectedItem(null);
+                    }}
+                />
+            )}
+
+            {showAttendanceModal && selectedMeeting && (
+                <AttendanceModal
+                    meeting={selectedMeeting}
+                    onClose={() => {
+                        setShowAttendanceModal(false);
+                        setSelectedMeeting(null);
+                    }}
+                    handleRecordAttendance={handleRecordAttendance}
+                />
+            )}
+        </div>
+    );
+}
+        // ANALYTICS TAB
+function AnalyticsTab({ stats, analyticsData, activityChartRef, sentimentChartRef, engagementChartRef, exportData }) {
+    return (
+        <div style={{ animation: 'fadeIn 0.5s' }}>
+            {/* Stats Cards */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '20px',
+                marginBottom: '30px'
+            }}>
+                <div style={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    color: 'white',
+                    boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+                    transition: 'transform 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
                 >
-                    <span className="room-icon">🏠</span>
-                    <span className="room-name">GLRS Main Chat</span>
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Total Messages</div>
+                    <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                        {stats.totalMessages}
+                    </div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>All time</div>
+                </div>
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    color: 'white',
+                    boxShadow: '0 4px 15px rgba(240, 147, 251, 0.3)',
+                    transition: 'transform 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Active Users</div>
+                    <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                        {stats.activeUsers}
+                    </div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Community members</div>
+                </div>
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    color: 'white',
+                    boxShadow: '0 4px 15px rgba(79, 172, 254, 0.3)',
+                    transition: 'transform 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Sentiment Score</div>
+                    <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                        {stats.sentimentScore}%
+                    </div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Community mood</div>
+                </div>
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    color: 'white',
+                    boxShadow: '0 4px 15px rgba(250, 112, 154, 0.3)',
+                    transition: 'transform 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Today's Activity</div>
+                    <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                        {stats.todayMessages}
+                    </div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Messages today</div>
+                </div>
+            </div>
+
+            {/* Charts */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px', marginBottom: '30px' }}>
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                }}>
+                    <h3 style={{ margin: '0 0 20px 0', color: '#333' }}>Activity by Hour</h3>
+                    <div style={{ height: '300px' }}>
+                        <canvas ref={activityChartRef}></canvas>
+                    </div>
+                </div>
+
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                }}>
+                    <h3 style={{ margin: '0 0 20px 0', color: '#333' }}>Sentiment Trend</h3>
+                    <div style={{ height: '300px' }}>
+                        <canvas ref={sentimentChartRef}></canvas>
+                    </div>
+                </div>
+
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                }}>
+                    <h3 style={{ margin: '0 0 20px 0', color: '#333' }}>Room Engagement</h3>
+                    <div style={{ height: '300px' }}>
+                        <canvas ref={engagementChartRef}></canvas>
+                    </div>
+                </div>
+            </div>
+
+            {/* Top Contributors */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '25px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                marginBottom: '20px'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <h3 style={{ margin: 0, color: '#333' }}>Top Contributors</h3>
+                    <button
+                        onClick={() => exportData('analytics', 'csv')}
+                        style={{
+                            padding: '8px 16px',
+                            background: '#6c757d',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '500'
+                        }}
+                    >
+                        Export Analytics
+                    </button>
+                </div>
+                <div style={{ display: 'grid', gap: '10px' }}>
+                    {stats.topContributors.slice(0, 10).map((contributor, index) => (
+                        <div key={contributor.userId} style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '15px',
+                            background: '#f8f9fa',
+                            borderRadius: '10px'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                <div style={{
+                                    width: '40px',
+                                    height: '40px',
+                                    borderRadius: '50%',
+                                    background: index < 3 ? 'linear-gradient(135deg, #FFD700, #FFA500)' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                    color: 'white',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: '18px',
+                                    fontWeight: 'bold'
+                                }}>
+                                    {index + 1}
+                                </div>
+                                <div>
+                                    <div style={{ fontWeight: '600', color: '#333' }}>
+                                        {contributor.userName || 'Unknown User'}
+                                    </div>
+                                    <div style={{ fontSize: '13px', color: '#666' }}>
+                                        {contributor.count} messages
+                                    </div>
+                                </div>
+                            </div>
+                            <div style={{
+                                padding: '6px 16px',
+                                background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                                color: 'white',
+                                borderRadius: '20px',
+                                fontSize: '13px',
+                                fontWeight: '600'
+                            }}>
+                                Active
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ENHANCED CHAT TAB
+function EnhancedChatTab({ 
+    messages, 
+    selectedRoom, 
+    setSelectedRoom, 
+    topicRooms, 
+    newMessage, 
+    setNewMessage, 
+    handleSendMessage,
+    handleReaction,
+    handlePinMessage,
+    handleDeleteMessage,
+    handleWarnUser,
+    pinnedMessages,
+    chatSearch,
+    setChatSearch,
+    onlineUsers,
+    setSelectedImage,
+    viewMode,
+    setViewMode,
+    selectedThread,
+    setSelectedThread,
+    user,
+    exportData
+}) {
+    const reactions = ['👍', '❤️', '😊', '🎉', '💪', '🙏'];
+
+    return (
+        <div style={{ display: 'grid', gridTemplateColumns: '250px 1fr', gap: '20px', height: '700px' }}>
+            {/* Sidebar */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                overflowY: 'auto'
+            }}>
+                <h4 style={{ margin: '0 0 15px 0', color: '#333' }}>Chat Rooms</h4>
+                
+                <div 
+                    onClick={() => setSelectedRoom('main')}
+                    style={{
+                        padding: '12px',
+                        background: selectedRoom === 'main' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#f8f9fa',
+                        color: selectedRoom === 'main' ? 'white' : '#333',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        marginBottom: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    <span style={{ fontSize: '20px' }}>🏠</span>
+                    <span style={{ fontWeight: '500' }}>Main Chat</span>
                 </div>
                 
                 {topicRooms.filter(room => room.active).map(room => (
                     <div 
                         key={room.id}
-                        className={`room-item ${selectedRoom === room.id ? 'active' : ''}`}
                         onClick={() => setSelectedRoom(room.id)}
+                        style={{
+                            padding: '12px',
+                            background: selectedRoom === room.id ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#f8f9fa',
+                            color: selectedRoom === room.id ? 'white' : '#333',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            marginBottom: '8px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            transition: 'all 0.2s'
+                        }}
                     >
-                        <span className="room-icon">{room.icon || '💬'}</span>
-                        <span className="room-name">{room.name}</span>
+                        <span style={{ fontSize: '20px' }}>{room.icon || '💬'}</span>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: '500', fontSize: '14px' }}>{room.name}</div>
+                            <div style={{ fontSize: '11px', opacity: 0.8 }}>{room.messageCount || 0} msgs</div>
+                        </div>
                     </div>
                 ))}
             </div>
 
-            <div className="chat-main">
-                <div className="chat-header">
-                    <h4>
-                        {selectedRoom === 'main' ? 'GLRS Community Chat' : 
-                         topicRooms.find(r => r.id === selectedRoom)?.name || 'Chat'}
-                    </h4>
-                    <span className="chat-info">
-                        {messages.length} messages loaded
-                    </span>
+            {/* Main Chat Area */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden'
+            }}>
+                {/* Header */}
+                <div style={{
+                    padding: '20px',
+                    borderBottom: '1px solid #f0f0f0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                }}>
+                    <div>
+                        <h3 style={{ margin: 0, color: '#333' }}>
+                            {selectedRoom === 'main' ? 'GLRS Community Chat' : 
+                             topicRooms.find(r => r.id === selectedRoom)?.name || 'Chat'}
+                        </h3>
+                        <div style={{ fontSize: '13px', color: '#666', marginTop: '5px' }}>
+                            {messages.length} messages • {onlineUsers.size} online
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <input
+                            type="text"
+                            placeholder="Search messages..."
+                            value={chatSearch}
+                            onChange={(e) => setChatSearch(e.target.value)}
+                            style={{
+                                padding: '8px 12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                width: '200px'
+                            }}
+                        />
+                        <button
+                            onClick={() => exportData('messages', 'csv')}
+                            style={{
+                                padding: '8px 16px',
+                                background: '#6c757d',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '500'
+                            }}
+                        >
+                            Export
+                        </button>
+                    </div>
                 </div>
 
-                <div className="messages-container">
+                {/* Pinned Messages */}
+                {pinnedMessages.length > 0 && (
+                    <div style={{
+                        padding: '15px 20px',
+                        background: '#fff3cd',
+                        borderBottom: '1px solid #f0f0f0'
+                    }}>
+                        <div style={{ fontWeight: '600', color: '#856404', marginBottom: '10px', fontSize: '13px' }}>
+                            📌 Pinned Messages
+                        </div>
+                        {pinnedMessages.map(msg => (
+                            <div key={msg.id} style={{
+                                padding: '8px',
+                                background: 'rgba(255,255,255,0.5)',
+                                borderRadius: '6px',
+                                marginBottom: '5px',
+                                fontSize: '13px',
+                                color: '#856404'
+                            }}>
+                                <strong>{msg.userName}:</strong> {msg.content}
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* Messages */}
+                <div style={{
+                    flex: 1,
+                    overflowY: 'auto',
+                    padding: '20px',
+                    display: 'flex',
+                    flexDirection: 'column-reverse'
+                }}>
                     {messages.map(message => (
-                        <div key={message.id} className={`message-item ${message.fromAdmin ? 'admin-message' : ''}`}>
-                            <div className="message-header">
-                                <span className="message-author">
-                                    {message.userName || 'Unknown User'}
-                                    {message.userRole === 'admin' && ' 🛡️'}
-                                    {message.userRole === 'coach' && ' 👤'}
-                                </span>
-                                <span className="message-time">
-                                    {formatTimeAgo(message.createdAt)}
-                                </span>
-                            </div>
-                            <div className="message-content">
-                                {message.content}
-                                
-                                {/* Image display for base64 images */}
-                                {message.imageUrl && (
-                                    <div className="message-image-container" style={{marginTop: '10px'}}>
-                                        <img 
-                                            src={message.imageUrl} 
-                                            alt="Shared image"
-                                            style={{
-                                                maxWidth: '300px',
-                                                maxHeight: '300px',
-                                                borderRadius: '8px',
-                                                cursor: 'pointer',
-                                                display: 'block'
-                                            }}
-                                            onClick={() => setSelectedImage(message.imageUrl)}
-                                        />
+                        <div key={message.id} style={{
+                            marginBottom: '20px',
+                            padding: '15px',
+                            background: message.fromAdmin ? 'rgba(102, 126, 234, 0.1)' : '#f8f9fa',
+                            borderRadius: '10px',
+                            borderLeft: message.flagged ? '4px solid #f44336' : 'none'
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <div style={{
+                                        width: '36px',
+                                        height: '36px',
+                                        borderRadius: '50%',
+                                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                        color: 'white',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '16px',
+                                        fontWeight: 'bold'
+                                    }}>
+                                        {message.userName?.charAt(0).toUpperCase() || '?'}
                                     </div>
-                                )}
+                                    <div>
+                                        <div style={{ fontWeight: '600', color: '#333', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            {message.userName || 'Unknown'}
+                                            {message.userRole === 'admin' && <span>🛡️</span>}
+                                            {message.userRole === 'coach' && <span>👤</span>}
+                                            {onlineUsers.has(message.userId) && (
+                                                <span style={{
+                                                    width: '8px',
+                                                    height: '8px',
+                                                    borderRadius: '50%',
+                                                    background: '#4CAF50',
+                                                    display: 'inline-block'
+                                                }}></span>
+                                            )}
+                                        </div>
+                                        <div style={{ fontSize: '12px', color: '#999' }}>
+                                            {formatTimeAgo(message.createdAt)}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '5px' }}>
+                                    <button
+                                        onClick={() => handlePinMessage(message.id, message.pinned)}
+                                        style={{
+                                            padding: '4px 8px',
+                                            background: message.pinned ? '#FFC107' : 'transparent',
+                                            border: '1px solid #ddd',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '12px'
+                                        }}
+                                        title={message.pinned ? 'Unpin' : 'Pin message'}
+                                    >
+                                        📌
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            const reason = prompt('Warning reason:');
+                                            if (reason) handleWarnUser(message.userId, reason);
+                                        }}
+                                        style={{
+                                            padding: '4px 8px',
+                                            background: 'transparent',
+                                            border: '1px solid #ddd',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '12px'
+                                        }}
+                                        title="Warn user"
+                                    >
+                                        ⚠️
+                                    </button>
+                                    <button
+                                        onClick={() => handleDeleteMessage(message.id)}
+                                        style={{
+                                            padding: '4px 8px',
+                                            background: 'transparent',
+                                            border: '1px solid #ddd',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '12px'
+                                        }}
+                                        title="Delete message"
+                                    >
+                                        🗑️
+                                    </button>
+                                </div>
                             </div>
-                            <div className="message-actions">
-                                <button 
-                                    className="action-btn btn-sm"
-                                    onClick={() => handleDeleteMessage(message.id)}
+                            
+                            <div style={{ color: '#333', marginBottom: '10px', lineHeight: '1.6' }}>
+                                {message.content}
+                            </div>
+
+                            {message.imageUrl && (
+                                <img 
+                                    src={message.imageUrl}
+                                    alt="Shared"
+                                    onClick={() => setSelectedImage(message.imageUrl)}
+                                    style={{
+                                        maxWidth: '300px',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        marginBottom: '10px'
+                                    }}
+                                />
+                            )}
+
+                            {/* Reactions */}
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                                {reactions.map(emoji => {
+                                    const count = message.reactions?.[emoji]?.length || 0;
+                                    const hasReacted = message.reactions?.[emoji]?.includes(user.uid);
+                                    
+                                    return (
+                                        <button
+                                            key={emoji}
+                                            onClick={() => handleReaction(message.id, emoji)}
+                                            style={{
+                                                padding: '4px 10px',
+                                                background: hasReacted ? '#e3f2fd' : 'white',
+                                                border: '1px solid #ddd',
+                                                borderRadius: '20px',
+                                                cursor: 'pointer',
+                                                fontSize: '14px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '4px'
+                                            }}
+                                        >
+                                            {emoji} {count > 0 && <span style={{ fontSize: '12px' }}>{count}</span>}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            {message.repliesCount > 0 && (
+                                <button
+                                    onClick={() => setSelectedThread(message.id)}
+                                    style={{
+                                        padding: '6px 12px',
+                                        background: '#e3f2fd',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '12px',
+                                        color: '#1976d2',
+                                        fontWeight: '500'
+                                    }}
                                 >
-                                    Delete
+                                    {message.repliesCount} {message.repliesCount === 1 ? 'reply' : 'replies'}
                                 </button>
-                                {message.flagged && (
-                                    <span className="flag-indicator">🚩 Flagged</span>
-                                )}
-                            </div>
+                            )}
+
+                            {message.flagged && (
+                                <div style={{
+                                    marginTop: '10px',
+                                    padding: '8px',
+                                    background: '#ffebee',
+                                    borderRadius: '6px',
+                                    color: '#c62828',
+                                    fontSize: '12px',
+                                    fontWeight: '500'
+                                }}>
+                                    🚩 This message has been flagged
+                                </div>
+                            )}
                         </div>
                     ))}
                     
                     {messages.length === 0 && (
-                        <div className="empty-state">No messages in this room</div>
+                        <div style={{
+                            textAlign: 'center',
+                            padding: '60px 20px',
+                            color: '#999'
+                        }}>
+                            <div style={{ fontSize: '48px', marginBottom: '15px' }}>💬</div>
+                            <div>No messages yet. Start the conversation!</div>
+                        </div>
                     )}
                 </div>
 
-                <div className="chat-input-container">
-                    <input
-                        type="text"
-                        className="chat-input"
-                        placeholder="Type a message as admin..."
-                        value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                    />
-                    <button 
-                        className="btn btn-primary"
-                        onClick={handleSendMessage}
-                    >
-                        Send
-                    </button>
+                {/* Input */}
+                <div style={{
+                    padding: '20px',
+                    borderTop: '1px solid #f0f0f0'
+                }}>
+                    {selectedThread && (
+                        <div style={{
+                            padding: '8px 12px',
+                            background: '#e3f2fd',
+                            borderRadius: '8px',
+                            marginBottom: '10px',
+                            fontSize: '13px',
+                            color: '#1976d2',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <span>Replying to thread...</span>
+                            <button
+                                onClick={() => setSelectedThread(null)}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#1976d2',
+                                    cursor: 'pointer',
+                                    fontSize: '16px'
+                                }}
+                            >
+                                ×
+                            </button>
+                        </div>
+                    )}
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <input
+                            type="text"
+                            placeholder="Type a message..."
+                            value={newMessage}
+                            onChange={(e) => setNewMessage(e.target.value)}
+                            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                            style={{
+                                flex: 1,
+                                padding: '12px 16px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '10px',
+                                fontSize: '14px'
+                            }}
+                        />
+                        <button
+                            onClick={handleSendMessage}
+                            style={{
+                                padding: '12px 24px',
+                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '600'
+                            }}
+                        >
+                            Send
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
     );
+}
 
-    const renderRoomsTab = () => (
-        <div className="rooms-management">
-            <div className="rooms-header">
-                <h3>Topic Rooms Management</h3>
-                <button 
-                    className="btn btn-primary"
-                    onClick={() => setShowCreateRoom(true)}
+// ROOMS TAB
+function RoomsTab({ topicRooms, handleToggleRoom, handleDeleteRoom, setShowCreateModal, setModalType }) {
+    return (
+        <div style={{ animation: 'fadeIn 0.5s' }}>
+            <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '20px'
+            }}>
+                <h3 style={{ margin: 0, color: '#333' }}>Topic Rooms Management</h3>
+                <button
+                    onClick={() => {
+                        setModalType('room');
+                        setShowCreateModal(true);
+                    }}
+                    style={{
+                        padding: '10px 20px',
+                        background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '600'
+                    }}
                 >
                     + Create Room
                 </button>
             </div>
 
-            <div className="rooms-grid">
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                gap: '20px'
+            }}>
                 {topicRooms.map(room => (
-                    <div key={room.id} className="room-card">
-                        <div className="room-card-header">
-                            <span className="room-icon-large">{room.icon || '💬'}</span>
-                            <h4>{room.name}</h4>
+                    <div key={room.id} style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '20px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-5px)';
+                        e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                    }}
+                    >
+                        <div style={{ fontSize: '48px', textAlign: 'center', marginBottom: '15px' }}>
+                            {room.icon || '💬'}
                         </div>
-                        
-                        <div className="room-info">
-                            <p>{room.description}</p>
-                            <div className="room-meta">
-                                <span>Created: {formatDate(room.createdAt)}</span>
-                                <span>Messages: {room.messageCount || 0}</span>
-                            </div>
-                        </div>
-                        
-                        <div className="room-status">
-                            <span className={`badge ${room.active ? 'badge-success' : 'badge-danger'}`}>
+                        <h4 style={{ margin: '0 0 10px 0', textAlign: 'center', color: '#333' }}>
+                            {room.name}
+                        </h4>
+                        <p style={{ fontSize: '14px', color: '#666', textAlign: 'center', marginBottom: '15px' }}>
+                            {room.description}
+                        </p>
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            marginBottom: '15px'
+                        }}>
+                            <span style={{
+                                padding: '4px 12px',
+                                background: room.active ? '#d4edda' : '#f8d7da',
+                                color: room.active ? '#155724' : '#721c24',
+                                borderRadius: '20px',
+                                fontSize: '12px',
+                                fontWeight: '500'
+                            }}>
                                 {room.active ? 'Active' : 'Inactive'}
                             </span>
+                            <span style={{
+                                padding: '4px 12px',
+                                background: '#e3f2fd',
+                                color: '#1976d2',
+                                borderRadius: '20px',
+                                fontSize: '12px',
+                                fontWeight: '500'
+                            }}>
+                                {room.messageCount || 0} messages
+                            </span>
                         </div>
-                        
-                        <div className="room-actions">
-                            <button 
-                                className={`btn btn-sm ${room.active ? 'btn-warning' : 'btn-success'}`}
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
                                 onClick={() => handleToggleRoom(room.id, room.active)}
+                                style={{
+                                    flex: 1,
+                                    padding: '8px',
+                                    background: room.active ? '#FFC107' : '#4CAF50',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
+                                }}
                             >
                                 {room.active ? 'Deactivate' : 'Activate'}
                             </button>
-                            <button 
-                                className="btn btn-sm btn-danger"
+                            <button
                                 onClick={() => handleDeleteRoom(room.id)}
+                                style={{
+                                    flex: 1,
+                                    padding: '8px',
+                                    background: '#f44336',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
+                                }}
                             >
                                 Delete
                             </button>
@@ -5378,83 +6692,182 @@ setMeetings(meetingsData);
             </div>
 
             {topicRooms.length === 0 && (
-                <div className="empty-state">
-                    No topic rooms created yet. Create one to get started!
-                </div>
-            )}
-
-            {showCreateRoom && (
-                <div className="modal-overlay">
-                    <div className="modal-content">
-                        <div className="modal-header">
-                            <h3>Create Topic Room</h3>
-                            <button className="close-btn" onClick={() => setShowCreateRoom(false)}>×</button>
-                        </div>
-                        <CreateRoomForm 
-                            onSubmit={handleCreateRoom}
-                            onCancel={() => setShowCreateRoom(false)}
-                        />
+                <div style={{
+                    padding: '80px 20px',
+                    textAlign: 'center',
+                    background: 'white',
+                    borderRadius: '15px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                }}>
+                    <div style={{ fontSize: '64px', marginBottom: '20px' }}>🏠</div>
+                    <div style={{ fontSize: '20px', fontWeight: '600', color: '#333', marginBottom: '10px' }}>
+                        No Topic Rooms Yet
+                    </div>
+                    <div style={{ fontSize: '16px', color: '#999' }}>
+                        Create topic-specific rooms for focused discussions
                     </div>
                 </div>
             )}
         </div>
     );
-
-    const renderSupportGroupsTab = () => (
-        <div className="support-groups-container">
-            <div className="support-groups-header">
-                <h3>Support Groups</h3>
-                <button 
-                    className="btn btn-primary"
+}
+        // SUPPORT GROUPS TAB
+function SupportGroupsTab({ supportGroups, setShowCreateModal, setModalType, loadCommunityData }) {
+    return (
+        <div style={{ animation: 'fadeIn 0.5s' }}>
+            <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '20px'
+            }}>
+                <h3 style={{ margin: 0, color: '#333' }}>Support Groups</h3>
+                <button
                     onClick={() => {
                         setModalType('supportGroup');
-                        setSelectedItem(null);
                         setShowCreateModal(true);
+                    }}
+                    style={{
+                        padding: '10px 20px',
+                        background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '600'
                     }}
                 >
                     + Add Support Group
                 </button>
             </div>
 
-            <div className="support-groups-grid">
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
+                gap: '20px'
+            }}>
                 {supportGroups.map(group => (
-                    <div key={group.id} className="support-group-card">
-                        <div className="group-header">
-                            <h4>{group.name}</h4>
-                            <span className={`badge badge-${group.type === 'AA' ? 'primary' : 
-                                group.type === 'NA' ? 'warning' : 
-                                group.type === 'SMART' ? 'success' : 'secondary'}`}>
+                    <div key={group.id} style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '20px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-5px)';
+                        e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                    }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
+                            <h4 style={{ margin: 0, color: '#333' }}>{group.name}</h4>
+                            <span style={{
+                                padding: '4px 12px',
+                                background: group.type === 'AA' ? '#667eea' :
+                                           group.type === 'NA' ? '#f093fb' :
+                                           group.type === 'SMART' ? '#4facfe' : '#fa709a',
+                                color: 'white',
+                                borderRadius: '20px',
+                                fontSize: '12px',
+                                fontWeight: '600'
+                            }}>
                                 {group.type}
                             </span>
                         </div>
-                        <div className="group-details">
-                            <span>📅 {group.day}</span>
-                            <span>🕐 {group.time}</span>
+
+                        {group.description && (
+                            <p style={{ fontSize: '14px', color: '#666', marginBottom: '15px' }}>
+                                {group.description}
+                            </p>
+                        )}
+
+                        <div style={{
+                            display: 'grid',
+                            gap: '10px',
+                            marginBottom: '15px',
+                            padding: '15px',
+                            background: '#f8f9fa',
+                            borderRadius: '10px'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                                <span>📅</span>
+                                <span style={{ fontWeight: '600' }}>{group.day}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                                <span>🕐</span>
+                                <span style={{ fontWeight: '600' }}>{group.time}</span>
+                            </div>
+                            {group.location && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                                    <span>📍</span>
+                                    <span>{group.location}</span>
+                                </div>
+                            )}
                             {group.link && (
-                                <a href={group.link} target="_blank" rel="noopener noreferrer">
-                                    🔗 Join Meeting
+                                
+                                    href={group.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        color: '#1976d2',
+                                        textDecoration: 'none',
+                                        fontSize: '14px',
+                                        fontWeight: '500'
+                                    }}
+                                >
+                                    <span>🔗</span>
+                                    <span>Join Meeting</span>
                                 </a>
                             )}
                         </div>
-                        <div className="group-actions">
-                            <button 
-                                className={`btn btn-sm ${group.active ? 'btn-success' : 'btn-secondary'}`}
+
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
                                 onClick={async () => {
                                     await db.collection('supportGroups').doc(group.id).update({
                                         active: !group.active
                                     });
                                     loadCommunityData();
                                 }}
+                                style={{
+                                    flex: 1,
+                                    padding: '8px',
+                                    background: group.active ? '#4CAF50' : '#6c757d',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
+                                }}
                             >
                                 {group.active ? 'Active' : 'Inactive'}
                             </button>
-                            <button 
-                                className="btn btn-sm btn-danger"
+                            <button
                                 onClick={async () => {
                                     if (confirm('Delete this support group?')) {
                                         await db.collection('supportGroups').doc(group.id).delete();
                                         loadCommunityData();
                                     }
+                                }}
+                                style={{
+                                    flex: 1,
+                                    padding: '8px',
+                                    background: '#f44336',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
                                 }}
                             >
                                 Delete
@@ -5465,801 +6878,734 @@ setMeetings(meetingsData);
             </div>
 
             {supportGroups.length === 0 && (
-                <div className="empty-state">
-                    No support groups created. Add support groups for PIRs to join.
+                <div style={{
+                    padding: '80px 20px',
+                    textAlign: 'center',
+                    background: 'white',
+                    borderRadius: '15px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                }}>
+                    <div style={{ fontSize: '64px', marginBottom: '20px' }}>🤝</div>
+                    <div style={{ fontSize: '20px', fontWeight: '600', color: '#333', marginBottom: '10px' }}>
+                        No Support Groups Yet
+                    </div>
+                    <div style={{ fontSize: '16px', color: '#999' }}>
+                        Add support groups for PIRs to join
+                    </div>
                 </div>
             )}
         </div>
     );
+}
 
-   
+// MEETINGS TAB
+function MeetingsTab({ meetings, setShowCreateModal, setModalType, setSelectedMeeting, setShowAttendanceModal, loadCommunityData }) {
+    return (
+        <div style={{ animation: 'fadeIn 0.5s' }}>
+            <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '20px'
+            }}>
+                <h3 style={{ margin: 0, color: '#333' }}>Group Meetings</h3>
+                <button
+                    onClick={() => {
+                        setModalType('meeting');
+                        setShowCreateModal(true);
+                    }}
+                    style={{
+                        padding: '10px 20px',
+                        background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '600'
+                    }}
+                >
+                    + Schedule Meeting
+                </button>
+            </div>
 
-    const renderMeetingsTab = () => (
-    <div className="meetings-container">
-        <div className="meetings-header">
-            <h3>Group Meetings</h3>
-            <button 
-                className="btn btn-primary"
-                onClick={() => {
-                    setModalType('meeting');
-                    setSelectedItem(null);
-                    setShowCreateModal(true);
-                }}
-            >
-                + Schedule Group Meeting
-            </button>
-        </div>
-
-        <div className="meetings-list">
-            {meetings.map(meeting => (
-                <div key={meeting.id} className="meeting-card">
-                    <div className="meeting-header">
-                        <h4>{meeting.meetingTitle || 'Group Recovery Session'}</h4>
-                        <span className={`badge badge-${
-                            meeting.status === 'completed' ? 'success' :
-                            meeting.status === 'scheduled' ? 'primary' :
-                            meeting.status === 'cancelled' ? 'danger' : 'secondary'
-                        }`}>
-                            {meeting.status}
-                        </span>
-                    </div>
-                    
-                    <div className="meeting-participants">
-                        {meeting.isGlobal ? (
-                            <div className="participant-badge">
-                                🌍 All PIRs Invited
+            <div style={{ display: 'grid', gap: '20px' }}>
+                {meetings.map(meeting => (
+                    <div key={meeting.id} style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '25px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                    }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
+                            <div style={{ flex: 1 }}>
+                                <h4 style={{ margin: '0 0 10px 0', color: '#333', fontSize: '20px' }}>
+                                    {meeting.meetingTitle || 'Group Recovery Session'}
+                                </h4>
+                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                                    <span style={{
+                                        padding: '4px 12px',
+                                        background: meeting.status === 'completed' ? '#d4edda' :
+                                                   meeting.status === 'scheduled' ? '#cfe2ff' :
+                                                   meeting.status === 'cancelled' ? '#f8d7da' : '#e2e3e5',
+                                        color: meeting.status === 'completed' ? '#155724' :
+                                               meeting.status === 'scheduled' ? '#084298' :
+                                               meeting.status === 'cancelled' ? '#721c24' : '#41464b',
+                                        borderRadius: '20px',
+                                        fontSize: '12px',
+                                        fontWeight: '600',
+                                        textTransform: 'uppercase'
+                                    }}>
+                                        {meeting.status}
+                                    </span>
+                                    <span style={{
+                                        padding: '4px 12px',
+                                        background: '#e3f2fd',
+                                        color: '#1976d2',
+                                        borderRadius: '20px',
+                                        fontSize: '12px',
+                                        fontWeight: '500'
+                                    }}>
+                                        {meeting.type || 'Group Session'}
+                                    </span>
+                                </div>
                             </div>
-                        ) : meeting.pirNames && meeting.pirNames.length > 0 ? (
+                        </div>
+
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                            gap: '15px',
+                            marginBottom: '15px',
+                            padding: '15px',
+                            background: '#f8f9fa',
+                            borderRadius: '10px'
+                        }}>
                             <div>
-                                <strong>Participants ({meeting.pirNames.length}):</strong>
-                                <div className="participant-list">
-                                    {meeting.pirNames.slice(0, 3).map((name, idx) => (
-                                        <span key={idx} className="participant-name">{name}</span>
+                                <div style={{ fontSize: '12px', color: '#999', marginBottom: '5px' }}>Date & Time</div>
+                                <div style={{ fontSize: '14px', fontWeight: '600', color: '#333' }}>
+                                    {formatDate(meeting.scheduledTime)}
+                                </div>
+                                <div style={{ fontSize: '13px', color: '#666' }}>
+                                    {new Date(meeting.scheduledTime?.toDate ? meeting.scheduledTime.toDate() : meeting.scheduledTime).toLocaleTimeString()}
+                                </div>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '12px', color: '#999', marginBottom: '5px' }}>Duration</div>
+                                <div style={{ fontSize: '14px', fontWeight: '600', color: '#333' }}>
+                                    {meeting.duration || 60} minutes
+                                </div>
+                            </div>
+                            {meeting.attendanceCount !== undefined && (
+                                <div>
+                                    <div style={{ fontSize: '12px', color: '#999', marginBottom: '5px' }}>Attendance</div>
+                                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#333' }}>
+                                        {meeting.attendanceCount} recorded
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {meeting.isGlobal ? (
+                            <div style={{
+                                padding: '12px',
+                                background: '#e8f5e9',
+                                borderRadius: '10px',
+                                marginBottom: '15px'
+                            }}>
+                                <div style={{ fontSize: '14px', fontWeight: '600', color: '#2e7d32' }}>
+                                    🌍 All PIRs Invited
+                                </div>
+                            </div>
+                        ) : meeting.pirNames && meeting.pirNames.length > 0 && (
+                            <div style={{ marginBottom: '15px' }}>
+                                <div style={{ fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '10px' }}>
+                                    Participants ({meeting.pirNames.length})
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                    {meeting.pirNames.slice(0, 5).map((name, idx) => (
+                                        <span key={idx} style={{
+                                            padding: '6px 12px',
+                                            background: '#e3f2fd',
+                                            color: '#1976d2',
+                                            borderRadius: '20px',
+                                            fontSize: '13px'
+                                        }}>
+                                            {name}
+                                        </span>
                                     ))}
-                                    {meeting.pirNames.length > 3 && (
-                                        <span className="participant-more">
-                                            +{meeting.pirNames.length - 3} more
+                                    {meeting.pirNames.length > 5 && (
+                                        <span style={{
+                                            padding: '6px 12px',
+                                            background: '#f0f0f0',
+                                            color: '#666',
+                                            borderRadius: '20px',
+                                            fontSize: '13px',
+                                            fontWeight: '600'
+                                        }}>
+                                            +{meeting.pirNames.length - 5} more
                                         </span>
                                     )}
                                 </div>
                             </div>
-                        ) : (
-                            <div className="participant-badge">
-                                No PIRs assigned
-                            </div>
                         )}
-                    </div>
 
-                    <div className="meeting-details">
-                        <span>📅 {formatDate(meeting.scheduledTime)}</span>
-                        <span>🕐 {new Date(meeting.scheduledTime?.toDate ? meeting.scheduledTime.toDate() : meeting.scheduledTime).toLocaleTimeString()}</span>
-                        <span>📝 {meeting.type || 'Group Session'}</span>
                         {meeting.meetingLink && (
-                            <a href={meeting.meetingLink} target="_blank" rel="noopener noreferrer">
+                            
+                                href={meeting.meetingLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '10px 16px',
+                                    background: '#e3f2fd',
+                                    color: '#1976d2',
+                                    textDecoration: 'none',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontWeight: '500',
+                                    marginBottom: '15px'
+                                }}
+                            >
                                 🔗 Join Meeting
                             </a>
                         )}
-                    </div>
-                    
-                    {meeting.notes && (
-                        <p className="meeting-notes">{meeting.notes}</p>
-                    )}
-                    
-                    <div className="meeting-actions">
-                        <button 
-                            className="btn btn-sm btn-info"
-                            onClick={() => {
-                                setSelectedItem(meeting);
-                                setModalType('meeting');
-                                setShowCreateModal(true);
-                            }}
-                        >
-                            Edit
-                        </button>
-                        <button 
-                            className="btn btn-sm btn-success"
-                            onClick={async () => {
-                                await db.collection('meetings').doc(meeting.id).update({
-                                    status: 'completed',
-                                    completedAt: firebase.firestore.FieldValue.serverTimestamp()
-                                });
-                                loadCommunityData();
-                            }}
-                            disabled={meeting.status === 'completed'}
-                        >
-                            Mark Complete
-                        </button>
-                        <button 
-                            className="btn btn-sm btn-warning"
-                            onClick={async () => {
-                                if (confirm('Cancel this meeting?')) {
+
+                        {meeting.notes && (
+                            <div style={{
+                                padding: '12px',
+                                background: '#fff3cd',
+                                borderRadius: '10px',
+                                marginBottom: '15px'
+                            }}>
+                                <div style={{ fontSize: '12px', fontWeight: '600', color: '#856404', marginBottom: '5px' }}>
+                                    Notes
+                                </div>
+                                <div style={{ fontSize: '14px', color: '#856404' }}>
+                                    {meeting.notes}
+                                </div>
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <button
+                                onClick={() => {
+                                    setSelectedMeeting(meeting);
+                                    setShowAttendanceModal(true);
+                                }}
+                                style={{
+                                    padding: '8px 16px',
+                                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                Attendance
+                            </button>
+                            <button
+                                onClick={async () => {
                                     await db.collection('meetings').doc(meeting.id).update({
-                                        status: 'cancelled'
+                                        status: 'completed',
+                                        completedAt: firebase.firestore.FieldValue.serverTimestamp()
                                     });
                                     loadCommunityData();
-                                }
-                            }}
-                            disabled={meeting.status === 'cancelled'}
-                        >
-                            Cancel
-                        </button>
-                        <button 
-                            className="btn btn-sm btn-danger"
-                            onClick={async () => {
-                                if (confirm('Delete this meeting permanently?')) {
-                                    await db.collection('meetings').doc(meeting.id).delete();
-                                    loadCommunityData();
-                                }
-                            }}
-                        >
-                            Delete
-                        </button>
+                                }}
+                                disabled={meeting.status === 'completed'}
+                                style={{
+                                    padding: '8px 16px',
+                                    background: meeting.status === 'completed' ? '#ccc' : '#4CAF50',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: meeting.status === 'completed' ? 'not-allowed' : 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                Mark Complete
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    if (confirm('Cancel this meeting?')) {
+                                        await db.collection('meetings').doc(meeting.id).update({
+                                            status: 'cancelled'
+                                        });
+                                        loadCommunityData();
+                                    }
+                                }}
+                                disabled={meeting.status === 'cancelled'}
+                                style={{
+                                    padding: '8px 16px',
+                                    background: meeting.status === 'cancelled' ? '#ccc' : '#FFC107',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: meeting.status === 'cancelled' ? 'not-allowed' : 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    if (confirm('Delete this meeting permanently?')) {
+                                        await db.collection('meetings').doc(meeting.id).delete();
+                                        loadCommunityData();
+                                    }
+                                }}
+                                style={{
+                                    padding: '8px 16px',
+                                    background: '#f44336',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {meetings.length === 0 && (
+                <div style={{
+                    padding: '80px 20px',
+                    textAlign: 'center',
+                    background: 'white',
+                    borderRadius: '15px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                }}>
+                    <div style={{ fontSize: '64px', marginBottom: '20px' }}>📅</div>
+                    <div style={{ fontSize: '20px', fontWeight: '600', color: '#333', marginBottom: '10px' }}>
+                        No Meetings Scheduled
+                    </div>
+                    <div style={{ fontSize: '16px', color: '#999' }}>
+                        Schedule group meetings for PIRs
                     </div>
                 </div>
-            ))}
+            )}
         </div>
+    );
+}
 
-        {meetings.length === 0 && (
-            <div className="empty-state">
-                No group meetings scheduled. Schedule group meetings for PIRs.
+// MODERATION TAB
+function ModerationTab({ 
+    flaggedMessages, 
+    moderationHistory, 
+    userWarnings, 
+    moderationKeywords, 
+    setModerationKeywords, 
+    handleFlagResolve, 
+    stats,
+    exportData 
+}) {
+    const [newKeyword, setNewKeyword] = useState('');
+    const [showKeywordManager, setShowKeywordManager] = useState(false);
+
+    const handleAddKeyword = async () => {
+        if (!newKeyword.trim()) return;
+        
+        try {
+            const updated = [...moderationKeywords, newKeyword.toLowerCase()];
+            await db.collection('settings').doc('moderation').set({
+                keywords: updated
+            });
+            setModerationKeywords(updated);
+            setNewKeyword('');
+            alert('Keyword added');
+        } catch (error) {
+            console.error('Error adding keyword:', error);
+        }
+    };
+
+    const handleRemoveKeyword = async (keyword) => {
+        try {
+            const updated = moderationKeywords.filter(k => k !== keyword);
+            await db.collection('settings').doc('moderation').set({
+                keywords: updated
+            });
+            setModerationKeywords(updated);
+        } catch (error) {
+            console.error('Error removing keyword:', error);
+        }
+    };
+
+    return (
+        <div style={{ animation: 'fadeIn 0.5s' }}>
+            {/* Stats Row */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '20px',
+                marginBottom: '30px'
+            }}>
+                <div style={{
+                    background: 'linear-gradient(135deg, #f44336 0%, #e53935 100%)',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    color: 'white',
+                    boxShadow: '0 4px 15px rgba(244, 67, 54, 0.3)'
+                }}>
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Flagged Messages</div>
+                    <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                        {flaggedMessages.length}
+                    </div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Pending review</div>
+                </div>
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #FFC107 0%, #FFA000 100%)',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    color: 'white',
+                    boxShadow: '0 4px 15px rgba(255, 193, 7, 0.3)'
+                }}>
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Total Warnings</div>
+                    <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                        {Object.values(userWarnings).reduce((acc, warnings) => acc + warnings.length, 0)}
+                    </div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Issued to users</div>
+                </div>
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    color: 'white',
+                    boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)'
+                }}>
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Moderation Actions</div>
+                    <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                        {moderationHistory.length}
+                    </div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>All time</div>
+                </div>
+
+                <div style={{
+                    background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    color: 'white',
+                    boxShadow: '0 4px 15px rgba(79, 172, 254, 0.3)'
+                }}>
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Blocked Keywords</div>
+                    <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                        {moderationKeywords.length}
+                    </div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Auto-filtered</div>
+                </div>
             </div>
-        )}
-    </div>
-);
-    const renderModerationTab = () => (
-        <div className="moderation-container">
-            <h3>Flagged Messages ({flaggedMessages.length})</h3>
-            
-            {flaggedMessages.length > 0 ? (
-                <div className="flagged-list">
-                    {flaggedMessages.map(message => (
-                        <div key={message.id} className="flagged-item">
-                            <div className="flagged-header">
-                                <span className="flagged-user">{message.userName || 'Unknown User'}</span>
-                                <span className="flagged-time">{formatTimeAgo(message.flaggedAt)}</span>
-                            </div>
-                            <div className="flagged-content">
-                                {message.content}
+
+            {/* Keyword Manager */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '25px',
+                marginBottom: '20px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                    <h3 style={{ margin: 0, color: '#333' }}>Keyword Filtering</h3>
+                    <button
+                        onClick={() => setShowKeywordManager(!showKeywordManager)}
+                        style={{
+                            padding: '8px 16px',
+                            background: '#667eea',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '500'
+                        }}
+                    >
+                        {showKeywordManager ? 'Hide' : 'Manage Keywords'}
+                    </button>
+                </div>
+
+                {showKeywordManager && (
+                    <>
+                        <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                            <input
+                                type="text"
+                                placeholder="Add keyword to block..."
+                                value={newKeyword}
+                                onChange={(e) => setNewKeyword(e.target.value)}
+                                onKeyPress={(e) => e.key === 'Enter' && handleAddKeyword()}
+                                style={{
+                                    flex: 1,
+                                    padding: '10px 15px',
+                                    border: '2px solid #e0e0e0',
+                                    borderRadius: '8px',
+                                    fontSize: '14px'
+                                }}
+                            />
+                            <button
+                                onClick={handleAddKeyword}
+                                style={{
+                                    padding: '10px 20px',
+                                    background: '#4CAF50',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                Add
+                            </button>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {moderationKeywords.map(keyword => (
+                                <div key={keyword} style={{
+                                    padding: '6px 12px',
+                                    background: '#ffebee',
+                                    color: '#c62828',
+                                    borderRadius: '20px',
+                                    fontSize: '13px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                }}>
+                                    <span>{keyword}</span>
+                                    <button
+                                        onClick={() => handleRemoveKeyword(keyword)}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            color: '#c62828',
+                                            cursor: 'pointer',
+                                            fontSize: '16px',
+                                            padding: 0,
+                                            lineHeight: 1
+                                        }}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            ))}
+                            {moderationKeywords.length === 0 && (
+                                <div style={{ color: '#999', fontSize: '14px' }}>
+                                    No keywords set. Messages will not be auto-filtered.
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
+
+            {/* Flagged Messages */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '25px',
+                marginBottom: '20px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <h3 style={{ margin: 0, color: '#333' }}>
+                        Flagged Messages ({flaggedMessages.length})
+                    </h3>
+                    {flaggedMessages.length > 0 && (
+                        <button
+                            onClick={() => exportData('moderation', 'csv')}
+                            style={{
+                                padding: '8px 16px',
+                                background: '#6c757d',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '500'
+                            }}
+                        >
+                            Export Report
+                        </button>
+                    )}
+                </div>
+
+                {flaggedMessages.length > 0 ? (
+                    <div style={{ display: 'grid', gap: '15px' }}>
+                        {flaggedMessages.map(message => (
+                            <div key={message.id} style={{
+                                padding: '20px',
+                                background: '#fff3cd',
+                                border: '2px solid #f44336',
+                                borderRadius: '10px'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                    <div>
+                                        <div style={{ fontWeight: '600', color: '#333' }}>
+                                            {message.userName || 'Unknown User'}
+                                        </div>
+                                        <div style={{ fontSize: '12px', color: '#666' }}>
+                                            {formatTimeAgo(message.flaggedAt)}
+                                        </div>
+                                    </div>
+                                    <span style={{
+                                        padding: '6px 12px',
+                                        background: '#f44336',
+                                        color: 'white',
+                                        borderRadius: '20px',
+                                        fontSize: '12px',
+                                        fontWeight: '600'
+                                    }}>
+                                        FLAGGED
+                                    </span>
+                                </div>
+
+                                <div style={{
+                                    padding: '15px',
+                                    background: 'white',
+                                    borderRadius: '8px',
+                                    marginBottom: '10px',
+                                    color: '#333'
+                                }}>
+                                    {message.content}
+                                </div>
+
                                 {message.imageUrl && (
-                                    <img 
-                                        src={message.imageUrl} 
+                                    <img
+                                        src={message.imageUrl}
                                         alt="Flagged content"
                                         style={{
                                             maxWidth: '200px',
-                                            marginTop: '10px',
-                                            borderRadius: '4px'
+                                            borderRadius: '8px',
+                                            marginBottom: '10px'
                                         }}
                                     />
                                 )}
-                            </div>
-                            <div className="flagged-reason">
-                                Reason: {message.flagReason || 'No reason provided'}
-                            </div>
-                            <div className="flagged-actions">
-                                <button 
-                                    className="btn btn-sm btn-danger"
-                                    onClick={() => handleFlagResolve(message.id, 'delete')}
-                                >
-                                    Delete Message
-                                </button>
-                                <button 
-                                    className="btn btn-sm btn-warning"
-                                    onClick={() => handleFlagResolve(message.id, 'unflag')}
-                                >
-                                    Unflag & Keep
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <div className="empty-state">
-                    No flagged messages. Community is clean! 🎉
-                </div>
-            )}
 
-            <div className="moderation-stats">
-                <h4>Community Statistics</h4>
-                <div className="stats-grid">
-                    <div className="stat-card">
-                        <div className="stat-value">{stats.totalMessages}</div>
-                        <div className="stat-label">Recent Messages</div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-value">{stats.activeUsers}</div>
-                        <div className="stat-label">Active Users</div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-value">{stats.roomsCount}</div>
-                        <div className="stat-label">Topic Rooms</div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-value">{stats.supportGroupsCount}</div>
-                        <div className="stat-label">Support Groups</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-
-    if (loading) {
-        return (
-            <div className="loading-container">
-                <div className="loading-spinner"></div>
-            </div>
-        );
-    }
-
-    return (
-        <div className="community-view">
-            <div className="tab-nav">
-                <button 
-                    className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('chat')}
-                >
-                    Community Chat
-                </button>
-                <button 
-                    className={`tab-btn ${activeTab === 'rooms' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('rooms')}
-                >
-                    Topic Rooms ({topicRooms.length})
-                </button>
-                <button 
-                    className={`tab-btn ${activeTab === 'supportGroups' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('supportGroups')}
-                >
-                    Support Groups ({supportGroups.length})
-                </button>
-                <button 
-                    className={`tab-btn ${activeTab === 'meetings' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('meetings')}
-                >
-                    Meetings ({meetings.length})
-                </button>
-                <button 
-                    className={`tab-btn ${activeTab === 'moderation' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('moderation')}
-                >
-                    Moderation {flaggedMessages.length > 0 && `(${flaggedMessages.length})`}
-                </button>
-            </div>
-
-            {activeTab === 'chat' && renderChatTab()}
-            {activeTab === 'rooms' && renderRoomsTab()}
-            {activeTab === 'supportGroups' && renderSupportGroupsTab()}
-            {activeTab === 'meetings' && renderMeetingsTab()}
-            {activeTab === 'moderation' && renderModerationTab()}
-
-            {/* Image Modal */}
-            {selectedImage && (
-                <div className="modal-overlay" onClick={() => setSelectedImage(null)} style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                    cursor: 'pointer'
-                }}>
-                    <img 
-                        src={selectedImage} 
-                        alt="Full size"
-                        style={{
-                            maxWidth: '90vw',
-                            maxHeight: '90vh',
-                            objectFit: 'contain'
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                    />
-                    <button 
-                        className="close-btn" 
-                        onClick={() => setSelectedImage(null)}
-                        style={{
-                            position: 'absolute',
-                            top: '20px',
-                            right: '20px',
-                            color: 'white',
-                            fontSize: '30px',
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer'
-                        }}
-                    >×</button>
-                </div>
-            )}
-
-            {/* Create Modal for Support Groups/Groups/Meetings */}
-            {showCreateModal && (
-                <CommunityCreateModal
-                    type={modalType}
-                    item={selectedItem}
-                    onSubmit={(data) => {
-                        if (modalType === 'supportGroup') {
-                            handleCreateSupportGroup(data);
-                        } else if (modalType === 'group') {
-                            handleCreateGroup(data);
-                        } else if (modalType === 'meeting') {
-                            handleCreateMeeting(data);
-                        }
-                    }}
-                    onClose={() => {
-                        setShowCreateModal(false);
-                        setSelectedItem(null);
-                    }}
-                />
-            )}
-        </div>
-    );
-}
-
-// Keep the existing CreateRoomForm component as is
-function CreateRoomForm({ onSubmit, onCancel }) {
-    const [formData, setFormData] = useState({
-        name: '',
-        description: '',
-        icon: '💬',
-        rules: ''
-    });
-
-    const icons = ['💬', '🎯', '💪', '🧘', '📖', '🌟', '❤️', '🙏', '🎨', '🎵'];
-
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        if (!formData.name || !formData.description) {
-            alert('Please fill in all required fields');
-            return;
-        }
-        onSubmit(formData);
-    };
-
-    return (
-        <form onSubmit={handleSubmit} className="create-room-form">
-            <div className="form-group">
-                <label>Room Name *</label>
-                <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    placeholder="e.g., Daily Reflections"
-                    required
-                />
-            </div>
-
-            <div className="form-group">
-                <label>Description *</label>
-                <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({...formData, description: e.target.value})}
-                    placeholder="What is this room about?"
-                    rows="3"
-                    required
-                />
-            </div>
-
-            <div className="form-group">
-                <label>Icon</label>
-                <div className="icon-picker">
-                    {icons.map(icon => (
-                        <button
-                            key={icon}
-                            type="button"
-                            className={`icon-option ${formData.icon === icon ? 'selected' : ''}`}
-                            onClick={() => setFormData({...formData, icon})}
-                        >
-                            {icon}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            <div className="form-group">
-                <label>Room Rules (optional)</label>
-                <textarea
-                    value={formData.rules}
-                    onChange={(e) => setFormData({...formData, rules: e.target.value})}
-                    placeholder="Any specific guidelines for this room?"
-                    rows="2"
-                />
-            </div>
-
-            <div className="form-actions">
-                <button type="submit" className="btn btn-primary">Create Room</button>
-                <button type="button" className="btn btn-secondary" onClick={onCancel}>Cancel</button>
-            </div>
-        </form>
-    );
-}
-        // Community Create Modal - For Support Groups and Meetings
-function CommunityCreateModal({ type, item, onSubmit, onClose }) {
-    const [formData, setFormData] = useState(() => {
-        if (item) {
-            return {
-                ...item,
-                assignedPIRs: item.assignedPIRs || []
-            };
-        }
-        
-        if (type === 'supportGroup') {
-            return {
-                name: '',
-                type: 'AA',
-                day: 'Monday',
-                time: '',
-                link: '',
-                location: '',
-                description: '',
-                active: true
-            };
-        } else if (type === 'meeting') {
-            return {
-                meetingTitle: '',
-                scheduledTime: '',
-                type: 'Group Session',
-                meetingLink: '',
-                duration: '60',
-                isGlobal: false,
-                assignedPIRs: [],
-                notes: '',
-                sendReminder: true,
-                status: 'scheduled'
-            };
-        }
-    });
-
-    const [allPIRs, setAllPIRs] = useState([]);
-    const [selectedPIRs, setSelectedPIRs] = useState(item?.assignedPIRs || []);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        loadPIRs();
-    }, []);
-
-    const loadPIRs = async () => {
-        try {
-            const pirsSnap = await db.collection('users')
-                .where('role', '==', 'pir')
-                .where('active', '!=', false)
-                .get();
-            
-            const pirsData = [];
-            pirsSnap.forEach(doc => {
-                const data = doc.data();
-                pirsData.push({
-                    id: doc.id,
-                    name: data.displayName || `${data.firstName} ${data.lastName}` || data.email,
-                    email: data.email
-                });
-            });
-            setAllPIRs(pirsData);
-        } catch (error) {
-            console.error('Error loading PIRs:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        
-        if (type === 'supportGroup') {
-            if (!formData.name || !formData.day || !formData.time) {
-                alert('Please fill in all required fields');
-                return;
-            }
-            onSubmit(formData);
-        } else if (type === 'meeting') {
-            if (!formData.meetingTitle || !formData.scheduledTime) {
-                alert('Please provide a meeting title and scheduled time');
-                return;
-            }
-            
-            // Convert datetime-local to Firebase timestamp
-            const scheduledDate = new Date(formData.scheduledTime);
-            
-            const finalData = {
-                ...formData,
-                scheduledTime: firebase.firestore.Timestamp.fromDate(scheduledDate),
-                assignedPIRs: formData.isGlobal ? [] : selectedPIRs
-            };
-            
-            onSubmit(finalData);
-        }
-    };
-
-    const handlePIRSelection = (pirId) => {
-        if (selectedPIRs.includes(pirId)) {
-            setSelectedPIRs(selectedPIRs.filter(id => id !== pirId));
-        } else {
-            setSelectedPIRs([...selectedPIRs, pirId]);
-        }
-    };
-
-    const selectAllPIRs = () => {
-        setSelectedPIRs(allPIRs.map(pir => pir.id));
-    };
-
-    const clearSelection = () => {
-        setSelectedPIRs([]);
-    };
-
-    // Get current datetime for min attribute (can't schedule in the past)
-    const getCurrentDateTime = () => {
-        const now = new Date();
-        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-        return now.toISOString().slice(0, 16);
-    };
-
-    return (
-        <div className="modal-overlay">
-            <div className="modal-content" style={{maxWidth: '700px', maxHeight: '90vh', overflowY: 'auto'}}>
-                <div className="modal-header">
-                    <h3>
-                        {item ? 'Edit' : 'Create'} 
-                        {type === 'supportGroup' ? ' Support Group' : ' Group Meeting'}
-                    </h3>
-                    <button className="close-btn" onClick={onClose}>×</button>
-                </div>
-                
-                <form onSubmit={handleSubmit} className="modal-body">
-                    {type === 'supportGroup' && (
-                        <>
-                            <div className="form-group">
-                                <label>Group Name *</label>
-                                <input
-                                    type="text"
-                                    value={formData.name}
-                                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                                    placeholder="e.g., Wednesday Night NA Meeting"
-                                    required
-                                />
-                            </div>
-                            
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label>Type *</label>
-                                    <select
-                                        value={formData.type}
-                                        onChange={(e) => setFormData({...formData, type: e.target.value})}
-                                    >
-                                        <option value="AA">AA</option>
-                                        <option value="NA">NA</option>
-                                        <option value="Al-Anon">Al-Anon</option>
-                                        <option value="SMART">SMART Recovery</option>
-                                        <option value="Celebrate Recovery">Celebrate Recovery</option>
-                                        <option value="Other">Other</option>
-                                    </select>
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label>Day *</label>
-                                    <select
-                                        value={formData.day}
-                                        onChange={(e) => setFormData({...formData, day: e.target.value})}
-                                    >
-                                        <option value="Monday">Monday</option>
-                                        <option value="Tuesday">Tuesday</option>
-                                        <option value="Wednesday">Wednesday</option>
-                                        <option value="Thursday">Thursday</option>
-                                        <option value="Friday">Friday</option>
-                                        <option value="Saturday">Saturday</option>
-                                        <option value="Sunday">Sunday</option>
-                                        <option value="Daily">Daily</option>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Time *</label>
-                                <input
-                                    type="time"
-                                    value={formData.time}
-                                    onChange={(e) => setFormData({...formData, time: e.target.value})}
-                                    required
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Meeting Link (for virtual meetings)</label>
-                                <input
-                                    type="url"
-                                    value={formData.link}
-                                    onChange={(e) => setFormData({...formData, link: e.target.value})}
-                                    placeholder="https://zoom.us/j/..."
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Location (for in-person meetings)</label>
-                                <input
-                                    type="text"
-                                    value={formData.location || ''}
-                                    onChange={(e) => setFormData({...formData, location: e.target.value})}
-                                    placeholder="e.g., Community Center, 123 Main St"
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Description</label>
-                                <textarea
-                                    value={formData.description}
-                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
-                                    placeholder="Additional details about this support group"
-                                    rows="3"
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.active}
-                                        onChange={(e) => setFormData({...formData, active: e.target.checked})}
-                                    />
-                                    <span>Support group is active</span>
-                                </label>
-                            </div>
-                        </>
-                    )}
-                    
-                    {type === 'meeting' && (
-                        <>
-                            <div className="form-group">
-                                <label>Meeting Title *</label>
-                                <input
-                                    type="text"
-                                    value={formData.meetingTitle}
-                                    onChange={(e) => setFormData({...formData, meetingTitle: e.target.value})}
-                                    placeholder="e.g., Weekly Progress Review"
-                                    required
-                                />
-                            </div>
-                            
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label>Date & Time *</label>
-                                    <input
-                                        type="datetime-local"
-                                        value={formData.scheduledTime}
-                                        onChange={(e) => setFormData({...formData, scheduledTime: e.target.value})}
-                                        min={getCurrentDateTime()}
-                                        required
-                                    />
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label>Duration</label>
-                                    <select
-                                        value={formData.duration}
-                                        onChange={(e) => setFormData({...formData, duration: e.target.value})}
-                                    >
-                                        <option value="30">30 minutes</option>
-                                        <option value="60">60 minutes</option>
-                                        <option value="90">90 minutes</option>
-                                        <option value="120">2 hours</option>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Meeting Type</label>
-                                <select
-                                    value={formData.type}
-                                    onChange={(e) => setFormData({...formData, type: e.target.value})}
-                                >
-                                    <option value="Group Session">Group Session</option>
-                                    <option value="Progress Review">Progress Review</option>
-                                    <option value="Educational">Educational</option>
-                                    <option value="Group Therapy">Group Therapy</option>
-                                    <option value="Special Topic">Special Topic</option>
-                                    <option value="Check-in">Check-in</option>
-                                </select>
-                            </div>
-                            
-                            <div className="form-group">
-                                <label>Meeting Link (for virtual meetings)</label>
-                                <input
-                                    type="url"
-                                    value={formData.meetingLink}
-                                    onChange={(e) => setFormData({...formData, meetingLink: e.target.value})}
-                                    placeholder="https://zoom.us/j/..."
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.isGlobal}
-                                        onChange={(e) => setFormData({...formData, isGlobal: e.target.checked})}
-                                    />
-                                    <span>Invite all PIRs (Global Meeting)</span>
-                                </label>
-                            </div>
-                            
-                            {!formData.isGlobal && (
-                                <div className="form-group">
-                                    <label>Select PIRs to Invite</label>
-                                    <div style={{marginBottom: '10px'}}>
-                                        <button type="button" className="btn btn-sm" onClick={selectAllPIRs}>
-                                            Select All
-                                        </button>
-                                        <button type="button" className="btn btn-sm" onClick={clearSelection} style={{marginLeft: '10px'}}>
-                                            Clear All
-                                        </button>
-                                        <span style={{marginLeft: '10px'}}>
-                                            {selectedPIRs.length} selected
-                                        </span>
-                                    </div>
+                                {message.flagReason && (
                                     <div style={{
-                                        maxHeight: '200px',
-                                        overflowY: 'auto',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        padding: '10px'
+                                        padding: '10px',
+                                        background: 'rgba(244, 67, 54, 0.1)',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        color: '#c62828',
+                                        marginBottom: '10px'
                                     }}>
-                                        {loading ? (
-                                            <div style={{textAlign: 'center', padding: '20px'}}>
-                                                Loading PIRs...
-                                            </div>
-                                        ) : allPIRs.length > 0 ? (
-                                            allPIRs.map(pir => (
-                                                <label key={pir.id} style={{
-                                                    display: 'block',
-                                                    padding: '5px',
-                                                    cursor: 'pointer',
-                                                    backgroundColor: selectedPIRs.includes(pir.id) ? '#e3f2fd' : 'transparent',
-                                                    borderRadius: '4px',
-                                                    marginBottom: '2px'
-                                                }}>
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={selectedPIRs.includes(pir.id)}
-                                                        onChange={() => handlePIRSelection(pir.id)}
-                                                        style={{marginRight: '10px'}}
-                                                    />
-                                                    {pir.name} ({pir.email})
-                                                </label>
-                                            ))
-                                        ) : (
-                                            <div style={{color: '#999', textAlign: 'center'}}>
-                                                No PIRs available
-                                            </div>
-                                        )}
+                                        <strong>Reason:</strong> {message.flagReason}
+                                    </div>
+                                )}
+
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <button
+                                        onClick={() => handleFlagResolve(message.id, 'delete')}
+                                        style={{
+                                            padding: '8px 16px',
+                                            background: '#f44336',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            fontSize: '14px',
+                                            fontWeight: '500'
+                                        }}
+                                    >
+                                        Delete Message
+                                    </button>
+                                    <button
+                                        onClick={() => handleFlagResolve(message.id, 'unflag')}
+                                        style={{
+                                            padding: '8px 16px',
+                                            background: '#4CAF50',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            fontSize: '14px',
+                                            fontWeight: '500'
+                                        }}
+                                    >
+                                        Unflag & Keep
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div style={{
+                        padding: '60px 20px',
+                        textAlign: 'center',
+                        color: '#999'
+                    }}>
+                        <div style={{ fontSize: '48px', marginBottom: '15px' }}>✅</div>
+                        <div style={{ fontSize: '18px', fontWeight: '500', marginBottom: '8px' }}>
+                            No Flagged Messages
+                        </div>
+                        <div style={{ fontSize: '14px' }}>
+                            Community is clean!
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Moderation History */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '25px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+            }}>
+                <h3 style={{ margin: '0 0 20px 0', color: '#333' }}>
+                    Recent Moderation Actions
+                </h3>
+
+                {moderationHistory.length > 0 ? (
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                        {moderationHistory.slice(0, 20).map(action => (
+                            <div key={action.id} style={{
+                                padding: '15px',
+                                background: '#f8f9fa',
+                                borderRadius: '10px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center'
+                            }}>
+                                <div>
+                                    <div style={{ fontWeight: '600', color: '#333', marginBottom: '5px' }}>
+                                        {action.action === 'delete' && '🗑️ Message Deleted'}
+                                        {action.action === 'warn' && '⚠️ User Warned'}
+                                        {action.action === 'unflag' && '✅ Message Unflagged'}
+                                    </div>
+                                    <div style={{ fontSize: '13px', color: '#666' }}>
+                                        {formatTimeAgo(action.timestamp)}
+                                        {action.reason && ` • ${action.reason}`}
                                     </div>
                                 </div>
-                            )}
-                            
-                            <div className="form-group">
-                                <label>Meeting Notes</label>
-                                <textarea
-                                    value={formData.notes}
-                                    onChange={(e) => setFormData({...formData, notes: e.target.value})}
-                                    placeholder="Topics to cover, preparation needed, etc."
-                                    rows="3"
-                                />
                             </div>
-                            
-                            <div className="form-group">
-                                <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                                    <input
-                                        type="checkbox"
-                                        checked={formData.sendReminder}
-                                        onChange={(e) => setFormData({...formData, sendReminder: e.target.checked})}
-                                    />
-                                    <span>Send reminder to participants</span>
-                                </label>
-                            </div>
-                        </>
-                    )}
-                    
-                    <div className="modal-footer">
-                        <button type="submit" className="btn btn-primary">
-                            {item ? 'Update' : 'Create'}
-                        </button>
-                        <button type="button" className="btn btn-secondary" onClick={onClose}>
-                            Cancel
-                        </button>
+                        ))}
                     </div>
-                </form>
+                ) : (
+                    <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                        No moderation actions yet
+                    </div>
+                )}
             </div>
         </div>
     );
