@@ -12143,7 +12143,7 @@ function ResourceModal({ resource, allPIRs, onSave, onClose }) {
         </div>
     );
 }
-       // COMPLETE ENHANCED CHECK-INS VIEW - ALL FEATURES
+      // COMPLETE ENHANCED CHECK-INS VIEW - ALL FEATURES WITH ANALYTICS
 function CheckInsView({ searchQuery }) {
     const [checkIns, setCheckIns] = useState([]);
     const [filteredCheckIns, setFilteredCheckIns] = useState([]);
@@ -12151,6 +12151,9 @@ function CheckInsView({ searchQuery }) {
     const [currentPage, setCurrentPage] = useState(1);
     const [filterUser, setFilterUser] = useState('all');
     const [filterMood, setFilterMood] = useState('all');
+    const [filterCraving, setFilterCraving] = useState('all');
+    const [filterAnxiety, setFilterAnxiety] = useState('all');
+    const [filterSleep, setFilterSleep] = useState('all');
     const [filterDate, setFilterDate] = useState('all');
     const [filterCompletion, setFilterCompletion] = useState('all');
     const [filterRisk, setFilterRisk] = useState('all');
@@ -12162,9 +12165,14 @@ function CheckInsView({ searchQuery }) {
     const [showCharts, setShowCharts] = useState(false);
     const [coachNotes, setCoachNotes] = useState({});
     const [reviewedCheckIns, setReviewedCheckIns] = useState(new Set());
+    const [analyticsData, setAnalyticsData] = useState(null);
+    const [showAnalytics, setShowAnalytics] = useState(false);
+    const [selectedPIRForReport, setSelectedPIRForReport] = useState(null);
     
     const moodChartRef = useRef(null);
     const cravingChartRef = useRef(null);
+    const anxietyChartRef = useRef(null);
+    const sleepChartRef = useRef(null);
     const completionChartRef = useRef(null);
     const chartInstances = useRef({});
     
@@ -12177,7 +12185,7 @@ function CheckInsView({ searchQuery }) {
 
     useEffect(() => {
         filterCheckIns();
-    }, [checkIns, filterUser, filterMood, filterDate, filterCompletion, filterRisk, searchQuery, activeTab, sortBy]);
+    }, [checkIns, filterUser, filterMood, filterCraving, filterAnxiety, filterSleep, filterDate, filterCompletion, filterRisk, searchQuery, activeTab, sortBy]);
 
     useEffect(() => {
         if (showCharts && filteredCheckIns.length > 0) {
@@ -12190,6 +12198,12 @@ function CheckInsView({ searchQuery }) {
             });
         };
     }, [showCharts, filteredCheckIns]);
+
+    useEffect(() => {
+        if (checkIns.length > 0) {
+            calculateAnalytics();
+        }
+    }, [checkIns]);
 
     const loadCheckInsAndUsers = async () => {
         try {
@@ -12257,12 +12271,13 @@ function CheckInsView({ searchQuery }) {
     };
 
     const calculateRiskLevel = (checkIn) => {
-        const morningMood = checkIn.morningData?.mood || 10;
-        const morningCraving = checkIn.morningData?.craving || 0;
+        const morningMood = checkIn.morningData?.mood ?? 10;
+        const morningCraving = checkIn.morningData?.craving ?? 0;
+        const anxiety = checkIn.eveningData?.anxiety ?? 0;
         
         if (morningMood <= 3 && morningCraving >= 7) return 'critical';
         if (morningMood <= 4 && morningCraving >= 6) return 'high';
-        if (morningMood <= 5 || morningCraving >= 5) return 'moderate';
+        if (morningMood <= 5 || morningCraving >= 5 || anxiety >= 7) return 'moderate';
         return 'low';
     };
 
@@ -12274,6 +12289,189 @@ function CheckInsView({ searchQuery }) {
         if (hasMorning && !hasEvening) return 'morning-only';
         if (!hasMorning && hasEvening) return 'evening-only';
         return 'incomplete';
+    };
+
+    const calculateAnalytics = () => {
+        const pirStats = {};
+        const allPIRsData = {
+            totalCheckIns: checkIns.length,
+            avgMood: 0,
+            avgCraving: 0,
+            avgAnxiety: 0,
+            avgSleep: 0,
+            completionRate: 0,
+            last30Days: {
+                avgMood: 0,
+                avgCraving: 0,
+                avgAnxiety: 0,
+                avgSleep: 0,
+                completionRate: 0
+            }
+        };
+
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        // Calculate per-PIR stats
+        checkIns.forEach(checkIn => {
+            if (!pirStats[checkIn.userId]) {
+                pirStats[checkIn.userId] = {
+                    userName: checkIn.userName,
+                    userId: checkIn.userId,
+                    totalCheckIns: 0,
+                    completeCheckIns: 0,
+                    moodSum: 0,
+                    moodCount: 0,
+                    cravingSum: 0,
+                    cravingCount: 0,
+                    anxietySum: 0,
+                    anxietyCount: 0,
+                    sleepSum: 0,
+                    sleepCount: 0,
+                    last30: {
+                        totalCheckIns: 0,
+                        completeCheckIns: 0,
+                        moodSum: 0,
+                        moodCount: 0,
+                        cravingSum: 0,
+                        cravingCount: 0,
+                        anxietySum: 0,
+                        anxietyCount: 0,
+                        sleepSum: 0,
+                        sleepCount: 0
+                    }
+                };
+            }
+
+            const stat = pirStats[checkIn.userId];
+            const checkInDate = checkIn.createdAt?.toDate ? checkIn.createdAt.toDate() : new Date(checkIn.createdAt);
+            const isLast30 = checkInDate >= thirtyDaysAgo;
+
+            stat.totalCheckIns++;
+            if (checkIn.completionStatus === 'complete') stat.completeCheckIns++;
+
+            if (checkIn.morningData?.mood != null) {
+                stat.moodSum += checkIn.morningData.mood;
+                stat.moodCount++;
+            }
+            if (checkIn.morningData?.craving != null) {
+                stat.cravingSum += checkIn.morningData.craving;
+                stat.cravingCount++;
+            }
+            if (checkIn.eveningData?.anxiety != null) {
+                stat.anxietySum += checkIn.eveningData.anxiety;
+                stat.anxietyCount++;
+            }
+            if (checkIn.eveningData?.sleepQuality != null) {
+                stat.sleepSum += checkIn.eveningData.sleepQuality;
+                stat.sleepCount++;
+            }
+
+            if (isLast30) {
+                stat.last30.totalCheckIns++;
+                if (checkIn.completionStatus === 'complete') stat.last30.completeCheckIns++;
+                
+                if (checkIn.morningData?.mood != null) {
+                    stat.last30.moodSum += checkIn.morningData.mood;
+                    stat.last30.moodCount++;
+                }
+                if (checkIn.morningData?.craving != null) {
+                    stat.last30.cravingSum += checkIn.morningData.craving;
+                    stat.last30.cravingCount++;
+                }
+                if (checkIn.eveningData?.anxiety != null) {
+                    stat.last30.anxietySum += checkIn.eveningData.anxiety;
+                    stat.last30.anxietyCount++;
+                }
+                if (checkIn.eveningData?.sleepQuality != null) {
+                    stat.last30.sleepSum += checkIn.eveningData.sleepQuality;
+                    stat.last30.sleepCount++;
+                }
+            }
+        });
+
+        // Calculate averages
+        Object.values(pirStats).forEach(stat => {
+            stat.avgMood = stat.moodCount > 0 ? (stat.moodSum / stat.moodCount).toFixed(1) : 'N/A';
+            stat.avgCraving = stat.cravingCount > 0 ? (stat.cravingSum / stat.cravingCount).toFixed(1) : 'N/A';
+            stat.avgAnxiety = stat.anxietyCount > 0 ? (stat.anxietySum / stat.anxietyCount).toFixed(1) : 'N/A';
+            stat.avgSleep = stat.sleepCount > 0 ? (stat.sleepSum / stat.sleepCount).toFixed(1) : 'N/A';
+            stat.completionRate = stat.totalCheckIns > 0 ? Math.round((stat.completeCheckIns / stat.totalCheckIns) * 100) : 0;
+
+            stat.last30.avgMood = stat.last30.moodCount > 0 ? (stat.last30.moodSum / stat.last30.moodCount).toFixed(1) : 'N/A';
+            stat.last30.avgCraving = stat.last30.cravingCount > 0 ? (stat.last30.cravingSum / stat.last30.cravingCount).toFixed(1) : 'N/A';
+            stat.last30.avgAnxiety = stat.last30.anxietyCount > 0 ? (stat.last30.anxietySum / stat.last30.anxietyCount).toFixed(1) : 'N/A';
+            stat.last30.avgSleep = stat.last30.sleepCount > 0 ? (stat.last30.sleepSum / stat.last30.sleepCount).toFixed(1) : 'N/A';
+            stat.last30.completionRate = stat.last30.totalCheckIns > 0 ? Math.round((stat.last30.completeCheckIns / stat.last30.totalCheckIns) * 100) : 0;
+        });
+
+        // Calculate all-PIRs aggregate
+        let totalMood = 0, totalCraving = 0, totalAnxiety = 0, totalSleep = 0;
+        let moodCount = 0, cravingCount = 0, anxietyCount = 0, sleepCount = 0;
+        let completeCount = 0;
+        let last30Mood = 0, last30Craving = 0, last30Anxiety = 0, last30Sleep = 0;
+        let last30MoodCount = 0, last30CravingCount = 0, last30AnxietyCount = 0, last30SleepCount = 0;
+        let last30Complete = 0, last30Total = 0;
+
+        checkIns.forEach(checkIn => {
+            const checkInDate = checkIn.createdAt?.toDate ? checkIn.createdAt.toDate() : new Date(checkIn.createdAt);
+            const isLast30 = checkInDate >= thirtyDaysAgo;
+
+            if (checkIn.completionStatus === 'complete') completeCount++;
+            
+            if (checkIn.morningData?.mood != null) {
+                totalMood += checkIn.morningData.mood;
+                moodCount++;
+            }
+            if (checkIn.morningData?.craving != null) {
+                totalCraving += checkIn.morningData.craving;
+                cravingCount++;
+            }
+            if (checkIn.eveningData?.anxiety != null) {
+                totalAnxiety += checkIn.eveningData.anxiety;
+                anxietyCount++;
+            }
+            if (checkIn.eveningData?.sleepQuality != null) {
+                totalSleep += checkIn.eveningData.sleepQuality;
+                sleepCount++;
+            }
+
+            if (isLast30) {
+                last30Total++;
+                if (checkIn.completionStatus === 'complete') last30Complete++;
+                
+                if (checkIn.morningData?.mood != null) {
+                    last30Mood += checkIn.morningData.mood;
+                    last30MoodCount++;
+                }
+                if (checkIn.morningData?.craving != null) {
+                    last30Craving += checkIn.morningData.craving;
+                    last30CravingCount++;
+                }
+                if (checkIn.eveningData?.anxiety != null) {
+                    last30Anxiety += checkIn.eveningData.anxiety;
+                    last30AnxietyCount++;
+                }
+                if (checkIn.eveningData?.sleepQuality != null) {
+                    last30Sleep += checkIn.eveningData.sleepQuality;
+                    last30SleepCount++;
+                }
+            }
+        });
+
+        allPIRsData.avgMood = moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 'N/A';
+        allPIRsData.avgCraving = cravingCount > 0 ? (totalCraving / cravingCount).toFixed(1) : 'N/A';
+        allPIRsData.avgAnxiety = anxietyCount > 0 ? (totalAnxiety / anxietyCount).toFixed(1) : 'N/A';
+        allPIRsData.avgSleep = sleepCount > 0 ? (totalSleep / sleepCount).toFixed(1) : 'N/A';
+        allPIRsData.completionRate = checkIns.length > 0 ? Math.round((completeCount / checkIns.length) * 100) : 0;
+
+        allPIRsData.last30Days.avgMood = last30MoodCount > 0 ? (last30Mood / last30MoodCount).toFixed(1) : 'N/A';
+        allPIRsData.last30Days.avgCraving = last30CravingCount > 0 ? (last30Craving / last30CravingCount).toFixed(1) : 'N/A';
+        allPIRsData.last30Days.avgAnxiety = last30AnxietyCount > 0 ? (last30Anxiety / last30AnxietyCount).toFixed(1) : 'N/A';
+        allPIRsData.last30Days.avgSleep = last30SleepCount > 0 ? (last30Sleep / last30SleepCount).toFixed(1) : 'N/A';
+        allPIRsData.last30Days.completionRate = last30Total > 0 ? Math.round((last30Complete / last30Total) * 100) : 0;
+
+        setAnalyticsData({ pirStats, allPIRsData });
     };
 
     const detectPatterns = () => {
@@ -12296,7 +12494,7 @@ function CheckInsView({ searchQuery }) {
 
             if (sorted.length >= 3) {
                 const recent = sorted.slice(0, 3);
-                const moods = recent.map(c => c.morningData?.mood || 10);
+                const moods = recent.map(c => c.morningData?.mood ?? 10);
                 
                 if (moods[0] < moods[1] && moods[1] < moods[2]) {
                     patterns.push({
@@ -12307,13 +12505,23 @@ function CheckInsView({ searchQuery }) {
                     });
                 }
 
-                const cravings = recent.map(c => c.morningData?.craving || 0);
+                const cravings = recent.map(c => c.morningData?.craving ?? 0);
                 if (cravings[0] > 6 && cravings[1] > 6 && cravings[2] > 6) {
                     patterns.push({
                         userId,
                         userName: recent[0].userName,
                         type: 'high-cravings',
                         message: `${recent[0].userName} has high cravings for 3+ days`
+                    });
+                }
+
+                const anxiety = recent.map(c => c.eveningData?.anxiety ?? 0);
+                if (anxiety[0] > 7 && anxiety[1] > 7) {
+                    patterns.push({
+                        userId,
+                        userName: recent[0].userName,
+                        type: 'high-anxiety',
+                        message: `${recent[0].userName} reporting high anxiety`
                     });
                 }
             }
@@ -12327,6 +12535,29 @@ function CheckInsView({ searchQuery }) {
                     message: `${userCheckIns[0].userName} has ${incomplete.length} incomplete check-ins`
                 });
             }
+
+            // Keyword detection
+            const recentNotes = sorted.slice(0, 5);
+            const concerningWords = ['relapse', 'using', 'hopeless', 'giving up', 'cant cope', 'want to use'];
+            recentNotes.forEach(checkIn => {
+                const allText = [
+                    checkIn.morningData?.notes,
+                    checkIn.eveningData?.gratitude,
+                    checkIn.eveningData?.challenges,
+                    checkIn.eveningData?.tomorrowGoal
+                ].filter(Boolean).join(' ').toLowerCase();
+
+                concerningWords.forEach(word => {
+                    if (allText.includes(word)) {
+                        patterns.push({
+                            userId,
+                            userName: checkIn.userName,
+                            type: 'keyword-alert',
+                            message: `${checkIn.userName} mentioned "${word}" in check-in`
+                        });
+                    }
+                });
+            });
         });
 
         return patterns;
@@ -12335,7 +12566,6 @@ function CheckInsView({ searchQuery }) {
     const filterCheckIns = () => {
         let filtered = checkIns;
         
-        // Tab filtering
         if (activeTab === 'at-risk') {
             filtered = filtered.filter(c => c.riskLevel === 'critical' || c.riskLevel === 'high');
         } else if (activeTab === 'incomplete') {
@@ -12358,14 +12588,56 @@ function CheckInsView({ searchQuery }) {
         if (filterMood !== 'all') {
             const moodValue = parseInt(filterMood);
             if (moodValue === 1) {
-                filtered = filtered.filter(c => (c.morningData?.mood || 10) <= 3);
+                filtered = filtered.filter(c => (c.morningData?.mood ?? 10) <= 3);
             } else if (moodValue === 2) {
                 filtered = filtered.filter(c => {
-                    const mood = c.morningData?.mood || 10;
+                    const mood = c.morningData?.mood ?? 10;
                     return mood >= 4 && mood <= 6;
                 });
             } else if (moodValue === 3) {
-                filtered = filtered.filter(c => (c.morningData?.mood || 10) >= 7);
+                filtered = filtered.filter(c => (c.morningData?.mood ?? 10) >= 7);
+            }
+        }
+
+        if (filterCraving !== 'all') {
+            const cravingValue = parseInt(filterCraving);
+            if (cravingValue === 1) {
+                filtered = filtered.filter(c => (c.morningData?.craving ?? 0) <= 3);
+            } else if (cravingValue === 2) {
+                filtered = filtered.filter(c => {
+                    const craving = c.morningData?.craving ?? 0;
+                    return craving >= 4 && craving <= 6;
+                });
+            } else if (cravingValue === 3) {
+                filtered = filtered.filter(c => (c.morningData?.craving ?? 0) >= 7);
+            }
+        }
+
+        if (filterAnxiety !== 'all') {
+            const anxietyValue = parseInt(filterAnxiety);
+            if (anxietyValue === 1) {
+                filtered = filtered.filter(c => (c.eveningData?.anxiety ?? 0) <= 3);
+            } else if (anxietyValue === 2) {
+                filtered = filtered.filter(c => {
+                    const anxiety = c.eveningData?.anxiety ?? 0;
+                    return anxiety >= 4 && anxiety <= 6;
+                });
+            } else if (anxietyValue === 3) {
+                filtered = filtered.filter(c => (c.eveningData?.anxiety ?? 0) >= 7);
+            }
+        }
+
+        if (filterSleep !== 'all') {
+            const sleepValue = parseInt(filterSleep);
+            if (sleepValue === 1) {
+                filtered = filtered.filter(c => (c.eveningData?.sleepQuality ?? 0) <= 3);
+            } else if (sleepValue === 2) {
+                filtered = filtered.filter(c => {
+                    const sleep = c.eveningData?.sleepQuality ?? 0;
+                    return sleep >= 4 && sleep <= 6;
+                });
+            } else if (sleepValue === 3) {
+                filtered = filtered.filter(c => (c.eveningData?.sleepQuality ?? 0) >= 7);
             }
         }
         
@@ -12401,7 +12673,8 @@ function CheckInsView({ searchQuery }) {
                 c.userName?.toLowerCase().includes(query) ||
                 c.morningData?.notes?.toLowerCase().includes(query) ||
                 c.eveningData?.gratitude?.toLowerCase().includes(query) ||
-                c.eveningData?.challenges?.toLowerCase().includes(query)
+                c.eveningData?.challenges?.toLowerCase().includes(query) ||
+                c.eveningData?.tomorrowGoal?.toLowerCase().includes(query)
             );
         }
 
@@ -12417,7 +12690,7 @@ function CheckInsView({ searchQuery }) {
                 const riskOrder = { critical: 0, high: 1, moderate: 2, low: 3 };
                 return riskOrder[a.riskLevel] - riskOrder[b.riskLevel];
             } else if (sortBy === 'mood') {
-                return (a.morningData?.mood || 10) - (b.morningData?.mood || 10);
+                return (a.morningData?.mood ?? 10) - (b.morningData?.mood ?? 10);
             }
             return 0;
         });
@@ -12439,7 +12712,7 @@ function CheckInsView({ searchQuery }) {
                     labels: last30.map(c => formatDate(c.createdAt)),
                     datasets: [{
                         label: 'Morning Mood',
-                        data: last30.map(c => c.morningData?.mood || null),
+                        data: last30.map(c => c.morningData?.mood ?? null),
                         borderColor: '#667eea',
                         backgroundColor: 'rgba(102, 126, 234, 0.1)',
                         tension: 0.4,
@@ -12468,9 +12741,67 @@ function CheckInsView({ searchQuery }) {
                     labels: last30.map(c => formatDate(c.createdAt)),
                     datasets: [{
                         label: 'Cravings',
-                        data: last30.map(c => c.morningData?.craving || null),
+                        data: last30.map(c => c.morningData?.craving ?? null),
                         borderColor: '#f44336',
                         backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, max: 10 }
+                    }
+                }
+            });
+        }
+
+        if (anxietyChartRef.current) {
+            if (chartInstances.current.anxiety) chartInstances.current.anxiety.destroy();
+            
+            const ctx = anxietyChartRef.current.getContext('2d');
+            const last30 = filteredCheckIns.slice(0, 30).reverse();
+            
+            chartInstances.current.anxiety = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: last30.map(c => formatDate(c.createdAt)),
+                    datasets: [{
+                        label: 'Anxiety',
+                        data: last30.map(c => c.eveningData?.anxiety ?? null),
+                        borderColor: '#FF9800',
+                        backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, max: 10 }
+                    }
+                }
+            });
+        }
+
+        if (sleepChartRef.current) {
+            if (chartInstances.current.sleep) chartInstances.current.sleep.destroy();
+            
+            const ctx = sleepChartRef.current.getContext('2d');
+            const last30 = filteredCheckIns.slice(0, 30).reverse();
+            
+            chartInstances.current.sleep = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: last30.map(c => formatDate(c.createdAt)),
+                    datasets: [{
+                        label: 'Sleep Quality',
+                        data: last30.map(c => c.eveningData?.sleepQuality ?? null),
+                        borderColor: '#9C27B0',
+                        backgroundColor: 'rgba(156, 39, 176, 0.1)',
                         tension: 0.4,
                         fill: true
                     }]
@@ -12518,28 +12849,150 @@ function CheckInsView({ searchQuery }) {
             ? filteredCheckIns.filter(c => selectedCheckIns.has(c.id))
             : filteredCheckIns;
 
-        const exportData = dataToExport.map(checkIn => ({
-            user: checkIn.userName,
-            date: formatDateTime(checkIn.createdAt),
-            morningMood: checkIn.morningData?.mood || '-',
-            morningCraving: checkIn.morningData?.craving || '-',
-            morningNotes: checkIn.morningData?.notes || '-',
-            eveningOverallDay: checkIn.eveningData?.overallDay || '-',
-            eveningGratitude: checkIn.eveningData?.gratitude || '-',
-            eveningChallenges: checkIn.eveningData?.challenges || '-',
-            eveningTomorrowGoal: checkIn.eveningData?.tomorrowGoal || '-',
-            completionStatus: checkIn.completionStatus,
-            riskLevel: checkIn.riskLevel,
-            reviewed: reviewedCheckIns.has(checkIn.id) ? 'Yes' : 'No'
-        }));
+        if (format === 'pdf') {
+            exportCheckInsToPDF(dataToExport);
+        } else {
+            const exportData = dataToExport.map(checkIn => ({
+                user: checkIn.userName,
+                date: formatDateTime(checkIn.createdAt),
+                morningMood: checkIn.morningData?.mood ?? '-',
+                morningCraving: checkIn.morningData?.craving ?? '-',
+                morningNotes: checkIn.morningData?.notes ?? '-',
+                eveningAnxiety: checkIn.eveningData?.anxiety ?? '-',
+                eveningSleep: checkIn.eveningData?.sleepQuality ?? '-',
+                eveningOverallDay: checkIn.eveningData?.overallDay ?? '-',
+                eveningGratitude: checkIn.eveningData?.gratitude ?? '-',
+                eveningChallenges: checkIn.eveningData?.challenges ?? '-',
+                eveningTomorrowGoal: checkIn.eveningData?.tomorrowGoal ?? '-',
+                completionStatus: checkIn.completionStatus,
+                riskLevel: checkIn.riskLevel,
+                reviewed: reviewedCheckIns.has(checkIn.id) ? 'Yes' : 'No'
+            }));
 
-        if (format === 'json') {
-            exportToJSON(exportData, 'checkins');
-        } else if (format === 'csv') {
-            exportToCSV(exportData, 'checkins');
-        } else if (format === 'pdf') {
-            exportToPDF(exportData, 'Check-ins Report');
+            if (format === 'json') {
+                exportToJSON(exportData, 'checkins');
+            } else if (format === 'csv') {
+                exportToCSV(exportData, 'checkins');
+            }
         }
+    };
+
+    const exportCheckInsToPDF = (data) => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('landscape');
+        
+        let yPos = 20;
+        
+        // Title
+        doc.setFontSize(18);
+        doc.text('Check-ins Report', 14, yPos);
+        yPos += 10;
+        
+        doc.setFontSize(10);
+        doc.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, 14, yPos);
+        doc.text(`Total Records: ${data.length}`, 200, yPos);
+        yPos += 15;
+
+        // Morning Data Table
+        doc.setFontSize(14);
+        doc.text('Morning Check-ins', 14, yPos);
+        yPos += 5;
+
+        const morningData = data.map(c => [
+            c.userName,
+            formatDate(c.createdAt),
+            c.morningData?.mood ?? '-',
+            c.morningData?.craving ?? '-',
+            (c.morningData?.notes ?? '-').substring(0, 50) + (c.morningData?.notes?.length > 50 ? '...' : ''),
+            c.completionStatus.replace('-', ' ')
+        ]);
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Date', 'Mood', 'Craving', 'Notes', 'Status']],
+            body: morningData,
+            theme: 'grid',
+            headStyles: { fillColor: [102, 126, 234] },
+            styles: { fontSize: 8 },
+            columnStyles: {
+                0: { cellWidth: 40 },
+                1: { cellWidth: 35 },
+                2: { cellWidth: 20 },
+                3: { cellWidth: 20 },
+                4: { cellWidth: 80 },
+                5: { cellWidth: 35 }
+            }
+        });
+
+        // Evening Data Table (new page)
+        doc.addPage();
+        yPos = 20;
+        
+        doc.setFontSize(14);
+        doc.text('Evening Reflections', 14, yPos);
+        yPos += 5;
+
+        const eveningData = data.map(c => [
+            c.userName,
+            formatDate(c.createdAt),
+            c.eveningData?.overallDay ?? '-',
+            c.eveningData?.anxiety ?? '-',
+            c.eveningData?.sleepQuality ?? '-',
+            (c.eveningData?.gratitude ?? '-').substring(0, 40) + (c.eveningData?.gratitude?.length > 40 ? '...' : '')
+        ]);
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Date', 'Overall', 'Anxiety', 'Sleep', 'Gratitude']],
+            body: eveningData,
+            theme: 'grid',
+            headStyles: { fillColor: [118, 75, 162] },
+            styles: { fontSize: 8 },
+            columnStyles: {
+                0: { cellWidth: 40 },
+                1: { cellWidth: 35 },
+                2: { cellWidth: 20 },
+                3: { cellWidth: 20 },
+                4: { cellWidth: 20 },
+                5: { cellWidth: 95 }
+            }
+        });
+
+        // Challenges & Goals (new page if many records)
+        if (data.length > 10) {
+            doc.addPage();
+            yPos = 20;
+        } else {
+            yPos = doc.lastAutoTable.finalY + 15;
+        }
+
+        doc.setFontSize(14);
+        doc.text('Challenges & Tomorrow Goals', 14, yPos);
+        yPos += 5;
+
+        const detailsData = data.map(c => [
+            c.userName,
+            formatDate(c.createdAt),
+            (c.eveningData?.challenges ?? '-').substring(0, 60) + (c.eveningData?.challenges?.length > 60 ? '...' : ''),
+            (c.eveningData?.tomorrowGoal ?? '-').substring(0, 60) + (c.eveningData?.tomorrowGoal?.length > 60 ? '...' : '')
+        ]);
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Date', 'Challenges', 'Tomorrow\'s Goal']],
+            body: detailsData,
+            theme: 'grid',
+            headStyles: { fillColor: [255, 152, 0] },
+            styles: { fontSize: 8 },
+            columnStyles: {
+                0: { cellWidth: 40 },
+                1: { cellWidth: 35 },
+                2: { cellWidth: 90 },
+                3: { cellWidth: 90 }
+            }
+        });
+
+        doc.save(`Check-ins_Report_${new Date().toISOString().split('T')[0]}.pdf`);
     };
 
     const handleBulkReview = async () => {
@@ -12603,7 +13056,7 @@ function CheckInsView({ searchQuery }) {
             moderate: { background: '#FFC107', color: '#333' },
             low: { background: '#4CAF50', color: 'white' }
         };
-        return styles[level] || styles.low;
+        return styles[level] ?? styles.low;
     };
 
     const getCompletionBadgeStyle = (status) => {
@@ -12613,7 +13066,7 @@ function CheckInsView({ searchQuery }) {
             'evening-only': { background: '#FF9800', color: 'white', text: 'Evening Only' },
             incomplete: { background: '#f44336', color: 'white', text: 'Incomplete' }
         };
-        return styles[status] || styles.incomplete;
+        return styles[status] ?? styles.incomplete;
     };
 
     const getRowStyle = (checkIn) => {
@@ -12650,8 +13103,47 @@ function CheckInsView({ searchQuery }) {
         );
     }
 
+    // Main view tabs
+    if (showAnalytics) {
+        return <AnalyticsView 
+            analyticsData={analyticsData} 
+            checkIns={checkIns}
+            users={users}
+            onClose={() => setShowAnalytics(false)}
+            onSelectPIR={setSelectedPIRForReport}
+        />;
+    }
+
+    if (selectedPIRForReport) {
+        return <IndividualPIRReport
+            pirId={selectedPIRForReport}
+            checkIns={checkIns.filter(c => c.userId === selectedPIRForReport)}
+            analyticsData={analyticsData}
+            onClose={() => setSelectedPIRForReport(null)}
+        />;
+    }
+
     return (
         <div style={{ padding: '20px', animation: 'fadeIn 0.5s' }}>
+            {/* Action Bar */}
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                <button
+                    onClick={() => setShowAnalytics(true)}
+                    style={{
+                        padding: '12px 24px',
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '600'
+                    }}
+                >
+                    View Analytics & Reports
+                </button>
+            </div>
+
             {/* Pattern Alerts */}
             {patterns.length > 0 && (
                 <div style={{
@@ -12812,6 +13304,75 @@ function CheckInsView({ searchQuery }) {
                             <option value="3">High (7-10)</option>
                         </select>
                     </div>
+
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '5px' }}>
+                            Craving Level
+                        </label>
+                        <select 
+                            value={filterCraving}
+                            onChange={(e) => setFilterCraving(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">All Levels</option>
+                            <option value="1">Low (1-3)</option>
+                            <option value="2">Medium (4-6)</option>
+                            <option value="3">High (7-10)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '5px' }}>
+                            Anxiety Level
+                        </label>
+                        <select 
+                            value={filterAnxiety}
+                            onChange={(e) => setFilterAnxiety(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">All Levels</option>
+                            <option value="1">Low (1-3)</option>
+                            <option value="2">Medium (4-6)</option>
+                            <option value="3">High (7-10)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '5px' }}>
+                            Sleep Quality
+                        </label>
+                        <select 
+                            value={filterSleep}
+                            onChange={(e) => setFilterSleep(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">All Levels</option>
+                            <option value="1">Poor (1-3)</option>
+                            <option value="2">Fair (4-6)</option>
+                            <option value="3">Good (7-10)</option>
+                        </select>
+                    </div>
                     
                     <div>
                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '5px' }}>
@@ -12920,7 +13481,7 @@ function CheckInsView({ searchQuery }) {
                                 Mark {selectedCheckIns.size} as Reviewed
                             </button>
                             <button 
-                                onClick={() => handleExport('csv', true)}
+                                onClick={() => handleExport('pdf', true)}
                                 style={{
                                     padding: '8px 16px',
                                     background: '#FF9800',
@@ -12932,7 +13493,7 @@ function CheckInsView({ searchQuery }) {
                                     fontWeight: '500'
                                 }}
                             >
-                                Export Selected
+                                Export Selected PDF
                             </button>
                         </>
                     )}
@@ -13000,6 +13561,18 @@ function CheckInsView({ searchQuery }) {
                             </div>
                         </div>
                         <div>
+                            <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#666' }}>Anxiety Levels</h4>
+                            <div style={{ height: '250px' }}>
+                                <canvas ref={anxietyChartRef}></canvas>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#666' }}>Sleep Quality</h4>
+                            <div style={{ height: '250px' }}>
+                                <canvas ref={sleepChartRef}></canvas>
+                            </div>
+                        </div>
+                        <div>
                             <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#666' }}>Completion Status</h4>
                             <div style={{ height: '250px' }}>
                                 <canvas ref={completionChartRef}></canvas>
@@ -13030,9 +13603,11 @@ function CheckInsView({ searchQuery }) {
                                 </th>
                                 <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '14px' }}>PIR</th>
                                 <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '14px' }}>Date/Time</th>
-                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Morning Mood</th>
-                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Cravings</th>
-                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Evening Day</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Mood</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Craving</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Anxiety</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Sleep</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Overall</th>
                                 <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '14px' }}>Status</th>
                                 <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '14px' }}>Risk</th>
                                 <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Actions</th>
@@ -13067,7 +13642,7 @@ function CheckInsView({ searchQuery }) {
                                                 width: '40px',
                                                 height: '40px',
                                                 borderRadius: '50%',
-                                                background: checkIn.morningData?.mood 
+                                                background: checkIn.morningData?.mood != null
                                                     ? `linear-gradient(135deg, ${checkIn.morningData.mood <= 3 ? '#f44336' : checkIn.morningData.mood <= 6 ? '#FF9800' : '#4CAF50'}, ${checkIn.morningData.mood <= 3 ? '#d32f2f' : checkIn.morningData.mood <= 6 ? '#F57C00' : '#388E3C'})`
                                                     : '#e0e0e0',
                                                 color: 'white',
@@ -13077,7 +13652,7 @@ function CheckInsView({ searchQuery }) {
                                                 fontWeight: 'bold',
                                                 margin: '0 auto'
                                             }}>
-                                                {checkIn.morningData?.mood || '-'}
+                                                {checkIn.morningData?.mood ?? '-'}
                                             </div>
                                         </td>
                                         <td style={{ padding: '15px', textAlign: 'center' }}>
@@ -13085,7 +13660,7 @@ function CheckInsView({ searchQuery }) {
                                                 width: '40px',
                                                 height: '40px',
                                                 borderRadius: '50%',
-                                                background: checkIn.morningData?.craving 
+                                                background: checkIn.morningData?.craving != null
                                                     ? `linear-gradient(135deg, ${checkIn.morningData.craving >= 7 ? '#f44336' : checkIn.morningData.craving >= 4 ? '#FF9800' : '#4CAF50'}, ${checkIn.morningData.craving >= 7 ? '#d32f2f' : checkIn.morningData.craving >= 4 ? '#F57C00' : '#388E3C'})`
                                                     : '#e0e0e0',
                                                 color: 'white',
@@ -13095,7 +13670,7 @@ function CheckInsView({ searchQuery }) {
                                                 fontWeight: 'bold',
                                                 margin: '0 auto'
                                             }}>
-                                                {checkIn.morningData?.craving || '-'}
+                                                {checkIn.morningData?.craving ?? '-'}
                                             </div>
                                         </td>
                                         <td style={{ padding: '15px', textAlign: 'center' }}>
@@ -13103,7 +13678,43 @@ function CheckInsView({ searchQuery }) {
                                                 width: '40px',
                                                 height: '40px',
                                                 borderRadius: '50%',
-                                                background: checkIn.eveningData?.overallDay 
+                                                background: checkIn.eveningData?.anxiety != null
+                                                    ? `linear-gradient(135deg, ${checkIn.eveningData.anxiety >= 7 ? '#f44336' : checkIn.eveningData.anxiety >= 4 ? '#FF9800' : '#4CAF50'}, ${checkIn.eveningData.anxiety >= 7 ? '#d32f2f' : checkIn.eveningData.anxiety >= 4 ? '#F57C00' : '#388E3C'})`
+                                                    : '#e0e0e0',
+                                                color: 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontWeight: 'bold',
+                                                margin: '0 auto'
+                                            }}>
+                                                {checkIn.eveningData?.anxiety ?? '-'}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{
+                                                width: '40px',
+                                                height: '40px',
+                                                borderRadius: '50%',
+                                                background: checkIn.eveningData?.sleepQuality != null
+                                                    ? `linear-gradient(135deg, ${checkIn.eveningData.sleepQuality <= 3 ? '#f44336' : checkIn.eveningData.sleepQuality <= 6 ? '#FF9800' : '#4CAF50'}, ${checkIn.eveningData.sleepQuality <= 3 ? '#d32f2f' : checkIn.eveningData.sleepQuality <= 6 ? '#F57C00' : '#388E3C'})`
+                                                    : '#e0e0e0',
+                                                color: 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontWeight: 'bold',
+                                                margin: '0 auto'
+                                            }}>
+                                                {checkIn.eveningData?.sleepQuality ?? '-'}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{
+                                                width: '40px',
+                                                height: '40px',
+                                                borderRadius: '50%',
+                                                background: checkIn.eveningData?.overallDay != null
                                                     ? `linear-gradient(135deg, ${checkIn.eveningData.overallDay <= 3 ? '#f44336' : checkIn.eveningData.overallDay <= 6 ? '#FF9800' : '#4CAF50'}, ${checkIn.eveningData.overallDay <= 3 ? '#d32f2f' : checkIn.eveningData.overallDay <= 6 ? '#F57C00' : '#388E3C'})`
                                                     : '#e0e0e0',
                                                 color: 'white',
@@ -13113,7 +13724,7 @@ function CheckInsView({ searchQuery }) {
                                                 fontWeight: 'bold',
                                                 margin: '0 auto'
                                             }}>
-                                                {checkIn.eveningData?.overallDay || '-'}
+                                                {checkIn.eveningData?.overallDay ?? '-'}
                                             </div>
                                         </td>
                                         <td style={{ padding: '15px' }}>
@@ -13228,7 +13839,7 @@ function CheckInsView({ searchQuery }) {
         </div>
     );
 }
-        // ENHANCED CHECK-IN DETAIL MODAL - SPLIT VIEW WITH HISTORY
+        // ENHANCED CHECK-IN DETAIL MODAL - COMPLETE VIEW WITH ALL FIELDS (FIXED ZEROS)
 function EnhancedCheckInDetailModal({ 
     checkIn, 
     checkIns, 
@@ -13268,25 +13879,31 @@ function EnhancedCheckInDetailModal({
         }
     };
 
-    const getRiskColor = (level) => {
-        const colors = {
-            critical: '#f44336',
-            high: '#FF9800',
-            moderate: '#FFC107',
-            low: '#4CAF50'
-        };
-        return colors[level] || colors.low;
-    };
-
     const getMoodColor = (mood) => {
+        if (mood == null) return '#e0e0e0';
         if (mood <= 3) return '#f44336';
         if (mood <= 6) return '#FF9800';
         return '#4CAF50';
     };
 
     const getCravingColor = (craving) => {
+        if (craving == null) return '#e0e0e0';
         if (craving >= 7) return '#f44336';
         if (craving >= 4) return '#FF9800';
+        return '#4CAF50';
+    };
+
+    const getAnxietyColor = (anxiety) => {
+        if (anxiety == null) return '#e0e0e0';
+        if (anxiety >= 7) return '#f44336';
+        if (anxiety >= 4) return '#FF9800';
+        return '#4CAF50';
+    };
+
+    const getSleepColor = (sleep) => {
+        if (sleep == null) return '#e0e0e0';
+        if (sleep <= 3) return '#f44336';
+        if (sleep <= 6) return '#FF9800';
         return '#4CAF50';
     };
 
@@ -13308,7 +13925,7 @@ function EnhancedCheckInDetailModal({
             <div style={{
                 background: 'white',
                 borderRadius: '20px',
-                maxWidth: '1200px',
+                maxWidth: '1400px',
                 width: '100%',
                 maxHeight: '90vh',
                 overflow: 'auto',
@@ -13400,7 +14017,7 @@ function EnhancedCheckInDetailModal({
                                             width: '60px',
                                             height: '60px',
                                             borderRadius: '50%',
-                                            background: checkIn.morningData?.mood 
+                                            background: checkIn.morningData?.mood != null
                                                 ? `linear-gradient(135deg, ${getMoodColor(checkIn.morningData.mood)}, ${getMoodColor(checkIn.morningData.mood)}dd)`
                                                 : '#e0e0e0',
                                             color: 'white',
@@ -13410,7 +14027,7 @@ function EnhancedCheckInDetailModal({
                                             fontSize: '24px',
                                             fontWeight: 'bold'
                                         }}>
-                                            {checkIn.morningData?.mood || '-'}
+                                            {checkIn.morningData?.mood ?? '-'}
                                         </div>
                                         <div style={{ flex: 1 }}>
                                             <div style={{ 
@@ -13421,13 +14038,15 @@ function EnhancedCheckInDetailModal({
                                             }}>
                                                 <div style={{
                                                     height: '100%',
-                                                    width: `${(checkIn.morningData?.mood || 0) * 10}%`,
-                                                    background: getMoodColor(checkIn.morningData?.mood || 0),
+                                                    width: `${(checkIn.morningData?.mood ?? 0) * 10}%`,
+                                                    background: getMoodColor(checkIn.morningData?.mood),
                                                     transition: 'width 0.3s'
                                                 }}></div>
                                             </div>
                                             <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-                                                {checkIn.morningData?.mood <= 3 ? 'Low' : checkIn.morningData?.mood <= 6 ? 'Moderate' : 'Good'}
+                                                {checkIn.morningData?.mood == null ? 'Not reported' : 
+                                                 checkIn.morningData.mood <= 3 ? 'Low' : 
+                                                 checkIn.morningData.mood <= 6 ? 'Moderate' : 'Good'}
                                             </div>
                                         </div>
                                     </div>
@@ -13440,7 +14059,7 @@ function EnhancedCheckInDetailModal({
                                             width: '60px',
                                             height: '60px',
                                             borderRadius: '50%',
-                                            background: checkIn.morningData?.craving 
+                                            background: checkIn.morningData?.craving != null
                                                 ? `linear-gradient(135deg, ${getCravingColor(checkIn.morningData.craving)}, ${getCravingColor(checkIn.morningData.craving)}dd)`
                                                 : '#e0e0e0',
                                             color: 'white',
@@ -13450,7 +14069,7 @@ function EnhancedCheckInDetailModal({
                                             fontSize: '24px',
                                             fontWeight: 'bold'
                                         }}>
-                                            {checkIn.morningData?.craving || '-'}
+                                            {checkIn.morningData?.craving ?? '-'}
                                         </div>
                                         <div style={{ flex: 1 }}>
                                             <div style={{ 
@@ -13461,13 +14080,15 @@ function EnhancedCheckInDetailModal({
                                             }}>
                                                 <div style={{
                                                     height: '100%',
-                                                    width: `${(checkIn.morningData?.craving || 0) * 10}%`,
-                                                    background: getCravingColor(checkIn.morningData?.craving || 0),
+                                                    width: `${(checkIn.morningData?.craving ?? 0) * 10}%`,
+                                                    background: getCravingColor(checkIn.morningData?.craving),
                                                     transition: 'width 0.3s'
                                                 }}></div>
                                             </div>
                                             <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-                                                {checkIn.morningData?.craving >= 7 ? 'High' : checkIn.morningData?.craving >= 4 ? 'Moderate' : 'Low'}
+                                                {checkIn.morningData?.craving == null ? 'Not reported' :
+                                                 checkIn.morningData.craving >= 7 ? 'High' : 
+                                                 checkIn.morningData.craving >= 4 ? 'Moderate' : 'Low'}
                                             </div>
                                         </div>
                                     </div>
@@ -13511,7 +14132,7 @@ function EnhancedCheckInDetailModal({
                                                 width: '60px',
                                                 height: '60px',
                                                 borderRadius: '50%',
-                                                background: checkIn.eveningData.overallDay 
+                                                background: checkIn.eveningData.overallDay != null
                                                     ? `linear-gradient(135deg, ${getMoodColor(checkIn.eveningData.overallDay)}, ${getMoodColor(checkIn.eveningData.overallDay)}dd)`
                                                     : '#e0e0e0',
                                                 color: 'white',
@@ -13521,7 +14142,7 @@ function EnhancedCheckInDetailModal({
                                                 fontSize: '24px',
                                                 fontWeight: 'bold'
                                             }}>
-                                                {checkIn.eveningData.overallDay || '-'}
+                                                {checkIn.eveningData.overallDay ?? '-'}
                                             </div>
                                             <div style={{ flex: 1 }}>
                                                 <div style={{ 
@@ -13532,10 +14153,94 @@ function EnhancedCheckInDetailModal({
                                                 }}>
                                                     <div style={{
                                                         height: '100%',
-                                                        width: `${(checkIn.eveningData.overallDay || 0) * 10}%`,
-                                                        background: getMoodColor(checkIn.eveningData.overallDay || 0),
+                                                        width: `${(checkIn.eveningData.overallDay ?? 0) * 10}%`,
+                                                        background: getMoodColor(checkIn.eveningData.overallDay),
                                                         transition: 'width 0.3s'
                                                     }}></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Anxiety Level</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                            <div style={{
+                                                width: '60px',
+                                                height: '60px',
+                                                borderRadius: '50%',
+                                                background: checkIn.eveningData.anxiety != null
+                                                    ? `linear-gradient(135deg, ${getAnxietyColor(checkIn.eveningData.anxiety)}, ${getAnxietyColor(checkIn.eveningData.anxiety)}dd)`
+                                                    : '#e0e0e0',
+                                                color: 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: '24px',
+                                                fontWeight: 'bold'
+                                            }}>
+                                                {checkIn.eveningData.anxiety ?? '-'}
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ 
+                                                    height: '8px', 
+                                                    background: '#e0e0e0', 
+                                                    borderRadius: '4px',
+                                                    overflow: 'hidden'
+                                                }}>
+                                                    <div style={{
+                                                        height: '100%',
+                                                        width: `${(checkIn.eveningData.anxiety ?? 0) * 10}%`,
+                                                        background: getAnxietyColor(checkIn.eveningData.anxiety),
+                                                        transition: 'width 0.3s'
+                                                    }}></div>
+                                                </div>
+                                                <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                                                    {checkIn.eveningData.anxiety == null ? 'Not reported' :
+                                                     checkIn.eveningData.anxiety >= 7 ? 'High' : 
+                                                     checkIn.eveningData.anxiety >= 4 ? 'Moderate' : 'Low'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Sleep Quality</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                            <div style={{
+                                                width: '60px',
+                                                height: '60px',
+                                                borderRadius: '50%',
+                                                background: checkIn.eveningData.sleepQuality != null
+                                                    ? `linear-gradient(135deg, ${getSleepColor(checkIn.eveningData.sleepQuality)}, ${getSleepColor(checkIn.eveningData.sleepQuality)}dd)`
+                                                    : '#e0e0e0',
+                                                color: 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: '24px',
+                                                fontWeight: 'bold'
+                                            }}>
+                                                {checkIn.eveningData.sleepQuality ?? '-'}
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ 
+                                                    height: '8px', 
+                                                    background: '#e0e0e0', 
+                                                    borderRadius: '4px',
+                                                    overflow: 'hidden'
+                                                }}>
+                                                    <div style={{
+                                                        height: '100%',
+                                                        width: `${(checkIn.eveningData.sleepQuality ?? 0) * 10}%`,
+                                                        background: getSleepColor(checkIn.eveningData.sleepQuality),
+                                                        transition: 'width 0.3s'
+                                                    }}></div>
+                                                </div>
+                                                <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                                                    {checkIn.eveningData.sleepQuality == null ? 'Not reported' :
+                                                     checkIn.eveningData.sleepQuality <= 3 ? 'Poor' : 
+                                                     checkIn.eveningData.sleepQuality <= 6 ? 'Fair' : 'Good'}
                                                 </div>
                                             </div>
                                         </div>
@@ -13626,21 +14331,21 @@ function EnhancedCheckInDetailModal({
                                         background: 'white',
                                         borderRadius: '8px',
                                         display: 'grid',
-                                        gridTemplateColumns: '120px 1fr 1fr 1fr',
-                                        gap: '15px',
+                                        gridTemplateColumns: '100px repeat(5, 1fr)',
+                                        gap: '12px',
                                         alignItems: 'center',
                                         fontSize: '13px'
                                     }}>
-                                        <div style={{ color: '#666' }}>
+                                        <div style={{ color: '#666', fontSize: '12px' }}>
                                             {formatDate(prevCheckIn.createdAt)}
                                         </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <span style={{ color: '#666' }}>Mood:</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ color: '#666', fontSize: '11px' }}>Mood:</span>
                                             <div style={{
                                                 width: '28px',
                                                 height: '28px',
                                                 borderRadius: '50%',
-                                                background: getMoodColor(prevCheckIn.morningData?.mood || 0),
+                                                background: getMoodColor(prevCheckIn.morningData?.mood),
                                                 color: 'white',
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -13648,16 +14353,16 @@ function EnhancedCheckInDetailModal({
                                                 fontWeight: 'bold',
                                                 fontSize: '12px'
                                             }}>
-                                                {prevCheckIn.morningData?.mood || '-'}
+                                                {prevCheckIn.morningData?.mood ?? '-'}
                                             </div>
                                         </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <span style={{ color: '#666' }}>Craving:</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ color: '#666', fontSize: '11px' }}>Craving:</span>
                                             <div style={{
                                                 width: '28px',
                                                 height: '28px',
                                                 borderRadius: '50%',
-                                                background: getCravingColor(prevCheckIn.morningData?.craving || 0),
+                                                background: getCravingColor(prevCheckIn.morningData?.craving),
                                                 color: 'white',
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -13665,16 +14370,50 @@ function EnhancedCheckInDetailModal({
                                                 fontWeight: 'bold',
                                                 fontSize: '12px'
                                             }}>
-                                                {prevCheckIn.morningData?.craving || '-'}
+                                                {prevCheckIn.morningData?.craving ?? '-'}
                                             </div>
                                         </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <span style={{ color: '#666' }}>Evening:</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ color: '#666', fontSize: '11px' }}>Anxiety:</span>
                                             <div style={{
                                                 width: '28px',
                                                 height: '28px',
                                                 borderRadius: '50%',
-                                                background: prevCheckIn.eveningData?.overallDay 
+                                                background: getAnxietyColor(prevCheckIn.eveningData?.anxiety),
+                                                color: 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontWeight: 'bold',
+                                                fontSize: '12px'
+                                            }}>
+                                                {prevCheckIn.eveningData?.anxiety ?? '-'}
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ color: '#666', fontSize: '11px' }}>Sleep:</span>
+                                            <div style={{
+                                                width: '28px',
+                                                height: '28px',
+                                                borderRadius: '50%',
+                                                background: getSleepColor(prevCheckIn.eveningData?.sleepQuality),
+                                                color: 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontWeight: 'bold',
+                                                fontSize: '12px'
+                                            }}>
+                                                {prevCheckIn.eveningData?.sleepQuality ?? '-'}
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ color: '#666', fontSize: '11px' }}>Overall:</span>
+                                            <div style={{
+                                                width: '28px',
+                                                height: '28px',
+                                                borderRadius: '50%',
+                                                background: prevCheckIn.eveningData?.overallDay != null
                                                     ? getMoodColor(prevCheckIn.eveningData.overallDay)
                                                     : '#e0e0e0',
                                                 color: 'white',
@@ -13684,7 +14423,7 @@ function EnhancedCheckInDetailModal({
                                                 fontWeight: 'bold',
                                                 fontSize: '12px'
                                             }}>
-                                                {prevCheckIn.eveningData?.overallDay || '-'}
+                                                {prevCheckIn.eveningData?.overallDay ?? '-'}
                                             </div>
                                         </div>
                                     </div>
@@ -13693,7 +14432,7 @@ function EnhancedCheckInDetailModal({
                         </div>
                     )}
 
-                    {/* Coach Notes Section */}
+                 {/* Coach Notes Section */}
                     <div style={{
                         background: '#fff3cd',
                         borderRadius: '15px',
@@ -13755,7 +14494,8 @@ function EnhancedCheckInDetailModal({
                                             borderRadius: '6px',
                                             cursor: saving ? 'not-allowed' : 'pointer',
                                             fontSize: '14px',
-                                            fontWeight: '500'
+                                            fontWeight: '500',
+                                            opacity: saving ? 0.6 : 1
                                         }}
                                     >
                                         {saving ? 'Saving...' : 'Save Note'}
@@ -13861,6 +14601,1022 @@ function EnhancedCheckInDetailModal({
                             Close
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+        // ANALYTICS VIEW - COMPREHENSIVE STATS FOR ALL PIRS
+function AnalyticsView({ analyticsData, checkIns, users, onClose, onSelectPIR }) {
+    const [selectedTab, setSelectedTab] = useState('aggregate');
+    const [sortBy, setSortBy] = useState('name');
+
+    if (!analyticsData) return null;
+
+    const { pirStats, allPIRsData } = analyticsData;
+
+    const sortedPIRs = Object.values(pirStats).sort((a, b) => {
+        if (sortBy === 'name') return a.userName.localeCompare(b.userName);
+        if (sortBy === 'avgMood') return parseFloat(b.avgMood) - parseFloat(a.avgMood);
+        if (sortBy === 'avgCraving') return parseFloat(a.avgCraving) - parseFloat(b.avgCraving);
+        if (sortBy === 'completion') return b.completionRate - a.completionRate;
+        return 0;
+    });
+
+    const exportAggregateAnalytics = () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('landscape');
+        
+        let yPos = 20;
+        
+        // Title
+        doc.setFontSize(20);
+        doc.text('Check-ins Analytics Report - All PIRs', 14, yPos);
+        yPos += 15;
+        
+        doc.setFontSize(10);
+        doc.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, 14, yPos);
+        yPos += 15;
+
+        // Aggregate Stats
+        doc.setFontSize(16);
+        doc.text('Overall Program Statistics', 14, yPos);
+        yPos += 10;
+
+        const aggregateStats = [
+            ['Metric', 'Lifetime Average', 'Last 30 Days'],
+            ['Average Mood', allPIRsData.avgMood, allPIRsData.last30Days.avgMood],
+            ['Average Cravings', allPIRsData.avgCraving, allPIRsData.last30Days.avgCraving],
+            ['Average Anxiety', allPIRsData.avgAnxiety, allPIRsData.last30Days.avgAnxiety],
+            ['Average Sleep Quality', allPIRsData.avgSleep, allPIRsData.last30Days.avgSleep],
+            ['Completion Rate', `${allPIRsData.completionRate}%`, `${allPIRsData.last30Days.completionRate}%`],
+            ['Total Check-ins', allPIRsData.totalCheckIns, '-']
+        ];
+
+        doc.autoTable({
+            startY: yPos,
+            head: [aggregateStats[0]],
+            body: aggregateStats.slice(1),
+            theme: 'grid',
+            headStyles: { fillColor: [102, 126, 234] },
+            styles: { fontSize: 10 }
+        });
+
+        // Individual PIR Stats
+        doc.addPage();
+        yPos = 20;
+        
+        doc.setFontSize(16);
+        doc.text('Individual PIR Statistics - Lifetime', 14, yPos);
+        yPos += 10;
+
+        const pirLifetimeData = sortedPIRs.map(pir => [
+            pir.userName,
+            pir.totalCheckIns,
+            pir.avgMood,
+            pir.avgCraving,
+            pir.avgAnxiety,
+            pir.avgSleep,
+            `${pir.completionRate}%`
+        ]);
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Check-ins', 'Avg Mood', 'Avg Craving', 'Avg Anxiety', 'Avg Sleep', 'Completion']],
+            body: pirLifetimeData,
+            theme: 'grid',
+            headStyles: { fillColor: [102, 126, 234] },
+            styles: { fontSize: 9 },
+            columnStyles: {
+                0: { cellWidth: 60 },
+                1: { cellWidth: 30 },
+                2: { cellWidth: 30 },
+                3: { cellWidth: 35 },
+                4: { cellWidth: 30 },
+                5: { cellWidth: 30 },
+                6: { cellWidth: 35 }
+            }
+        });
+
+        // 30-Day Stats
+        doc.addPage();
+        yPos = 20;
+        
+        doc.setFontSize(16);
+        doc.text('Individual PIR Statistics - Last 30 Days', 14, yPos);
+        yPos += 10;
+
+        const pir30DayData = sortedPIRs.map(pir => [
+            pir.userName,
+            pir.last30.totalCheckIns,
+            pir.last30.avgMood,
+            pir.last30.avgCraving,
+            pir.last30.avgAnxiety,
+            pir.last30.avgSleep,
+            `${pir.last30.completionRate}%`
+        ]);
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Check-ins', 'Avg Mood', 'Avg Craving', 'Avg Anxiety', 'Avg Sleep', 'Completion']],
+            body: pir30DayData,
+            theme: 'grid',
+            headStyles: { fillColor: [118, 75, 162] },
+            styles: { fontSize: 9 },
+            columnStyles: {
+                0: { cellWidth: 60 },
+                1: { cellWidth: 30 },
+                2: { cellWidth: 30 },
+                3: { cellWidth: 35 },
+                4: { cellWidth: 30 },
+                5: { cellWidth: 30 },
+                6: { cellWidth: 35 }
+            }
+        });
+
+        doc.save(`Analytics_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+    };
+
+    return (
+        <div style={{ padding: '20px', animation: 'fadeIn 0.5s' }}>
+            {/* Header */}
+            <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                marginBottom: '30px'
+            }}>
+                <div>
+                    <h2 style={{ margin: '0 0 10px 0', fontSize: '28px', color: '#333' }}>
+                        Analytics & Reports
+                    </h2>
+                    <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
+                        Comprehensive check-in statistics and trends
+                    </p>
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        onClick={exportAggregateAnalytics}
+                        style={{
+                            padding: '12px 24px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '600'
+                        }}
+                    >
+                        Export Analytics PDF
+                    </button>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            padding: '12px 24px',
+                            background: '#6c757d',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '600'
+                        }}
+                    >
+                        Back to Check-ins
+                    </button>
+                </div>
+            </div>
+
+            {/* Tabs */}
+            <div style={{
+                display: 'flex',
+                gap: '10px',
+                marginBottom: '30px',
+                borderBottom: '2px solid #f0f0f0'
+            }}>
+                {[
+                    { id: 'aggregate', label: 'All PIRs Aggregate' },
+                    { id: 'individual', label: 'Individual PIR Stats' }
+                ].map(tab => (
+                    <button
+                        key={tab.id}
+                        onClick={() => setSelectedTab(tab.id)}
+                        style={{
+                            padding: '12px 24px',
+                            background: selectedTab === tab.id ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'transparent',
+                            color: selectedTab === tab.id ? 'white' : '#666',
+                            border: 'none',
+                            borderBottom: selectedTab === tab.id ? 'none' : '2px solid transparent',
+                            cursor: 'pointer',
+                            fontSize: '15px',
+                            fontWeight: '600',
+                            borderRadius: selectedTab === tab.id ? '10px 10px 0 0' : '0',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        {tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* Aggregate View */}
+            {selectedTab === 'aggregate' && (
+                <div>
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '30px',
+                        marginBottom: '30px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                    }}>
+                        <h3 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#333' }}>
+                            Overall Program Statistics
+                        </h3>
+                        
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
+                            <div style={{
+                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                padding: '20px',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}>
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Total Check-ins</div>
+                                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.totalCheckIns}</div>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                                padding: '20px',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}>
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Completion Rate</div>
+                                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.completionRate}%</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                    30-day: {allPIRsData.last30Days.completionRate}%
+                                </div>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)',
+                                padding: '20px',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}>
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Average Mood</div>
+                                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.avgMood}/10</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                    30-day: {allPIRsData.last30Days.avgMood}/10
+                                </div>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, #f44336 0%, #d32f2f 100%)',
+                                padding: '20px',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}>
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Average Cravings</div>
+                                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.avgCraving}/10</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                    30-day: {allPIRsData.last30Days.avgCraving}/10
+                                </div>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%)',
+                                padding: '20px',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}>
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Average Anxiety</div>
+                                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.avgAnxiety}/10</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                    30-day: {allPIRsData.last30Days.avgAnxiety}/10
+                                </div>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                                padding: '20px',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}>
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Average Sleep Quality</div>
+                                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.avgSleep}/10</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                    30-day: {allPIRsData.last30Days.avgSleep}/10
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Trend Comparison */}
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '30px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                    }}>
+                        <h3 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#333' }}>
+                            30-Day Trend vs Lifetime Average
+                        </h3>
+                        
+                        <div style={{ display: 'grid', gap: '20px' }}>
+                            {[
+                                { label: 'Mood', lifetime: allPIRsData.avgMood, recent: allPIRsData.last30Days.avgMood, color: '#667eea' },
+                                { label: 'Cravings', lifetime: allPIRsData.avgCraving, recent: allPIRsData.last30Days.avgCraving, color: '#f44336', inverse: true },
+                                { label: 'Anxiety', lifetime: allPIRsData.avgAnxiety, recent: allPIRsData.last30Days.avgAnxiety, color: '#FF9800', inverse: true },
+                                { label: 'Sleep Quality', lifetime: allPIRsData.avgSleep, recent: allPIRsData.last30Days.avgSleep, color: '#2196F3' },
+                                { label: 'Completion Rate', lifetime: `${allPIRsData.completionRate}`, recent: `${allPIRsData.last30Days.completionRate}`, color: '#4CAF50', isPercent: true }
+                            ].map(metric => {
+                                const lifetimeVal = parseFloat(metric.lifetime);
+                                const recentVal = parseFloat(metric.recent);
+                                const diff = recentVal - lifetimeVal;
+                                const isImproving = metric.inverse ? diff < 0 : diff > 0;
+                                
+                                return (
+                                    <div key={metric.label} style={{
+                                        padding: '20px',
+                                        background: '#f8f9fa',
+                                        borderRadius: '10px'
+                                    }}>
+                                        <div style={{ 
+                                            display: 'flex', 
+                                            justifyContent: 'space-between', 
+                                            alignItems: 'center',
+                                            marginBottom: '15px'
+                                        }}>
+                                            <div style={{ fontSize: '16px', fontWeight: '600', color: '#333' }}>
+                                                {metric.label}
+                                            </div>
+                                            <div style={{
+                                                padding: '4px 12px',
+                                                background: isImproving ? '#d4edda' : '#f8d7da',
+                                                color: isImproving ? '#155724' : '#721c24',
+                                                borderRadius: '20px',
+                                                fontSize: '13px',
+                                                fontWeight: '600'
+                                            }}>
+                                                {diff > 0 ? '+' : ''}{diff.toFixed(1)}{metric.isPercent ? '%' : ''} {isImproving ? '↑' : '↓'}
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>
+                                                    Lifetime: {metric.lifetime}{metric.isPercent ? '%' : '/10'}
+                                                </div>
+                                                <div style={{
+                                                    height: '10px',
+                                                    background: '#e0e0e0',
+                                                    borderRadius: '5px',
+                                                    overflow: 'hidden'
+                                                }}>
+                                                    <div style={{
+                                                        height: '100%',
+                                                        width: `${metric.isPercent ? lifetimeVal : lifetimeVal * 10}%`,
+                                                        background: metric.color,
+                                                        opacity: 0.6
+                                                    }}></div>
+                                                </div>
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>
+                                                    Last 30 Days: {metric.recent}{metric.isPercent ? '%' : '/10'}
+                                                </div>
+                                                <div style={{
+                                                    height: '10px',
+                                                    background: '#e0e0e0',
+                                                    borderRadius: '5px',
+                                                    overflow: 'hidden'
+                                                }}>
+                                                    <div style={{
+                                                        height: '100%',
+                                                        width: `${metric.isPercent ? recentVal : recentVal * 10}%`,
+                                                        background: metric.color
+                                                    }}></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Individual PIR Stats View */}
+            {selectedTab === 'individual' && (
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '30px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                }}>
+                    <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center',
+                        marginBottom: '20px'
+                    }}>
+                        <h3 style={{ margin: 0, fontSize: '20px', color: '#333' }}>
+                            Individual PIR Statistics
+                        </h3>
+                        <div>
+                            <label style={{ marginRight: '10px', color: '#666', fontSize: '14px' }}>Sort by:</label>
+                            <select
+                                value={sortBy}
+                                onChange={(e) => setSortBy(e.target.value)}
+                                style={{
+                                    padding: '8px 12px',
+                                    border: '2px solid #e0e0e0',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    background: 'white'
+                                }}
+                            >
+                                <option value="name">PIR Name</option>
+                                <option value="avgMood">Avg Mood</option>
+                                <option value="avgCraving">Avg Cravings</option>
+                                <option value="completion">Completion Rate</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead style={{ background: '#f8f9fa' }}>
+                                <tr>
+                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '14px' }}>PIR</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Check-ins<br/>(Total / 30d)</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Avg Mood<br/>(Life / 30d)</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Avg Craving<br/>(Life / 30d)</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Avg Anxiety<br/>(Life / 30d)</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Avg Sleep<br/>(Life / 30d)</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Completion<br/>(Life / 30d)</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sortedPIRs.map(pir => (
+                                    <tr key={pir.userId} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                                        <td style={{ padding: '15px', fontWeight: '500', color: '#333' }}>
+                                            {pir.userName}
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center', color: '#666' }}>
+                                            {pir.totalCheckIns} / {pir.last30.totalCheckIns}
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{ fontSize: '15px', fontWeight: '600', color: '#667eea' }}>
+                                                {pir.avgMood}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                {pir.last30.avgMood}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{ fontSize: '15px', fontWeight: '600', color: '#f44336' }}>
+                                                {pir.avgCraving}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                {pir.last30.avgCraving}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{ fontSize: '15px', fontWeight: '600', color: '#FF9800' }}>
+                                                {pir.avgAnxiety}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                {pir.last30.avgAnxiety}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{ fontSize: '15px', fontWeight: '600', color: '#2196F3' }}>
+                                                {pir.avgSleep}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                {pir.last30.avgSleep}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{ fontSize: '15px', fontWeight: '600', color: '#4CAF50' }}>
+                                                {pir.completionRate}%
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                {pir.last30.completionRate}%
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <button
+                                                onClick={() => onSelectPIR(pir.userId)}
+                                                style={{
+                                                    padding: '6px 16px',
+                                                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                                    color: 'white',
+                                                    border: 'none',
+                                                    borderRadius: '6px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '13px',
+                                                    fontWeight: '500'
+                                                }}
+                                            >
+                                                View Report
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+        // INDIVIDUAL PIR REPORT - DETAILED ANALYSIS
+function IndividualPIRReport({ pirId, checkIns, analyticsData, onClose }) {
+    const pirStats = analyticsData?.pirStats[pirId];
+    const pirCheckIns = checkIns.filter(c => c.userId === pirId).sort((a, b) => {
+        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+        return dateB - dateA;
+    });
+
+    const moodChartRef = useRef(null);
+    const cravingChartRef = useRef(null);
+    const anxietyChartRef = useRef(null);
+    const sleepChartRef = useRef(null);
+    const chartInstances = useRef({});
+
+    useEffect(() => {
+        renderIndividualCharts();
+        
+        return () => {
+            Object.values(chartInstances.current).forEach(chart => {
+                if (chart) chart.destroy();
+            });
+        };
+    }, [pirCheckIns]);
+
+    const renderIndividualCharts = () => {
+        const last30 = pirCheckIns.slice(0, 30).reverse();
+
+        if (moodChartRef.current) {
+            if (chartInstances.current.mood) chartInstances.current.mood.destroy();
+            
+            const ctx = moodChartRef.current.getContext('2d');
+            chartInstances.current.mood = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: last30.map(c => formatDate(c.createdAt)),
+                    datasets: [{
+                        label: 'Morning Mood',
+                        data: last30.map(c => c.morningData?.mood ?? null),
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, max: 10 }
+                    }
+                }
+            });
+        }
+
+        if (cravingChartRef.current) {
+            if (chartInstances.current.craving) chartInstances.current.craving.destroy();
+            
+            const ctx = cravingChartRef.current.getContext('2d');
+            chartInstances.current.craving = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: last30.map(c => formatDate(c.createdAt)),
+                    datasets: [{
+                        label: 'Cravings',
+                        data: last30.map(c => c.morningData?.craving ?? null),
+                        borderColor: '#f44336',
+                        backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, max: 10 }
+                    }
+                }
+            });
+        }
+
+        if (anxietyChartRef.current) {
+            if (chartInstances.current.anxiety) chartInstances.current.anxiety.destroy();
+            
+            const ctx = anxietyChartRef.current.getContext('2d');
+            chartInstances.current.anxiety = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: last30.map(c => formatDate(c.createdAt)),
+                    datasets: [{
+                        label: 'Anxiety',
+                        data: last30.map(c => c.eveningData?.anxiety ?? null),
+                        borderColor: '#FF9800',
+                        backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, max: 10 }
+                    }
+                }
+            });
+        }
+
+        if (sleepChartRef.current) {
+            if (chartInstances.current.sleep) chartInstances.current.sleep.destroy();
+            
+            const ctx = sleepChartRef.current.getContext('2d');
+            chartInstances.current.sleep = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: last30.map(c => formatDate(c.createdAt)),
+                    datasets: [{
+                        label: 'Sleep Quality',
+                        data: last30.map(c => c.eveningData?.sleepQuality ?? null),
+                        borderColor: '#9C27B0',
+                        backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, max: 10 }
+                    }
+                }
+            });
+        }
+    };
+
+    const exportIndividualReport = () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        
+        let yPos = 20;
+        
+        // Title
+        doc.setFontSize(20);
+        doc.text(`Check-in Report: ${pirStats.userName}`, 14, yPos);
+        yPos += 15;
+        
+        doc.setFontSize(10);
+        doc.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, 14, yPos);
+        yPos += 15;
+
+        // Summary Stats
+        doc.setFontSize(14);
+        doc.text('Summary Statistics', 14, yPos);
+        yPos += 5;
+
+        const summaryData = [
+            ['Metric', 'Lifetime', 'Last 30 Days'],
+            ['Total Check-ins', pirStats.totalCheckIns, pirStats.last30.totalCheckIns],
+            ['Average Mood', pirStats.avgMood, pirStats.last30.avgMood],
+            ['Average Cravings', pirStats.avgCraving, pirStats.last30.avgCraving],
+            ['Average Anxiety', pirStats.avgAnxiety, pirStats.last30.avgAnxiety],
+            ['Average Sleep Quality', pirStats.avgSleep, pirStats.last30.avgSleep],
+            ['Completion Rate', `${pirStats.completionRate}%`, `${pirStats.last30.completionRate}%`]
+        ];
+
+        doc.autoTable({
+            startY: yPos,
+            head: [summaryData[0]],
+            body: summaryData.slice(1),
+            theme: 'grid',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+
+        // Recent Check-ins
+        doc.addPage();
+        yPos = 20;
+        
+        doc.setFontSize(14);
+        doc.text('Recent Check-ins (Last 10)', 14, yPos);
+        yPos += 5;
+
+        const recentData = pirCheckIns.slice(0, 10).map(c => [
+            formatDate(c.createdAt),
+            c.morningData?.mood ?? '-',
+            c.morningData?.craving ?? '-',
+            c.eveningData?.anxiety ?? '-',
+            c.eveningData?.sleepQuality ?? '-',
+            c.eveningData?.overallDay ?? '-',
+            c.completionStatus === 'complete' ? 'Yes' : 'No'
+        ]);
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['Date', 'Mood', 'Craving', 'Anxiety', 'Sleep', 'Overall', 'Complete']],
+            body: recentData,
+            theme: 'grid',
+            headStyles: { fillColor: [102, 126, 234] },
+            styles: { fontSize: 9 }
+        });
+
+        // Gratitude & Challenges
+        doc.addPage();
+        yPos = 20;
+        
+        doc.setFontSize(14);
+        doc.text('Recent Gratitude & Challenges', 14, yPos);
+        yPos += 10;
+
+        pirCheckIns.slice(0, 5).forEach((c, idx) => {
+            if (yPos > 250) {
+                doc.addPage();
+                yPos = 20;
+            }
+            
+            doc.setFontSize(12);
+            doc.text(`${formatDate(c.createdAt)}`, 14, yPos);
+            yPos += 7;
+            
+            doc.setFontSize(10);
+            if (c.eveningData?.gratitude) {
+                doc.text('Gratitude:', 14, yPos);
+                yPos += 5;
+                const gratitudeLines = doc.splitTextToSize(c.eveningData.gratitude, 180);
+                doc.text(gratitudeLines, 20, yPos);
+                yPos += gratitudeLines.length * 5 + 3;
+            }
+            
+            if (c.eveningData?.challenges) {
+                doc.text('Challenges:', 14, yPos);
+                yPos += 5;
+                const challengeLines = doc.splitTextToSize(c.eveningData.challenges, 180);
+                doc.text(challengeLines, 20, yPos);
+                yPos += challengeLines.length * 5 + 3;
+            }
+            
+            yPos += 5;
+        });
+
+        doc.save(`${pirStats.userName.replace(/\s+/g, '_')}_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+    };
+
+    if (!pirStats) return null;
+
+    return (
+        <div style={{ padding: '20px', animation: 'fadeIn 0.5s' }}>
+            {/* Header */}
+            <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                marginBottom: '30px'
+            }}>
+                <div>
+                    <h2 style={{ margin: '0 0 10px 0', fontSize: '28px', color: '#333' }}>
+                        {pirStats.userName} - Detailed Report
+                    </h2>
+                    <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
+                        Comprehensive check-in analysis and trends
+                    </p>
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        onClick={exportIndividualReport}
+                        style={{
+                            padding: '12px 24px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '600'
+                        }}
+                    >
+                        Export PDF Report
+                    </button>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            padding: '12px 24px',
+                            background: '#6c757d',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '600'
+                        }}
+                    >
+                        Back to Analytics
+                    </button>
+                </div>
+            </div>
+
+            {/* Summary Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
+                <div style={{
+                    background: 'white',
+                    padding: '20px',
+                    borderRadius: '12px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                    borderLeft: '4px solid #667eea'
+                }}>
+                    <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Total Check-ins</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#333' }}>{pirStats.totalCheckIns}</div>
+                    <div style={{ fontSize: '12px', color: '#999', marginTop: '4px' }}>
+                        Last 30 days: {pirStats.last30.totalCheckIns}
+                    </div>
+                </div>
+
+                <div style={{
+                    background: 'white',
+                    padding: '20px',
+                    borderRadius: '12px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                    borderLeft: '4px solid #4CAF50'
+                }}>
+                    <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Completion Rate</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#4CAF50' }}>{pirStats.completionRate}%</div>
+                    <div style={{ fontSize: '12px', color: '#999', marginTop: '4px' }}>
+                        Last 30 days: {pirStats.last30.completionRate}%
+                    </div>
+                </div>
+
+                <div style={{
+                    background: 'white',
+                    padding: '20px',
+                    borderRadius: '12px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                    borderLeft: '4px solid #667eea'
+                }}>
+                    <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Avg Mood</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#667eea' }}>{pirStats.avgMood}/10</div>
+                    <div style={{ fontSize: '12px', color: '#999', marginTop: '4px' }}>
+                        Last 30 days: {pirStats.last30.avgMood}/10
+                    </div>
+                </div>
+
+                <div style={{
+                    background: 'white',
+                    padding: '20px',
+                    borderRadius: '12px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                    borderLeft: '4px solid #f44336'
+                }}>
+                    <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Avg Cravings</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#f44336' }}>{pirStats.avgCraving}/10</div>
+                    <div style={{ fontSize: '12px', color: '#999', marginTop: '4px' }}>
+                        Last 30 days: {pirStats.last30.avgCraving}/10
+                    </div>
+                </div>
+
+                <div style={{
+                    background: 'white',
+                    padding: '20px',
+                    borderRadius: '12px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                    borderLeft: '4px solid #FF9800'
+                }}>
+                    <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Avg Anxiety</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#FF9800' }}>{pirStats.avgAnxiety}/10</div>
+                    <div style={{ fontSize: '12px', color: '#999', marginTop: '4px' }}>
+                        Last 30 days: {pirStats.last30.avgAnxiety}/10
+                    </div>
+                </div>
+
+                <div style={{
+                    background: 'white',
+                    padding: '20px',
+                    borderRadius: '12px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                    borderLeft: '4px solid #9C27B0'
+                }}>
+                    <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Avg Sleep</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#9C27B0' }}>{pirStats.avgSleep}/10</div>
+                    <div style={{ fontSize: '12px', color: '#999', marginTop: '4px' }}>
+                        Last 30 days: {pirStats.last30.avgSleep}/10
+                    </div>
+                </div>
+            </div>
+
+            {/* Charts */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '30px',
+                marginBottom: '30px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+            }}>
+                <h3 style={{ margin: '0 0 25px 0', fontSize: '20px', color: '#333' }}>
+                    Trend Analysis (Last 30 Check-ins)
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '30px' }}>
+                    <div>
+                        <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#666' }}>Mood Trend</h4>
+                        <div style={{ height: '250px' }}>
+                            <canvas ref={moodChartRef}></canvas>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#666' }}>Craving Intensity</h4>
+                        <div style={{ height: '250px' }}>
+                            <canvas ref={cravingChartRef}></canvas>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#666' }}>Anxiety Levels</h4>
+                        <div style={{ height: '250px' }}>
+                            <canvas ref={anxietyChartRef}></canvas>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#666' }}>Sleep Quality</h4>
+                        <div style={{ height: '250px' }}>
+                            <canvas ref={sleepChartRef}></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Recent Check-ins Table */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '30px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+            }}>
+                <h3 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#333' }}>
+                    Recent Check-ins (Last 10)
+                </h3>
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead style={{ background: '#f8f9fa' }}>
+                            <tr>
+                                <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '13px' }}>Date</th>
+                                <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '13px' }}>Mood</th>
+                                <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '13px' }}>Craving</th>
+                                <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '13px' }}>Anxiety</th>
+                                <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '13px' }}>Sleep</th>
+                                <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '13px' }}>Overall</th>
+                                <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '13px' }}>Complete</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {pirCheckIns.slice(0, 10).map(checkIn => (
+                                <tr key={checkIn.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                                    <td style={{ padding: '12px', fontSize: '13px', color: '#666' }}>
+                                        {formatDate(checkIn.createdAt)}
+                                    </td>
+                                    <td style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', color: '#667eea' }}>
+                                        {checkIn.morningData?.mood ?? '-'}
+                                    </td>
+                                    <td style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', color: '#f44336' }}>
+                                        {checkIn.morningData?.craving ?? '-'}
+                                    </td>
+                                    <td style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', color: '#FF9800' }}>
+                                        {checkIn.eveningData?.anxiety ?? '-'}
+                                    </td>
+                                    <td style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', color: '#9C27B0' }}>
+                                        {checkIn.eveningData?.sleepQuality ?? '-'}
+                                    </td>
+                                    <td style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', color: '#2196F3' }}>
+                                        {checkIn.eveningData?.overallDay ?? '-'}
+                                    </td>
+                                    <td style={{ padding: '12px', textAlign: 'center' }}>
+                                        <span style={{
+                                            padding: '4px 10px',
+                                            borderRadius: '12px',
+                                            fontSize: '11px',
+                                            fontWeight: '600',
+                                            background: checkIn.completionStatus === 'complete' ? '#d4edda' : '#f8d7da',
+                                            color: checkIn.completionStatus === 'complete' ? '#155724' : '#721c24'
+                                        }}>
+                                            {checkIn.completionStatus === 'complete' ? 'Yes' : 'No'}
+                                        </span>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
