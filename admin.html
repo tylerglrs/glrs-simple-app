@@ -17783,6 +17783,570 @@ function ReportsView({ user }) {
             setLoading(false);
         }
     };
+    // Add these chart references to the ReportsView component (at the top with other useRefs)
+const chartRefs = {
+    moodTrend: useRef(null),
+    cravingTrend: useRef(null),
+    moodVsCravings: useRef(null),
+    moodVsSobriety: useRef(null),
+    sobrietyVsCravings: useRef(null),
+    anxietyVsSleep: useRef(null),
+    goalCompletion: useRef(null),
+    checkInCompliance: useRef(null),
+    patternAnalysis: useRef(null)
+};
+const chartInstances = useRef({});
+
+// Complete renderCharts function
+const renderCharts = (data) => {
+    // Destroy existing charts
+    Object.values(chartInstances.current).forEach(chart => {
+        if (chart) chart.destroy();
+    });
+
+    const newCharts = {};
+
+    // Overview Mood Trend
+    if (data.type === 'overview' && data.charts?.moodTrend && chartRefs.moodTrend.current) {
+        const ctx = chartRefs.moodTrend.current.getContext('2d');
+        newCharts.moodTrend = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.charts.moodTrend.dates,
+                datasets: [{
+                    label: 'Average Mood',
+                    data: data.charts.moodTrend.moods,
+                    borderColor: '#4CAF50',
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { 
+                        beginAtZero: true, 
+                        max: 10,
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#fff' }
+                    },
+                    x: { 
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#fff' }
+                    }
+                },
+                plugins: {
+                    legend: { labels: { color: '#fff' } }
+                }
+            }
+        });
+    }
+
+    // Overview Craving Trend
+    if (data.type === 'overview' && data.charts?.cravingTrend && chartRefs.cravingTrend.current) {
+        const ctx = chartRefs.cravingTrend.current.getContext('2d');
+        newCharts.cravingTrend = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.charts.cravingTrend.dates,
+                datasets: [{
+                    label: 'Average Cravings',
+                    data: data.charts.cravingTrend.cravings,
+                    borderColor: '#FF9800',
+                    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { 
+                        beginAtZero: true, 
+                        max: 10,
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#fff' }
+                    },
+                    x: { 
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#fff' }
+                    }
+                },
+                plugins: {
+                    legend: { labels: { color: '#fff' } }
+                }
+            }
+        });
+    }
+
+    // Mood vs Cravings Scatter
+    if (data.charts?.moodVsCravings && chartRefs.moodVsCravings.current) {
+        const ctx = chartRefs.moodVsCravings.current.getContext('2d');
+        newCharts.moodVsCravings = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: 'Mood vs Cravings',
+                    data: data.charts.moodVsCravings.mood.map((m, i) => ({
+                        x: m,
+                        y: data.charts.moodVsCravings.cravings[i]
+                    })),
+                    backgroundColor: 'rgba(102, 126, 234, 0.6)',
+                    borderColor: '#667eea'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { 
+                        title: { display: true, text: 'Mood', color: '#fff' },
+                        min: 0, 
+                        max: 10,
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#fff' }
+                    },
+                    y: { 
+                        title: { display: true, text: 'Cravings', color: '#fff' },
+                        min: 0, 
+                        max: 10,
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#fff' }
+                    }
+                },
+                plugins: {
+                    legend: { labels: { color: '#fff' } }
+                }
+            }
+        });
+    }
+
+    // Anxiety vs Sleep
+    if (data.charts?.anxietyVsSleep && chartRefs.anxietyVsSleep.current) {
+        const ctx = chartRefs.anxietyVsSleep.current.getContext('2d');
+        newCharts.anxietyVsSleep = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: 'Anxiety vs Sleep Quality',
+                    data: data.charts.anxietyVsSleep.anxiety.map((a, i) => ({
+                        x: a,
+                        y: data.charts.anxietyVsSleep.sleep[i]
+                    })),
+                    backgroundColor: 'rgba(156, 39, 176, 0.6)',
+                    borderColor: '#9C27B0'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { 
+                        title: { display: true, text: 'Anxiety Level', color: '#fff' },
+                        min: 0, 
+                        max: 10,
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#fff' }
+                    },
+                    y: { 
+                        title: { display: true, text: 'Sleep Quality', color: '#fff' },
+                        min: 0, 
+                        max: 10,
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#fff' }
+                    }
+                },
+                plugins: {
+                    legend: { labels: { color: '#fff' } }
+                }
+            }
+        });
+    }
+
+    chartInstances.current = newCharts;
+};
+
+// Complete PDF Export Function
+const exportReportToPDF = async (data, reportTitle) => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    
+    let yPos = 20;
+
+    // Title
+    doc.setFontSize(20);
+    doc.setTextColor(102, 126, 234);
+    doc.text(reportTitle, 20, yPos);
+    yPos += 10;
+
+    doc.setFontSize(10);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 20, yPos);
+    yPos += 5;
+    doc.text(`Date Range: ${startDate} to ${endDate}`, 20, yPos);
+    yPos += 15;
+
+    // Summary Section
+    if (data.summary) {
+        doc.setFontSize(14);
+        doc.setTextColor(0, 0, 0);
+        doc.text('Summary', 20, yPos);
+        yPos += 8;
+
+        doc.setFontSize(10);
+        Object.entries(data.summary).forEach(([key, value]) => {
+            const label = key.replace(/([A-Z])/g, ' $1').trim();
+            doc.text(`${label}: ${value}`, 30, yPos);
+            yPos += 6;
+            
+            if (yPos > 270) {
+                doc.addPage();
+                yPos = 20;
+            }
+        });
+        yPos += 10;
+    }
+
+    // Add Charts as Images
+    for (const [chartName, chartInstance] of Object.entries(chartInstances.current)) {
+        if (chartInstance) {
+            if (yPos > 200) {
+                doc.addPage();
+                yPos = 20;
+            }
+
+            doc.setFontSize(12);
+            doc.setTextColor(0, 0, 0);
+            const chartTitle = chartName.replace(/([A-Z])/g, ' $1').trim();
+            doc.text(chartTitle.charAt(0).toUpperCase() + chartTitle.slice(1), 20, yPos);
+            yPos += 5;
+
+            try {
+                const chartImage = chartInstance.toBase64Image();
+                doc.addImage(chartImage, 'PNG', 20, yPos, 170, 80);
+                yPos += 90;
+            } catch (error) {
+                console.error('Error adding chart to PDF:', error);
+            }
+        }
+    }
+
+    // Data Tables
+    if (data.type === 'sobriety' && data.sobrietyData) {
+        if (yPos > 200) {
+            doc.addPage();
+            yPos = 20;
+        }
+
+        doc.setFontSize(14);
+        doc.text('Sobriety Details', 20, yPos);
+        yPos += 5;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Days Sober', 'Avg Mood', 'Avg Cravings', 'Risk']],
+            body: data.sobrietyData.slice(0, 20).map(p => [
+                p.pirName,
+                p.daysSober,
+                p.avgMood,
+                p.avgCravings,
+                p.riskScore + '/10'
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    if (data.type === 'morningCheckins' && data.morningData) {
+        if (yPos > 200) {
+            doc.addPage();
+            yPos = 20;
+        }
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Date', 'Mood', 'Craving', 'Anxiety', 'Sleep']],
+            body: data.morningData.slice(0, 20).map(m => [
+                m.pirName,
+                formatDate(m.date),
+                m.mood,
+                m.craving,
+                m.anxiety,
+                m.sleep
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    if (data.type === 'eveningReflections' && data.eveningData) {
+        if (yPos > 200) {
+            doc.addPage();
+            yPos = 20;
+        }
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Date', 'Overall Day', 'Gratitude']],
+            body: data.eveningData.slice(0, 20).map(e => [
+                e.pirName,
+                formatDate(e.date),
+                e.overallDay + '/10',
+                (e.gratitude || '').substring(0, 50) + '...'
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    if (data.type === 'crisis' && data.alerts) {
+        if (yPos > 200) {
+            doc.addPage();
+            yPos = 20;
+        }
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Type', 'Priority', 'Status', 'Created']],
+            body: data.alerts.slice(0, 20).map(a => [
+                a.pirName,
+                a.type,
+                a.priority || 'normal',
+                a.resolved ? 'Resolved' : 'Active',
+                formatTimeAgo(a.createdAt)
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    if (data.type === 'engagement' && data.engagementData) {
+        if (yPos > 200) {
+            doc.addPage();
+            yPos = 20;
+        }
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Check-ins', 'Streak', 'Messages', 'Score']],
+            body: data.engagementData.slice(0, 20).map(e => [
+                e.pirName,
+                e.checkInCount,
+                e.checkInStreak + ' days',
+                e.messageCount,
+                e.engagementScore
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    if (data.type === 'predictive' && data.riskData) {
+        if (yPos > 200) {
+            doc.addPage();
+            yPos = 20;
+        }
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Risk Score', 'Level', 'Patterns']],
+            body: data.riskData.slice(0, 20).map(r => [
+                r.pirName,
+                r.riskScore + '/10',
+                r.riskLevel,
+                r.patterns.join(', ').substring(0, 40) + '...'
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    // Save PDF
+    const fileName = `${reportTitle.replace(/\s+/g, '_')}_${startDate}_to_${endDate}.pdf`;
+    doc.save(fileName);
+};
+    // MILESTONES REPORT - COMPLETE
+const generateMilestonesReport = async (start, end) => {
+    const [goalsSnap, milestonesSnap] = await Promise.all([
+        db.collection('goals')
+            .where('status', '==', 'completed')
+            .get(),
+        db.collection('milestones')
+            .where('achieved', '==', true)
+            .get()
+    ]);
+
+    const completedGoals = goalsSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(g => {
+            const completedDate = g.completedAt?.toDate ? g.completedAt.toDate() : new Date(g.completedAt);
+            return completedDate >= start && completedDate <= end;
+        });
+
+    const achievements = [];
+    
+    for (const goal of completedGoals) {
+        const userDoc = await db.collection('users').doc(goal.userId).get();
+        achievements.push({
+            pirName: userDoc.data()?.displayName || 'Unknown',
+            type: 'goal',
+            title: goal.title,
+            completedAt: goal.completedAt,
+            category: goal.category || 'general'
+        });
+    }
+
+    const achievedMilestones = milestonesSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(m => {
+            const achievedDate = m.achievedAt?.toDate ? m.achievedAt.toDate() : new Date(m.achievedAt);
+            return achievedDate >= start && achievedDate <= end;
+        });
+
+    for (const milestone of achievedMilestones) {
+        const userDoc = await db.collection('users').doc(milestone.userId).get();
+        achievements.push({
+            pirName: userDoc.data()?.displayName || 'Unknown',
+            type: 'milestone',
+            title: milestone.title,
+            completedAt: milestone.achievedAt,
+            category: milestone.type || 'sobriety'
+        });
+    }
+
+    const sobrietyMilestones = await getSobrietyMilestones(start, end);
+
+    return {
+        type: 'milestones',
+        achievements: achievements.sort((a, b) => {
+            const dateA = a.completedAt?.toDate ? a.completedAt.toDate() : new Date(a.completedAt);
+            const dateB = b.completedAt?.toDate ? b.completedAt.toDate() : new Date(b.completedAt);
+            return dateB - dateA;
+        }),
+        sobrietyMilestones,
+        summary: {
+            totalAchievements: achievements.length,
+            goalsCompleted: completedGoals.length,
+            milestonesAchieved: achievedMilestones.length,
+            sobrietyMilestones: sobrietyMilestones.length
+        }
+    };
+};
+
+// COMMUNICATION REPORT - COMPLETE
+const generateCommunicationReport = async (start, end) => {
+    const messagesSnap = await db.collection('messages')
+        .where('createdAt', '>=', start)
+        .where('createdAt', '<=', end)
+        .get();
+
+    const pirMessages = {};
+    const messages = messagesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    messages.forEach(msg => {
+        const userId = msg.senderId;
+        if (!pirMessages[userId]) {
+            pirMessages[userId] = { sent: 0, received: 0 };
+        }
+        pirMessages[userId].sent++;
+
+        if (msg.recipientId && msg.recipientId !== userId) {
+            if (!pirMessages[msg.recipientId]) {
+                pirMessages[msg.recipientId] = { sent: 0, received: 0 };
+            }
+            pirMessages[msg.recipientId].received++;
+        }
+    });
+
+    const pirComms = [];
+    for (const [userId, counts] of Object.entries(pirMessages)) {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (userDoc.exists && userDoc.data().role === 'pir') {
+            pirComms.push({
+                pirName: userDoc.data().displayName || userDoc.data().email,
+                messagesSent: counts.sent,
+                messagesReceived: counts.received
+            });
+        }
+    }
+
+    return {
+        type: 'communication',
+        pirComms: pirComms.sort((a, b) => b.messagesSent - a.messagesSent),
+        summary: {
+            totalMessages: messagesSnap.size,
+            activeCommunicators: pirComms.filter(p => p.messagesSent >= 5).length,
+            avgMessagesPerPIR: pirComms.length > 0 
+                ? (pirComms.reduce((sum, p) => sum + p.messagesSent, 0) / pirComms.length).toFixed(1)
+                : 0
+        }
+    };
+};
+    const generateReport = async () => {
+    setLoading(true);
+    try {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+
+        let data = {};
+
+        if (reportMode === 'templates') {
+            switch (selectedTemplate) {
+                case 'overview':
+                    data = await generateOverviewReport(start, end);
+                    break;
+                case 'sobriety':
+                    data = await generateSobrietyReport(start, end);
+                    break;
+                case 'morningCheckins':
+                    data = await generateMorningCheckinsReport(start, end);
+                    break;
+                case 'eveningReflections':
+                    data = await generateEveningReflectionsReport(start, end);
+                    break;
+                case 'fullPIR':
+                    data = await generateFullPIRReport(start, end);
+                    break;
+                case 'moodAnalysis':
+                    data = await generateMoodAnalysisReport(start, end);
+                    break;
+                case 'crisis':
+                    data = await generateCrisisReport(start, end);
+                    break;
+                case 'engagement':
+                    data = await generateEngagementReport(start, end);
+                    break;
+                case 'comparative':
+                    data = await generateComparativeReport(start, end);
+                    break;
+                case 'milestones':
+                    data = await generateMilestonesReport(start, end);
+                    break;
+                case 'communication':
+                    data = await generateCommunicationReport(start, end);
+                    break;
+                case 'predictive':
+                    data = await generatePredictiveReport(start, end);
+                    break;
+            }
+        } else {
+            data = await generateCustomReport(start, end, customConfig);
+        }
+
+        setReportData(data);
+        setTimeout(() => renderCharts(data), 100);
+    } catch (error) {
+        console.error('Error generating report:', error);
+        alert('Failed to generate report: ' + error.message);
+    } finally {
+        setLoading(false);
+    }
+};
 
     // SOBRIETY REPORT
     const generateSobrietyReport = async (start, end) => {
@@ -20282,95 +20846,747 @@ function ReportsView({ user }) {
                 </div>
             )}
 
-            {/* REPORT DISPLAY */}
-            {reportData && !loading && (
-                <div>
-                    {/* Export Buttons */}
-                    <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-                        <button 
-                            className="btn btn-secondary"
-                            onClick={() => exportToJSON(reportData, `${reportData.type}_report_${startDate}_${endDate}`)}
-                        >
-                            Export JSON
-                        </button>
-                        <button 
-                            className="btn btn-secondary"
-                            onClick={() => exportToCSV(reportData, `${reportData.type}_report_${startDate}_${endDate}`)}
-                        >
-                            Export CSV
-                        </button>
-                        <button 
-                            className="btn btn-secondary"
-                            onClick={() => exportReportToPDF(reportData, REPORT_TEMPLATES[selectedTemplate]?.name || 'Custom Report')}
-                        >
-                            Export PDF
-                        </button>
+          {/* REPORT DISPLAY */}
+{reportData && !loading && (
+    <div>
+        {/* Export Buttons */}
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+            <button 
+                className="btn btn-secondary"
+                onClick={() => exportToJSON(reportData, `${reportData.type}_report_${startDate}_${endDate}`)}
+            >
+                Export JSON
+            </button>
+            <button 
+                className="btn btn-secondary"
+                onClick={() => exportToCSV(reportData, `${reportData.type}_report_${startDate}_${endDate}`)}
+            >
+                Export CSV
+            </button>
+            <button 
+                className="btn btn-secondary"
+                onClick={() => exportReportToPDF(reportData, REPORT_TEMPLATES[selectedTemplate]?.name || 'Custom Report')}
+            >
+                Export PDF
+            </button>
+        </div>
+
+        {/* SOBRIETY REPORT */}
+        {reportData.type === 'sobriety' && (
+            <div>
+                <div className="stats-grid">
+                    <div className="stat-card">
+                        <div className="stat-label">Total PIRs</div>
+                        <div className="stat-value">{reportData.summary.totalPIRs}</div>
                     </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Avg Days Sober</div>
+                        <div className="stat-value">{reportData.summary.avgDaysSober}</div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f44336, #d32f2f)' }}>
+                        <div className="stat-label">High Risk</div>
+                        <div className="stat-value">{reportData.summary.highRisk}</div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #ff9800, #f57c00)' }}>
+                        <div className="stat-label">Moderate Risk</div>
+                        <div className="stat-value">{reportData.summary.moderateRisk}</div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #4caf50, #388e3c)' }}>
+                        <div className="stat-label">Low Risk</div>
+                        <div className="stat-value">{reportData.summary.lowRisk}</div>
+                    </div>
+                </div>
 
-                    {/* SOBRIETY REPORT */}
-                    {reportData.type === 'sobriety' && (
-                        <div>
-                            <div className="stats-grid">
-                                <div className="stat-card">
-                                    <div className="stat-label">Total PIRs</div>
-                                    <div className="stat-value">{reportData.summary.totalPIRs}</div>
-                                </div>
-                                <div className="stat-card">
-                                    <div className="stat-label">Avg Days Sober</div>
-                                    <div className="stat-value">{reportData.summary.avgDaysSober}</div>
-                                </div>
-                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f44336, #d32f2f)' }}>
-                                    <div className="stat-label">High Risk</div>
-                                    <div className="stat-value">{reportData.summary.highRisk}</div>
-                                </div>
-                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #ff9800, #f57c00)' }}>
-                                    <div className="stat-label">Moderate Risk</div>
-                                    <div className="stat-value">{reportData.summary.moderateRisk}</div>
-                                </div>
-                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #4caf50, #388e3c)' }}>
-                                    <div className="stat-label">Low Risk</div>
-                                    <div className="stat-value">{reportData.summary.lowRisk}</div>
-                                </div>
-                            </div>
+                <div className="table-container" style={{ marginTop: '30px' }}>
+                    <h3>Sobriety Details</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>PIR Name</th>
+                                <th>Days Sober</th>
+                                <th>Sobriety Date</th>
+                                <th>Avg Mood</th>
+                                <th>Avg Cravings</th>
+                                <th>Risk Score</th>
+                                <th>Check-ins</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {reportData.sobrietyData.map((pir, idx) => (
+                                <tr key={idx}>
+                                    <td>{pir.pirName}</td>
+                                    <td><strong>{pir.daysSober}</strong></td>
+                                    <td>{formatDate(pir.sobrietyDate)}</td>
+                                    <td>{pir.avgMood}</td>
+                                    <td>{pir.avgCravings}</td>
+                                    <td>
+                                        <span className={`badge ${
+                                            pir.riskScore >= 7 ? 'badge-danger' :
+                                            pir.riskScore >= 4 ? 'badge-warning' : 'badge-success'
+                                        }`}>
+                                            {pir.riskScore}/10
+                                        </span>
+                                    </td>
+                                    <td>{pir.checkInCount}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )}
 
-                            <div className="table-container" style={{ marginTop: '30px' }}>
-                                <h3>Sobriety Details</h3>
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th>PIR Name</th>
-                                            <th>Days Sober</th>
-                                            <th>Sobriety Date</th>
-                                            <th>Avg Mood</th>
-                                            <th>Avg Cravings</th>
-                                            <th>Risk Score</th>
-                                            <th>Check-ins</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {reportData.sobrietyData.map((pir, idx) => (
-                                            <tr key={idx}>
-                                                <td>{pir.pirName}</td>
-                                                <td><strong>{pir.daysSober}</strong></td>
-                                                <td>{formatDate(pir.sobrietyDate)}</td>
-                                                <td>{pir.avgMood}</td>
-                                                <td>{pir.avgCravings}</td>
-                                                <td>
-                                                    <span className={`badge ${
-                                                        pir.riskScore >= 7 ? 'badge-danger' :
-                                                        pir.riskScore >= 4 ? 'badge-warning' : 'badge-success'
-                                                    }`}>
-                                                        {pir.riskScore}/10
-                                                    </span>
-                                                </td>
-                                                <td>{pir.checkInCount}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    )}
+        {/* MORNING CHECK-INS REPORT */}
+        {reportData.type === 'morningCheckins' && (
+            <div>
+                <div className="stats-grid">
+                    <div className="stat-card">
+                        <div className="stat-label">Total Check-ins</div>
+                        <div className="stat-value">{reportData.summary.totalCheckIns}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Avg Mood</div>
+                        <div className="stat-value">{reportData.summary.avgMood}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Avg Cravings</div>
+                        <div className="stat-value">{reportData.summary.avgCravings}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Avg Anxiety</div>
+                        <div className="stat-value">{reportData.summary.avgAnxiety}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Avg Sleep</div>
+                        <div className="stat-value">{reportData.summary.avgSleep}</div>
+                    </div>
+                </div>
+
+                <div className="table-container" style={{ marginTop: '30px' }}>
+                    <h3>Morning Check-in Data</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>PIR</th>
+                                <th>Date</th>
+                                <th>Mood</th>
+                                <th>Craving</th>
+                                <th>Anxiety</th>
+                                <th>Sleep</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {reportData.morningData.map((entry, idx) => (
+                                <tr key={idx}>
+                                    <td>{entry.pirName}</td>
+                                    <td>{formatDate(entry.date)}</td>
+                                    <td>{entry.mood}</td>
+                                    <td>{entry.craving}</td>
+                                    <td>{entry.anxiety}</td>
+                                    <td>{entry.sleep}</td>
+                                    <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {entry.notes || '-'}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )}
+
+        {/* EVENING REFLECTIONS REPORT */}
+        {reportData.type === 'eveningReflections' && (
+            <div>
+                <div className="stats-grid">
+                    <div className="stat-card">
+                        <div className="stat-label">Total Reflections</div>
+                        <div className="stat-value">{reportData.summary.totalReflections}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Avg Overall Day</div>
+                        <div className="stat-value">{reportData.summary.avgOverallDay}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">With Gratitude</div>
+                        <div className="stat-value">{reportData.summary.withGratitude}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">With Challenges</div>
+                        <div className="stat-value">{reportData.summary.withChallenges}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">With Goals</div>
+                        <div className="stat-value">{reportData.summary.withGoals}</div>
+                    </div>
+                </div>
+
+                <div className="table-container" style={{ marginTop: '30px' }}>
+                    <h3>Evening Reflections</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>PIR</th>
+                                <th>Date</th>
+                                <th>Overall Day</th>
+                                <th>Gratitude</th>
+                                <th>Challenges</th>
+                                <th>Tomorrow's Goal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {reportData.eveningData.map((entry, idx) => (
+                                <tr key={idx}>
+                                    <td>{entry.pirName}</td>
+                                    <td>{formatDate(entry.date)}</td>
+                                    <td>{entry.overallDay}/10</td>
+                                    <td>{entry.gratitude || '-'}</td>
+                                    <td>{entry.challenges || '-'}</td>
+                                    <td>{entry.tomorrowGoal || '-'}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )}
+
+        {/* CRISIS REPORT */}
+        {reportData.type === 'crisis' && (
+            <div>
+                <div className="stats-grid">
+                    <div className="stat-card">
+                        <div className="stat-label">Total Alerts</div>
+                        <div className="stat-value">{reportData.summary.totalAlerts}</div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f44336, #d32f2f)' }}>
+                        <div className="stat-label">SOS Alerts</div>
+                        <div className="stat-value">{reportData.summary.sosCount}</div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #4caf50, #388e3c)' }}>
+                        <div className="stat-label">Resolved</div>
+                        <div className="stat-value">{reportData.summary.resolved}</div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #ff9800, #f57c00)' }}>
+                        <div className="stat-label">Unresolved</div>
+                        <div className="stat-value">{reportData.summary.unresolved}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Avg Response Time</div>
+                        <div className="stat-value">{reportData.summary.avgResponseTime}</div>
+                    </div>
+                </div>
+
+                <div className="table-container" style={{ marginTop: '30px' }}>
+                    <h3>Crisis Incidents</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>PIR</th>
+                                <th>Type</th>
+                                <th>Priority</th>
+                                <th>Message</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {reportData.alerts.map((alert, idx) => (
+                                <tr key={idx}>
+                                    <td>{alert.pirName}</td>
+                                    <td>
+                                        <span className={`badge ${alert.type === 'sos' ? 'badge-danger' : 'badge-warning'}`}>
+                                            {alert.type}
+                                        </span>
+                                    </td>
+                                    <td>{alert.priority || 'normal'}</td>
+                                    <td style={{ maxWidth: '250px' }}>{alert.message}</td>
+                                    <td>
+                                        <span className={`badge ${alert.resolved ? 'badge-success' : 'badge-danger'}`}>
+                                            {alert.resolved ? 'Resolved' : 'Active'}
+                                        </span>
+                                    </td>
+                                    <td>{formatTimeAgo(alert.createdAt)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )}
+
+        {/* ENGAGEMENT REPORT */}
+        {reportData.type === 'engagement' && (
+            <div>
+                <div className="stats-grid">
+                    <div className="stat-card">
+                        <div className="stat-label">Avg Check-ins</div>
+                        <div className="stat-value">{reportData.summary.avgCheckIns}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Avg Completion</div>
+                        <div className="stat-value">{reportData.summary.avgCompletion}%</div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #4caf50, #388e3c)' }}>
+                        <div className="stat-label">High Engagement</div>
+                        <div className="stat-value">{reportData.summary.highEngagement}</div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f44336, #d32f2f)' }}>
+                        <div className="stat-label">Low Engagement</div>
+                        <div className="stat-value">{reportData.summary.lowEngagement}</div>
+                    </div>
+                </div>
+
+                <div className="table-container" style={{ marginTop: '30px' }}>
+                    <h3>Engagement Details</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>PIR</th>
+                                <th>Check-ins</th>
+                                <th>Streak</th>
+                                <th>Assignments</th>
+                                <th>Completion %</th>
+                                <th>Messages</th>
+                                <th>Score</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {reportData.engagementData.map((pir, idx) => (
+                                <tr key={idx}>
+                                    <td>{pir.pirName}</td>
+                                    <td>{pir.checkInCount}</td>
+                                    <td>{pir.checkInStreak} days</td>
+                                    <td>{pir.assignmentCount}</td>
+                                    <td>{pir.assignmentCompletion}%</td>
+                                    <td>{pir.messageCount}</td>
+                                    <td>
+                                        <span className={`badge ${
+                                            pir.engagementScore >= 75 ? 'badge-success' :
+                                            pir.engagementScore >= 50 ? 'badge-warning' : 'badge-danger'
+                                        }`}>
+                                            {pir.engagementScore}
+                                        </span>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )}
+
+        {/* PREDICTIVE RISK REPORT */}
+        {reportData.type === 'predictive' && (
+            <div>
+                <div className="stats-grid">
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f44336, #d32f2f)' }}>
+                        <div className="stat-label">High Risk</div>
+                        <div className="stat-value">{reportData.summary.highRisk}</div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #ff9800, #f57c00)' }}>
+                        <div className="stat-label">Moderate Risk</div>
+                        <div className="stat-value">{reportData.summary.moderateRisk}</div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #4caf50, #388e3c)' }}>
+                        <div className="stat-label">Low Risk</div>
+                        <div className="stat-value">{reportData.summary.lowRisk}</div>
+                    </div>
+                </div>
+
+                <div className="table-container" style={{ marginTop: '30px' }}>
+                    <h3>Risk Analysis</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>PIR</th>
+                                <th>Risk Score</th>
+                                <th>Risk Level</th>
+                                <th>Patterns</th>
+                                <th>Recommendations</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {reportData.riskData.map((pir, idx) => (
+                                <tr key={idx}>
+                                    <td>{pir.pirName}</td>
+                                    <td>{pir.riskScore}/10</td>
+                                    <td>
+                                        <span className={`badge ${
+                                            pir.riskLevel === 'High' ? 'badge-danger' :
+                                            pir.riskLevel === 'Moderate' ? 'badge-warning' : 'badge-success'
+                                        }`}>
+                                            {pir.riskLevel}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {pir.patterns.length > 0 ? (
+                                            <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                                                {pir.patterns.map((p, i) => <li key={i}>{p}</li>)}
+                                            </ul>
+                                        ) : 'None detected'}
+                                    </td>
+                                    <td>
+                                        <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                                            {pir.recommendations.map((r, i) => <li key={i}>{r}</li>)}
+                                        </ul>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )}
+
+        {/* OVERVIEW REPORT */}
+        {reportData.type === 'overview' && (
+            <div>
+                <div className="stats-grid">
+                    <div className="stat-card">
+                        <div className="stat-label">Total PIRs</div>
+                        <div className="stat-value">{reportData.summary.totalPIRs}</div>
+                        <div className="stat-change">{reportData.summary.activePIRs} active</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Check-ins</div>
+                        <div className="stat-value">{reportData.summary.totalCheckIns}</div>
+                        <div className="stat-change">Mood: {reportData.summary.avgMood}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Assignments</div>
+                        <div className="stat-value">{reportData.summary.totalAssignments}</div>
+                        <div className="stat-change">{reportData.summary.completedAssignments} done</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Alerts</div>
+                        <div className="stat-value">{reportData.summary.totalAlerts}</div>
+                        <div className="stat-change">{reportData.summary.sosAlerts} SOS</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Goals</div>
+                        <div className="stat-value">{reportData.summary.totalGoals}</div>
+                        <div className="stat-change">{reportData.summary.completedGoals} completed</div>
+                    </div>
+                </div>
+
+                <div className="chart-container" style={{ marginTop: '30px' }}>
+                    <h3>Mood Trend</h3>
+                    <canvas ref={chartRefs.moodTrend} height="100"></canvas>
+                </div>
+
+                <div className="chart-container" style={{ marginTop: '30px' }}>
+                    <h3>Cravings Trend</h3>
+                    <canvas ref={chartRefs.cravingTrend} height="100"></canvas>
+                </div>
+            </div>
+        )}
+
+        {/* PART 9 STARTS HERE */}
+        
+        {/* FULL PIR REPORT */}
+        {reportData.type === 'fullPIR' && reportData.pirInfo && (
+            <div>
+                <div className="table-container" style={{ marginBottom: '30px' }}>
+                    <h3>PIR Information</h3>
+                    <table>
+                        <tbody>
+                            <tr>
+                                <td><strong>Name:</strong></td>
+                                <td>{reportData.pirInfo.name}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Email:</strong></td>
+                                <td>{reportData.pirInfo.email}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Days Sober:</strong></td>
+                                <td>{reportData.pirInfo.daysSober}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Sobriety Date:</strong></td>
+                                <td>{formatDate(reportData.pirInfo.sobrietyDate)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div className="stats-grid">
+                    <div className="stat-card">
+                        <div className="stat-label">Check-ins</div>
+                        <div className="stat-value">{reportData.checkIns.total}</div>
+                        <div className="stat-change">Mood: {reportData.checkIns.avgMood}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Goals</div>
+                        <div className="stat-value">{reportData.goals.total}</div>
+                        <div className="stat-change">{reportData.goals.completed} completed</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Assignments</div>
+                        <div className="stat-value">{reportData.assignments.total}</div>
+                        <div className="stat-change">{reportData.assignments.completed} done</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Alerts</div>
+                        <div className="stat-value">{reportData.alerts.total}</div>
+                        <div className="stat-change">{reportData.alerts.sos} SOS</div>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* MOOD ANALYSIS REPORT */}
+        {reportData.type === 'moodAnalysis' && (
+            <div>
+                <div className="stats-grid">
+                    <div className="stat-card">
+                        <div className="stat-label">Average Mood</div>
+                        <div className="stat-value">{reportData.summary.avgMood}</div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #4caf50, #388e3c)' }}>
+                        <div className="stat-label">High Mood Days</div>
+                        <div className="stat-value">{reportData.summary.highMoodDays}</div>
+                    </div>
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f44336, #d32f2f)' }}>
+                        <div className="stat-label">Low Mood Days</div>
+                        <div className="stat-value">{reportData.summary.lowMoodDays}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Total Check-ins</div>
+                        <div className="stat-value">{reportData.summary.totalCheckIns}</div>
+                    </div>
+                </div>
+
+                <div className="table-container" style={{ marginTop: '30px' }}>
+                    <h3>Mood Distribution</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Mood Level</th>
+                                <th>Frequency</th>
+                                <th>Percentage</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {reportData.moodDistribution.map((count, idx) => (
+                                <tr key={idx}>
+                                    <td>{idx + 1}</td>
+                                    <td>{count}</td>
+                                    <td>{((count / reportData.summary.totalCheckIns) * 100).toFixed(1)}%</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )}
+
+        {/* COMPARATIVE REPORT */}
+        {reportData.type === 'comparative' && reportData.comparison && (
+            <div>
+                <div className="table-container" style={{ marginBottom: '30px' }}>
+                    <h3>PIR: {reportData.pirInfo.name}</h3>
+                    <p>Days Sober: <strong>{reportData.pirInfo.daysSober}</strong></p>
+                </div>
+
+                <div className="table-container">
+                    <h3>Performance Comparison</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Metric</th>
+                                <th>PIR</th>
+                                <th>Program Average</th>
+                                <th>Difference</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Average Mood</td>
+                                <td>{reportData.comparison.avgMood.pir}</td>
+                                <td>{reportData.comparison.avgMood.program}</td>
+                                <td style={{ 
+                                    color: parseFloat(reportData.comparison.avgMood.pir) >= parseFloat(reportData.comparison.avgMood.program) 
+                                        ? '#4CAF50' : '#f44336' 
+                                }}>
+                                    {(parseFloat(reportData.comparison.avgMood.pir) - parseFloat(reportData.comparison.avgMood.program)).toFixed(1)}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Average Cravings</td>
+                                <td>{reportData.comparison.avgCravings.pir}</td>
+                                <td>{reportData.comparison.avgCravings.program}</td>
+                                <td style={{ 
+                                    color: parseFloat(reportData.comparison.avgCravings.pir) <= parseFloat(reportData.comparison.avgCravings.program) 
+                                        ? '#4CAF50' : '#f44336' 
+                                }}>
+                                    {(parseFloat(reportData.comparison.avgCravings.pir) - parseFloat(reportData.comparison.avgCravings.program)).toFixed(1)}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Average Anxiety</td>
+                                <td>{reportData.comparison.avgAnxiety.pir}</td>
+                                <td>{reportData.comparison.avgAnxiety.program}</td>
+                                <td style={{ 
+                                    color: parseFloat(reportData.comparison.avgAnxiety.pir) <= parseFloat(reportData.comparison.avgAnxiety.program) 
+                                        ? '#4CAF50' : '#f44336' 
+                                }}>
+                                    {(parseFloat(reportData.comparison.avgAnxiety.pir) - parseFloat(reportData.comparison.avgAnxiety.program)).toFixed(1)}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Average Sleep</td>
+                                <td>{reportData.comparison.avgSleep.pir}</td>
+                                <td>{reportData.comparison.avgSleep.program}</td>
+                                <td style={{ 
+                                    color: parseFloat(reportData.comparison.avgSleep.pir) >= parseFloat(reportData.comparison.avgSleep.program) 
+                                        ? '#4CAF50' : '#f44336' 
+                                }}>
+                                    {(parseFloat(reportData.comparison.avgSleep.pir) - parseFloat(reportData.comparison.avgSleep.program)).toFixed(1)}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Check-in Compliance</td>
+                                <td>{reportData.comparison.checkInCompliance.pir}%</td>
+                                <td>{reportData.comparison.checkInCompliance.program}%</td>
+                                <td style={{ 
+                                    color: parseFloat(reportData.comparison.checkInCompliance.pir) >= parseFloat(reportData.comparison.checkInCompliance.program) 
+                                        ? '#4CAF50' : '#f44336' 
+                                }}>
+                                    {(parseFloat(reportData.comparison.checkInCompliance.pir) - parseFloat(reportData.comparison.checkInCompliance.program)).toFixed(1)}%
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )}
+
+        {/* MILESTONES REPORT */}
+        {reportData.type === 'milestones' && (
+            <div>
+                <div className="stats-grid">
+                    <div className="stat-card">
+                        <div className="stat-label">Total Achievements</div>
+                        <div className="stat-value">{reportData.summary.totalAchievements}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Goals Completed</div>
+                        <div className="stat-value">{reportData.summary.goalsCompleted}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Milestones Achieved</div>
+                        <div className="stat-value">{reportData.summary.milestonesAchieved}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Sobriety Milestones</div>
+                        <div className="stat-value">{reportData.summary.sobrietyMilestones}</div>
+                    </div>
+                </div>
+
+                <div className="table-container" style={{ marginTop: '30px' }}>
+                    <h3>Achievements</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>PIR</th>
+                                <th>Type</th>
+                                <th>Achievement</th>
+                                <th>Category</th>
+                                <th>Completed</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {reportData.achievements.map((achievement, idx) => (
+                                <tr key={idx}>
+                                    <td>{achievement.pirName}</td>
+                                    <td>
+                                        <span className={`badge ${achievement.type === 'goal' ? 'badge-success' : 'badge-info'}`}>
+                                            {achievement.type}
+                                        </span>
+                                    </td>
+                                    <td>{achievement.title}</td>
+                                    <td>{achievement.category}</td>
+                                    <td>{formatDate(achievement.completedAt)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+
+                {reportData.sobrietyMilestones.length > 0 && (
+                    <div className="table-container" style={{ marginTop: '30px' }}>
+                        <h3>Sobriety Milestones</h3>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>PIR</th>
+                                    <th>Milestone</th>
+                                    <th>Achieved</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {reportData.sobrietyMilestones.map((milestone, idx) => (
+                                    <tr key={idx}>
+                                        <td>{milestone.pirName}</td>
+                                        <td>{milestone.title}</td>
+                                        <td>{formatDate(milestone.achievedAt)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+        )}
+
+        {/* COMMUNICATION REPORT */}
+        {reportData.type === 'communication' && (
+            <div>
+                <div className="stats-grid">
+                    <div className="stat-card">
+                        <div className="stat-label">Total Messages</div>
+                        <div className="stat-value">{reportData.summary.totalMessages}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Active Communicators</div>
+                        <div className="stat-value">{reportData.summary.activeCommunicators}</div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-label">Avg Messages/PIR</div>
+                        <div className="stat-value">{reportData.summary.avgMessagesPerPIR}</div>
+                    </div>
+                </div>
+
+                <div className="table-container" style={{ marginTop: '30px' }}>
+                    <h3>Communication Activity</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>PIR</th>
+                                <th>Messages Sent</th>
+                                <th>Messages Received</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {reportData.pirComms.map((pir, idx) => (
+                                <tr key={idx}>
+                                    <td>{pir.pirName}</td>
+                                    <td>{pir.messagesSent}</td>
+                                    <td>{pir.messagesReceived}</td>
+                                    <td><strong>{pir.messagesSent + pir.messagesReceived}</strong></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )}
+    </div>
+)}
 
                     {/* MORNING CHECK-INS REPORT */}
                     {reportData.type === 'morningCheckins' && (
