@@ -20009,7 +20009,1466 @@ function ReportsView({ user }) {
         </div>
     );
 }
+// COMPLETE SETTINGS VIEW - ALL IN ORDER
+function SettingsView({ user }) {
+    // ========== STATE VARIABLES ==========
+    const [activeSection, setActiveSection] = useState('notifications');
+    const [settings, setSettings] = useState({
+        // Notification Settings
+        emailNotifications: false,
+        smsNotifications: false,
+        pushNotifications: true,
+        sosAlertEmail: true,
+        sosAlertSMS: false,
+        dailyDigest: false,
+        weeklyReport: false,
+        
+        // Check-in Settings
+        checkInReminderTime: '09:00',
+        eveningReminderTime: '20:00',
+        missedCheckInAlert: true,
+        
+        // Alert Thresholds
+        lowMoodThreshold: 3,
+        highCravingThreshold: 7,
+        highAnxietyThreshold: 7,
+        poorSleepThreshold: 3,
+        
+        // System Settings
+        timezone: 'America/Los_Angeles',
+        dateFormat: 'MM/DD/YYYY',
+        timeFormat: '12h',
+        language: 'en',
+        autoRefresh: 30,
+        
+        // Data Management
+        autoBackupEnabled: false,
+        backupFrequency: 'weekly',
+        dataRetentionDays: 2555,
+        autoArchiveOldMessages: true,
+        archiveAfterDays: 90
+    });
+    
+    const [coaches, setCoaches] = useState([]);
+    const [pirs, setPirs] = useState([]);
+    const [permissions, setPermissions] = useState({});
+    const [saving, setSaving] = useState(false);
+    const [loading, setLoading] = useState(true);
 
+    // ========== USEEFFECT - INITIALIZATION ==========
+    useEffect(() => {
+        loadAllSettings();
+    }, []);
+
+    // ========== LOAD ALL SETTINGS ==========
+    const loadAllSettings = async () => {
+        try {
+            const [settingsDoc, coachesSnap, pirsSnap, permissionsDoc] = await Promise.all([
+                db.collection('settings').doc('system').get(),
+                db.collection('users').where('role', 'in', ['coach', 'admin']).get(),
+                db.collection('users').where('role', '==', 'pir').get(),
+                db.collection('settings').doc('permissions').get()
+            ]);
+
+            if (settingsDoc.exists) {
+                setSettings({ ...settings, ...settingsDoc.data() });
+            }
+
+            setCoaches(coachesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setPirs(pirsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+            if (permissionsDoc.exists) {
+                setPermissions(permissionsDoc.data());
+            }
+        } catch (error) {
+            console.error('Error loading settings:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // ========== SAVE SETTINGS ==========
+    const saveSettings = async () => {
+        setSaving(true);
+        try {
+            await db.collection('settings').doc('system').set({
+                ...settings,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedBy: user.uid
+            });
+            alert('Settings saved successfully');
+        } catch (error) {
+            console.error('Error saving settings:', error);
+            alert('Failed to save settings');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    // ========== ADD COACH ==========
+    const handleAddCoach = async () => {
+        const email = prompt('Enter coach email:');
+        const password = prompt('Enter temporary password:');
+        const firstName = prompt('First name:');
+        const lastName = prompt('Last name:');
+
+        if (!email || !password || !firstName || !lastName) return;
+
+        try {
+            const userCredential = await firebase.auth().createUserWithEmailAndPassword(email, password);
+            
+            await db.collection('users').doc(userCredential.user.uid).set({
+                email,
+                firstName,
+                lastName,
+                displayName: `${firstName} ${lastName}`,
+                role: 'coach',
+                active: true,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: user.uid
+            });
+
+            await loadAllSettings();
+            alert('Coach added successfully');
+        } catch (error) {
+            console.error('Error adding coach:', error);
+            alert('Failed to add coach: ' + error.message);
+        }
+    };
+
+    // ========== ADD PIR ==========
+    const handleAddPIR = async () => {
+        const email = prompt('Enter PIR email:');
+        const password = prompt('Enter temporary password:');
+        const firstName = prompt('First name:');
+        const lastName = prompt('Last name:');
+        const coachId = prompt('Assign to coach ID (optional):');
+
+        if (!email || !password || !firstName || !lastName) return;
+
+        try {
+            const userCredential = await firebase.auth().createUserWithEmailAndPassword(email, password);
+            
+            await db.collection('users').doc(userCredential.user.uid).set({
+                email,
+                firstName,
+                lastName,
+                displayName: `${firstName} ${lastName}`,
+                role: 'pir',
+                active: true,
+                assignedCoach: coachId || null,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: user.uid
+            });
+
+            await loadAllSettings();
+            alert('PIR added successfully');
+        } catch (error) {
+            console.error('Error adding PIR:', error);
+            alert('Failed to add PIR: ' + error.message);
+        }
+    };
+
+    // ========== REMOVE USER ==========
+    const handleRemoveUser = async (userId, role) => {
+        if (!confirm(`Are you sure you want to remove this ${role}?`)) return;
+
+        try {
+            await db.collection('users').doc(userId).update({
+                active: false,
+                deactivatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                deactivatedBy: user.uid
+            });
+
+            await loadAllSettings();
+            alert(`${role} removed successfully`);
+        } catch (error) {
+            console.error('Error removing user:', error);
+            alert('Failed to remove user');
+        }
+    };
+
+    // ========== ASSIGN COACH ==========
+    const handleAssignCoach = async (pirId) => {
+        const coachId = prompt('Enter coach ID to assign:');
+        if (!coachId) return;
+
+        try {
+            await db.collection('users').doc(pirId).update({
+                assignedCoach: coachId,
+                assignedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            await loadAllSettings();
+            alert('Coach assigned successfully');
+        } catch (error) {
+            console.error('Error assigning coach:', error);
+            alert('Failed to assign coach');
+        }
+    };
+
+    // ========== CHANGE COACH ==========
+    const handleChangeCoach = async (pirId, currentCoachId) => {
+        const newCoachId = prompt('Enter new coach ID:', currentCoachId);
+        if (!newCoachId) return;
+
+        try {
+            await db.collection('users').doc(pirId).update({
+                assignedCoach: newCoachId,
+                coachChangedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            await loadAllSettings();
+            alert('Coach changed successfully');
+        } catch (error) {
+            console.error('Error changing coach:', error);
+            alert('Failed to change coach');
+        }
+    };
+
+    // ========== UPDATE PERMISSIONS ==========
+    const updatePermissions = async (userId, permissionType, value) => {
+        try {
+            const updatedPermissions = {
+                ...permissions,
+                [userId]: {
+                    ...permissions[userId],
+                    [permissionType]: value
+                }
+            };
+
+            await db.collection('settings').doc('permissions').set(updatedPermissions);
+            setPermissions(updatedPermissions);
+            alert('Permissions updated');
+        } catch (error) {
+            console.error('Error updating permissions:', error);
+            alert('Failed to update permissions');
+        }
+    };
+
+    // ========== DATA EXPORT ==========
+    const handleDataExport = async (format, scope, dataType) => {
+        try {
+            let data = {};
+
+            if (scope === 'all') {
+                const collections = ['users', 'checkIns', 'assignments', 'alerts', 'messages', 'goals', 'feedback', 'activities', 'notifications'];
+                
+                for (const collection of collections) {
+                    const snapshot = await db.collection(collection).get();
+                    data[collection] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                }
+            } else if (scope === 'specific_pir') {
+                const pirId = prompt('Enter PIR ID:');
+                if (!pirId) return;
+
+                const pirDoc = await db.collection('users').doc(pirId).get();
+                if (!pirDoc.exists) {
+                    alert('PIR not found');
+                    return;
+                }
+
+                data.pir = { id: pirDoc.id, ...pirDoc.data() };
+                
+                const [checkIns, assignments, goals, alerts, messages] = await Promise.all([
+                    db.collection('checkIns').where('userId', '==', pirId).get(),
+                    db.collection('assignments').where('userId', '==', pirId).get(),
+                    db.collection('goals').where('userId', '==', pirId).get(),
+                    db.collection('alerts').where('userId', '==', pirId).get(),
+                    db.collection('messages').where('senderId', '==', pirId).get()
+                ]);
+
+                data.checkIns = checkIns.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                data.assignments = assignments.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                data.goals = goals.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                data.alerts = alerts.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                data.messages = messages.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            } else if (scope === 'data_type') {
+                const snapshot = await db.collection(dataType).get();
+                data[dataType] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            }
+
+            const fileName = `glrs_export_${scope}_${new Date().toISOString().split('T')[0]}`;
+
+            if (format === 'json') {
+                exportToJSON(data, fileName);
+            } else if (format === 'csv') {
+                exportToCSV(data, fileName);
+            } else if (format === 'pdf') {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                doc.text('Data Export', 20, 20);
+                doc.text(JSON.stringify(data, null, 2).substring(0, 1000), 20, 30);
+                doc.save(`${fileName}.pdf`);
+            }
+
+            alert('Export completed successfully');
+        } catch (error) {
+            console.error('Error exporting data:', error);
+            alert('Export failed: ' + error.message);
+        }
+    };
+
+    // ========== LOADING STATE ==========
+    if (loading) {
+        return (
+            <div className="loading-container">
+                <div className="loading-spinner"></div>
+            </div>
+        );
+    }
+
+    // ========== RETURN JSX ==========
+    return (
+        <div style={{ display: 'flex', gap: '20px', minHeight: '100vh' }}>
+            {/* SIDEBAR NAVIGATION */}
+            <div style={{
+                width: '280px',
+                background: 'linear-gradient(180deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.05) 100%)',
+                borderRadius: '20px',
+                padding: '30px 20px',
+                backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(255,255,255,0.1)'
+            }}>
+                <h3 style={{ 
+                    marginBottom: '30px', 
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    fontSize: '24px',
+                    fontWeight: 'bold'
+                }}>Settings</h3>
+                
+                {[
+                    { id: 'notifications', icon: '🔔', label: 'Notifications' },
+                    { id: 'checkins', icon: '✅', label: 'Check-ins' },
+                    { id: 'alerts', icon: '⚠️', label: 'Alert Thresholds' },
+                    { id: 'dataExport', icon: '📥', label: 'Data Export' },
+                    { id: 'userManagement', icon: '👥', label: 'User Management' },
+                    { id: 'permissions', icon: '🔐', label: 'Permissions' },
+                    { id: 'integrations', icon: '🔌', label: 'Integrations' },
+                    { id: 'system', icon: '⚙️', label: 'System Config' }
+                ].map(section => (
+                    <div
+                        key={section.id}
+                        onClick={() => setActiveSection(section.id)}
+                        style={{
+                            padding: '16px 20px',
+                            borderRadius: '12px',
+                            cursor: 'pointer',
+                            background: activeSection === section.id 
+                                ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                                : 'transparent',
+                            marginBottom: '8px',
+                            transition: 'all 0.3s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            transform: activeSection === section.id ? 'translateX(5px)' : 'translateX(0)',
+                            boxShadow: activeSection === section.id ? '0 8px 16px rgba(102, 126, 234, 0.3)' : 'none'
+                        }}
+                    >
+                        <span style={{ fontSize: '20px' }}>{section.icon}</span>
+                        <span style={{ fontWeight: activeSection === section.id ? 'bold' : 'normal' }}>
+                            {section.label}
+                        </span>
+                    </div>
+                ))}
+            </div>
+
+            {/* MAIN CONTENT */}
+            <div style={{ flex: 1 }}>
+                {/* NOTIFICATIONS SECTION */}
+                {activeSection === 'notifications' && (
+                    <div className="table-container" style={{
+                        background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '20px',
+                        padding: '30px'
+                    }}>
+                        <h3 style={{ 
+                            marginBottom: '30px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            fontSize: '28px'
+                        }}>Notification Settings</h3>
+
+                        <div style={{ marginBottom: '40px' }}>
+                            <h4 style={{ marginBottom: '20px', color: '#667eea' }}>Email Notifications</h4>
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="emailNotifications"
+                                    checked={settings.emailNotifications}
+                                    onChange={(e) => setSettings({...settings, emailNotifications: e.target.checked})}
+                                />
+                                <label htmlFor="emailNotifications">Enable Email Notifications</label>
+                            </div>
+
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="sosAlertEmail"
+                                    checked={settings.sosAlertEmail}
+                                    onChange={(e) => setSettings({...settings, sosAlertEmail: e.target.checked})}
+                                />
+                                <label htmlFor="sosAlertEmail">SOS Alert Emails</label>
+                            </div>
+
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="dailyDigest"
+                                    checked={settings.dailyDigest}
+                                    onChange={(e) => setSettings({...settings, dailyDigest: e.target.checked})}
+                                />
+                                <label htmlFor="dailyDigest">Daily Summary Digest</label>
+                            </div>
+
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="weeklyReport"
+                                    checked={settings.weeklyReport}
+                                    onChange={(e) => setSettings({...settings, weeklyReport: e.target.checked})}
+                                />
+                                <label htmlFor="weeklyReport">Weekly Report</label>
+                            </div>
+
+                            <div style={{
+                                marginTop: '25px',
+                                padding: '20px',
+                                background: 'linear-gradient(135deg, rgba(255,193,7,0.1) 0%, rgba(255,152,0,0.1) 100%)',
+                                borderRadius: '12px',
+                                border: '1px solid rgba(255,193,7,0.3)'
+                            }}>
+                                <h5 style={{ color: '#FFC107', marginBottom: '10px' }}>🚧 Coming Soon: Gmail Integration</h5>
+                                <p style={{ fontSize: '0.9em', color: '#ccc', margin: 0 }}>
+                                    Connect your Gmail account to send notifications directly from your email.
+                                </p>
+                            </div>
+
+                            <div style={{
+                                marginTop: '15px',
+                                padding: '20px',
+                                background: 'linear-gradient(135deg, rgba(255,193,7,0.1) 0%, rgba(255,152,0,0.1) 100%)',
+                                borderRadius: '12px',
+                                border: '1px solid rgba(255,193,7,0.3)'
+                            }}>
+                                <h5 style={{ color: '#FFC107', marginBottom: '10px' }}>🚧 Coming Soon: Google Calendar Integration</h5>
+                                <p style={{ fontSize: '0.9em', color: '#ccc', margin: 0 }}>
+                                    Sync sessions and reminders with Google Calendar.
+                                </p>
+                            </div>
+
+                            <div style={{
+                                marginTop: '15px',
+                                padding: '20px',
+                                background: 'linear-gradient(135deg, rgba(255,193,7,0.1) 0%, rgba(255,152,0,0.1) 100%)',
+                                borderRadius: '12px',
+                                border: '1px solid rgba(255,193,7,0.3)'
+                            }}>
+                                <h5 style={{ color: '#FFC107', marginBottom: '10px' }}>🚧 Coming Soon: Google Drive Integration</h5>
+                                <p style={{ fontSize: '0.9em', color: '#ccc', margin: 0 }}>
+                                    Automatically backup reports and documents to Google Drive.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: '40px' }}>
+                            <h4 style={{ marginBottom: '20px', color: '#667eea' }}>SMS Notifications</h4>
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="smsNotifications"
+                                    checked={settings.smsNotifications}
+                                    onChange={(e) => setSettings({...settings, smsNotifications: e.target.checked})}
+                                />
+                                <label htmlFor="smsNotifications">Enable SMS Notifications</label>
+                            </div>
+
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="sosAlertSMS"
+                                    checked={settings.sosAlertSMS}
+                                    onChange={(e) => setSettings({...settings, sosAlertSMS: e.target.checked})}
+                                />
+                                <label htmlFor="sosAlertSMS">SOS Alert SMS</label>
+                            </div>
+
+                            <div style={{
+                                marginTop: '25px',
+                                padding: '20px',
+                                background: 'linear-gradient(135deg, rgba(255,193,7,0.1) 0%, rgba(255,152,0,0.1) 100%)',
+                                borderRadius: '12px',
+                                border: '1px solid rgba(255,193,7,0.3)'
+                            }}>
+                                <h5 style={{ color: '#FFC107', marginBottom: '10px' }}>🚧 Coming Soon: Phone Number Setup</h5>
+                                <p style={{ fontSize: '0.9em', color: '#ccc', margin: 0 }}>
+                                    Add and verify phone numbers for SMS notifications.
+                                </p>
+                            </div>
+
+                            <div style={{
+                                marginTop: '15px',
+                                padding: '20px',
+                                background: 'linear-gradient(135deg, rgba(255,193,7,0.1) 0%, rgba(255,152,0,0.1) 100%)',
+                                borderRadius: '12px',
+                                border: '1px solid rgba(255,193,7,0.3)'
+                            }}>
+                                <h5 style={{ color: '#FFC107', marginBottom: '10px' }}>🚧 Coming Soon: Twilio SMS Integration</h5>
+                                <p style={{ fontSize: '0.9em', color: '#ccc', margin: 0 }}>
+                                    Configure Twilio for SMS delivery.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div style={{
+                            marginTop: '25px',
+                            padding: '20px',
+                            background: 'linear-gradient(135deg, rgba(255,193,7,0.1) 0%, rgba(255,152,0,0.1) 100%)',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255,193,7,0.3)'
+                        }}>
+                            <h5 style={{ color: '#FFC107', marginBottom: '10px' }}>🚧 Coming Soon: Two-Factor Authentication</h5>
+                            <p style={{ fontSize: '0.9em', color: '#ccc', margin: 0 }}>
+                                Enable 2FA for enhanced security.
+                            </p>
+                        </div>
+
+                        <button className="btn btn-primary" onClick={saveSettings} disabled={saving} style={{ 
+                            marginTop: '30px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            border: 'none',
+                            padding: '14px 32px',
+                            fontSize: '16px',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            transition: 'transform 0.2s',
+                            boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)'
+                        }}>
+                            {saving ? 'Saving...' : 'Save Notification Settings'}
+                        </button>
+                    </div>
+                )}
+
+                {/* CHECK-IN SETTINGS */}
+                {activeSection === 'checkins' && (
+                    <div className="table-container" style={{
+                        background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '20px',
+                        padding: '30px'
+                    }}>
+                        <h3 style={{ 
+                            marginBottom: '30px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            fontSize: '28px'
+                        }}>Check-in Settings</h3>
+
+                        <div className="form-group" style={{ marginBottom: '25px' }}>
+                            <label className="form-label" style={{ color: '#667eea', fontWeight: 'bold' }}>Morning Check-in Reminder Time</label>
+                            <input
+                                type="time"
+                                className="form-input"
+                                value={settings.checkInReminderTime}
+                                onChange={(e) => setSettings({...settings, checkInReminderTime: e.target.value})}
+                                style={{
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    color: '#fff',
+                                    width: '100%'
+                                }}
+                            />
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '25px' }}>
+                            <label className="form-label" style={{ color: '#667eea', fontWeight: 'bold' }}>Evening Reflection Reminder Time</label>
+                            <input
+                                type="time"
+                                className="form-input"
+                                value={settings.eveningReminderTime}
+                                onChange={(e) => setSettings({...settings, eveningReminderTime: e.target.value})}
+                                style={{
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    color: '#fff',
+                                    width: '100%'
+                                }}
+                            />
+                        </div>
+
+                        <div className="checkbox-group">
+                            <input
+                                type="checkbox"
+                                id="missedCheckInAlert"
+                                checked={settings.missedCheckInAlert}
+                                onChange={(e) => setSettings({...settings, missedCheckInAlert: e.target.checked})}
+                            />
+                            <label htmlFor="missedCheckInAlert">Alert on Missed Check-ins</label>
+                        </div>
+
+                        <button className="btn btn-primary" onClick={saveSettings} disabled={saving} style={{ 
+                            marginTop: '30px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            border: 'none',
+                            padding: '14px 32px',
+                            fontSize: '16px',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            transition: 'transform 0.2s',
+                            boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)'
+                        }}>
+                            {saving ? 'Saving...' : 'Save Check-in Settings'}
+                        </button>
+                    </div>
+                )}
+
+                {/* ALERT THRESHOLDS */}
+                {activeSection === 'alerts' && (
+                    <div className="table-container" style={{
+                        background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '20px',
+                        padding: '30px'
+                    }}>
+                        <h3 style={{ 
+                            marginBottom: '30px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            fontSize: '28px'
+                        }}>Alert Thresholds</h3>
+
+                        <div className="form-group" style={{ marginBottom: '25px' }}>
+                            <label className="form-label" style={{ color: '#667eea', fontWeight: 'bold' }}>Low Mood Threshold (1-10)</label>
+                            <input
+                                type="number"
+                                className="form-input"
+                                min="1"
+                                max="10"
+                                value={settings.lowMoodThreshold}
+                                onChange={(e) => setSettings({...settings, lowMoodThreshold: parseInt(e.target.value)})}
+                                style={{
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    color: '#fff',
+                                    width: '100%'
+                                }}
+                            />
+                            <small style={{ color: '#999', marginTop: '5px', display: 'block' }}>Alert when mood is at or below this value</small>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '25px' }}>
+                            <label className="form-label" style={{ color: '#667eea', fontWeight: 'bold' }}>High Craving Threshold (1-10)</label>
+                            <input
+                                type="number"
+                                className="form-input"
+                                min="1"
+                                max="10"
+                                value={settings.highCravingThreshold}
+                                onChange={(e) => setSettings({...settings, highCravingThreshold: parseInt(e.target.value)})}
+                                style={{
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    color: '#fff',
+                                    width: '100%'
+                                }}
+                            />
+                            <small style={{ color: '#999', marginTop: '5px', display: 'block' }}>Alert when cravings are at or above this value</small>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '25px' }}>
+                            <label className="form-label" style={{ color: '#667eea', fontWeight: 'bold' }}>High Anxiety Threshold (1-10)</label>
+                            <input
+                                type="number"
+                                className="form-input"
+                                min="1"
+                                max="10"
+                                value={settings.highAnxietyThreshold}
+                                onChange={(e) => setSettings({...settings, highAnxietyThreshold: parseInt(e.target.value)})}
+                                style={{
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    color: '#fff',
+                                    width: '100%'
+                                }}
+                            />
+                            <small style={{ color: '#999', marginTop: '5px', display: 'block' }}>Alert when anxiety is at or above this value</small>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '25px' }}>
+                            <label className="form-label" style={{ color: '#667eea', fontWeight: 'bold' }}>Poor Sleep Threshold (1-10)</label>
+                            <input
+                                type="number"
+                                className="form-input"
+                                min="1"
+                                max="10"
+                                value={settings.poorSleepThreshold}
+                                onChange={(e) => setSettings({...settings, poorSleepThreshold: parseInt(e.target.value)})}
+                                style={{
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    color: '#fff',
+                                    width: '100%'
+                                }}
+                            />
+                            <small style={{ color: '#999', marginTop: '5px', display: 'block' }}>Alert when sleep quality is at or below this value</small>
+                        </div>
+
+                        <button className="btn btn-primary" onClick={saveSettings} disabled={saving} style={{ 
+                            marginTop: '30px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            border: 'none',
+                            padding: '14px 32px',
+                            fontSize: '16px',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            transition: 'transform 0.2s',
+                            boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)'
+                        }}>
+                            {saving ? 'Saving...' : 'Save Alert Settings'}
+                        </button>
+                    </div>
+                )}
+
+                {/* DATA EXPORT */}
+                {activeSection === 'dataExport' && (
+                    <div className="table-container" style={{
+                        background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '20px',
+                        padding: '30px'
+                    }}>
+                        <h3 style={{ 
+                            marginBottom: '30px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            fontSize: '28px'
+                        }}>Data Export</h3>
+
+                        <div style={{ marginBottom: '40px' }}>
+                            <h4 style={{ marginBottom: '20px', color: '#667eea' }}>Export All User Data</h4>
+                            <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                                <button className="btn btn-secondary" onClick={() => handleDataExport('json', 'all')} style={{
+                                    background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                                    border: 'none',
+                                    padding: '12px 24px',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    transition: 'transform 0.2s'
+                                }}>
+                                    📄 Export as JSON
+                                </button>
+                                <button className="btn btn-secondary" onClick={() => handleDataExport('csv', 'all')} style={{
+                                    background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                                    border: 'none',
+                                    padding: '12px 24px',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    transition: 'transform 0.2s'
+                                }}>
+                                    📊 Export as Spreadsheet
+                                </button>
+                                <button className="btn btn-secondary" onClick={() => handleDataExport('pdf', 'all')} style={{
+                                    background: 'linear-gradient(135deg, #f44336 0%, #d32f2f 100%)',
+                                    border: 'none',
+                                    padding: '12px 24px',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    transition: 'transform 0.2s'
+                                }}>
+                                    📑 Export as PDF
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: '40px' }}>
+                            <h4 style={{ marginBottom: '20px', color: '#667eea' }}>Export Specific PIR Data</h4>
+                            <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                                <button className="btn btn-secondary" onClick={() => handleDataExport('json', 'specific_pir')} style={{
+                                    background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                                    border: 'none',
+                                    padding: '12px 24px',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    transition: 'transform 0.2s'
+                                }}>
+                                    📄 Export as JSON
+                                </button>
+                                <button className="btn btn-secondary" onClick={() => handleDataExport('csv', 'specific_pir')} style={{
+                                    background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                                    border: 'none',
+                                    padding: '12px 24px',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    transition: 'transform 0.2s'
+                                }}>
+                                    📊 Export as Spreadsheet
+                                </button>
+                                <button className="btn btn-secondary" onClick={() => handleDataExport('pdf', 'specific_pir')} style={{
+                                    background: 'linear-gradient(135deg, #f44336 0%, #d32f2f 100%)',
+                                    border: 'none',
+                                    padding: '12px 24px',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    transition: 'transform 0.2s'
+                                }}>
+                                    📑 Export as PDF
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: '40px' }}>
+                            <h4 style={{ marginBottom: '20px', color: '#667eea' }}>Export by Data Type</h4>
+                            <select 
+                                className="form-input" 
+                                onChange={(e) => {
+                                    if (e.target.value) {
+                                        const format = prompt('Export format? (json/csv/pdf)');
+                                        if (format) handleDataExport(format, 'data_type', e.target.value);
+                                    }
+                                }}
+                                defaultValue=""
+                                style={{
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    color: '#fff',
+                                    width: '100%',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <option value="">Select data type...</option>
+                                <option value="checkIns">Check-ins</option>
+                                <option value="messages">Messages</option>
+                                <option value="assignments">Assignments</option>
+                                <option value="goals">Goals</option>
+                                <option value="alerts">Alerts</option>
+                                <option value="feedback">Feedback</option>
+                                <option value="activities">Activities</option>
+                                <option value="notifications">Notifications</option>
+                            </select>
+                        </div>
+
+                        <div style={{ marginTop: '40px' }}>
+                            <h4 style={{ marginBottom: '20px', color: '#667eea' }}>Automated Exports</h4>
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="autoBackup"
+                                    checked={settings.autoBackupEnabled}
+                                    onChange={(e) => setSettings({...settings, autoBackupEnabled: e.target.checked})}
+                                />
+                                <label htmlFor="autoBackup">Enable Automatic Backups</label>
+                            </div>
+
+                            <div className="form-group" style={{ marginTop: '20px' }}>
+                                <label className="form-label" style={{ color: '#667eea', fontWeight: 'bold' }}>Backup Frequency</label>
+                                <select
+                                    className="form-input"
+                                    value={settings.backupFrequency}
+                                    onChange={(e) => setSettings({...settings, backupFrequency: e.target.value})}
+                                    style={{
+                                        background: 'rgba(255,255,255,0.05)',
+                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        borderRadius: '8px',
+                                        padding: '12px',
+                                        color: '#fff',
+                                        width: '100%',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                    <option value="monthly">Monthly</option>
+                                </select>
+                            </div>
+
+                            <button className="btn btn-primary" onClick={saveSettings} disabled={saving} style={{ 
+                                marginTop: '30px',
+                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                border: 'none',
+                                padding: '14px 32px',
+                                fontSize: '16px',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                transition: 'transform 0.2s',
+                                boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)'
+                            }}>
+                                {saving ? 'Saving...' : 'Save Export Settings'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* USER MANAGEMENT */}
+                {activeSection === 'userManagement' && (
+                    <div className="table-container" style={{
+                        background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '20px',
+                        padding: '30px'
+                    }}>
+                        <h3 style={{ 
+                            marginBottom: '30px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            fontSize: '28px'
+                        }}>User Management</h3>
+
+                        <div style={{ marginBottom: '40px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <h4 style={{ color: '#667eea' }}>Coaches ({coaches.filter(c => c.active !== false).length})</h4>
+                                <button className="btn btn-primary" onClick={handleAddCoach} style={{
+                                    background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                                    border: 'none',
+                                    padding: '10px 20px',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer'
+                                }}>+ Add Coach</button>
+                            </div>
+
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '2px solid rgba(102, 126, 234, 0.3)' }}>
+                                        <th style={{ padding: '15px', textAlign: 'left', color: '#667eea' }}>Name</th>
+                                        <th style={{ padding: '15px', textAlign: 'left', color: '#667eea' }}>Email</th>
+                                        <th style={{ padding: '15px', textAlign: 'left', color: '#667eea' }}>Assigned PIRs</th>
+                                        <th style={{ padding: '15px', textAlign: 'left', color: '#667eea' }}>Status</th>
+                                        <th style={{ padding: '15px', textAlign: 'left', color: '#667eea' }}>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {coaches.map(coach => (
+                                        <tr key={coach.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                                            <td style={{ padding: '15px' }}>{coach.displayName}</td>
+                                            <td style={{ padding: '15px' }}>{coach.email}</td>
+                                            <td style={{ padding: '15px' }}>{pirs.filter(p => p.assignedCoach === coach.id).length}</td>
+                                            <td style={{ padding: '15px' }}>
+                                                <span className={`badge ${coach.active !== false ? 'badge-success' : 'badge-danger'}`} style={{
+                                                    padding: '6px 12px',
+                                                    borderRadius: '6px',
+                                                    fontSize: '0.85em',
+                                                    background: coach.active !== false ? 'linear-gradient(135deg, #4CAF50, #45a049)' : 'linear-gradient(135deg, #f44336, #d32f2f)'
+                                                }}>
+                                                    {coach.active !== false ? 'Active' : 'Inactive'}
+                                                </span>
+                                            </td>
+                                            <td style={{ padding: '15px' }}>
+                                                <button 
+                                                    className="action-btn"
+                                                    onClick={() => handleRemoveUser(coach.id, 'coach')}
+                                                    style={{
+                                                        background: 'linear-gradient(135deg, #f44336, #d32f2f)',
+                                                        border: 'none',
+                                                        padding: '8px 16px',
+                                                        borderRadius: '6px',
+                                                        cursor: 'pointer',
+                                                        color: '#fff'
+                                                    }}
+                                                >
+                                                    Remove
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <h4 style={{ color: '#667eea' }}>PIRs ({pirs.filter(p => p.active !== false).length})</h4>
+                                <button className="btn btn-primary" onClick={handleAddPIR} style={{
+                                    background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                                    border: 'none',
+                                    padding: '10px 20px',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer'
+                                }}>+ Add PIR</button>
+                            </div>
+
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '2px solid rgba(102, 126, 234, 0.3)' }}>
+                                        <th style={{ padding: '15px', textAlign: 'left', color: '#667eea' }}>Name</th>
+                                        <th style={{ padding: '15px', textAlign: 'left', color: '#667eea' }}>Email</th>
+                                        <th style={{ padding: '15px', textAlign: 'left', color: '#667eea' }}>Assigned Coach</th>
+                                        <th style={{ padding: '15px', textAlign: 'left', color: '#667eea' }}>Status</th>
+                                        <th style={{ padding: '15px', textAlign: 'left', color: '#667eea' }}>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {pirs.map(pir => {
+                                        const assignedCoach = coaches.find(c => c.id === pir.assignedCoach);
+                                        return (
+                                            <tr key={pir.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                                                <td style={{ padding: '15px' }}>{pir.displayName}</td>
+                                                <td style={{ padding: '15px' }}>{pir.email}</td>
+                                                <td style={{ padding: '15px' }}>
+                                                    {assignedCoach ? assignedCoach.displayName : 'Unassigned'}
+                                                </td>
+                                                <td style={{ padding: '15px' }}>
+                                                    <span className={`badge ${pir.active !== false ? 'badge-success' : 'badge-danger'}`} style={{
+                                                        padding: '6px 12px',
+                                                        borderRadius: '6px',
+                                                        fontSize: '0.85em',
+                                                        background: pir.active !== false ? 'linear-gradient(135deg, #4CAF50, #45a049)' : 'linear-gradient(135deg, #f44336, #d32f2f)'
+                                                    }}>
+                                                        {pir.active !== false ? 'Active' : 'Inactive'}
+                                                    </span>
+                                                </td>
+                                                <td style={{ padding: '15px' }}>
+                                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                                        {!pir.assignedCoach ? (
+                                                            <button 
+                                                                className="action-btn"
+                                                                onClick={() => handleAssignCoach(pir.id)}
+                                                                style={{
+                                                                    background: 'linear-gradient(135deg, #2196F3, #1976D2)',
+                                                                    border: 'none',
+                                                                    padding: '8px 16px',
+                                                                    borderRadius: '6px',
+                                                                    cursor: 'pointer',
+                                                                    color: '#fff'
+                                                                }}
+                                                            >
+                                                                Assign Coach
+                                                            </button>
+                                                        ) : (
+                                                            <button 
+                                                                className="action-btn"
+                                                                onClick={() => handleChangeCoach(pir.id, pir.assignedCoach)}
+                                                                style={{
+                                                                    background: 'linear-gradient(135deg, #FF9800, #F57C00)',
+                                                                    border: 'none',
+                                                                    padding: '8px 16px',
+                                                                    borderRadius: '6px',
+                                                                    cursor: 'pointer',
+                                                                    color: '#fff'
+                                                                }}
+                                                            >
+                                                                Change Coach
+                                                            </button>
+                                                        )}
+                                                        <button 
+                                                            className="action-btn"
+                                                            onClick={() => handleRemoveUser(pir.id, 'pir')}
+                                                            style={{
+                                                                background: 'linear-gradient(135deg, #f44336, #d32f2f)',
+                                                                border: 'none',
+                                                                padding: '8px 16px',
+                                                                borderRadius: '6px',
+                                                                cursor: 'pointer',
+                                                                color: '#fff'
+                                                            }}
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
+                {/* PERMISSIONS */}
+                {activeSection === 'permissions' && (
+                    <div className="table-container" style={{
+                        background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '20px',
+                        padding: '30px'
+                    }}>
+                        <h3 style={{ 
+                            marginBottom: '30px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            fontSize: '28px'
+                        }}>Permission Levels</h3>
+
+                        <div style={{ 
+                            marginBottom: '40px',
+                            padding: '25px',
+                            background: 'linear-gradient(135deg, rgba(76, 175, 80, 0.1) 0%, rgba(67, 160, 71, 0.1) 100%)',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(76, 175, 80, 0.3)'
+                        }}>
+                            <h4 style={{ color: '#4CAF50', marginBottom: '15px' }}>Admin Permissions</h4>
+                            <p style={{ color: '#ccc', fontSize: '0.95em', marginBottom: '15px' }}>
+                                Admins have full system access including:
+                            </p>
+                            <ul style={{ color: '#ccc', lineHeight: '1.8', paddingLeft: '25px' }}>
+                                <li>Full access to all PIR data</li>
+                                <li>Create/edit/delete users (PIRs, coaches, admins)</li>
+                                <li>Assign and reassign PIRs to coaches</li>
+                                <li>Access all reports and analytics</li>
+                                <li>Modify system settings</li>
+                                <li>Manage resources and assignments</li>
+                                <li>Export all data</li>
+                                <li>Can function as coaches (assigned PIRs)</li>
+                            </ul>
+                        </div>
+
+                        <div style={{ 
+                            marginBottom: '40px',
+                            padding: '25px',
+                            background: 'linear-gradient(135deg, rgba(33, 150, 243, 0.1) 0%, rgba(25, 118, 210, 0.1) 100%)',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(33, 150, 243, 0.3)'
+                        }}>
+                            <h4 style={{ color: '#2196F3', marginBottom: '15px' }}>Coach Permissions</h4>
+                            <p style={{ color: '#ccc', fontSize: '0.95em', marginBottom: '15px' }}>
+                                Coaches have limited access to only their assigned PIRs:
+                            </p>
+                            <ul style={{ color: '#ccc', lineHeight: '1.8', paddingLeft: '25px' }}>
+                                <li>View and manage only assigned PIRs</li>
+                                <li>Create assignments for assigned PIRs</li>
+                                <li>View check-ins and alerts for assigned PIRs</li>
+                                <li>Message assigned PIRs</li>
+                                <li>Generate reports for assigned PIRs only</li>
+                                <li>Cannot access system settings</li>
+                                <li>Cannot create/delete users</li>
+                                <li>Cannot export global data</li>
+                            </ul>
+                        </div>
+
+                        <div>
+                            <h4 style={{ marginBottom: '20px', color: '#667eea' }}>Custom Permissions (Individual Override)</h4>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '2px solid rgba(102, 126, 234, 0.3)' }}>
+                                        <th style={{ padding: '15px', textAlign: 'left', color: '#667eea' }}>User</th>
+                                        <th style={{ padding: '15px', textAlign: 'left', color: '#667eea' }}>Role</th>
+                                        <th style={{ padding: '15px', textAlign: 'center', color: '#667eea' }}>Create Assignments</th>
+                                        <th style={{ padding: '15px', textAlign: 'center', color: '#667eea' }}>Delete Data</th>
+                                        <th style={{ padding: '15px', textAlign: 'center', color: '#667eea' }}>Export Data</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {coaches.map(coach => (
+                                        <tr key={coach.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                                            <td style={{ padding: '15px' }}>{coach.displayName}</td>
+                                            <td style={{ padding: '15px' }}>
+                                                <span style={{
+                                                    padding: '4px 12px',
+                                                    borderRadius: '6px',
+                                                    fontSize: '0.85em',
+                                                    background: coach.role === 'admin' ? 'linear-gradient(135deg, #4CAF50, #45a049)' : 'linear-gradient(135deg, #2196F3, #1976D2)'
+                                                }}>
+                                                    {coach.role}
+                                                </span>
+                                            </td>
+                                            <td style={{ padding: '15px', textAlign: 'center' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={permissions[coach.id]?.canCreateAssignments !== false}
+                                                    onChange={(e) => updatePermissions(coach.id, 'canCreateAssignments', e.target.checked)}
+                                                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                                />
+                                            </td>
+                                            <td style={{ padding: '15px', textAlign: 'center' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={permissions[coach.id]?.canDelete === true}
+                                                    onChange={(e) => updatePermissions(coach.id, 'canDelete', e.target.checked)}
+                                                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                                />
+                                            </td>
+                                            <td style={{ padding: '15px', textAlign: 'center' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={permissions[coach.id]?.canExport === true}
+                                                    onChange={(e) => updatePermissions(coach.id, 'canExport', e.target.checked)}
+                                                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                                />
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
+                {/* INTEGRATIONS */}
+                {activeSection === 'integrations' && (
+                    <div className="table-container" style={{
+                        background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '20px',
+                        padding: '30px'
+                    }}>
+                        <h3 style={{ 
+                            marginBottom: '30px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            fontSize: '28px'
+                        }}>Integrations</h3>
+
+                        <div style={{
+                            padding: '25px',
+                            background: 'linear-gradient(135deg, rgba(255,193,7,0.1) 0%, rgba(255,152,0,0.1) 100%)',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255,193,7,0.3)',
+                            marginBottom: '20px'
+                        }}>
+                            <h4 style={{ color: '#FFC107', marginBottom: '15px' }}>🚧 Coming Soon: Carepatron Webhook</h4>
+                            <p style={{ color: '#ccc', margin: 0 }}>
+                                Automatically sync session data with Carepatron practice management system.
+                            </p>
+                        </div>
+
+                        <div style={{
+                            padding: '25px',
+                            background: 'linear-gradient(135deg, rgba(255,193,7,0.1) 0%, rgba(255,152,0,0.1) 100%)',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255,193,7,0.3)',
+                            marginBottom: '20px'
+                        }}>
+                            <h4 style={{ color: '#FFC107', marginBottom: '15px' }}>🚧 Coming Soon: Google Calendar Sync</h4>
+                            <p style={{ color: '#ccc', margin: 0 }}>
+                                Two-way sync of sessions, meetings, and reminders with Google Calendar.
+                            </p>
+                        </div>
+
+                        <div style={{
+                            padding: '25px',
+                            background: 'linear-gradient(135deg, rgba(255,193,7,0.1) 0%, rgba(255,152,0,0.1) 100%)',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255,193,7,0.3)',
+                            marginBottom: '20px'
+                        }}>
+                            <h4 style={{ color: '#FFC107', marginBottom: '15px' }}>🚧 Coming Soon: Email Service Provider</h4>
+                            <p style={{ color: '#ccc', margin: 0 }}>
+                                Configure SendGrid or Mailgun for professional email delivery.
+                            </p>
+                        </div>
+
+                        <div style={{
+                            padding: '25px',
+                            background: 'linear-gradient(135deg, rgba(255,193,7,0.1) 0%, rgba(255,152,0,0.1) 100%)',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255,193,7,0.3)',
+                            marginBottom: '20px'
+                        }}>
+                            <h4 style={{ color: '#FFC107', marginBottom: '15px' }}>🚧 Coming Soon: SMS Provider (Twilio)</h4>
+                            <p style={{ color: '#ccc', margin: 0 }}>
+                                Set up Twilio for SMS notifications and two-way messaging.
+                            </p>
+                        </div>
+
+                        <div style={{
+                            padding: '25px',
+                            background: 'linear-gradient(135deg, rgba(255,193,7,0.1) 0%, rgba(255,152,0,0.1) 100%)',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255,193,7,0.3)'
+                        }}>
+                            <h4 style={{ color: '#FFC107', marginBottom: '15px' }}>🚧 Coming Soon: Zapier Integration</h4>
+                            <p style={{ color: '#ccc', margin: 0 }}>
+                                Connect to 3000+ apps via Zapier for custom automation workflows.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* SYSTEM CONFIGURATION */}
+                {activeSection === 'system' && (
+                    <div className="table-container" style={{
+                        background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '20px',
+                        padding: '30px'
+                    }}>
+                        <h3 style={{ 
+                            marginBottom: '30px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            fontSize: '28px'
+                        }}>System Configuration</h3>
+
+                        <div className="form-group" style={{ marginBottom: '25px' }}>
+                            <label className="form-label" style={{ color: '#667eea', fontWeight: 'bold' }}>Timezone</label>
+                            <select
+                                className="form-input"
+                                value={settings.timezone}
+                                onChange={(e) => setSettings({...settings, timezone: e.target.value})}
+                                style={{
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    color: '#fff',
+                                    width: '100%',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                                <option value="America/Denver">Mountain Time (MT)</option>
+                                <option value="America/Chicago">Central Time (CT)</option>
+                                <option value="America/New_York">Eastern Time (ET)</option>
+                                <option value="America/Phoenix">Arizona (MST)</option>
+                                <option value="America/Anchorage">Alaska (AKT)</option>
+                                <option value="Pacific/Honolulu">Hawaii (HST)</option>
+                            </select>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '25px' }}>
+                            <label className="form-label" style={{ color: '#667eea', fontWeight: 'bold' }}>Date Format</label>
+                            <select
+                                className="form-input"
+                                value={settings.dateFormat}
+                                onChange={(e) => setSettings({...settings, dateFormat: e.target.value})}
+                                style={{
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    color: '#fff',
+                                    width: '100%',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <option value="MM/DD/YYYY">MM/DD/YYYY (US)</option>
+                                <option value="DD/MM/YYYY">DD/MM/YYYY (International)</option>
+                                <option value="YYYY-MM-DD">YYYY-MM-DD (ISO)</option>
+                            </select>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '25px' }}>
+                            <label className="form-label" style={{ color: '#667eea', fontWeight: 'bold' }}>Time Format</label>
+                            <select
+                                className="form-input"
+                                value={settings.timeFormat}
+                                onChange={(e) => setSettings({...settings, timeFormat: e.target.value})}
+                                style={{
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    color: '#fff',
+                                    width: '100%',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <option value="12h">12-hour (AM/PM)</option>
+                                <option value="24h">24-hour</option>
+                            </select>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '25px' }}>
+                            <label className="form-label" style={{ color: '#667eea', fontWeight: 'bold' }}>Language</label>
+                            <select
+                                className="form-input"
+                                value={settings.language}
+                                onChange={(e) => setSettings({...settings, language: e.target.value})}
+                                style={{
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    color: '#fff',
+                                    width: '100%',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <option value="en">English</option>
+                                <option value="es">Spanish (Coming Soon)</option>
+                                <option value="fr">French (Coming Soon)</option>
+                            </select>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '25px' }}>
+                            <label className="form-label" style={{ color: '#667eea', fontWeight: 'bold' }}>Auto-Refresh Interval</label>
+                            <select
+                                className="form-input"
+                                value={settings.autoRefresh}
+                                onChange={(e) => setSettings({...settings, autoRefresh: parseInt(e.target.value)})}
+                                style={{
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    color: '#fff',
+                                    width: '100%',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <option value="0">Manual Only</option>
+                                <option value="30">30 seconds</option>
+                                <option value="60">1 minute</option>
+                                <option value="300">5 minutes</option>
+                                <option value="600">10 minutes</option>
+                            </select>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '25px' }}>
+                            <label className="form-label" style={{ color: '#667eea', fontWeight: 'bold' }}>Data Retention (days)</label>
+                            <input
+                                type="number"
+                                className="form-input"
+                                min="90"
+                                max="2555"
+                                value={settings.dataRetentionDays}
+                                onChange={(e) => setSettings({...settings, dataRetentionDays: parseInt(e.target.value)})}
+                                style={{
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    color: '#fff',
+                                    width: '100%'
+                                }}
+                            />
+                            <small style={{ color: '#999', marginTop: '5px', display: 'block' }}>Minimum 90 days, maximum 7 years (2555 days) for HIPAA compliance</small>
+                        </div>
+
+                        <button className="btn btn-primary" onClick={saveSettings} disabled={saving} style={{ 
+                            marginTop: '30px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            border: 'none',
+                            padding: '14px 32px',
+                            fontSize: '16px',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            transition: 'transform 0.2s',
+                            boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)'
+                        }}>
+                            {saving ? 'Saving...' : 'Save System Settings'}
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
 
      
     
