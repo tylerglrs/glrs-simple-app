@@ -18092,73 +18092,7 @@ const exportReportToPDF = async (data, reportTitle) => {
     const fileName = `${reportTitle.replace(/\s+/g, '_')}_${startDate}_to_${endDate}.pdf`;
     doc.save(fileName);
 };
-    // MILESTONES REPORT - COMPLETE
-const generateMilestonesReport = async (start, end) => {
-    const [goalsSnap, milestonesSnap] = await Promise.all([
-        db.collection('goals')
-            .where('status', '==', 'completed')
-            .get(),
-        db.collection('milestones')
-            .where('achieved', '==', true)
-            .get()
-    ]);
-
-    const completedGoals = goalsSnap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(g => {
-            const completedDate = g.completedAt?.toDate ? g.completedAt.toDate() : new Date(g.completedAt);
-            return completedDate >= start && completedDate <= end;
-        });
-
-    const achievements = [];
-    
-    for (const goal of completedGoals) {
-        const userDoc = await db.collection('users').doc(goal.userId).get();
-        achievements.push({
-            pirName: userDoc.data()?.displayName || 'Unknown',
-            type: 'goal',
-            title: goal.title,
-            completedAt: goal.completedAt,
-            category: goal.category || 'general'
-        });
-    }
-
-    const achievedMilestones = milestonesSnap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(m => {
-            const achievedDate = m.achievedAt?.toDate ? m.achievedAt.toDate() : new Date(m.achievedAt);
-            return achievedDate >= start && achievedDate <= end;
-        });
-
-    for (const milestone of achievedMilestones) {
-        const userDoc = await db.collection('users').doc(milestone.userId).get();
-        achievements.push({
-            pirName: userDoc.data()?.displayName || 'Unknown',
-            type: 'milestone',
-            title: milestone.title,
-            completedAt: milestone.achievedAt,
-            category: milestone.type || 'sobriety'
-        });
-    }
-
-    const sobrietyMilestones = await getSobrietyMilestones(start, end);
-
-    return {
-        type: 'milestones',
-        achievements: achievements.sort((a, b) => {
-            const dateA = a.completedAt?.toDate ? a.completedAt.toDate() : new Date(a.completedAt);
-            const dateB = b.completedAt?.toDate ? b.completedAt.toDate() : new Date(b.completedAt);
-            return dateB - dateA;
-        }),
-        sobrietyMilestones,
-        summary: {
-            totalAchievements: achievements.length,
-            goalsCompleted: completedGoals.length,
-            milestonesAchieved: achievedMilestones.length,
-            sobrietyMilestones: sobrietyMilestones.length
-        }
-    };
-};
+   
 
 // COMMUNICATION REPORT - COMPLETE
 const generateCommunicationReport = async (start, end) => {
