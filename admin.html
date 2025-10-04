@@ -19980,6 +19980,765 @@ function SettingsView({ user }) {
         </div>
     );
 }
+    // REPORTS VIEW - COMPLETE UI RENDERING
+function ReportsView({ user }) {
+    const [reportMode, setReportMode] = useState('templates');
+    const [selectedTemplate, setSelectedTemplate] = useState('overview');
+    const [startDate, setStartDate] = useState(() => {
+        const date = new Date();
+        date.setMonth(date.getMonth() - 1);
+        return date.toISOString().split('T')[0];
+    });
+    const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+    const [reportData, setReportData] = useState(null);
+    const [loading, setLoading] = useState(false);
+    
+    const [customConfig, setCustomConfig] = useState({
+        selectedPIRs: [],
+        selectedMetrics: {
+            mood: true,
+            cravings: true,
+            anxiety: true,
+            sleep: true,
+            overallDay: true,
+            gratitude: false,
+            challenges: false,
+            goals: false
+        },
+        selectedCharts: {
+            moodVsCravings: true,
+            moodVsSobriety: true,
+            sobrietyVsCravings: true,
+            anxietyVsSleep: true,
+            goalCompletion: false,
+            checkInCompliance: true,
+            patternAnalysis: true
+        },
+        includeTables: true,
+        includePatterns: true,
+        includeSummary: true
+    });
+    const [allPIRs, setAllPIRs] = useState([]);
+
+    const REPORT_TEMPLATES = {
+        overview: { name: 'Program Overview', icon: '📊' },
+        sobriety: { name: 'Sobriety Report', icon: '🎯' },
+        morningCheckins: { name: 'Morning Check-ins', icon: '🌅' },
+        eveningReflections: { name: 'Evening Reflections', icon: '🌙' },
+        fullPIR: { name: 'Full PIR Report', icon: '📋' },
+        moodAnalysis: { name: 'Mood Analysis', icon: '😊' },
+        crisis: { name: 'Crisis & Intervention', icon: '🚨' },
+        engagement: { name: 'Engagement Report', icon: '📈' },
+        comparative: { name: 'Comparative Analysis', icon: '📊' },
+        milestones: { name: 'Milestones & Achievements', icon: '🏆' },
+        communication: { name: 'Communication Report', icon: '💬' },
+        predictive: { name: 'Predictive Risk', icon: '⚠️' }
+    };
+
+    useEffect(() => {
+        loadPIRsList();
+    }, []);
+
+    const loadPIRsList = async () => {
+        try {
+            const pirsSnap = await db.collection('users')
+                .where('role', '==', 'pir')
+                .get();
+            
+            setAllPIRs(pirsSnap.docs.map(doc => ({
+                id: doc.id,
+                name: doc.data().displayName || doc.data().email
+            })));
+        } catch (error) {
+            console.error('Error loading PIRs:', error);
+        }
+    };
+
+    // [All the report generation functions from Part 2 go here]
+    // ... (generateSobrietyReport, generateMorningCheckinsReport, etc.)
+
+    return (
+        <div>
+            {/* Header Controls */}
+            <div className="filter-bar" style={{ display: 'flex', gap: '20px', alignItems: 'center', marginBottom: '30px' }}>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        className={`btn ${reportMode === 'templates' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setReportMode('templates')}
+                    >
+                        Pre-defined Templates
+                    </button>
+                    <button
+                        className={`btn ${reportMode === 'custom' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setReportMode('custom')}
+                    >
+                        Custom Report Builder
+                    </button>
+                </div>
+
+                <div className="filter-group">
+                    <label className="filter-label">Start Date</label>
+                    <input 
+                        type="date"
+                        className="date-input"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                    />
+                </div>
+
+                <div className="filter-group">
+                    <label className="filter-label">End Date</label>
+                    <input 
+                        type="date"
+                        className="date-input"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                    />
+                </div>
+
+                <button 
+                    className="btn btn-primary"
+                    onClick={generateReport}
+                    disabled={loading}
+                    style={{ marginLeft: 'auto' }}
+                >
+                    {loading ? 'Generating...' : 'Generate Report'}
+                </button>
+            </div>
+
+            {/* TEMPLATE MODE */}
+            {reportMode === 'templates' && (
+                <div style={{ marginBottom: '30px' }}>
+                    <h3 style={{ marginBottom: '20px' }}>Select Report Template</h3>
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+                        gap: '15px'
+                    }}>
+                        {Object.entries(REPORT_TEMPLATES).map(([key, template]) => (
+                            <div
+                                key={key}
+                                onClick={() => setSelectedTemplate(key)}
+                                style={{
+                                    padding: '20px',
+                                    background: selectedTemplate === key 
+                                        ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                                        : 'rgba(255,255,255,0.05)',
+                                    borderRadius: '12px',
+                                    cursor: 'pointer',
+                                    border: selectedTemplate === key ? '2px solid #667eea' : '2px solid transparent',
+                                    transition: 'all 0.3s'
+                                }}
+                            >
+                                <div style={{ fontSize: '32px', marginBottom: '10px' }}>{template.icon}</div>
+                                <div style={{ fontWeight: 'bold' }}>{template.name}</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* CUSTOM BUILDER MODE */}
+            {reportMode === 'custom' && (
+                <div style={{ marginBottom: '30px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
+                        {/* PIR Selection */}
+                        <div className="table-container">
+                            <h4>Select PIRs</h4>
+                            <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                                {allPIRs.map(pir => (
+                                    <div key={pir.id} className="checkbox-group">
+                                        <input
+                                            type="checkbox"
+                                            id={`pir-${pir.id}`}
+                                            checked={customConfig.selectedPIRs.includes(pir.id)}
+                                            onChange={(e) => {
+                                                if (e.target.checked) {
+                                                    setCustomConfig({
+                                                        ...customConfig,
+                                                        selectedPIRs: [...customConfig.selectedPIRs, pir.id]
+                                                    });
+                                                } else {
+                                                    setCustomConfig({
+                                                        ...customConfig,
+                                                        selectedPIRs: customConfig.selectedPIRs.filter(id => id !== pir.id)
+                                                    });
+                                                }
+                                            }}
+                                        />
+                                        <label htmlFor={`pir-${pir.id}`}>{pir.name}</label>
+                                    </div>
+                                ))}
+                            </div>
+                            <button
+                                className="btn btn-secondary"
+                                onClick={() => setCustomConfig({
+                                    ...customConfig,
+                                    selectedPIRs: allPIRs.map(p => p.id)
+                                })}
+                                style={{ marginTop: '10px', width: '100%' }}
+                            >
+                                Select All PIRs
+                            </button>
+                        </div>
+
+                        {/* Metrics Selection */}
+                        <div className="table-container">
+                            <h4>Select Metrics</h4>
+                            {Object.entries(customConfig.selectedMetrics).map(([metric, checked]) => (
+                                <div key={metric} className="checkbox-group">
+                                    <input
+                                        type="checkbox"
+                                        id={`metric-${metric}`}
+                                        checked={checked}
+                                        onChange={(e) => setCustomConfig({
+                                            ...customConfig,
+                                            selectedMetrics: {
+                                                ...customConfig.selectedMetrics,
+                                                [metric]: e.target.checked
+                                            }
+                                        })}
+                                    />
+                                    <label htmlFor={`metric-${metric}`}>
+                                        {metric.charAt(0).toUpperCase() + metric.slice(1).replace(/([A-Z])/g, ' $1')}
+                                    </label>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Charts Selection */}
+                        <div className="table-container">
+                            <h4>Select Charts</h4>
+                            {Object.entries(customConfig.selectedCharts).map(([chart, checked]) => (
+                                <div key={chart} className="checkbox-group">
+                                    <input
+                                        type="checkbox"
+                                        id={`chart-${chart}`}
+                                        checked={checked}
+                                        onChange={(e) => setCustomConfig({
+                                            ...customConfig,
+                                            selectedCharts: {
+                                                ...customConfig.selectedCharts,
+                                                [chart]: e.target.checked
+                                            }
+                                        })}
+                                    />
+                                    <label htmlFor={`chart-${chart}`}>
+                                        {chart.replace(/([A-Z])/g, ' $1').trim()}
+                                    </label>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Report Options */}
+                        <div className="table-container">
+                            <h4>Report Options</h4>
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="includeTables"
+                                    checked={customConfig.includeTables}
+                                    onChange={(e) => setCustomConfig({
+                                        ...customConfig,
+                                        includeTables: e.target.checked
+                                    })}
+                                />
+                                <label htmlFor="includeTables">Include Data Tables</label>
+                            </div>
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="includePatterns"
+                                    checked={customConfig.includePatterns}
+                                    onChange={(e) => setCustomConfig({
+                                        ...customConfig,
+                                        includePatterns: e.target.checked
+                                    })}
+                                />
+                                <label htmlFor="includePatterns">Include Pattern Analysis</label>
+                            </div>
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="includeSummary"
+                                    checked={customConfig.includeSummary}
+                                    onChange={(e) => setCustomConfig({
+                                        ...customConfig,
+                                        includeSummary: e.target.checked
+                                    })}
+                                />
+                                <label htmlFor="includeSummary">Include Summary Section</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* LOADING STATE */}
+            {loading && (
+                <div className="loading-container">
+                    <div className="loading-spinner"></div>
+                    <div style={{ marginTop: '20px' }}>Generating report...</div>
+                </div>
+            )}
+
+            {/* REPORT DISPLAY */}
+            {reportData && !loading && (
+                <div>
+                    {/* Export Buttons */}
+                    <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                        <button 
+                            className="btn btn-secondary"
+                            onClick={() => exportToJSON(reportData, `${reportData.type}_report_${startDate}_${endDate}`)}
+                        >
+                            Export JSON
+                        </button>
+                        <button 
+                            className="btn btn-secondary"
+                            onClick={() => exportToCSV(reportData, `${reportData.type}_report_${startDate}_${endDate}`)}
+                        >
+                            Export CSV
+                        </button>
+                        <button 
+                            className="btn btn-secondary"
+                            onClick={() => exportReportToPDF(reportData, REPORT_TEMPLATES[selectedTemplate]?.name || 'Custom Report')}
+                        >
+                            Export PDF
+                        </button>
+                    </div>
+
+                    {/* SOBRIETY REPORT */}
+                    {reportData.type === 'sobriety' && (
+                        <div>
+                            <div className="stats-grid">
+                                <div className="stat-card">
+                                    <div className="stat-label">Total PIRs</div>
+                                    <div className="stat-value">{reportData.summary.totalPIRs}</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Avg Days Sober</div>
+                                    <div className="stat-value">{reportData.summary.avgDaysSober}</div>
+                                </div>
+                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f44336, #d32f2f)' }}>
+                                    <div className="stat-label">High Risk</div>
+                                    <div className="stat-value">{reportData.summary.highRisk}</div>
+                                </div>
+                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #ff9800, #f57c00)' }}>
+                                    <div className="stat-label">Moderate Risk</div>
+                                    <div className="stat-value">{reportData.summary.moderateRisk}</div>
+                                </div>
+                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #4caf50, #388e3c)' }}>
+                                    <div className="stat-label">Low Risk</div>
+                                    <div className="stat-value">{reportData.summary.lowRisk}</div>
+                                </div>
+                            </div>
+
+                            <div className="table-container" style={{ marginTop: '30px' }}>
+                                <h3>Sobriety Details</h3>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>PIR Name</th>
+                                            <th>Days Sober</th>
+                                            <th>Sobriety Date</th>
+                                            <th>Avg Mood</th>
+                                            <th>Avg Cravings</th>
+                                            <th>Risk Score</th>
+                                            <th>Check-ins</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {reportData.sobrietyData.map((pir, idx) => (
+                                            <tr key={idx}>
+                                                <td>{pir.pirName}</td>
+                                                <td><strong>{pir.daysSober}</strong></td>
+                                                <td>{formatDate(pir.sobrietyDate)}</td>
+                                                <td>{pir.avgMood}</td>
+                                                <td>{pir.avgCravings}</td>
+                                                <td>
+                                                    <span className={`badge ${
+                                                        pir.riskScore >= 7 ? 'badge-danger' :
+                                                        pir.riskScore >= 4 ? 'badge-warning' : 'badge-success'
+                                                    }`}>
+                                                        {pir.riskScore}/10
+                                                    </span>
+                                                </td>
+                                                <td>{pir.checkInCount}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MORNING CHECK-INS REPORT */}
+                    {reportData.type === 'morningCheckins' && (
+                        <div>
+                            <div className="stats-grid">
+                                <div className="stat-card">
+                                    <div className="stat-label">Total Check-ins</div>
+                                    <div className="stat-value">{reportData.summary.totalCheckIns}</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Avg Mood</div>
+                                    <div className="stat-value">{reportData.summary.avgMood}</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Avg Cravings</div>
+                                    <div className="stat-value">{reportData.summary.avgCravings}</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Avg Anxiety</div>
+                                    <div className="stat-value">{reportData.summary.avgAnxiety}</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Avg Sleep</div>
+                                    <div className="stat-value">{reportData.summary.avgSleep}</div>
+                                </div>
+                            </div>
+
+                            <div className="table-container" style={{ marginTop: '30px' }}>
+                                <h3>Morning Check-in Data</h3>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>PIR</th>
+                                            <th>Date</th>
+                                            <th>Mood</th>
+                                            <th>Craving</th>
+                                            <th>Anxiety</th>
+                                            <th>Sleep</th>
+                                            <th>Notes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {reportData.morningData.map((entry, idx) => (
+                                            <tr key={idx}>
+                                                <td>{entry.pirName}</td>
+                                                <td>{formatDate(entry.date)}</td>
+                                                <td>{entry.mood}</td>
+                                                <td>{entry.craving}</td>
+                                                <td>{entry.anxiety}</td>
+                                                <td>{entry.sleep}</td>
+                                                <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {entry.notes || '-'}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* EVENING REFLECTIONS REPORT */}
+                    {reportData.type === 'eveningReflections' && (
+                        <div>
+                            <div className="stats-grid">
+                                <div className="stat-card">
+                                    <div className="stat-label">Total Reflections</div>
+                                    <div className="stat-value">{reportData.summary.totalReflections}</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Avg Overall Day</div>
+                                    <div className="stat-value">{reportData.summary.avgOverallDay}</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">With Gratitude</div>
+                                    <div className="stat-value">{reportData.summary.withGratitude}</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">With Challenges</div>
+                                    <div className="stat-value">{reportData.summary.withChallenges}</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">With Goals</div>
+                                    <div className="stat-value">{reportData.summary.withGoals}</div>
+                                </div>
+                            </div>
+
+                            <div className="table-container" style={{ marginTop: '30px' }}>
+                                <h3>Evening Reflections</h3>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>PIR</th>
+                                            <th>Date</th>
+                                            <th>Overall Day</th>
+                                            <th>Gratitude</th>
+                                            <th>Challenges</th>
+                                            <th>Tomorrow's Goal</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {reportData.eveningData.map((entry, idx) => (
+                                            <tr key={idx}>
+                                                <td>{entry.pirName}</td>
+                                                <td>{formatDate(entry.date)}</td>
+                                                <td>{entry.overallDay}/10</td>
+                                                <td>{entry.gratitude || '-'}</td>
+                                                <td>{entry.challenges || '-'}</td>
+                                                <td>{entry.tomorrowGoal || '-'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* CRISIS REPORT */}
+                    {reportData.type === 'crisis' && (
+                        <div>
+                            <div className="stats-grid">
+                                <div className="stat-card">
+                                    <div className="stat-label">Total Alerts</div>
+                                    <div className="stat-value">{reportData.summary.totalAlerts}</div>
+                                </div>
+                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f44336, #d32f2f)' }}>
+                                    <div className="stat-label">SOS Alerts</div>
+                                    <div className="stat-value">{reportData.summary.sosCount}</div>
+                                </div>
+                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #4caf50, #388e3c)' }}>
+                                    <div className="stat-label">Resolved</div>
+                                    <div className="stat-value">{reportData.summary.resolved}</div>
+                                </div>
+                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #ff9800, #f57c00)' }}>
+                                    <div className="stat-label">Unresolved</div>
+                                    <div className="stat-value">{reportData.summary.unresolved}</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Avg Response Time</div>
+                                    <div className="stat-value">{reportData.summary.avgResponseTime}</div>
+                                </div>
+                            </div>
+
+                            <div className="table-container" style={{ marginTop: '30px' }}>
+                                <h3>Crisis Incidents</h3>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>PIR</th>
+                                            <th>Type</th>
+                                            <th>Priority</th>
+                                            <th>Message</th>
+                                            <th>Status</th>
+                                            <th>Created</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {reportData.alerts.map((alert, idx) => (
+                                            <tr key={idx}>
+                                                <td>{alert.pirName}</td>
+                                                <td>
+                                                    <span className={`badge ${alert.type === 'sos' ? 'badge-danger' : 'badge-warning'}`}>
+                                                        {alert.type}
+                                                    </span>
+                                                </td>
+                                                <td>{alert.priority || 'normal'}</td>
+                                                <td style={{ maxWidth: '250px' }}>{alert.message}</td>
+                                                <td>
+                                                    <span className={`badge ${alert.resolved ? 'badge-success' : 'badge-danger'}`}>
+                                                        {alert.resolved ? 'Resolved' : 'Active'}
+                                                    </span>
+                                                </td>
+                                                <td>{formatTimeAgo(alert.createdAt)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ENGAGEMENT REPORT */}
+                    {reportData.type === 'engagement' && (
+                        <div>
+                            <div className="stats-grid">
+                                <div className="stat-card">
+                                    <div className="stat-label">Avg Check-ins</div>
+                                    <div className="stat-value">{reportData.summary.avgCheckIns}</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Avg Completion</div>
+                                    <div className="stat-value">{reportData.summary.avgCompletion}%</div>
+                                </div>
+                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #4caf50, #388e3c)' }}>
+                                    <div className="stat-label">High Engagement</div>
+                                    <div className="stat-value">{reportData.summary.highEngagement}</div>
+                                </div>
+                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f44336, #d32f2f)' }}>
+                                    <div className="stat-label">Low Engagement</div>
+                                    <div className="stat-value">{reportData.summary.lowEngagement}</div>
+                                </div>
+                            </div>
+
+                            <div className="table-container" style={{ marginTop: '30px' }}>
+                                <h3>Engagement Details</h3>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>PIR</th>
+                                            <th>Check-ins</th>
+                                            <th>Streak</th>
+                                            <th>Assignments</th>
+                                            <th>Completion %</th>
+                                            <th>Messages</th>
+                                            <th>Score</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {reportData.engagementData.map((pir, idx) => (
+                                            <tr key={idx}>
+                                                <td>{pir.pirName}</td>
+                                                <td>{pir.checkInCount}</td>
+                                                <td>{pir.checkInStreak} days</td>
+                                                <td>{pir.assignmentCount}</td>
+                                                <td>{pir.assignmentCompletion}%</td>
+                                                <td>{pir.messageCount}</td>
+                                                <td>
+                                                    <span className={`badge ${
+                                                        pir.engagementScore >= 75 ? 'badge-success' :
+                                                        pir.engagementScore >= 50 ? 'badge-warning' : 'badge-danger'
+                                                    }`}>
+                                                        {pir.engagementScore}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* PREDICTIVE RISK REPORT */}
+                    {reportData.type === 'predictive' && (
+                        <div>
+                            <div className="stats-grid">
+                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #f44336, #d32f2f)' }}>
+                                    <div className="stat-label">High Risk</div>
+                                    <div className="stat-value">{reportData.summary.highRisk}</div>
+                                </div>
+                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #ff9800, #f57c00)' }}>
+                                    <div className="stat-label">Moderate Risk</div>
+                                    <div className="stat-value">{reportData.summary.moderateRisk}</div>
+                                </div>
+                                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #4caf50, #388e3c)' }}>
+                                    <div className="stat-label">Low Risk</div>
+                                    <div className="stat-value">{reportData.summary.lowRisk}</div>
+                                </div>
+                            </div>
+
+                            <div className="table-container" style={{ marginTop: '30px' }}>
+                                <h3>Risk Analysis</h3>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>PIR</th>
+                                            <th>Risk Score</th>
+                                            <th>Risk Level</th>
+                                            <th>Patterns</th>
+                                            <th>Recommendations</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {reportData.riskData.map((pir, idx) => (
+                                            <tr key={idx}>
+                                                <td>{pir.pirName}</td>
+                                                <td>{pir.riskScore}/10</td>
+                                                <td>
+                                                    <span className={`badge ${
+                                                        pir.riskLevel === 'High' ? 'badge-danger' :
+                                                        pir.riskLevel === 'Moderate' ? 'badge-warning' : 'badge-success'
+                                                    }`}>
+                                                        {pir.riskLevel}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    {pir.patterns.length > 0 ? (
+                                                        <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                                                            {pir.patterns.map((p, i) => <li key={i}>{p}</li>)}
+                                                        </ul>
+                                                    ) : 'None detected'}
+                                                </td>
+                                                <td>
+                                                    <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                                                        {pir.recommendations.map((r, i) => <li key={i}>{r}</li>)}
+                                                    </ul>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* OVERVIEW REPORT */}
+                    {reportData.type === 'overview' && (
+                        <div>
+                            <div className="stats-grid">
+                                <div className="stat-card">
+                                    <div className="stat-label">Total PIRs</div>
+                                    <div className="stat-value">{reportData.summary.totalPIRs}</div>
+                                    <div className="stat-change">{reportData.summary.activePIRs} active</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Check-ins</div>
+                                    <div className="stat-value">{reportData.summary.totalCheckIns}</div>
+                                    <div className="stat-change">Mood: {reportData.summary.avgMood}</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Assignments</div>
+                                    <div className="stat-value">{reportData.summary.totalAssignments}</div>
+                                    <div className="stat-change">{reportData.summary.completedAssignments} done</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Alerts</div>
+                                    <div className="stat-value">{reportData.summary.totalAlerts}</div>
+                                    <div className="stat-change">{reportData.summary.sosAlerts} SOS</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-label">Goals</div>
+                                    <div className="stat-value">{reportData.summary.totalGoals}</div>
+                                    <div className="stat-change">{reportData.summary.completedGoals} completed</div>
+                                </div>
+                            </div>
+
+                            {/* Mood Trend Chart */}
+                            <div className="chart-container" style={{ marginTop: '30px' }}>
+                                <h3>Mood Trend</h3>
+                                <canvas ref={chartRefs.moodTrend} height="100"></canvas>
+                            </div>
+
+                            {/* Cravings Trend Chart */}
+                            <div className="chart-container" style={{ marginTop: '30px' }}>
+                                <h3>Cravings Trend</h3>
+                                <canvas ref={chartRefs.cravingTrend} height="100"></canvas>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Add similar sections for other report types... */}
+                </div>
+            )}
+
+            {!reportData && !loading && (
+                <div className="empty-state">
+                    <div className="empty-state-icon">📊</div>
+                    <div className="empty-state-text">
+                        {reportMode === 'templates' 
+                            ? 'Select a report template and date range, then click Generate Report'
+                            : 'Configure your custom report settings and click Generate Report'
+                        }
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
     
 // ENHANCED CreateUserModal
 function CreateUserModal({ onClose, onSuccess, defaultRole }) {
