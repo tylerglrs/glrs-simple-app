@@ -17621,931 +17621,1657 @@ function AlertsView({ searchQuery, user }) {
 }
 
 
-        // FULLY FUNCTIONAL ReportsView
-        function ReportsView({ user }) {
-            const [reportType, setReportType] = useState('overview');
-            const [startDate, setStartDate] = useState(() => {
-                const date = new Date();
-                date.setMonth(date.getMonth() - 1);
-                return date.toISOString().split('T')[0];
+      // ENHANCED REPORTS VIEW - BOTH PRE-DEFINED & CUSTOM BUILDER
+function ReportsView({ user }) {
+    const [reportMode, setReportMode] = useState('templates'); // 'templates' or 'custom'
+    const [selectedTemplate, setSelectedTemplate] = useState('overview');
+    const [startDate, setStartDate] = useState(() => {
+        const date = new Date();
+        date.setMonth(date.getMonth() - 1);
+        return date.toISOString().split('T')[0];
+    });
+    const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+    const [reportData, setReportData] = useState(null);
+    const [loading, setLoading] = useState(false);
+    
+    // Custom Builder States
+    const [customConfig, setCustomConfig] = useState({
+        selectedPIRs: [],
+        selectedMetrics: {
+            mood: true,
+            cravings: true,
+            anxiety: true,
+            sleep: true,
+            overallDay: true,
+            gratitude: false,
+            challenges: false,
+            goals: false
+        },
+        selectedCharts: {
+            moodVsCravings: true,
+            moodVsSobriety: true,
+            sobrietyVsCravings: true,
+            anxietyVsSleep: true,
+            goalCompletion: false,
+            resourceUtilization: false,
+            checkInCompliance: true,
+            patternAnalysis: true
+        },
+        includeTables: true,
+        includePatterns: true,
+        includeSummary: true
+    });
+    const [allPIRs, setAllPIRs] = useState([]);
+    
+    const chartRefs = {
+        moodVsCravings: useRef(null),
+        moodVsSobriety: useRef(null),
+        sobrietyVsCravings: useRef(null),
+        anxietyVsSleep: useRef(null),
+        goalCompletion: useRef(null),
+        resourceUtilization: useRef(null),
+        checkInCompliance: useRef(null),
+        patternAnalysis: useRef(null)
+    };
+    const chartInstances = useRef({});
+
+    useEffect(() => {
+        loadPIRsList();
+        return () => {
+            Object.values(chartInstances.current).forEach(chart => {
+                if (chart) chart.destroy();
             });
-            const [endDate, setEndDate] = useState(() => {
-                return new Date().toISOString().split('T')[0];
-            });
-            const [reportData, setReportData] = useState(null);
-            const [loading, setLoading] = useState(false);
-            const [chartInstances, setChartInstances] = useState({});
+        };
+    }, []);
 
-            useEffect(() => {
-                // Cleanup charts on unmount
-                return () => {
-                    Object.values(chartInstances).forEach(chart => {
-                        if (chart) chart.destroy();
-                    });
-                };
-            }, []);
-
-            const generateReport = async () => {
-                setLoading(true);
-                try {
-                    const start = new Date(startDate);
-                    start.setHours(0, 0, 0, 0);
-                    const end = new Date(endDate);
-                    end.setHours(23, 59, 59, 999);
-                    
-                    let data = {};
-                    
-                    switch (reportType) {
-                        case 'overview':
-                            data = await generateOverviewReport(start, end);
-                            break;
-                        case 'checkins':
-                            data = await generateCheckInsReport(start, end);
-                            break;
-                        case 'users':
-                            data = await generateUsersReport(start, end);
-                            break;
-                        case 'assignments':
-                            data = await generateAssignmentsReport(start, end);
-                            break;
-                        case 'alerts':
-                            data = await generateAlertsReport(start, end);
-                            break;
-                        case 'groups':
-                            data = await generateGroupsReport(start, end);
-                            break;
-                    }
-                    
-                    setReportData(data);
-                    
-                    // Render charts after data is set
-                    setTimeout(() => renderCharts(data), 100);
-                    
-                } catch (error) {
-                    console.error('Error generating report:', error);
-                    alert('Failed to generate report');
-                } finally {
-                    setLoading(false);
-                }
-            };
-
-            const generateOverviewReport = async (start, end) => {
-                // Get all relevant data
-                const [usersSnap, checkInsSnap, assignmentsSnap, alertsSnap, messagesSnap, groupsSnap] = await Promise.all([
-                    db.collection('users').get(),
-                    db.collection('checkIns')
-                        .where('createdAt', '>=', start)
-                        .where('createdAt', '<=', end)
-                        .get(),
-                    db.collection('assignments')
-                        .where('createdAt', '>=', start)
-                        .where('createdAt', '<=', end)
-                        .get(),
-                    db.collection('alerts')
-                        .where('createdAt', '>=', start)
-                        .where('createdAt', '<=', end)
-                        .get(),
-                    db.collection('messages')
-                        .where('createdAt', '>=', start)
-                        .where('createdAt', '<=', end)
-                        .get(),
-                    db.collection('groups').get()
-                ]);
-                
-                const totalPirs = usersSnap.docs.filter(doc => doc.data().role === 'pir').length;
-                const activePirs = usersSnap.docs.filter(doc => doc.data().role === 'pir' && doc.data().active !== false).length;
-                const totalCoaches = usersSnap.docs.filter(doc => doc.data().role === 'coach').length;
-                
-                const checkIns = checkInsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                const avgMood = checkIns.length > 0 ? 
-                    (checkIns.reduce((sum, c) => sum + (c.mood || 0), 0) / checkIns.length).toFixed(1) : 0;
-                const avgCravings = checkIns.length > 0 ? 
-                    (checkIns.reduce((sum, c) => sum + (c.cravings || 0), 0) / checkIns.length).toFixed(1) : 0;
-                
-                const completedAssignments = assignmentsSnap.docs.filter(doc => doc.data().status === 'completed').length;
-                const sosAlerts = alertsSnap.docs.filter(doc => doc.data().type === 'sos').length;
-                const resolvedAlerts = alertsSnap.docs.filter(doc => doc.data().resolved).length;
-                
-                return {
-                    summary: {
-                        totalPirs,
-                        activePirs,
-                        totalCoaches,
-                        totalCheckIns: checkInsSnap.size,
-                        avgMood,
-                        avgCravings,
-                        totalAssignments: assignmentsSnap.size,
-                        completedAssignments,
-                        totalAlerts: alertsSnap.size,
-                        sosAlerts,
-                        resolvedAlerts,
-                        totalMessages: messagesSnap.size,
-                        totalGroups: groupsSnap.size
-                    },
-                    charts: {
-                        dailyCheckIns: await getDailyCheckInCounts(start, end),
-                        moodTrends: await getMoodTrends(start, end),
-                        cravingTrends: await getCravingTrends(start, end)
-                    }
-                };
-            };
-
-            const generateCheckInsReport = async (start, end) => {
-                const checkInsSnap = await db.collection('checkIns')
-                    .where('createdAt', '>=', start)
-                    .where('createdAt', '<=', end)
-                    .orderBy('createdAt', 'desc')
-                    .get();
-                
-                const checkIns = checkInsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                
-                const byUser = {};
-                checkIns.forEach(checkIn => {
-                    if (!byUser[checkIn.userId]) {
-                        byUser[checkIn.userId] = {
-                            count: 0,
-                            totalMood: 0,
-                            totalCravings: 0
-                        };
-                    }
-                    byUser[checkIn.userId].count++;
-                    byUser[checkIn.userId].totalMood += checkIn.mood || 0;
-                    byUser[checkIn.userId].totalCravings += checkIn.cravings || 0;
-                });
-                
-                const userStats = Object.entries(byUser).map(([userId, stats]) => ({
-                    userId,
-                    checkIns: stats.count,
-                    avgMood: (stats.totalMood / stats.count).toFixed(1),
-                    avgCravings: (stats.totalCravings / stats.count).toFixed(1)
-                }));
-                
-                return {
-                    total: checkIns.length,
-                    userStats,
-                    moodDistribution: getMoodDistribution(checkIns),
-                    cravingDistribution: getCravingDistribution(checkIns),
-                    dailyCounts: await getDailyCheckInCounts(start, end)
-                };
-            };
-
-            const generateUsersReport = async (start, end) => {
-                const usersSnap = await db.collection('users')
-                    .where('createdAt', '>=', start)
-                    .where('createdAt', '<=', end)
-                    .get();
-                
-                const newUsers = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                
-                const byRole = {
-                    pir: newUsers.filter(u => u.role === 'pir').length,
-                    coach: newUsers.filter(u => u.role === 'coach').length,
-                    admin: newUsers.filter(u => u.role === 'admin').length
-                };
-                
-                const activeCount = newUsers.filter(u => u.active !== false).length;
-                
-                return {
-                    newUsers: newUsers.length,
-                    byRole,
-                    activeCount,
-                    inactiveCount: newUsers.length - activeCount,
-                    userList: newUsers
-                };
-            };
-
-            const generateAssignmentsReport = async (start, end) => {
-                const assignmentsSnap = await db.collection('assignments')
-                    .where('createdAt', '>=', start)
-                    .where('createdAt', '<=', end)
-                    .get();
-                
-                const assignments = assignmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                
-                const byStatus = {
-                    pending: assignments.filter(a => a.status === 'pending').length,
-                    in_progress: assignments.filter(a => a.status === 'in_progress').length,
-                    completed: assignments.filter(a => a.status === 'completed').length
-                };
-                
-                const overdueCount = assignments.filter(a => {
-                    if (a.dueDate && a.status !== 'completed') {
-                        const dueDate = a.dueDate.toDate ? a.dueDate.toDate() : new Date(a.dueDate);
-                        return dueDate < new Date();
-                    }
-                    return false;
-                }).length;
-                
-                return {
-                    total: assignments.length,
-                    byStatus,
-                    overdueCount,
-                    completionRate: assignments.length > 0 ? 
-                        ((byStatus.completed / assignments.length) * 100).toFixed(1) : 0
-                };
-            };
-
-            const generateAlertsReport = async (start, end) => {
-                const alertsSnap = await db.collection('alerts')
-                    .where('createdAt', '>=', start)
-                    .where('createdAt', '<=', end)
-                    .get();
-                
-                const alerts = alertsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                
-                const byType = {};
-                const byPriority = {};
-                
-                alerts.forEach(alert => {
-                    byType[alert.type] = (byType[alert.type] || 0) + 1;
-                    byPriority[alert.priority || 'normal'] = (byPriority[alert.priority || 'normal'] || 0) + 1;
-                });
-                
-                const resolved = alerts.filter(a => a.resolved).length;
-                const avgResolutionTime = calculateAvgResolutionTime(alerts.filter(a => a.resolved));
-                
-                return {
-                    total: alerts.length,
-                    byType,
-                    byPriority,
-                    resolved,
-                    unresolved: alerts.length - resolved,
-                    avgResolutionTime
-                };
-            };
-
-            const generateGroupsReport = async (start, end) => {
-                const groupsSnap = await db.collection('groups').get();
-                const groups = groupsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                
-                const totalMembers = groups.reduce((sum, g) => sum + (g.members?.length || 0), 0);
-                const avgMembersPerGroup = groups.length > 0 ? (totalMembers / groups.length).toFixed(1) : 0;
-                
-                const byDay = {};
-                groups.forEach(group => {
-                    byDay[group.dayOfWeek] = (byDay[group.dayOfWeek] || 0) + 1;
-                });
-                
-                return {
-                    totalGroups: groups.length,
-                    totalMembers,
-                    avgMembersPerGroup,
-                    byDay,
-                    recurringGroups: groups.filter(g => g.recurring).length,
-                    oneTimeGroups: groups.filter(g => !g.recurring).length
-                };
-            };
-
-            const getDailyCheckInCounts = async (start, end) => {
-                const dates = [];
-                const counts = [];
-                const current = new Date(start);
-                
-                while (current <= end) {
-                    const dayStart = new Date(current);
-                    dayStart.setHours(0, 0, 0, 0);
-                    const dayEnd = new Date(current);
-                    dayEnd.setHours(23, 59, 59, 999);
-                    
-                    const dayCheckIns = await db.collection('checkIns')
-                        .where('createdAt', '>=', dayStart)
-                        .where('createdAt', '<=', dayEnd)
-                        .get();
-                    
-                    dates.push(current.toLocaleDateString());
-                    counts.push(dayCheckIns.size);
-                    
-                    current.setDate(current.getDate() + 1);
-                }
-                
-                return { dates, counts };
-            };
-
-            const getMoodTrends = async (start, end) => {
-                const dates = [];
-                const avgMoods = [];
-                const current = new Date(start);
-                
-                while (current <= end) {
-                    const dayStart = new Date(current);
-                    dayStart.setHours(0, 0, 0, 0);
-                    const dayEnd = new Date(current);
-                    dayEnd.setHours(23, 59, 59, 999);
-                    
-                    const dayCheckIns = await db.collection('checkIns')
-                        .where('createdAt', '>=', dayStart)
-                        .where('createdAt', '<=', dayEnd)
-                        .get();
-                    
-                    const moods = dayCheckIns.docs.map(doc => doc.data().mood || 0);
-                    const avgMood = moods.length > 0 ? 
-                        (moods.reduce((sum, m) => sum + m, 0) / moods.length).toFixed(1) : 0;
-                    
-                    dates.push(current.toLocaleDateString());
-                    avgMoods.push(avgMood);
-                    
-                    current.setDate(current.getDate() + 1);
-                }
-                
-                return { dates, avgMoods };
-            };
-
-            const getCravingTrends = async (start, end) => {
-                const dates = [];
-                const avgCravings = [];
-                const current = new Date(start);
-                
-                while (current <= end) {
-                    const dayStart = new Date(current);
-                    dayStart.setHours(0, 0, 0, 0);
-                    const dayEnd = new Date(current);
-                    dayEnd.setHours(23, 59, 59, 999);
-                    
-                    const dayCheckIns = await db.collection('checkIns')
-                        .where('createdAt', '>=', dayStart)
-                        .where('createdAt', '<=', dayEnd)
-                        .get();
-                    
-                    const cravings = dayCheckIns.docs.map(doc => doc.data().cravings || 0);
-                    const avgCraving = cravings.length > 0 ? 
-                        (cravings.reduce((sum, c) => sum + c, 0) / cravings.length).toFixed(1) : 0;
-                    
-                    dates.push(current.toLocaleDateString());
-                    avgCravings.push(avgCraving);
-                    
-                    current.setDate(current.getDate() + 1);
-                }
-                
-                return { dates, avgCravings };
-            };
-
-            const getMoodDistribution = (checkIns) => {
-                const distribution = Array(10).fill(0);
-                checkIns.forEach(c => {
-                    if (c.mood >= 1 && c.mood <= 10) {
-                        distribution[c.mood - 1]++;
-                    }
-                });
-                return distribution;
-            };
-
-            const getCravingDistribution = (checkIns) => {
-                const distribution = Array(10).fill(0);
-                checkIns.forEach(c => {
-                    if (c.cravings >= 1 && c.cravings <= 10) {
-                        distribution[c.cravings - 1]++;
-                    }
-                });
-                return distribution;
-            };
-
-            const calculateAvgResolutionTime = (resolvedAlerts) => {
-                if (resolvedAlerts.length === 0) return 'N/A';
-                
-                const times = resolvedAlerts.map(alert => {
-                    const created = alert.createdAt?.toDate ? alert.createdAt.toDate() : new Date(alert.createdAt);
-                    const resolved = alert.resolvedAt?.toDate ? alert.resolvedAt.toDate() : new Date(alert.resolvedAt);
-                    return resolved - created;
-                });
-                
-                const avgTime = times.reduce((sum, t) => sum + t, 0) / times.length;
-                const hours = Math.floor(avgTime / (1000 * 60 * 60));
-                const minutes = Math.floor((avgTime % (1000 * 60 * 60)) / (1000 * 60));
-                
-                return `${hours}h ${minutes}m`;
-            };
-
-            const renderCharts = (data) => {
-                // Clean up existing charts
-                Object.values(chartInstances).forEach(chart => {
-                    if (chart) chart.destroy();
-                });
-                
-                const newCharts = {};
-                
-                // Render charts based on report type
-                if (reportType === 'overview' && data.charts) {
-                    // Daily Check-ins Chart
-                    const checkInsCtx = document.getElementById('dailyCheckInsChart')?.getContext('2d');
-                    if (checkInsCtx) {
-                        newCharts.dailyCheckIns = new Chart(checkInsCtx, {
-                            type: 'line',
-                            data: {
-                                labels: data.charts.dailyCheckIns.dates,
-                                datasets: [{
-                                    label: 'Daily Check-ins',
-                                    data: data.charts.dailyCheckIns.counts,
-                                    borderColor: '#f4c430',
-                                    backgroundColor: 'rgba(244, 196, 48, 0.2)',
-                                    tension: 0.1
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                scales: {
-                                    y: {
-                                        beginAtZero: true,
-                                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                                        ticks: { color: 'rgba(255, 255, 255, 0.7)' }
-                                    },
-                                    x: {
-                                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                                        ticks: { color: 'rgba(255, 255, 255, 0.7)' }
-                                    }
-                                },
-                                plugins: {
-                                    legend: {
-                                        labels: { color: 'rgba(255, 255, 255, 0.9)' }
-                                    }
-                                }
-                            }
-                        });
-                    }
-                    
-                    // Mood Trends Chart
-                    const moodCtx = document.getElementById('moodTrendsChart')?.getContext('2d');
-                    if (moodCtx) {
-                        newCharts.moodTrends = new Chart(moodCtx, {
-                            type: 'line',
-                            data: {
-                                labels: data.charts.moodTrends.dates,
-                                datasets: [{
-                                    label: 'Average Mood',
-                                    data: data.charts.moodTrends.avgMoods,
-                                    borderColor: '#4caf50',
-                                    backgroundColor: 'rgba(76, 175, 80, 0.2)',
-                                    tension: 0.1
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                scales: {
-                                    y: {
-                                        beginAtZero: true,
-                                        max: 10,
-                                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                                        ticks: { color: 'rgba(255, 255, 255, 0.7)' }
-                                    },
-                                    x: {
-                                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                                        ticks: { color: 'rgba(255, 255, 255, 0.7)' }
-                                    }
-                                },
-                                plugins: {
-                                    legend: {
-                                        labels: { color: 'rgba(255, 255, 255, 0.9)' }
-                                    }
-                                }
-                            }
-                        });
-                    }
-                }
-                
-                setChartInstances(newCharts);
-            };
-
-            const exportReport = (format) => {
-                if (!reportData) {
-                    alert('Please generate a report first');
-                    return;
-                }
-                
-                const fileName = `${reportType}_report_${startDate}_to_${endDate}`;
-                
-                if (format === 'json') {
-                    exportToJSON(reportData, fileName);
-                } else if (format === 'pdf') {
-                    exportToPDF(reportData, `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`);
-                }
-            };
-
-            return (
-                <div>
-                    <div className="filter-bar">
-                        <div className="filter-group">
-                            <label className="filter-label">Report Type</label>
-                            <select 
-                                className="filter-select"
-                                value={reportType}
-                                onChange={(e) => setReportType(e.target.value)}
-                            >
-                                <option value="overview">Overview Report</option>
-                                <option value="checkins">Check-ins Report</option>
-                                <option value="users">Users Report</option>
-                                <option value="assignments">Assignments Report</option>
-                                <option value="alerts">Alerts Report</option>
-                                <option value="groups">Groups Report</option>
-                            </select>
-                        </div>
-                        
-                        <div className="date-range">
-                            <div className="filter-group">
-                                <label className="filter-label">Start Date</label>
-                                <input 
-                                    type="date"
-                                    className="date-input"
-                                    value={startDate}
-                                    onChange={(e) => setStartDate(e.target.value)}
-                                />
-                            </div>
-                            
-                            <div className="filter-group">
-                                <label className="filter-label">End Date</label>
-                                <input 
-                                    type="date"
-                                    className="date-input"
-                                    value={endDate}
-                                    onChange={(e) => setEndDate(e.target.value)}
-                                />
-                            </div>
-                        </div>
-                        
-                        <div style={{marginLeft: 'auto', display: 'flex', gap: '10px'}}>
-                            <button 
-                                className="btn btn-primary"
-                                onClick={generateReport}
-                                disabled={loading}
-                            >
-                                {loading ? 'Generating...' : 'Generate Report'}
-                            </button>
-                            {reportData && (
-                                <>
-                                    <button className="btn btn-secondary" onClick={() => exportReport('json')}>
-                                        Export JSON
-                                    </button>
-                                    <button className="btn btn-secondary" onClick={() => exportReport('pdf')}>
-                                        Export PDF
-                                    </button>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                    
-                    {loading && (
-                        <div className="loading-container">
-                            <div className="loading-spinner"></div>
-                        </div>
-                    )}
-                    
-                    {reportData && !loading && (
-                        <div>
-                            {reportType === 'overview' && (
-                                <div>
-                                    <div className="stats-grid">
-                                        <div className="stat-card">
-                                            <div className="stat-label">Total PIRs</div>
-                                            <div className="stat-value">{reportData.summary.totalPirs}</div>
-                                            <div className="stat-change">{reportData.summary.activePirs} active</div>
-                                        </div>
-                                        <div className="stat-card">
-                                            <div className="stat-label">Total Coaches</div>
-                                            <div className="stat-value">{reportData.summary.totalCoaches}</div>
-                                        </div>
-                                        <div className="stat-card">
-                                            <div className="stat-label">Check-ins</div>
-                                            <div className="stat-value">{reportData.summary.totalCheckIns}</div>
-                                            <div className="stat-change">Avg Mood: {reportData.summary.avgMood}</div>
-                                        </div>
-                                        <div className="stat-card">
-                                            <div className="stat-label">Assignments</div>
-                                            <div className="stat-value">{reportData.summary.totalAssignments}</div>
-                                            <div className="stat-change">{reportData.summary.completedAssignments} completed</div>
-                                        </div>
-                                        <div className="stat-card">
-                                            <div className="stat-label">Alerts</div>
-                                            <div className="stat-value">{reportData.summary.totalAlerts}</div>
-                                            <div className="stat-change">{reportData.summary.sosAlerts} SOS</div>
-                                        </div>
-                                        <div className="stat-card">
-                                            <div className="stat-label">Messages</div>
-                                            <div className="stat-value">{reportData.summary.totalMessages}</div>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="chart-container" style={{marginTop: '30px'}}>
-                                        <h3 style={{marginBottom: '20px'}}>Daily Check-ins</h3>
-                                        <canvas id="dailyCheckInsChart"></canvas>
-                                    </div>
-                                    
-                                    <div className="chart-container" style={{marginTop: '30px'}}>
-                                        <h3 style={{marginBottom: '20px'}}>Mood Trends</h3>
-                                        <canvas id="moodTrendsChart"></canvas>
-                                    </div>
-                                </div>
-                            )}
-                            
-                            {reportType !== 'overview' && (
-                                <div className="table-container">
-                                    <h3 style={{marginBottom: '20px'}}>
-                                        {reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report Results
-                                    </h3>
-                                    <pre style={{
-                                        background: 'rgba(255,255,255,0.05)',
-                                        padding: '20px',
-                                        borderRadius: '10px',
-                                        overflow: 'auto'
-                                    }}>
-                                        {JSON.stringify(reportData, null, 2)}
-                                    </pre>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                    
-                    {!reportData && !loading && (
-                        <div className="empty-state">
-                            <div className="empty-state-icon">📈</div>
-                            <div className="empty-state-text">Select report parameters and click Generate Report</div>
-                        </div>
-                    )}
-                </div>
-            );
+    const loadPIRsList = async () => {
+        try {
+            const pirsSnap = await db.collection('users')
+                .where('role', '==', 'pir')
+                .get();
+            
+            const pirsList = pirsSnap.docs.map(doc => ({
+                id: doc.id,
+                name: doc.data().displayName || doc.data().email,
+                ...doc.data()
+            }));
+            
+            setAllPIRs(pirsList);
+        } catch (error) {
+            console.error('Error loading PIRs:', error);
         }
+    };
 
-        // FULLY FUNCTIONAL SettingsView
-        function SettingsView({ user }) {
-            const [settings, setSettings] = useState({
-                checkInReminder: true,
-                checkInReminderTime: '09:00',
-                sosNotifications: true,
-                emailNotifications: false,
-                smsNotifications: false,
-                lowMoodThreshold: 3,
-                highCravingThreshold: 7,
-                autoArchiveMessages: 30,
-                dataRetentionDays: 365,
-                maintenanceMode: false
-            });
-            const [saving, setSaving] = useState(false);
-            const [loading, setLoading] = useState(true);
+    const REPORT_TEMPLATES = {
+        overview: { name: 'Program Overview', description: 'Complete program statistics and trends' },
+        sobriety: { name: 'Sobriety Report', description: 'Sobriety tracking, milestones, risk indicators' },
+        morningCheckins: { name: 'Morning Check-ins', description: 'Mood, cravings, anxiety, sleep analysis' },
+        eveningReflections: { name: 'Evening Reflections', description: 'Gratitude, challenges, goals tracking' },
+        fullPIR: { name: 'Full PIR Report', description: 'Complete individual PIR analysis' },
+        moodAnalysis: { name: 'Mood Analysis', description: 'Comprehensive mood trends and patterns' },
+        crisis: { name: 'Crisis & Intervention', description: 'SOS alerts, high-risk incidents' },
+        engagement: { name: 'Engagement Report', description: 'Check-in streaks, attendance, activity' },
+        comparative: { name: 'Comparative Analysis', description: 'PIR vs program averages' },
+        milestones: { name: 'Milestones & Achievements', description: 'Goals completed, sobriety milestones' },
+        resources: { name: 'Resource Impact', description: 'Resource usage and effectiveness' },
+        communication: { name: 'Communication Report', description: 'Message frequency and response times' },
+        predictive: { name: 'Predictive Risk', description: 'Early warning indicators and patterns' }
+    };
 
-            useEffect(() => {
-                loadSettings();
-            }, []);
+    const generateReport = async () => {
+        setLoading(true);
+        try {
+            const start = new Date(startDate);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
 
-            const loadSettings = async () => {
-                try {
-                    const settingsDoc = await db.collection('settings').doc('system').get();
-                    if (settingsDoc.exists) {
-                        setSettings(settingsDoc.data());
-                    }
-                } catch (error) {
-                    console.error('Error loading settings:', error);
-                } finally {
-                    setLoading(false);
-                }
-            };
+            let data = {};
 
-            const saveSettings = async () => {
-                setSaving(true);
-                try {
-                    await db.collection('settings').doc('system').set({
-                        ...settings,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        updatedBy: user.uid
-                    });
-                    alert('Settings saved successfully');
-                } catch (error) {
-                    console.error('Error saving settings:', error);
-                    alert('Failed to save settings');
-                } finally {
-                    setSaving(false);
-                }
-            };
-
-            const handleBackup = async () => {
-                if (!confirm('This will create a full backup of all data. Continue?')) return;
-                
-                try {
-                    const collections = ['users', 'checkIns', 'assignments', 'alerts', 'messages', 'groups', 'resources', 'feedback'];
-                    const backup = {};
-                    
-                    for (const collection of collections) {
-                        const snapshot = await db.collection(collection).get();
-                        backup[collection] = [];
-                        snapshot.forEach(doc => {
-                            backup[collection].push({ id: doc.id, ...doc.data() });
-                        });
-                    }
-                    
-                    const fileName = `glrs_backup_${new Date().toISOString().split('T')[0]}`;
-                    exportToJSON(backup, fileName);
-                    alert('Backup created successfully');
-                } catch (error) {
-                    console.error('Error creating backup:', error);
-                    alert('Failed to create backup');
-                }
-            };
-
-            const handleCleanup = async (type) => {
-                let message = '';
-                let query;
-                
-                const cutoffDate = new Date();
-                
-                switch (type) {
-                    case 'old_notifications':
-                        cutoffDate.setDate(cutoffDate.getDate() - 30);
-                        message = 'Delete notifications older than 30 days?';
-                        query = db.collection('notifications')
-                            .where('createdAt', '<', cutoffDate)
-                            .where('read', '==', true);
+            if (reportMode === 'templates') {
+                switch (selectedTemplate) {
+                    case 'overview':
+                        data = await generateOverviewReport(start, end);
                         break;
-                    case 'old_messages':
-                        cutoffDate.setDate(cutoffDate.getDate() - settings.autoArchiveMessages);
-                        message = `Archive messages older than ${settings.autoArchiveMessages} days?`;
-                        query = db.collection('messages')
-                            .where('createdAt', '<', cutoffDate);
+                    case 'sobriety':
+                        data = await generateSobrietyReport(start, end);
                         break;
-                    case 'resolved_alerts':
-                        cutoffDate.setDate(cutoffDate.getDate() - 90);
-                        message = 'Delete resolved alerts older than 90 days?';
-                        query = db.collection('alerts')
-                            .where('resolved', '==', true)
-                            .where('resolvedAt', '<', cutoffDate);
+                    case 'morningCheckins':
+                        data = await generateMorningCheckinsReport(start, end);
                         break;
-                    default:
-                        return;
+                    case 'eveningReflections':
+                        data = await generateEveningReflectionsReport(start, end);
+                        break;
+                    case 'fullPIR':
+                        data = await generateFullPIRReport(start, end);
+                        break;
+                    case 'moodAnalysis':
+                        data = await generateMoodAnalysisReport(start, end);
+                        break;
+                    case 'crisis':
+                        data = await generateCrisisReport(start, end);
+                        break;
+                    case 'engagement':
+                        data = await generateEngagementReport(start, end);
+                        break;
+                    case 'comparative':
+                        data = await generateComparativeReport(start, end);
+                        break;
+                    case 'milestones':
+                        data = await generateMilestonesReport(start, end);
+                        break;
+                    case 'resources':
+                        data = await generateResourcesReport(start, end);
+                        break;
+                    case 'communication':
+                        data = await generateCommunicationReport(start, end);
+                        break;
+                    case 'predictive':
+                        data = await generatePredictiveReport(start, end);
+                        break;
                 }
-                
-                if (!confirm(message)) return;
-                
-                try {
-                    const snapshot = await query.get();
-                    const batch = db.batch();
-                    let count = 0;
-                    
-                    snapshot.forEach(doc => {
-                        if (type === 'old_messages') {
-                            // Archive instead of delete
-                            batch.update(doc.ref, { archived: true });
-                        } else {
-                            batch.delete(doc.ref);
-                        }
-                        count++;
-                        
-                        // Firestore batch limit is 500
-                        if (count % 500 === 0) {
-                            batch.commit();
-                            batch = db.batch();
-                        }
-                    });
-                    
-                    await batch.commit();
-                    alert(`${count} items processed successfully`);
-                } catch (error) {
-                    console.error('Error during cleanup:', error);
-                    alert('Cleanup failed: ' + error.message);
-                }
-            };
-
-            const handleCheckMissedCheckIns = async () => {
-                try {
-                    const yesterday = new Date();
-                    yesterday.setDate(yesterday.getDate() - 1);
-                    yesterday.setHours(0, 0, 0, 0);
-                    
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    
-                    // Get all active PIRs
-                    const pirsSnap = await db.collection('users')
-                        .where('role', '==', 'pir')
-                        .where('active', '==', true)
-                        .get();
-                    
-                    const pirIds = pirsSnap.docs.map(doc => doc.id);
-                    
-                    // Get yesterday's check-ins
-                    const checkInsSnap = await db.collection('checkIns')
-                        .where('createdAt', '>=', yesterday)
-                        .where('createdAt', '<', today)
-                        .get();
-                    
-                    const checkedInUsers = new Set(checkInsSnap.docs.map(doc => doc.data().userId));
-                    
-                    const missedUsers = pirIds.filter(id => !checkedInUsers.has(id));
-                    
-                    // Create alerts for missed check-ins
-                    const batch = db.batch();
-                    missedUsers.forEach(userId => {
-                        const alertRef = db.collection('alerts').doc();
-                        batch.set(alertRef, {
-                            type: 'missed_checkin',
-                            userId: userId,
-                            message: `Missed daily check-in on ${yesterday.toLocaleDateString()}`,
-                            priority: 'medium',
-                            resolved: false,
-                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                    });
-                    
-                    await batch.commit();
-                    alert(`${missedUsers.length} missed check-in alerts created`);
-                } catch (error) {
-                    console.error('Error checking missed check-ins:', error);
-                    alert('Failed to check missed check-ins');
-                }
-            };
-
-            if (loading) {
-                return (
-                    <div className="loading-container">
-                        <div className="loading-spinner"></div>
-                    </div>
-                );
+            } else {
+                data = await generateCustomReport(start, end, customConfig);
             }
 
-            return (
-                <div>
+            setReportData(data);
+            setTimeout(() => renderCharts(data), 100);
+        } catch (error) {
+            console.error('Error generating report:', error);
+            alert('Failed to generate report: ' + error.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // SOBRIETY REPORT
+    const generateSobrietyReport = async (start, end) => {
+        const pirsSnap = await db.collection('users')
+            .where('role', '==', 'pir')
+            .get();
+
+        const sobrietyData = [];
+        
+        for (const pirDoc of pirsSnap.docs) {
+            const pirData = pirDoc.data();
+            if (!pirData.sobrietyDate) continue;
+
+            const sobrietyDate = new Date(pirData.sobrietyDate);
+            const daysSober = Math.floor((new Date() - sobrietyDate) / (1000 * 60 * 60 * 24));
+            
+            const checkInsSnap = await db.collection('checkIns')
+                .where('userId', '==', pirDoc.id)
+                .where('createdAt', '>=', start)
+                .where('createdAt', '<=', end)
+                .get();
+
+            const checkIns = checkInsSnap.docs.map(doc => doc.data());
+            const avgCravings = checkIns.length > 0 
+                ? (checkIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / checkIns.length).toFixed(1)
+                : 0;
+            const avgMood = checkIns.length > 0
+                ? (checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / checkIns.length).toFixed(1)
+                : 0;
+
+            const riskScore = calculateRiskScore(avgMood, avgCravings, daysSober);
+
+            sobrietyData.push({
+                pirName: pirData.displayName || pirData.email,
+                daysSober,
+                sobrietyDate: pirData.sobrietyDate,
+                avgMood,
+                avgCravings,
+                riskScore,
+                checkInCount: checkIns.length
+            });
+        }
+
+        return {
+            type: 'sobriety',
+            sobrietyData: sobrietyData.sort((a, b) => b.daysSober - a.daysSober),
+            summary: {
+                totalPIRs: sobrietyData.length,
+                avgDaysSober: (sobrietyData.reduce((sum, p) => sum + p.daysSober, 0) / sobrietyData.length).toFixed(0),
+                highRisk: sobrietyData.filter(p => p.riskScore >= 7).length,
+                moderateRisk: sobrietyData.filter(p => p.riskScore >= 4 && p.riskScore < 7).length,
+                lowRisk: sobrietyData.filter(p => p.riskScore < 4).length
+            }
+        };
+    };
+
+    const calculateRiskScore = (avgMood, avgCravings, daysSober) => {
+        let score = 0;
+        
+        if (avgMood <= 3) score += 3;
+        else if (avgMood <= 5) score += 2;
+        else if (avgMood <= 7) score += 1;
+        
+        if (avgCravings >= 7) score += 4;
+        else if (avgCravings >= 4) score += 2;
+        
+        if (daysSober < 30) score += 2;
+        else if (daysSober < 90) score += 1;
+        
+        return Math.min(score, 10);
+    };
+
+    // MORNING CHECK-INS REPORT
+    const generateMorningCheckinsReport = async (start, end) => {
+        const checkInsSnap = await db.collection('checkIns')
+            .where('createdAt', '>=', start)
+            .where('createdAt', '<=', end)
+            .get();
+
+        const morningData = [];
+        const checkIns = checkInsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        for (const checkIn of checkIns) {
+            if (checkIn.morningData) {
+                const userDoc = await db.collection('users').doc(checkIn.userId).get();
+                morningData.push({
+                    pirName: userDoc.data()?.displayName || 'Unknown',
+                    date: checkIn.createdAt,
+                    mood: checkIn.morningData.mood,
+                    craving: checkIn.morningData.craving,
+                    anxiety: checkIn.morningData.anxietyLevel,
+                    sleep: checkIn.morningData.sleepQuality,
+                    notes: checkIn.morningData.notes
+                });
+            }
+        }
+
+        return {
+            type: 'morningCheckins',
+            morningData,
+            summary: {
+                totalCheckIns: morningData.length,
+                avgMood: (morningData.reduce((sum, c) => sum + (c.mood || 0), 0) / morningData.length).toFixed(1),
+                avgCravings: (morningData.reduce((sum, c) => sum + (c.craving || 0), 0) / morningData.length).toFixed(1),
+                avgAnxiety: (morningData.reduce((sum, c) => sum + (c.anxiety || 0), 0) / morningData.length).toFixed(1),
+                avgSleep: (morningData.reduce((sum, c) => sum + (c.sleep || 0), 0) / morningData.length).toFixed(1)
+            }
+        };
+    };
+
+    // EVENING REFLECTIONS REPORT
+    const generateEveningReflectionsReport = async (start, end) => {
+        const checkInsSnap = await db.collection('checkIns')
+            .where('createdAt', '>=', start)
+            .where('createdAt', '<=', end)
+            .get();
+
+        const eveningData = [];
+        const checkIns = checkInsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        for (const checkIn of checkIns) {
+            if (checkIn.eveningData) {
+                const userDoc = await db.collection('users').doc(checkIn.userId).get();
+                eveningData.push({
+                    pirName: userDoc.data()?.displayName || 'Unknown',
+                    date: checkIn.createdAt,
+                    overallDay: checkIn.eveningData.overallDay,
+                    gratitude: checkIn.eveningData.gratitude,
+                    challenges: checkIn.eveningData.challenges,
+                    tomorrowGoal: checkIn.eveningData.tomorrowGoal
+                });
+            }
+        }
+
+        return {
+            type: 'eveningReflections',
+            eveningData,
+            summary: {
+                totalReflections: eveningData.length,
+                avgOverallDay: (eveningData.reduce((sum, c) => sum + (c.overallDay || 0), 0) / eveningData.length).toFixed(1),
+                withGratitude: eveningData.filter(e => e.gratitude && e.gratitude.length > 0).length,
+                withChallenges: eveningData.filter(e => e.challenges && e.challenges.length > 0).length,
+                withGoals: eveningData.filter(e => e.tomorrowGoal && e.tomorrowGoal.length > 0).length
+            }
+        };
+    };
+
+    // FULL PIR REPORT
+    const generateFullPIRReport = async (start, end) => {
+        const pirId = customConfig.selectedPIRs[0]; // First selected PIR
+        if (!pirId) {
+            alert('Please select a PIR for Full PIR Report');
+            return {};
+        }
+
+        const pirDoc = await db.collection('users').doc(pirId).get();
+        const pirData = pirDoc.data();
+
+        const [checkInsSnap, goalsSnap, assignmentsSnap, resourceAccessSnap, alertsSnap] = await Promise.all([
+            db.collection('checkIns').where('userId', '==', pirId)
+                .where('createdAt', '>=', start).where('createdAt', '<=', end).get(),
+            db.collection('goals').where('userId', '==', pirId).get(),
+            db.collection('assignments').where('userId', '==', pirId)
+                .where('createdAt', '>=', start).where('createdAt', '<=', end).get(),
+            db.collection('resourceAccess').where('userId', '==', pirId)
+                .where('accessedAt', '>=', start).where('accessedAt', '<=', end).get(),
+            db.collection('alerts').where('userId', '==', pirId)
+                .where('createdAt', '>=', start).where('createdAt', '<=', end).get()
+        ]);
+
+        const checkIns = checkInsSnap.docs.map(doc => doc.data());
+        const goals = goalsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const assignments = assignmentsSnap.docs.map(doc => doc.data());
+        const resourceAccess = resourceAccessSnap.docs.map(doc => doc.data());
+        const alerts = alertsSnap.docs.map(doc => doc.data());
+
+        const sobrietyDays = pirData.sobrietyDate 
+            ? Math.floor((new Date() - new Date(pirData.sobrietyDate)) / (1000 * 60 * 60 * 24))
+            : 0;
+
+        return {
+            type: 'fullPIR',
+            pirInfo: {
+                name: pirData.displayName || pirData.email,
+                email: pirData.email,
+                sobrietyDate: pirData.sobrietyDate,
+                daysSober: sobrietyDays,
+                assignedCoach: pirData.assignedCoach
+            },
+            checkIns: {
+                total: checkIns.length,
+                avgMood: (checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / checkIns.length).toFixed(1),
+                avgCravings: (checkIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / checkIns.length).toFixed(1),
+                data: checkIns
+            },
+            goals: {
+                total: goals.length,
+                completed: goals.filter(g => g.status === 'completed').length,
+                inProgress: goals.filter(g => g.status === 'in_progress').length,
+                data: goals
+            },
+            assignments: {
+                total: assignments.length,
+                completed: assignments.filter(a => a.status === 'completed').length,
+                data: assignments
+            },
+            resources: {
+                totalAccessed: resourceAccess.length,
+                uniqueResources: new Set(resourceAccess.map(r => r.resourceId)).size,
+                data: resourceAccess
+            },
+            alerts: {
+                total: alerts.length,
+                sos: alerts.filter(a => a.type === 'sos').length,
+                resolved: alerts.filter(a => a.resolved).length,
+                data: alerts
+            }
+        };
+    };
+
+    // MOOD ANALYSIS REPORT
+    const generateMoodAnalysisReport = async (start, end) => {
+        const checkInsSnap = await db.collection('checkIns')
+            .where('createdAt', '>=', start)
+            .where('createdAt', '<=', end)
+            .get();
+
+        const checkIns = checkInsSnap.docs.map(doc => doc.data());
+        const moodDistribution = Array(10).fill(0);
+        const moodByDay = {};
+
+        checkIns.forEach(checkIn => {
+            const mood = checkIn.morningData?.mood;
+            if (mood >= 1 && mood <= 10) {
+                moodDistribution[mood - 1]++;
+            }
+
+            const date = (checkIn.createdAt?.toDate ? checkIn.createdAt.toDate() : new Date(checkIn.createdAt)).toLocaleDateString();
+            if (!moodByDay[date]) moodByDay[date] = { total: 0, count: 0 };
+            moodByDay[date].total += mood || 0;
+            moodByDay[date].count++;
+        });
+
+        return {
+            type: 'moodAnalysis',
+            moodDistribution,
+            moodByDay,
+            summary: {
+                avgMood: (checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / checkIns.length).toFixed(1),
+                highMoodDays: Object.values(moodByDay).filter(d => (d.total / d.count) >= 7).length,
+                lowMoodDays: Object.values(moodByDay).filter(d => (d.total / d.count) <= 3).length,
+                totalCheckIns: checkIns.length
+            }
+        };
+    };
+
+    // CRISIS REPORT
+    const generateCrisisReport = async (start, end) => {
+        const alertsSnap = await db.collection('alerts')
+            .where('createdAt', '>=', start)
+            .where('createdAt', '<=', end)
+            .get();
+
+        const alerts = [];
+        for (const doc of alertsSnap.docs) {
+            const alert = doc.data();
+            const userDoc = await db.collection('users').doc(alert.userId).get();
+            alerts.push({
+                ...alert,
+                pirName: userDoc.data()?.displayName || 'Unknown',
+                id: doc.id
+            });
+        }
+
+        const sosAlerts = alerts.filter(a => a.type === 'sos');
+        const avgResponseTime = calculateAvgResponseTime(alerts.filter(a => a.resolved));
+
+        return {
+            type: 'crisis',
+            alerts,
+            summary: {
+                totalAlerts: alerts.length,
+                sosCount: sosAlerts.length,
+                resolved: alerts.filter(a => a.resolved).length,
+                unresolved: alerts.filter(a => !a.resolved).length,
+                avgResponseTime,
+                criticalPriority: alerts.filter(a => a.priority === 'critical').length
+            }
+        };
+    };
+
+    const calculateAvgResponseTime = (resolvedAlerts) => {
+        if (resolvedAlerts.length === 0) return 'N/A';
+        
+        const times = resolvedAlerts.map(alert => {
+            const created = alert.createdAt?.toDate ? alert.createdAt.toDate() : new Date(alert.createdAt);
+            const resolved = alert.resolvedAt?.toDate ? alert.resolvedAt.toDate() : new Date(alert.resolvedAt);
+            return resolved - created;
+        });
+        
+        const avgTime = times.reduce((sum, t) => sum + t, 0) / times.length;
+        const hours = Math.floor(avgTime / (1000 * 60 * 60));
+        const minutes = Math.floor((avgTime % (1000 * 60 * 60)) / (1000 * 60));
+        
+        return `${hours}h ${minutes}m`;
+    };
+// ENGAGEMENT REPORT
+const generateEngagementReport = async (start, end) => {
+    const pirsSnap = await db.collection('users')
+        .where('role', '==', 'pir')
+        .get();
+
+    const engagementData = [];
+
+    for (const pirDoc of pirsSnap.docs) {
+        const pirId = pirDoc.id;
+        const pirData = pirDoc.data();
+
+        const [checkInsSnap, assignmentsSnap, messagesSnap, resourceAccessSnap] = await Promise.all([
+            db.collection('checkIns').where('userId', '==', pirId)
+                .where('createdAt', '>=', start).where('createdAt', '<=', end).get(),
+            db.collection('assignments').where('userId', '==', pirId)
+                .where('createdAt', '>=', start).where('createdAt', '<=', end).get(),
+            db.collection('messages').where('senderId', '==', pirId)
+                .where('createdAt', '>=', start).where('createdAt', '<=', end).get(),
+            db.collection('resourceAccess').where('userId', '==', pirId)
+                .where('accessedAt', '>=', start).where('accessedAt', '<=', end).get()
+        ]);
+
+        const checkIns = checkInsSnap.docs.map(d => d.data());
+        const streak = calculateStreak(checkIns);
+        
+        const assignments = assignmentsSnap.docs.map(d => d.data());
+        const assignmentCompletion = assignments.length > 0 
+            ? ((assignments.filter(a => a.status === 'completed').length / assignments.length) * 100).toFixed(0)
+            : 0;
+
+        engagementData.push({
+            pirName: pirData.displayName || pirData.email,
+            checkInCount: checkInsSnap.size,
+            checkInStreak: streak,
+            assignmentCount: assignmentsSnap.size,
+            assignmentCompletion: assignmentCompletion,
+            messageCount: messagesSnap.size,
+            resourceAccess: resourceAccessSnap.size,
+            engagementScore: calculateEngagementScore(
+                checkInsSnap.size, 
+                assignmentCompletion, 
+                messagesSnap.size, 
+                resourceAccessSnap.size
+            )
+        });
+    }
+
+    return {
+        type: 'engagement',
+        engagementData: engagementData.sort((a, b) => b.engagementScore - a.engagementScore),
+        summary: {
+            avgCheckIns: (engagementData.reduce((sum, p) => sum + p.checkInCount, 0) / engagementData.length).toFixed(1),
+            avgCompletion: (engagementData.reduce((sum, p) => sum + parseFloat(p.assignmentCompletion), 0) / engagementData.length).toFixed(0),
+            highEngagement: engagementData.filter(p => p.engagementScore >= 75).length,
+            lowEngagement: engagementData.filter(p => p.engagementScore < 50).length
+        }
+    };
+};
+
+const calculateStreak = (checkIns) => {
+    if (checkIns.length === 0) return 0;
+    
+    const sortedDates = checkIns
+        .map(c => {
+            const date = c.createdAt?.toDate ? c.createdAt.toDate() : new Date(c.createdAt);
+            return date.toDateString();
+        })
+        .filter((date, index, arr) => arr.indexOf(date) === index)
+        .sort((a, b) => new Date(b) - new Date(a));
+
+    let streak = 1;
+    const today = new Date().toDateString();
+    
+    if (sortedDates[0] !== today && sortedDates[0] !== new Date(Date.now() - 86400000).toDateString()) {
+        return 0;
+    }
+
+    for (let i = 1; i < sortedDates.length; i++) {
+        const prevDate = new Date(sortedDates[i - 1]);
+        const currDate = new Date(sortedDates[i]);
+        const diffDays = Math.floor((prevDate - currDate) / 86400000);
+        
+        if (diffDays === 1) {
+            streak++;
+        } else {
+            break;
+        }
+    }
+    
+    return streak;
+};
+
+const calculateEngagementScore = (checkIns, assignmentCompletion, messages, resources) => {
+    const checkInScore = Math.min((checkIns / 30) * 40, 40);
+    const assignmentScore = (parseFloat(assignmentCompletion) / 100) * 30;
+    const messageScore = Math.min((messages / 10) * 15, 15);
+    const resourceScore = Math.min((resources / 5) * 15, 15);
+    
+    return Math.round(checkInScore + assignmentScore + messageScore + resourceScore);
+};
+
+// COMPARATIVE REPORT
+const generateComparativeReport = async (start, end) => {
+    const pirId = customConfig.selectedPIRs[0];
+    if (!pirId) {
+        alert('Please select a PIR for Comparative Report');
+        return {};
+    }
+
+    const pirDoc = await db.collection('users').doc(pirId).get();
+    const pirData = pirDoc.data();
+
+    const [pirCheckIns, allCheckIns] = await Promise.all([
+        db.collection('checkIns').where('userId', '==', pirId)
+            .where('createdAt', '>=', start).where('createdAt', '<=', end).get(),
+        db.collection('checkIns')
+            .where('createdAt', '>=', start).where('createdAt', '<=', end).get()
+    ]);
+
+    const pirStats = calculateStats(pirCheckIns.docs.map(d => d.data()));
+    const programStats = calculateStats(allCheckIns.docs.map(d => d.data()));
+
+    const sobrietyDays = pirData.sobrietyDate 
+        ? Math.floor((new Date() - new Date(pirData.sobrietyDate)) / 86400000)
+        : 0;
+
+    return {
+        type: 'comparative',
+        pirInfo: {
+            name: pirData.displayName || pirData.email,
+            daysSober: sobrietyDays
+        },
+        comparison: {
+            avgMood: { pir: pirStats.avgMood, program: programStats.avgMood },
+            avgCravings: { pir: pirStats.avgCravings, program: programStats.avgCravings },
+            avgAnxiety: { pir: pirStats.avgAnxiety, program: programStats.avgAnxiety },
+            avgSleep: { pir: pirStats.avgSleep, program: programStats.avgSleep },
+            checkInCompliance: { 
+                pir: ((pirCheckIns.size / getDaysBetween(start, end)) * 100).toFixed(0),
+                program: ((allCheckIns.size / (getDaysBetween(start, end) * await getPIRCount())) * 100).toFixed(0)
+            }
+        }
+    };
+};
+
+const calculateStats = (checkIns) => {
+    if (checkIns.length === 0) return { avgMood: 0, avgCravings: 0, avgAnxiety: 0, avgSleep: 0 };
+    
+    return {
+        avgMood: (checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / checkIns.length).toFixed(1),
+        avgCravings: (checkIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / checkIns.length).toFixed(1),
+        avgAnxiety: (checkIns.reduce((sum, c) => sum + (c.morningData?.anxietyLevel || 0), 0) / checkIns.length).toFixed(1),
+        avgSleep: (checkIns.reduce((sum, c) => sum + (c.morningData?.sleepQuality || 0), 0) / checkIns.length).toFixed(1)
+    };
+};
+
+const getDaysBetween = (start, end) => {
+    return Math.floor((end - start) / 86400000) + 1;
+};
+
+const getPIRCount = async () => {
+    const pirsSnap = await db.collection('users').where('role', '==', 'pir').get();
+    return pirsSnap.size;
+};
+
+// MILESTONES REPORT
+const generateMilestonesReport = async (start, end) => {
+    const [goalsSnap, milestonesSnap] = await Promise.all([
+        db.collection('goals')
+            .where('completedAt', '>=', start)
+            .where('completedAt', '<=', end)
+            .get(),
+        db.collection('milestones')
+            .where('achieved', '==', true)
+            .where('achievedAt', '>=', start)
+            .where('achievedAt', '<=', end)
+            .get()
+    ]);
+
+    const achievements = [];
+
+    for (const goalDoc of goalsSnap.docs) {
+        const goal = goalDoc.data();
+        const userDoc = await db.collection('users').doc(goal.userId).get();
+        achievements.push({
+            pirName: userDoc.data()?.displayName || 'Unknown',
+            type: 'goal',
+            title: goal.title,
+            completedAt: goal.completedAt,
+            category: goal.category || 'general'
+        });
+    }
+
+    for (const milestoneDoc of milestonesSnap.docs) {
+        const milestone = milestoneDoc.data();
+        const userDoc = await db.collection('users').doc(milestone.userId).get();
+        achievements.push({
+            pirName: userDoc.data()?.displayName || 'Unknown',
+            type: 'milestone',
+            title: milestone.title,
+            completedAt: milestone.achievedAt,
+            category: milestone.type || 'sobriety'
+        });
+    }
+
+    const sobrietyMilestones = await getSobrietyMilestones(start, end);
+
+    return {
+        type: 'milestones',
+        achievements: achievements.sort((a, b) => b.completedAt - a.completedAt),
+        sobrietyMilestones,
+        summary: {
+            totalAchievements: achievements.length,
+            goalsCompleted: goalsSnap.size,
+            milestonesAchieved: milestonesSnap.size,
+            sobrietyMilestones: sobrietyMilestones.length
+        }
+    };
+};
+
+const getSobrietyMilestones = async (start, end) => {
+    const pirsSnap = await db.collection('users')
+        .where('role', '==', 'pir')
+        .get();
+
+    const milestones = [];
+    const milestonesDays = [7, 30, 60, 90, 180, 365];
+
+    for (const pirDoc of pirsSnap.docs) {
+        const pirData = pirDoc.data();
+        if (!pirData.sobrietyDate) continue;
+
+        const sobrietyDate = new Date(pirData.sobrietyDate);
+        
+        milestonesDays.forEach(days => {
+            const milestoneDate = new Date(sobrietyDate);
+            milestoneDate.setDate(milestoneDate.getDate() + days);
+            
+            if (milestoneDate >= start && milestoneDate <= end) {
+                milestones.push({
+                    pirName: pirData.displayName || pirData.email,
+                    days,
+                    achievedAt: milestoneDate,
+                    title: `${days} Days Sober`
+                });
+            }
+        });
+    }
+
+    return milestones;
+};
+
+// RESOURCES REPORT
+const generateResourcesReport = async (start, end) => {
+    const resourceAccessSnap = await db.collection('resourceAccess')
+        .where('accessedAt', '>=', start)
+        .where('accessedAt', '<=', end)
+        .get();
+
+    const resourcesSnap = await db.collection('resources').get();
+    const resourceMap = {};
+    resourcesSnap.docs.forEach(doc => {
+        resourceMap[doc.id] = { id: doc.id, ...doc.data() };
+    });
+
+    const accessData = {};
+    const pirAccess = {};
+
+    for (const accessDoc of resourceAccessSnap.docs) {
+        const access = accessDoc.data();
+        const resourceId = access.resourceId;
+        const userId = access.userId;
+
+        if (!accessData[resourceId]) {
+            accessData[resourceId] = {
+                resource: resourceMap[resourceId],
+                accessCount: 0,
+                uniqueUsers: new Set(),
+                totalDuration: 0,
+                completions: 0
+            };
+        }
+
+        accessData[resourceId].accessCount++;
+        accessData[resourceId].uniqueUsers.add(userId);
+        accessData[resourceId].totalDuration += access.duration || 0;
+        if (access.completed) accessData[resourceId].completions++;
+
+        if (!pirAccess[userId]) pirAccess[userId] = [];
+        pirAccess[userId].push(resourceId);
+    }
+
+    const topResources = Object.values(accessData)
+        .map(r => ({
+            title: r.resource?.title || 'Unknown',
+            category: r.resource?.category || 'uncategorized',
+            accessCount: r.accessCount,
+            uniqueUsers: r.uniqueUsers.size,
+            avgDuration: r.totalDuration / r.accessCount,
+            completionRate: ((r.completions / r.accessCount) * 100).toFixed(0)
+        }))
+        .sort((a, b) => b.accessCount - a.accessCount);
+
+    return {
+        type: 'resources',
+        topResources: topResources.slice(0, 20),
+        summary: {
+            totalAccess: resourceAccessSnap.size,
+            uniqueResources: Object.keys(accessData).length,
+            avgAccessPerPIR: (resourceAccessSnap.size / Object.keys(pirAccess).length).toFixed(1),
+            mostPopularCategory: getMostPopularCategory(topResources)
+        }
+    };
+};
+
+const getMostPopularCategory = (resources) => {
+    const categories = {};
+    resources.forEach(r => {
+        categories[r.category] = (categories[r.category] || 0) + r.accessCount;
+    });
+    
+    return Object.entries(categories)
+        .sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
+};
+
+// COMMUNICATION REPORT
+const generateCommunicationReport = async (start, end) => {
+    const messagesSnap = await db.collection('messages')
+        .where('createdAt', '>=', start)
+        .where('createdAt', '<=', end)
+        .get();
+
+    const communicationData = {};
+    const responseTimeData = [];
+
+    for (const msgDoc of messagesSnap.docs) {
+        const msg = msgDoc.data();
+        const userId = msg.senderId;
+
+        if (!communicationData[userId]) {
+            communicationData[userId] = {
+                messagesSent: 0,
+                messagesReceived: 0,
+                avgResponseTime: 0,
+                responseTimes: []
+            };
+        }
+
+        communicationData[userId].messagesSent++;
+
+        if (msg.replyTo) {
+            const originalMsg = await db.collection('messages').doc(msg.replyTo).get();
+            if (originalMsg.exists) {
+                const origCreated = originalMsg.data().createdAt?.toDate() || new Date(originalMsg.data().createdAt);
+                const replyCreated = msg.createdAt?.toDate() || new Date(msg.createdAt);
+                const responseTime = (replyCreated - origCreated) / (1000 * 60); // minutes
+                
+                communicationData[userId].responseTimes.push(responseTime);
+                responseTimeData.push(responseTime);
+            }
+        }
+    }
+
+    const pirComms = [];
+    for (const [userId, data] of Object.entries(communicationData)) {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (userDoc.exists && userDoc.data().role === 'pir') {
+            pirComms.push({
+                pirName: userDoc.data().displayName || userDoc.data().email,
+                messagesSent: data.messagesSent,
+                avgResponseTime: data.responseTimes.length > 0
+                    ? (data.responseTimes.reduce((sum, t) => sum + t, 0) / data.responseTimes.length).toFixed(1)
+                    : 'N/A'
+            });
+        }
+    }
+
+    return {
+        type: 'communication',
+        pirComms: pirComms.sort((a, b) => b.messagesSent - a.messagesSent),
+        summary: {
+            totalMessages: messagesSnap.size,
+            avgResponseTime: responseTimeData.length > 0
+                ? `${(responseTimeData.reduce((sum, t) => sum + t, 0) / responseTimeData.length).toFixed(1)} min`
+                : 'N/A',
+            activeCommunicators: pirComms.filter(p => p.messagesSent >= 5).length
+        }
+    };
+};
+
+// PREDICTIVE RISK REPORT
+const generatePredictiveReport = async (start, end) => {
+    const pirsSnap = await db.collection('users')
+        .where('role', '==', 'pir')
+        .get();
+
+    const riskData = [];
+
+    for (const pirDoc of pirsSnap.docs) {
+        const pirId = pirDoc.id;
+        const pirData = pirDoc.data();
+
+        const checkInsSnap = await db.collection('checkIns')
+            .where('userId', '==', pirId)
+            .orderBy('createdAt', 'desc')
+            .limit(7)
+            .get();
+
+        const recentCheckIns = checkInsSnap.docs.map(d => d.data());
+        const patterns = detectPatterns(recentCheckIns);
+        const riskScore = calculatePredictiveRisk(recentCheckIns, patterns, pirData);
+
+        riskData.push({
+            pirName: pirData.displayName || pirData.email,
+            riskScore,
+            riskLevel: riskScore >= 7 ? 'High' : riskScore >= 4 ? 'Moderate' : 'Low',
+            patterns,
+            recommendations: generateRecommendations(patterns, riskScore)
+        });
+    }
+
+    return {
+        type: 'predictive',
+        riskData: riskData.sort((a, b) => b.riskScore - a.riskScore),
+        summary: {
+            highRisk: riskData.filter(r => r.riskScore >= 7).length,
+            moderateRisk: riskData.filter(r => r.riskScore >= 4 && r.riskScore < 7).length,
+            lowRisk: riskData.filter(r => r.riskScore < 4).length
+        }
+    };
+};
+
+const detectPatterns = (checkIns) => {
+    const patterns = [];
+    
+    if (checkIns.length < 3) return patterns;
+
+    const moods = checkIns.map(c => c.morningData?.mood || 0);
+    const cravings = checkIns.map(c => c.morningData?.craving || 0);
+
+    // Declining mood
+    if (moods.length >= 3 && moods[0] < moods[1] && moods[1] < moods[2]) {
+        patterns.push('Declining mood trend');
+    }
+
+    // Increasing cravings
+    if (cravings.length >= 3 && cravings[0] > cravings[1] && cravings[1] > cravings[2]) {
+        patterns.push('Increasing cravings');
+    }
+
+    // High anxiety
+    const anxieties = checkIns.map(c => c.morningData?.anxietyLevel || 0);
+    if (anxieties.filter(a => a >= 7).length >= 3) {
+        patterns.push('Persistent high anxiety');
+    }
+
+    // Poor sleep
+    const sleeps = checkIns.map(c => c.morningData?.sleepQuality || 0);
+    if (sleeps.filter(s => s <= 3).length >= 3) {
+        patterns.push('Poor sleep quality');
+    }
+
+    return patterns;
+};
+
+const calculatePredictiveRisk = (checkIns, patterns, pirData) => {
+    let score = 0;
+
+    if (checkIns.length === 0) return 5;
+
+    const avgMood = checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / checkIns.length;
+    const avgCravings = checkIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / checkIns.length;
+
+    if (avgMood <= 4) score += 3;
+    if (avgCravings >= 6) score += 3;
+    
+    score += patterns.length;
+
+    const sobrietyDays = pirData.sobrietyDate 
+        ? Math.floor((new Date() - new Date(pirData.sobrietyDate)) / 86400000)
+        : 0;
+    
+    if (sobrietyDays < 30) score += 2;
+
+    return Math.min(score, 10);
+};
+
+const generateRecommendations = (patterns, riskScore) => {
+    const recs = [];
+
+    if (riskScore >= 7) {
+        recs.push('Immediate check-in recommended');
+        recs.push('Consider increasing session frequency');
+    }
+
+    if (patterns.includes('Declining mood trend')) {
+        recs.push('Mood intervention activities');
+    }
+
+    if (patterns.includes('Increasing cravings')) {
+        recs.push('Craving management resources');
+        recs.push('Emergency support contacts review');
+    }
+
+    if (patterns.includes('Persistent high anxiety')) {
+        recs.push('Anxiety coping techniques');
+    }
+
+    if (patterns.includes('Poor sleep quality')) {
+        recs.push('Sleep hygiene education');
+    }
+
+    if (recs.length === 0) {
+        recs.push('Continue current support plan');
+    }
+
+    return recs;
+};
+
+// OVERVIEW REPORT (Enhanced)
+const generateOverviewReport = async (start, end) => {
+    const [usersSnap, checkInsSnap, assignmentsSnap, alertsSnap, goalsSnap, resourceAccessSnap] = await Promise.all([
+        db.collection('users').get(),
+        db.collection('checkIns')
+            .where('createdAt', '>=', start)
+            .where('createdAt', '<=', end)
+            .get(),
+        db.collection('assignments')
+            .where('createdAt', '>=', start)
+            .where('createdAt', '<=', end)
+            .get(),
+        db.collection('alerts')
+            .where('createdAt', '>=', start)
+            .where('createdAt', '<=', end)
+            .get(),
+        db.collection('goals').get(),
+        db.collection('resourceAccess')
+            .where('accessedAt', '>=', start)
+            .where('accessedAt', '<=', end)
+            .get()
+    ]);
+
+    const pirs = usersSnap.docs.filter(doc => doc.data().role === 'pir');
+    const checkIns = checkInsSnap.docs.map(doc => doc.data());
+
+    return {
+        type: 'overview',
+        summary: {
+            totalPIRs: pirs.length,
+            activePIRs: pirs.filter(p => p.data().active !== false).length,
+            totalCheckIns: checkInsSnap.size,
+            avgMood: (checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / checkIns.length).toFixed(1),
+            avgCravings: (checkIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / checkIns.length).toFixed(1),
+            totalAssignments: assignmentsSnap.size,
+            completedAssignments: assignmentsSnap.docs.filter(d => d.data().status === 'completed').length,
+            totalAlerts: alertsSnap.size,
+            sosAlerts: alertsSnap.docs.filter(d => d.data().type === 'sos').length,
+            totalGoals: goalsSnap.size,
+            completedGoals: goalsSnap.docs.filter(d => d.data().status === 'completed').length,
+            resourceAccess: resourceAccessSnap.size
+        },
+        charts: {
+            moodTrend: await getDailyMoodTrend(start, end),
+            cravingTrend: await getDailyCravingTrend(start, end),
+            checkInCompliance: await getCheckInCompliance(start, end)
+        }
+    };
+};
+
+const getDailyMoodTrend = async (start, end) => {
+    const dates = [];
+    const moods = [];
+    const current = new Date(start);
+
+    while (current <= end) {
+        const dayStart = new Date(current);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(current);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        const dayCheckIns = await db.collection('checkIns')
+            .where('createdAt', '>=', dayStart)
+            .where('createdAt', '<=', dayEnd)
+            .get();
+
+        const dayMoods = dayCheckIns.docs.map(d => d.data().morningData?.mood || 0);
+        const avgMood = dayMoods.length > 0 
+            ? (dayMoods.reduce((sum, m) => sum + m, 0) / dayMoods.length).toFixed(1)
+            : 0;
+
+        dates.push(current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+        moods.push(avgMood);
+
+        current.setDate(current.getDate() + 1);
+    }
+
+    return { dates, moods };
+};
+
+const getDailyCravingTrend = async (start, end) => {
+    const dates = [];
+    const cravings = [];
+    const current = new Date(start);
+
+    while (current <= end) {
+        const dayStart = new Date(current);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(current);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        const dayCheckIns = await db.collection('checkIns')
+            .where('createdAt', '>=', dayStart)
+            .where('createdAt', '<=', dayEnd)
+            .get();
+
+        const dayCravings = dayCheckIns.docs.map(d => d.data().morningData?.craving || 0);
+        const avgCraving = dayCravings.length > 0 
+            ? (dayCravings.reduce((sum, c) => sum + c, 0) / dayCravings.length).toFixed(1)
+            : 0;
+
+        dates.push(current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+        cravings.push(avgCraving);
+
+        current.setDate(current.getDate() + 1);
+    }
+
+    return { dates, cravings };
+};
+
+const getCheckInCompliance = async (start, end) => {
+    const pirCount = await getPIRCount();
+    const totalDays = getDaysBetween(start, end);
+    const expectedCheckIns = pirCount * totalDays;
+
+    const checkInsSnap = await db.collection('checkIns')
+        .where('createdAt', '>=', start)
+        .where('createdAt', '<=', end)
+        .get();
+
+    const complianceRate = ((checkInsSnap.size / expectedCheckIns) * 100).toFixed(0);
+
+    return {
+        expectedCheckIns,
+        actualCheckIns: checkInsSnap.size,
+        complianceRate
+    };
+};
+
+// CUSTOM REPORT GENERATOR
+const generateCustomReport = async (start, end, config) => {
+    const pirIds = config.selectedPIRs.length > 0 
+        ? config.selectedPIRs 
+        : (await db.collection('users').where('role', '==', 'pir').get()).docs.map(d => d.id);
+
+    const reportData = {
+        type: 'custom',
+        config,
+        data: {},
+        charts: {}
+    };
+
+    // Collect check-ins for selected PIRs
+    const allCheckIns = [];
+    for (const pirId of pirIds) {
+        const checkInsSnap = await db.collection('checkIns')
+            .where('userId', '==', pirId)
+            .where('createdAt', '>=', start)
+            .where('createdAt', '<=', end)
+            .get();
+        allCheckIns.push(...checkInsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }
+
+    // Process selected metrics
+    if (config.selectedMetrics.mood) {
+        reportData.data.mood = processMetric(allCheckIns, 'morningData', 'mood');
+    }
+    if (config.selectedMetrics.cravings) {
+        reportData.data.cravings = processMetric(allCheckIns, 'morningData', 'craving');
+    }
+    if (config.selectedMetrics.anxiety) {
+        reportData.data.anxiety = processMetric(allCheckIns, 'morningData', 'anxietyLevel');
+    }
+    if (config.selectedMetrics.sleep) {
+        reportData.data.sleep = processMetric(allCheckIns, 'morningData', 'sleepQuality');
+    }
+    if (config.selectedMetrics.overallDay) {
+        reportData.data.overallDay = processMetric(allCheckIns, 'eveningData', 'overallDay');
+    }
+
+    // Evening reflection data
+    if (config.selectedMetrics.gratitude || config.selectedMetrics.challenges || config.selectedMetrics.goals) {
+        const eveningData = allCheckIns
+            .filter(c => c.eveningData)
+            .map(c => ({
+                date: c.createdAt,
+                gratitude: c.eveningData.gratitude,
+                challenges: c.eveningData.challenges,
+                tomorrowGoal: c.eveningData.tomorrowGoal
+            }));
+        
+        if (config.selectedMetrics.gratitude) reportData.data.gratitude = eveningData.map(e => e.gratitude);
+        if (config.selectedMetrics.challenges) reportData.data.challenges = eveningData.map(e => e.challenges);
+        if (config.selectedMetrics.goals) reportData.data.goals = eveningData.map(e => e.tomorrowGoal);
+    }
+
+    // Prepare chart data
+    if (config.selectedCharts.moodVsCravings && reportData.data.mood && reportData.data.cravings) {
+        reportData.charts.moodVsCravings = {
+            mood: reportData.data.mood.values,
+            cravings: reportData.data.cravings.values
+        };
+    }
+
+    if (config.selectedCharts.anxietyVsSleep && reportData.data.anxiety && reportData.data.sleep) {
+        reportData.charts.anxietyVsSleep = {
+            anxiety: reportData.data.anxiety.values,
+            sleep: reportData.data.sleep.values
+        };
+    }
+
+    // Pattern analysis
+    if (config.includePatterns) {
+        reportData.patterns = detectPatterns(allCheckIns.slice(0, 7));
+    }
+
+    return reportData;
+};
+
+const processMetric = (checkIns, section, field) => {
+    const values = checkIns
+        .map(c => c[section]?.[field])
+        .filter(v => v != null);
+
+    return {
+        values,
+        avg: values.length > 0 ? (values.reduce((sum, v) => sum + v, 0) / values.length).toFixed(1) : 0,
+        min: values.length > 0 ? Math.min(...values) : 0,
+        max: values.length > 0 ? Math.max(...values) : 0,
+        count: values.length
+    };
+};
+    const renderCharts = (data) => {
+    // Destroy existing charts
+    Object.values(chartInstances.current).forEach(chart => {
+        if (chart) chart.destroy();
+    });
+
+    const newCharts = {};
+
+    // Mood vs Cravings Scatter
+    if (data.charts?.moodVsCravings && chartRefs.moodVsCravings.current) {
+        const ctx = chartRefs.moodVsCravings.current.getContext('2d');
+        newCharts.moodVsCravings = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: 'Mood vs Cravings',
+                    data: data.charts.moodVsCravings.mood.map((m, i) => ({
+                        x: m,
+                        y: data.charts.moodVsCravings.cravings[i]
+                    })),
+                    backgroundColor: 'rgba(76, 175, 80, 0.6)',
+                    borderColor: '#4CAF50'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { title: { display: true, text: 'Mood', color: '#fff' }, min: 0, max: 10, ticks: { color: '#fff' } },
+                    y: { title: { display: true, text: 'Cravings', color: '#fff' }, min: 0, max: 10, ticks: { color: '#fff' } }
+                },
+                plugins: { legend: { labels: { color: '#fff' } } }
+            }
+        });
+    }
+
+    // Additional charts will follow similar pattern...
+    
+    chartInstances.current = newCharts;
+};
+
+// PDF Export with Static Charts
+const exportReportToPDF = async (data, reportTitle) => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    // Title
+    doc.setFontSize(20);
+    doc.text(reportTitle, 20, 20);
+    doc.setFontSize(12);
+    doc.text(`Date Range: ${startDate} to ${endDate}`, 20, 30);
+
+    let yPos = 50;
+
+    // Summary Section
+    if (data.summary) {
+        doc.setFontSize(16);
+        doc.text('Summary', 20, yPos);
+        yPos += 10;
+
+        doc.setFontSize(10);
+        Object.entries(data.summary).forEach(([key, value]) => {
+            doc.text(`${key}: ${value}`, 30, yPos);
+            yPos += 7;
+        });
+        yPos += 10;
+    }
+
+    // Convert charts to images and add to PDF
+    for (const [chartName, chartInstance] of Object.entries(chartInstances.current)) {
+        if (chartInstance && yPos < 250) {
+            const chartImage = chartInstance.toBase64Image();
+            doc.addImage(chartImage, 'PNG', 20, yPos, 170, 80);
+            yPos += 90;
+
+            if (yPos > 250) {
+                doc.addPage();
+                yPos = 20;
+            }
+        }
+    }
+
+    // Data Tables
+    if (data.type === 'sobriety' && data.sobrietyData) {
+        if (yPos > 200) {
+            doc.addPage();
+            yPos = 20;
+        }
+
+        doc.setFontSize(14);
+        doc.text('Sobriety Data', 20, yPos);
+        yPos += 10;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR Name', 'Days Sober', 'Avg Mood', 'Avg Cravings', 'Risk Score']],
+            body: data.sobrietyData.map(p => [
+                p.pirName,
+                p.daysSober,
+                p.avgMood,
+                p.avgCravings,
+                p.riskScore
+            ]),
+            theme: 'grid',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    doc.save(`${reportTitle.replace(/\s+/g, '_')}_${startDate}_to_${endDate}.pdf`);
+};
+    // ENHANCED SETTINGS VIEW - COMPLETE IMPLEMENTATION
+function SettingsView({ user }) {
+    const [activeSection, setActiveSection] = useState('notifications');
+    const [settings, setSettings] = useState({
+        // Notification Settings
+        emailNotifications: false,
+        smsNotifications: false,
+        pushNotifications: true,
+        sosAlertEmail: true,
+        sosAlertSMS: false,
+        dailyDigest: false,
+        weeklyReport: false,
+        
+        // Check-in Settings
+        checkInReminderTime: '09:00',
+        eveningReminderTime: '20:00',
+        missedCheckInAlert: true,
+        
+        // Alert Thresholds
+        lowMoodThreshold: 3,
+        highCravingThreshold: 7,
+        highAnxietyThreshold: 7,
+        poorSleepThreshold: 3,
+        
+        // System Settings
+        timezone: 'America/Los_Angeles',
+        dateFormat: 'MM/DD/YYYY',
+        timeFormat: '12h',
+        language: 'en',
+        autoRefresh: 30,
+        
+        // Data Management
+        autoBackupEnabled: false,
+        backupFrequency: 'weekly',
+        dataRetentionDays: 2555,
+        autoArchiveOldMessages: true,
+        archiveAfterDays: 90
+    });
+    
+    const [coaches, setCoaches] = useState([]);
+    const [pirs, setPirs] = useState([]);
+    const [permissions, setPermissions] = useState({});
+    const [saving, setSaving] = useState(false);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        loadAllSettings();
+    }, []);
+
+    const loadAllSettings = async () => {
+        try {
+            const [settingsDoc, coachesSnap, pirsSnap, permissionsDoc] = await Promise.all([
+                db.collection('settings').doc('system').get(),
+                db.collection('users').where('role', 'in', ['coach', 'admin']).get(),
+                db.collection('users').where('role', '==', 'pir').get(),
+                db.collection('settings').doc('permissions').get()
+            ]);
+
+            if (settingsDoc.exists) {
+                setSettings({ ...settings, ...settingsDoc.data() });
+            }
+
+            setCoaches(coachesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setPirs(pirsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+            if (permissionsDoc.exists) {
+                setPermissions(permissionsDoc.data());
+            }
+        } catch (error) {
+            console.error('Error loading settings:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const saveSettings = async () => {
+        setSaving(true);
+        try {
+            await db.collection('settings').doc('system').set({
+                ...settings,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedBy: user.uid
+            });
+            alert('Settings saved successfully');
+        } catch (error) {
+            console.error('Error saving settings:', error);
+            alert('Failed to save settings');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleDataExport = async (format, scope, dataType) => {
+        try {
+            let data = {};
+
+            if (scope === 'all') {
+                const collections = ['users', 'checkIns', 'assignments', 'alerts', 'messages', 'goals', 'resources', 'feedback', 'activities', 'notifications'];
+                
+                for (const collection of collections) {
+                    const snapshot = await db.collection(collection).get();
+                    data[collection] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                }
+            } else if (scope === 'specific_pir') {
+                const pirId = prompt('Enter PIR ID:');
+                if (!pirId) return;
+
+                const pirDoc = await db.collection('users').doc(pirId).get();
+                if (!pirDoc.exists) {
+                    alert('PIR not found');
+                    return;
+                }
+
+                data.pir = { id: pirDoc.id, ...pirDoc.data() };
+                
+                const [checkIns, assignments, goals, alerts, messages] = await Promise.all([
+                    db.collection('checkIns').where('userId', '==', pirId).get(),
+                    db.collection('assignments').where('userId', '==', pirId).get(),
+                    db.collection('goals').where('userId', '==', pirId).get(),
+                    db.collection('alerts').where('userId', '==', pirId).get(),
+                    db.collection('messages').where('senderId', '==', pirId).get()
+                ]);
+
+                data.checkIns = checkIns.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                data.assignments = assignments.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                data.goals = goals.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                data.alerts = alerts.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                data.messages = messages.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            } else if (scope === 'data_type') {
+                const snapshot = await db.collection(dataType).get();
+                data[dataType] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            }
+
+            const fileName = `glrs_export_${scope}_${new Date().toISOString().split('T')[0]}`;
+
+            if (format === 'json') {
+                exportToJSON(data, fileName);
+            } else if (format === 'csv') {
+                exportToCSV(data, fileName);
+            } else if (format === 'pdf') {
+                exportToPDF(data, 'Data Export');
+            }
+
+            alert('Export completed successfully');
+        } catch (error) {
+            console.error('Error exporting data:', error);
+            alert('Export failed: ' + error.message);
+        }
+    };
+
+    const handleAddCoach = async () => {
+        const email = prompt('Enter coach email:');
+        const password = prompt('Enter temporary password:');
+        const firstName = prompt('First name:');
+        const lastName = prompt('Last name:');
+
+        if (!email || !password || !firstName || !lastName) return;
+
+        try {
+            const userCredential = await firebase.auth().createUserWithEmailAndPassword(email, password);
+            
+            await db.collection('users').doc(userCredential.user.uid).set({
+                email,
+                firstName,
+                lastName,
+                displayName: `${firstName} ${lastName}`,
+                role: 'coach',
+                active: true,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: user.uid
+            });
+
+            await loadAllSettings();
+            alert('Coach added successfully');
+        } catch (error) {
+            console.error('Error adding coach:', error);
+            alert('Failed to add coach: ' + error.message);
+        }
+    };
+
+    const handleAddPIR = async () => {
+        const email = prompt('Enter PIR email:');
+        const password = prompt('Enter temporary password:');
+        const firstName = prompt('First name:');
+        const lastName = prompt('Last name:');
+        const coachId = prompt('Assign to coach ID (optional):');
+
+        if (!email || !password || !firstName || !lastName) return;
+
+        try {
+            const userCredential = await firebase.auth().createUserWithEmailAndPassword(email, password);
+            
+            await db.collection('users').doc(userCredential.user.uid).set({
+                email,
+                firstName,
+                lastName,
+                displayName: `${firstName} ${lastName}`,
+                role: 'pir',
+                active: true,
+                assignedCoach: coachId || null,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: user.uid
+            });
+
+            await loadAllSettings();
+            alert('PIR added successfully');
+        } catch (error) {
+            console.error('Error adding PIR:', error);
+            alert('Failed to add PIR: ' + error.message);
+        }
+    };
+
+    const handleRemoveUser = async (userId, role) => {
+        if (!confirm(`Are you sure you want to remove this ${role}?`)) return;
+
+        try {
+            await db.collection('users').doc(userId).update({
+                active: false,
+                deactivatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                deactivatedBy: user.uid
+            });
+
+            await loadAllSettings();
+            alert(`${role} removed successfully`);
+        } catch (error) {
+            console.error('Error removing user:', error);
+            alert('Failed to remove user');
+        }
+    };
+
+    const handleAssignCoach = async (pirId) => {
+        const coachId = prompt('Enter coach ID to assign:');
+        if (!coachId) return;
+
+        try {
+            await db.collection('users').doc(pirId).update({
+                assignedCoach: coachId,
+                assignedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            await loadAllSettings();
+            alert('Coach assigned successfully');
+        } catch (error) {
+            console.error('Error assigning coach:', error);
+            alert('Failed to assign coach');
+        }
+    };
+
+    const handleChangeCoach = async (pirId, currentCoachId) => {
+        const newCoachId = prompt('Enter new coach ID:', currentCoachId);
+        if (!newCoachId) return;
+
+        try {
+            await db.collection('users').doc(pirId).update({
+                assignedCoach: newCoachId,
+                coachChangedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            await loadAllSettings();
+            alert('Coach changed successfully');
+        } catch (error) {
+            console.error('Error changing coach:', error);
+            alert('Failed to change coach');
+        }
+    };
+
+    const updatePermissions = async (userId, permissionType, value) => {
+        try {
+            const updatedPermissions = {
+                ...permissions,
+                [userId]: {
+                    ...permissions[userId],
+                    [permissionType]: value
+                }
+            };
+
+            await db.collection('settings').doc('permissions').set(updatedPermissions);
+            setPermissions(updatedPermissions);
+            alert('Permissions updated');
+        } catch (error) {
+            console.error('Error updating permissions:', error);
+            alert('Failed to update permissions');
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="loading-container">
+                <div className="loading-spinner"></div>
+            </div>
+        );
+    }
+
+    return (
+        <div style={{ display: 'flex', gap: '20px' }}>
+            {/* Sidebar Navigation */}
+            <div style={{
+                width: '250px',
+                background: 'rgba(255,255,255,0.05)',
+                borderRadius: '15px',
+                padding: '20px'
+            }}>
+                <h3 style={{ marginBottom: '20px' }}>Settings</h3>
+                
+                {['notifications', 'checkins', 'alerts', 'dataExport', 'userManagement', 'permissions', 'integrations', 'system'].map(section => (
+                    <div
+                        key={section}
+                        onClick={() => setActiveSection(section)}
+                        style={{
+                            padding: '12px',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            background: activeSection === section ? 'rgba(102, 126, 234, 0.2)' : 'transparent',
+                            marginBottom: '8px',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        {section.charAt(0).toUpperCase() + section.slice(1).replace(/([A-Z])/g, ' $1')}
+                    </div>
+                ))}
+            </div>
+
+            {/* Main Content */}
+            <div style={{ flex: 1 }}>
+                {/* NOTIFICATIONS SECTION */}
+                {activeSection === 'notifications' && (
                     <div className="table-container">
-                        <h3 style={{marginBottom: '20px'}}>System Settings</h3>
-                        
-                        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
-                            <div className="form-group">
-                                <label className="form-label">Check-in Reminder Time</label>
-                                <input
-                                    type="time"
-                                    className="form-input"
-                                    value={settings.checkInReminderTime}
-                                    onChange={(e) => setSettings({...settings, checkInReminderTime: e.target.value})}
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label className="form-label">Low Mood Threshold (1-10)</label>
-                                <input
-                                    type="number"
-                                    className="form-input"
-                                    min="1"
-                                    max="10"
-                                    value={settings.lowMoodThreshold}
-                                    onChange={(e) => setSettings({...settings, lowMoodThreshold: parseInt(e.target.value)})}
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label className="form-label">High Craving Threshold (1-10)</label>
-                                <input
-                                    type="number"
-                                    className="form-input"
-                                    min="1"
-                                    max="10"
-                                    value={settings.highCravingThreshold}
-                                    onChange={(e) => setSettings({...settings, highCravingThreshold: parseInt(e.target.value)})}
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label className="form-label">Auto-archive Messages (days)</label>
-                                <input
-                                    type="number"
-                                    className="form-input"
-                                    min="7"
-                                    max="365"
-                                    value={settings.autoArchiveMessages}
-                                    onChange={(e) => setSettings({...settings, autoArchiveMessages: parseInt(e.target.value)})}
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <label className="form-label">Data Retention (days)</label>
-                                <input
-                                    type="number"
-                                    className="form-input"
-                                    min="90"
-                                    max="2555"
-                                    value={settings.dataRetentionDays}
-                                    onChange={(e) => setSettings({...settings, dataRetentionDays: parseInt(e.target.value)})}
-                                />
-                            </div>
-                        </div>
-                        
-                        <div style={{marginTop: '20px'}}>
-                            <h4 style={{marginBottom: '15px'}}>Notification Settings</h4>
-                            
-                            <div className="checkbox-group">
-                                <input
-                                    type="checkbox"
-                                    id="checkInReminder"
-                                    checked={settings.checkInReminder}
-                                    onChange={(e) => setSettings({...settings, checkInReminder: e.target.checked})}
-                                />
-                                <label htmlFor="checkInReminder">Enable Check-in Reminders</label>
-                            </div>
-                            
-                            <div className="checkbox-group">
-                                <input
-                                    type="checkbox"
-                                    id="sosNotifications"
-                                    checked={settings.sosNotifications}
-                                    onChange={(e) => setSettings({...settings, sosNotifications: e.target.checked})}
-                                />
-                                <label htmlFor="sosNotifications">Enable SOS Notifications</label>
-                            </div>
-                            
+                        <h3 style={{ marginBottom: '20px' }}>Notification Settings</h3>
+
+                        <div style={{ marginBottom: '30px' }}>
+                            <h4>Email Notifications</h4>
                             <div className="checkbox-group">
                                 <input
                                     type="checkbox"
@@ -18555,7 +19281,79 @@ function AlertsView({ searchQuery, user }) {
                                 />
                                 <label htmlFor="emailNotifications">Enable Email Notifications</label>
                             </div>
-                            
+
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="sosAlertEmail"
+                                    checked={settings.sosAlertEmail}
+                                    onChange={(e) => setSettings({...settings, sosAlertEmail: e.target.checked})}
+                                />
+                                <label htmlFor="sosAlertEmail">SOS Alert Emails</label>
+                            </div>
+
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="dailyDigest"
+                                    checked={settings.dailyDigest}
+                                    onChange={(e) => setSettings({...settings, dailyDigest: e.target.checked})}
+                                />
+                                <label htmlFor="dailyDigest">Daily Summary Digest</label>
+                            </div>
+
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="weeklyReport"
+                                    checked={settings.weeklyReport}
+                                    onChange={(e) => setSettings({...settings, weeklyReport: e.target.checked})}
+                                />
+                                <label htmlFor="weeklyReport">Weekly Report</label>
+                            </div>
+
+                            <div style={{
+                                marginTop: '20px',
+                                padding: '15px',
+                                background: 'rgba(255,193,7,0.1)',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(255,193,7,0.3)'
+                            }}>
+                                <h5>Coming Soon: Gmail Integration</h5>
+                                <p style={{ fontSize: '0.9em', color: '#ccc', margin: '10px 0 0 0' }}>
+                                    Connect your Gmail account to send notifications directly from your email.
+                                </p>
+                            </div>
+
+                            <div style={{
+                                marginTop: '15px',
+                                padding: '15px',
+                                background: 'rgba(255,193,7,0.1)',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(255,193,7,0.3)'
+                            }}>
+                                <h5>Coming Soon: Google Calendar Integration</h5>
+                                <p style={{ fontSize: '0.9em', color: '#ccc', margin: '10px 0 0 0' }}>
+                                    Sync sessions and reminders with Google Calendar.
+                                </p>
+                            </div>
+
+                            <div style={{
+                                marginTop: '15px',
+                                padding: '15px',
+                                background: 'rgba(255,193,7,0.1)',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(255,193,7,0.3)'
+                            }}>
+                                <h5>Coming Soon: Google Drive Integration</h5>
+                                <p style={{ fontSize: '0.9em', color: '#ccc', margin: '10px 0 0 0' }}>
+                                    Automatically backup reports and documents to Google Drive.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: '30px' }}>
+                            <h4>SMS Notifications</h4>
                             <div className="checkbox-group">
                                 <input
                                     type="checkbox"
@@ -18565,118 +19363,624 @@ function AlertsView({ searchQuery, user }) {
                                 />
                                 <label htmlFor="smsNotifications">Enable SMS Notifications</label>
                             </div>
-                            
+
                             <div className="checkbox-group">
                                 <input
                                     type="checkbox"
-                                    id="maintenanceMode"
-                                    checked={settings.maintenanceMode}
-                                    onChange={(e) => setSettings({...settings, maintenanceMode: e.target.checked})}
+                                    id="sosAlertSMS"
+                                    checked={settings.sosAlertSMS}
+                                    onChange={(e) => setSettings({...settings, sosAlertSMS: e.target.checked})}
                                 />
-                                <label htmlFor="maintenanceMode">Maintenance Mode (PIRs see maintenance message)</label>
+                                <label htmlFor="sosAlertSMS">SOS Alert SMS</label>
+                            </div>
+
+                            <div style={{
+                                marginTop: '20px',
+                                padding: '15px',
+                                background: 'rgba(255,193,7,0.1)',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(255,193,7,0.3)'
+                            }}>
+                                <h5>Coming Soon: Phone Number Setup</h5>
+                                <p style={{ fontSize: '0.9em', color: '#ccc', margin: '10px 0 0 0' }}>
+                                    Add and verify phone numbers for SMS notifications.
+                                </p>
+                            </div>
+
+                            <div style={{
+                                marginTop: '15px',
+                                padding: '15px',
+                                background: 'rgba(255,193,7,0.1)',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(255,193,7,0.3)'
+                            }}>
+                                <h5>Coming Soon: Twilio SMS Integration</h5>
+                                <p style={{ fontSize: '0.9em', color: '#ccc', margin: '10px 0 0 0' }}>
+                                    Configure Twilio for SMS delivery.
+                                </p>
                             </div>
                         </div>
-                        
-                        <button 
-                            className="btn btn-primary"
-                            onClick={saveSettings}
-                            disabled={saving}
-                            style={{marginTop: '20px'}}
-                        >
-                            {saving ? 'Saving...' : 'Save Settings'}
+
+                        <div style={{
+                            marginTop: '20px',
+                            padding: '15px',
+                            background: 'rgba(255,193,7,0.1)',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(255,193,7,0.3)'
+                        }}>
+                            <h5>Coming Soon: Two-Factor Authentication</h5>
+                            <p style={{ fontSize: '0.9em', color: '#ccc', margin: '10px 0 0 0' }}>
+                                Enable 2FA for enhanced security.
+                            </p>
+                        </div>
+
+                        <button className="btn btn-primary" onClick={saveSettings} disabled={saving} style={{ marginTop: '20px' }}>
+                            {saving ? 'Saving...' : 'Save Notification Settings'}
                         </button>
                     </div>
-                    
-                    <div className="table-container" style={{marginTop: '30px'}}>
-                        <h3 style={{marginBottom: '20px'}}>System Actions</h3>
-                        
-                        <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px'}}>
-                            <div>
-                                <h4>Data Management</h4>
-                                <button 
-                                    className="btn btn-secondary"
-                                    onClick={handleBackup}
-                                    style={{width: '100%', marginTop: '10px'}}
-                                >
-                                    🗄️ Create Full Backup
+                )}
+
+                {/* CHECK-IN SETTINGS */}
+                {activeSection === 'checkins' && (
+                    <div className="table-container">
+                        <h3 style={{ marginBottom: '20px' }}>Check-in Settings</h3>
+
+                        <div className="form-group">
+                            <label className="form-label">Morning Check-in Reminder Time</label>
+                            <input
+                                type="time"
+                                className="form-input"
+                                value={settings.checkInReminderTime}
+                                onChange={(e) => setSettings({...settings, checkInReminderTime: e.target.value})}
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Evening Reflection Reminder Time</label>
+                            <input
+                                type="time"
+                                className="form-input"
+                                value={settings.eveningReminderTime}
+                                onChange={(e) => setSettings({...settings, eveningReminderTime: e.target.value})}
+                            />
+                        </div>
+
+                        <div className="checkbox-group">
+                            <input
+                                type="checkbox"
+                                id="missedCheckInAlert"
+                                checked={settings.missedCheckInAlert}
+                                onChange={(e) => setSettings({...settings, missedCheckInAlert: e.target.checked})}
+                            />
+                            <label htmlFor="missedCheckInAlert">Alert on Missed Check-ins</label>
+                        </div>
+
+                        <button className="btn btn-primary" onClick={saveSettings} disabled={saving} style={{ marginTop: '20px' }}>
+                            {saving ? 'Saving...' : 'Save Check-in Settings'}
+                        </button>
+                    </div>
+                )}
+
+                {/* ALERT THRESHOLDS */}
+                {activeSection === 'alerts' && (
+                    <div className="table-container">
+                        <h3 style={{ marginBottom: '20px' }}>Alert Thresholds</h3>
+
+                        <div className="form-group">
+                            <label className="form-label">Low Mood Threshold (1-10)</label>
+                            <input
+                                type="number"
+                                className="form-input"
+                                min="1"
+                                max="10"
+                                value={settings.lowMoodThreshold}
+                                onChange={(e) => setSettings({...settings, lowMoodThreshold: parseInt(e.target.value)})}
+                            />
+                            <small style={{ color: '#999' }}>Alert when mood is at or below this value</small>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">High Craving Threshold (1-10)</label>
+                            <input
+                                type="number"
+                                className="form-input"
+                                min="1"
+                                max="10"
+                                value={settings.highCravingThreshold}
+                                onChange={(e) => setSettings({...settings, highCravingThreshold: parseInt(e.target.value)})}
+                            />
+                            <small style={{ color: '#999' }}>Alert when cravings are at or above this value</small>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">High Anxiety Threshold (1-10)</label>
+                            <input
+                                type="number"
+                                className="form-input"
+                                min="1"
+                                max="10"
+                                value={settings.highAnxietyThreshold}
+                                onChange={(e) => setSettings({...settings, highAnxietyThreshold: parseInt(e.target.value)})}
+                            />
+                            <small style={{ color: '#999' }}>Alert when anxiety is at or above this value</small>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Poor Sleep Threshold (1-10)</label>
+                            <input
+                                type="number"
+                                className="form-input"
+                                min="1"
+                                max="10"
+                                value={settings.poorSleepThreshold}
+                                onChange={(e) => setSettings({...settings, poorSleepThreshold: parseInt(e.target.value)})}
+                            />
+                            <small style={{ color: '#999' }}>Alert when sleep quality is at or below this value</small>
+                        </div>
+
+                        <button className="btn btn-primary" onClick={saveSettings} disabled={saving} style={{ marginTop: '20px' }}>
+                            {saving ? 'Saving...' : 'Save Alert Settings'}
+                        </button>
+                    </div>
+                )}
+
+                {/* DATA EXPORT */}
+                {activeSection === 'dataExport' && (
+                    <div className="table-container">
+                        <h3 style={{ marginBottom: '20px' }}>Data Export</h3>
+
+                        <div style={{ marginBottom: '30px' }}>
+                            <h4>Export All User Data</h4>
+                            <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
+                                <button className="btn btn-secondary" onClick={() => handleDataExport('json', 'all')}>
+                                    Export as JSON
                                 </button>
-                                <button 
-                                    className="btn btn-secondary"
-                                    onClick={() => handleCleanup('old_notifications')}
-                                    style={{width: '100%', marginTop: '10px'}}
-                                >
-                                    🧹 Clean Old Notifications
+                                <button className="btn btn-secondary" onClick={() => handleDataExport('csv', 'all')}>
+                                    Export as Spreadsheet
                                 </button>
-                                <button 
-                                    className="btn btn-secondary"
-                                    onClick={() => handleCleanup('old_messages')}
-                                    style={{width: '100%', marginTop: '10px'}}
-                                >
-                                    📧 Archive Old Messages
-                                </button>
-                                <button 
-                                    className="btn btn-secondary"
-                                    onClick={() => handleCleanup('resolved_alerts')}
-                                    style={{width: '100%', marginTop: '10px'}}
-                                >
-                                    🚨 Clean Resolved Alerts
-                                </button>
-                            </div>
-                            
-                            <div>
-                                <h4>Monitoring</h4>
-                                <button 
-                                    className="btn btn-secondary"
-                                    onClick={handleCheckMissedCheckIns}
-                                    style={{width: '100%', marginTop: '10px'}}
-                                >
-                                    ✅ Check Missed Check-ins
-                                </button>
-                                <button 
-                                    className="btn btn-secondary"
-                                    onClick={async () => {
-                                        const stats = await db.collection('users').get();
-                                        alert(`Database Statistics:\n\nTotal Users: ${stats.size}\nEstimated Storage: ${(stats.size * 5 / 1024).toFixed(2)} MB`);
-                                    }}
-                                    style={{width: '100%', marginTop: '10px'}}
-                                >
-                                    📊 Database Statistics
+                                <button className="btn btn-secondary" onClick={() => handleDataExport('pdf', 'all')}>
+                                    Export as PDF
                                 </button>
                             </div>
                         </div>
-                    </div>
-                    
-                    <div className="table-container" style={{marginTop: '30px'}}>
-                        <h3 style={{marginBottom: '20px'}}>System Information</h3>
-                        <table>
-                            <tbody>
-                                <tr>
-                                    <td><strong>Firebase Project:</strong></td>
-                                    <td>glrs-pir-system</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Environment:</strong></td>
-                                    <td>Production</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Version:</strong></td>
-                                    <td>3.0.0</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Last Settings Update:</strong></td>
-                                    <td>{settings.updatedAt ? formatDateTime(settings.updatedAt) : 'Never'}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Browser:</strong></td>
-                                    <td>{navigator.userAgent}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            );
-        }
 
+                        <div style={{ marginBottom: '30px' }}>
+                            <h4>Export Specific PIR Data</h4>
+                            <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
+                                <button className="btn btn-secondary" onClick={() => handleDataExport('json', 'specific_pir')}>
+                                    Export as JSON
+                                </button>
+                                <button className="btn btn-secondary" onClick={() => handleDataExport('csv', 'specific_pir')}>
+                                    Export as Spreadsheet
+                                </button>
+                                <button className="btn btn-secondary" onClick={() => handleDataExport('pdf', 'specific_pir')}>
+                                    Export as PDF
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: '30px' }}>
+                            <h4>Export by Data Type</h4>
+                            <select 
+                                className="form-input" 
+                                onChange={(e) => {
+                                    if (e.target.value) {
+                                        const format = prompt('Export format? (json/csv/pdf)');
+                                        if (format) handleDataExport(format, 'data_type', e.target.value);
+                                    }
+                                }}
+                                defaultValue=""
+                            >
+                                <option value="">Select data type...</option>
+                                <option value="checkIns">Check-ins</option>
+                                <option value="messages">Messages</option>
+                                <option value="assignments">Assignments</option>
+                                <option value="goals">Goals</option>
+                                <option value="alerts">Alerts</option>
+                                <option value="resources">Resources</option>
+                                <option value="feedback">Feedback</option>
+                                <option value="activities">Activities</option>
+                                <option value="notifications">Notifications</option>
+                            </select>
+                        </div>
+
+                        <div style={{ marginTop: '30px' }}>
+                            <h4>Automated Exports</h4>
+                            <div className="checkbox-group">
+                                <input
+                                    type="checkbox"
+                                    id="autoBackup"
+                                    checked={settings.autoBackupEnabled}
+                                    onChange={(e) => setSettings({...settings, autoBackupEnabled: e.target.checked})}
+                                />
+                                <label htmlFor="autoBackup">Enable Automatic Backups</label>
+                            </div>
+
+                            <div className="form-group">
+                                <label className="form-label">Backup Frequency</label>
+                                <select
+                                    className="form-input"
+                                    value={settings.backupFrequency}
+                                    onChange={(e) => setSettings({...settings, backupFrequency: e.target.value})}
+                                >
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                    <option value="monthly">Monthly</option>
+                                </select>
+                            </div>
+
+                            <button className="btn btn-primary" onClick={saveSettings} disabled={saving} style={{ marginTop: '20px' }}>
+                                {saving ? 'Saving...' : 'Save Export Settings'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* USER MANAGEMENT */}
+                {activeSection === 'userManagement' && (
+                    <div className="table-container">
+                        <h3 style={{ marginBottom: '20px' }}>User Management</h3>
+
+                        <div style={{ marginBottom: '30px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                <h4>Coaches ({coaches.filter(c => c.active !== false).length})</h4>
+                                <button className="btn btn-primary" onClick={handleAddCoach}>Add Coach</button>
+                            </div>
+
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Assigned PIRs</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {coaches.map(coach => (
+                                        <tr key={coach.id}>
+                                            <td>{coach.displayName}</td>
+                                            <td>{coach.email}</td>
+                                            <td>{pirs.filter(p => p.assignedCoach === coach.id).length}</td>
+                                            <td>
+                                                <span className={`badge ${coach.active !== false ? 'badge-success' : 'badge-danger'}`}>
+                                                    {coach.active !== false ? 'Active' : 'Inactive'}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <button 
+                                                    className="action-btn"
+                                                    onClick={() => handleRemoveUser(coach.id, 'coach')}
+                                                >
+                                                    Remove
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                <h4>PIRs ({pirs.filter(p => p.active !== false).length})</h4>
+                                <button className="btn btn-primary" onClick={handleAddPIR}>Add PIR</button>
+                            </div>
+
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Assigned Coach</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {pirs.map(pir => {
+                                        const assignedCoach = coaches.find(c => c.id === pir.assignedCoach);
+                                        return (
+                                            <tr key={pir.id}>
+                                                <td>{pir.displayName}</td>
+                                                <td>{pir.email}</td>
+                                                <td>
+                                                    {assignedCoach ? assignedCoach.displayName : 'Unassigned'}
+                                                </td>
+                                                <td>
+                                                    <span className={`badge ${pir.active !== false ? 'badge-success' : 'badge-danger'}`}>
+                                                        {pir.active !== false ? 'Active' : 'Inactive'}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <div style={{ display: 'flex', gap: '5px' }}>
+                                                        {!pir.assignedCoach ? (
+                                                            <button 
+                                                                className="action-btn"
+                                                                onClick={() => handleAssignCoach(pir.id)}
+                                                            >
+                                                                Assign Coach
+                                                            </button>
+                                                        ) : (
+                                                            <button 
+                                                                className="action-btn"
+                                                                onClick={() => handleChangeCoach(pir.id, pir.assignedCoach)}
+                                                            >
+                                                                Change Coach
+                                                            </button>
+                                                        )}
+                                                        <button 
+                                                            className="action-btn"
+                                                            onClick={() => handleRemoveUser(pir.id, 'pir')}
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
+                {/* PERMISSIONS */}
+                {activeSection === 'permissions' && (
+                    <div className="table-container">
+                        <h3 style={{ marginBottom: '20px' }}>Permission Levels</h3>
+
+                        <div style={{ marginBottom: '30px' }}>
+                            <h4>Admin Permissions</h4>
+                            <p style={{ color: '#999', fontSize: '0.9em', marginBottom: '15px' }}>
+                                Admins have full system access including:
+                            </p>
+                            <ul style={{ color: '#ccc', lineHeight: '1.8' }}>
+                                <li>Full access to all PIR data</li>
+                                <li>Create/edit/delete users (PIRs, coaches, admins)</li>
+                                <li>Assign and reassign PIRs to coaches</li>
+                                <li>Access all reports and analytics</li>
+                                <li>Modify system settings</li>
+                                <li>Manage resources and assignments</li>
+                                <li>Export all data</li>
+                                <li>Can function as coaches (assigned PIRs)</li>
+                            </ul>
+                        </div>
+
+                        <div style={{ marginBottom: '30px' }}>
+                            <h4>Coach Permissions</h4>
+                            <p style={{ color: '#999', fontSize: '0.9em', marginBottom: '15px' }}>
+                                Coaches have limited access to only their assigned PIRs:
+                            </p>
+                            <ul style={{ color: '#ccc', lineHeight: '1.8' }}>
+                                <li>View and manage only assigned PIRs</li>
+                                <li>Create assignments for assigned PIRs</li>
+                                <li>View check-ins and alerts for assigned PIRs</li>
+                                <li>Message assigned PIRs</li>
+                                <li>Generate reports for assigned PIRs only</li>
+                                <li>Cannot access system settings</li>
+                                <li>Cannot create/delete users</li>
+                                <li>Cannot export global data</li>
+                            </ul>
+                        </div>
+
+                        <div>
+                            <h4>Custom Permissions (Individual Override)</h4>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>User</th>
+                                        <th>Role</th>
+                                        <th>Can Create Assignments</th>
+                                        <th>Can Delete Data</th>
+                                        <th>Can Export Data</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {coaches.map(coach => (
+                                        <tr key={coach.id}>
+                                            <td>{coach.displayName}</td>
+                                            <td>{coach.role}</td>
+                                            <td>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={permissions[coach.id]?.canCreateAssignments !== false}
+                                                    onChange={(e) => updatePermissions(coach.id, 'canCreateAssignments', e.target.checked)}
+                                                />
+                                            </td>
+                                            <td>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={permissions[coach.id]?.canDelete === true}
+                                                    onChange={(e) => updatePermissions(coach.id, 'canDelete', e.target.checked)}
+                                                />
+                                            </td>
+                                            <td>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={permissions[coach.id]?.canExport === true}
+                                                    onChange={(e) => updatePermissions(coach.id, 'canExport', e.target.checked)}
+                                                />
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
+                {/* INTEGRATIONS */}
+                {activeSection === 'integrations' && (
+                    <div className="table-container">
+                        <h3 style={{ marginBottom: '20px' }}>Integrations</h3>
+
+                        <div style={{
+                            padding: '20px',
+                            background: 'rgba(255,193,7,0.1)',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255,193,7,0.3)',
+                            marginBottom: '20px'
+                        }}>
+                            <h4>Coming Soon: Carepatron Webhook</h4>
+                            <p style={{ color: '#ccc', marginTop: '10px' }}>
+                                Automatically sync session data with Carepatron practice management system.
+                            </p>
+                        </div>
+
+                        <div style={{
+                            padding: '20px',
+                            background: 'rgba(255,193,7,0.1)',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255,193,7,0.3)',
+                            marginBottom: '20px'
+                        }}>
+                            <h4>Coming Soon: Google Calendar Sync</h4>
+                            <p style={{ color: '#ccc', marginTop: '10px' }}>
+                                Two-way sync of sessions, meetings, and reminders with Google Calendar.
+                            </p>
+                        </div>
+
+                        <div style={{
+                            padding: '20px',
+                            background: 'rgba(255,193,7,0.1)',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255,193,7,0.3)',
+                            marginBottom: '20px'
+                        }}>
+                            <h4>Coming Soon: Email Service Provider</h4>
+                            <p style={{ color: '#ccc', marginTop: '10px' }}>
+                                Configure SendGrid or Mailgun for professional email delivery.
+                            </p>
+                        </div>
+
+                        <div style={{
+                            padding: '20px',
+                            background: 'rgba(255,193,7,0.1)',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255,193,7,0.3)',
+                            marginBottom: '20px'
+                        }}>
+                            <h4>Coming Soon: SMS Provider (Twilio)</h4>
+                            <p style={{ color: '#ccc', marginTop: '10px' }}>
+                                Set up Twilio for SMS notifications and two-way messaging.
+                            </p>
+                        </div>
+
+                        <div style={{
+                            padding: '20px',
+                            background: 'rgba(255,193,7,0.1)',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255,193,7,0.3)'
+                        }}>
+                            <h4>Coming Soon: Zapier Integration</h4>
+                            <p style={{ color: '#ccc', marginTop: '10px' }}>
+                                Connect to 3000+ apps via Zapier for custom automation workflows.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* SYSTEM CONFIGURATION */}
+                {activeSection === 'system' && (
+                    <div className="table-container">
+                        <h3 style={{ marginBottom: '20px' }}>System Configuration</h3>
+
+                        <div className="form-group">
+                            <label className="form-label">Timezone</label>
+                            <select
+                                className="form-input"
+                                value={settings.timezone}
+                                onChange={(e) => setSettings({...settings, timezone: e.target.value})}
+                            >
+                                <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                                <option value="America/Denver">Mountain Time (MT)</option>
+                                <option value="America/Chicago">Central Time (CT)</option>
+                                <option value="America/New_York">Eastern Time (ET)</option>
+                                <option value="America/Phoenix">Arizona (MST)</option>
+                                <option value="America/Anchorage">Alaska (AKT)</option>
+                                <option value="Pacific/Honolulu">Hawaii (HST)</option>
+                            </select>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Date Format</label>
+                            <select
+                                className="form-input"
+                                value={settings.dateFormat}
+                                onChange={(e) => setSettings({...settings, dateFormat: e.target.value})}
+                            >
+                                <option value="MM/DD/YYYY">MM/DD/YYYY (US)</option>
+                                <option value="DD/MM/YYYY">DD/MM/YYYY (International)</option>
+                                <option value="YYYY-MM-DD">YYYY-MM-DD (ISO)</option>
+                            </select>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Time Format</label>
+                            <select
+                                className="form-input"
+                                value={settings.timeFormat}
+                                onChange={(e) => setSettings({...settings, timeFormat: e.target.value})}
+                            >
+                                <option value="12h">12-hour (AM/PM)</option>
+                                <option value="24h">24-hour</option>
+                            </select>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Language</label>
+                            <select
+                                className="form-input"
+                                value={settings.language}
+                                onChange={(e) => setSettings({...settings, language: e.target.value})}
+                            >
+                                <option value="en">English</option>
+                                <option value="es">Spanish (Coming Soon)</option>
+                                <option value="fr">French (Coming Soon)</option>
+                            </select>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Auto-Refresh Interval</label>
+                            <select
+                                className="form-input"
+                                value={settings.autoRefresh}
+                                onChange={(e) => setSettings({...settings, autoRefresh: parseInt(e.target.value)})}
+                            >
+                                <option value="0">Manual Only</option>
+                                <option value="30">30 seconds</option>
+                                <option value="60">1 minute</option>
+                                <option value="300">5 minutes</option>
+                                <option value="600">10 minutes</option>
+                            </select>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Data Retention (days)</label>
+                            <input
+                                type="number"
+                                className="form-input"
+                                min="90"
+                                max="2555"
+                                value={settings.dataRetentionDays}
+                                onChange={(e) => setSettings({...settings, dataRetentionDays: parseInt(e.target.value)})}
+                            />
+                            <small style={{ color: '#999' }}>Minimum 90 days, maximum 7 years (2555 days) for HIPAA compliance</small>
+                        </div>
+
+                        <button className="btn btn-primary" onClick={saveSettings} disabled={saving} style={{ marginTop: '20px' }}>
+                            {saving ? 'Saving...' : 'Save System Settings'}
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+    
 // ENHANCED CreateUserModal
 function CreateUserModal({ onClose, onSuccess, defaultRole }) {
     const [formData, setFormData] = useState({
