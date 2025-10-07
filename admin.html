@@ -4900,7 +4900,7 @@ function PIRNotesModal({ pir, existingNotes, onClose, onSave }) {
 function CommunityView({ searchQuery, user }) {
     const [activeTab, setActiveTab] = useState('analytics');
     const [loading, setLoading] = useState(true);
-const [createType, setCreateType] = useState('room');
+    const [createType, setCreateType] = useState('room');
     const [messages, setMessages] = useState([]);
     const [topicRooms, setTopicRooms] = useState([]);
     const [flaggedMessages, setFlaggedMessages] = useState([]);
@@ -4909,7 +4909,6 @@ const [createType, setCreateType] = useState('room');
     const [selectedRoom, setSelectedRoom] = useState('main');
     const [newMessage, setNewMessage] = useState('');
     const [showCreateModal, setShowCreateModal] = useState(false);
-    const [modalType, setModalType] = useState('');
     const [selectedItem, setSelectedItem] = useState(null);
     const [selectedImage, setSelectedImage] = useState(null);
     const [messageListener, setMessageListener] = useState(null);
@@ -4925,7 +4924,7 @@ const [createType, setCreateType] = useState('room');
     const [selectedMeeting, setSelectedMeeting] = useState(null);
     const [attendanceData, setAttendanceData] = useState({});
     const [showAttendanceModal, setShowAttendanceModal] = useState(false);
-    const [viewMode, setViewMode] = useState('messages'); // messages, threads
+    const [viewMode, setViewMode] = useState('messages');
     const [selectedThread, setSelectedThread] = useState(null);
     
     const activityChartRef = useRef(null);
@@ -5639,6 +5638,7 @@ const [createType, setCreateType] = useState('room');
 
             alert('Topic room created successfully!');
             setShowCreateModal(false);
+            setSelectedItem(null);
             loadCommunityData();
         } catch (error) {
             console.error('Error creating room:', error);
@@ -5679,6 +5679,7 @@ const [createType, setCreateType] = useState('room');
             });
             alert('Support group created!');
             setShowCreateModal(false);
+            setSelectedItem(null);
             loadCommunityData();
         } catch (error) {
             console.error('Error creating support group:', error);
@@ -5686,133 +5687,135 @@ const [createType, setCreateType] = useState('room');
     };
 
     const handleCreateMeeting = async (meetingData) => {
-    try {
-        let googleEventData = null;
-        
-        // Check if user has Google connected
-        if (user.googleConnected && user.googleAccessToken) {
-            try {
-                console.log('Creating Google Calendar event with Meet link...');
-                googleEventData = await createGoogleMeeting(meetingData, user.googleAccessToken);
-                console.log('Google event created:', googleEventData);
-                
-                // Update meeting data with generated Meet link if not manually provided
-                if (!meetingData.meetingLink && googleEventData.meetLink) {
-                    meetingData.meetingLink = googleEventData.meetLink;
+        try {
+            let googleEventData = null;
+            
+            // Check if user has Google connected
+            if (user.googleConnected && user.googleAccessToken) {
+                try {
+                    console.log('Creating Google Calendar event with Meet link...');
+                    googleEventData = await createGoogleMeeting(meetingData, user.googleAccessToken);
+                    console.log('Google event created:', googleEventData);
+                    
+                    // Update meeting data with generated Meet link if not manually provided
+                    if (!meetingData.meetingLink && googleEventData.meetLink) {
+                        meetingData.meetingLink = googleEventData.meetLink;
+                    }
+                } catch (googleError) {
+                    console.error('Google Calendar integration failed:', googleError);
+                    // Continue without Google Calendar - don't block meeting creation
+                    alert('Meeting will be created, but Google Calendar sync failed. You can add the Meet link manually.');
                 }
-            } catch (googleError) {
-                console.error('Google Calendar integration failed:', googleError);
-                // Continue without Google Calendar - don't block meeting creation
-                alert('Meeting will be created, but Google Calendar sync failed. You can add the Meet link manually.');
             }
+            
+            // Save to Firebase
+            const meetingDoc = await db.collection('meetings').add({
+                ...meetingData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                coachId: user.uid,
+                status: 'scheduled',
+                googleCalendarEventId: googleEventData?.eventId || null,
+                googleCalendarLink: googleEventData?.htmlLink || null,
+                recurring: meetingData.recurring || 'none',
+                timezone: 'America/Los_Angeles'
+            });
+            
+            console.log('Meeting saved to Firebase:', meetingDoc.id);
+            
+            alert(`✓ Meeting scheduled successfully!${googleEventData ? '\n\n📅 Added to Google Calendar\n🔗 Meet link: ' + meetingData.meetingLink : ''}`);
+            setShowCreateModal(false);
+            setSelectedItem(null);
+            loadCommunityData();
+            
+        } catch (error) {
+            console.error('Error creating meeting:', error);
+            alert('Failed to create meeting: ' + error.message);
         }
-        
-        // Save to Firebase
-        const meetingDoc = await db.collection('meetings').add({
-            ...meetingData,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            coachId: user.uid,
-            status: 'scheduled',
-            googleCalendarEventId: googleEventData?.eventId || null,
-            googleCalendarLink: googleEventData?.htmlLink || null,
-            recurring: meetingData.recurring || 'none',
-            timezone: 'America/Los_Angeles'
-        });
-        
-        console.log('Meeting saved to Firebase:', meetingDoc.id);
-        
-        alert(`✓ Meeting scheduled successfully!${googleEventData ? '\n\n📅 Added to Google Calendar\n🔗 Meet link: ' + meetingData.meetingLink : ''}`);
-        setShowCreateModal(false);
-        loadCommunityData();
-        
-    } catch (error) {
-        console.error('Error creating meeting:', error);
-        alert('Failed to create meeting: ' + error.message);
-    }
-};
+    };
+
     // GOOGLE CALENDAR HELPER - Create Meeting with Meet Link
-const createGoogleMeeting = async (meetingData, accessToken) => {
-    try {
-        // Prepare the calendar event
-        const startDateTime = new Date(meetingData.date);
-        startDateTime.setHours(
-            parseInt(meetingData.time.split(':')[0]),
-            parseInt(meetingData.time.split(':')[1]),
-            0, 0
-        );
-        
-        const endDateTime = new Date(startDateTime);
-        endDateTime.setHours(endDateTime.getHours() + 1); // Default 1 hour duration
-        
-        // Build recurrence rule if applicable
-        let recurrence = [];
-        if (meetingData.recurring && meetingData.recurring !== 'none') {
-            const freq = meetingData.recurring.toUpperCase();
-            recurrence = [`RRULE:FREQ=${freq}`];
-        }
-        
-        // Create event with Meet link
-        const event = {
-            summary: meetingData.title,
-            description: meetingData.description || '',
-            start: {
-                dateTime: startDateTime.toISOString(),
-                timeZone: 'America/Los_Angeles'
-            },
-            end: {
-                dateTime: endDateTime.toISOString(),
-                timeZone: 'America/Los_Angeles'
-            },
-            conferenceData: {
-                createRequest: {
-                    requestId: `meet-${Date.now()}`,
-                    conferenceSolutionKey: { type: 'hangoutsMeet' }
-                }
-            },
-            reminders: {
-                useDefault: false,
-                overrides: [
-                    { method: 'email', minutes: 24 * 60 }, // 24 hours before
-                    { method: 'popup', minutes: 30 }
-                ]
+    const createGoogleMeeting = async (meetingData, accessToken) => {
+        try {
+            // Prepare the calendar event
+            const startDateTime = new Date(meetingData.date);
+            startDateTime.setHours(
+                parseInt(meetingData.time.split(':')[0]),
+                parseInt(meetingData.time.split(':')[1]),
+                0, 0
+            );
+            
+            const endDateTime = new Date(startDateTime);
+            endDateTime.setHours(endDateTime.getHours() + 1); // Default 1 hour duration
+            
+            // Build recurrence rule if applicable
+            let recurrence = [];
+            if (meetingData.recurring && meetingData.recurring !== 'none') {
+                const freq = meetingData.recurring.toUpperCase();
+                recurrence = [`RRULE:FREQ=${freq}`];
             }
-        };
-        
-        if (recurrence.length > 0) {
-            event.recurrence = recurrence;
-        }
-        
-        // Make API request
-        const response = await fetch(
-            'https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1',
-            {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
+            
+            // Create event with Meet link
+            const event = {
+                summary: meetingData.title,
+                description: meetingData.description || '',
+                start: {
+                    dateTime: startDateTime.toISOString(),
+                    timeZone: 'America/Los_Angeles'
                 },
-                body: JSON.stringify(event)
+                end: {
+                    dateTime: endDateTime.toISOString(),
+                    timeZone: 'America/Los_Angeles'
+                },
+                conferenceData: {
+                    createRequest: {
+                        requestId: `meet-${Date.now()}`,
+                        conferenceSolutionKey: { type: 'hangoutsMeet' }
+                    }
+                },
+                reminders: {
+                    useDefault: false,
+                    overrides: [
+                        { method: 'email', minutes: 24 * 60 }, // 24 hours before
+                        { method: 'popup', minutes: 30 }
+                    ]
+                }
+            };
+            
+            if (recurrence.length > 0) {
+                event.recurrence = recurrence;
             }
-        );
-        
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error?.message || 'Failed to create calendar event');
+            
+            // Make API request
+            const response = await fetch(
+                'https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(event)
+                }
+            );
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error?.message || 'Failed to create calendar event');
+            }
+            
+            const createdEvent = await response.json();
+            
+            return {
+                eventId: createdEvent.id,
+                meetLink: createdEvent.hangoutLink,
+                htmlLink: createdEvent.htmlLink
+            };
+            
+        } catch (error) {
+            console.error('Error creating Google Calendar event:', error);
+            throw error;
         }
-        
-        const createdEvent = await response.json();
-        
-        return {
-            eventId: createdEvent.id,
-            meetLink: createdEvent.hangoutLink,
-            htmlLink: createdEvent.htmlLink
-        };
-        
-    } catch (error) {
-        console.error('Error creating Google Calendar event:', error);
-        throw error;
-    }
-};
+    };
 
     const handleRecordAttendance = async (meetingId, pirId, status) => {
         try {
@@ -5873,182 +5876,193 @@ const createGoogleMeeting = async (meetingData, accessToken) => {
     };
 
     if (loading) {
-    return (
-        <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: '400px',
-            gap: '20px'
-        }}>
+        return (
             <div style={{
-                width: '60px',
-                height: '60px',
-                border: '4px solid #f3f3f3',
-                borderTop: '4px solid #667eea',
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite'
-            }}></div>
-            <p style={{ color: '#666' }}>Loading community data...</p>
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: '400px',
+                gap: '20px'
+            }}>
+                <div style={{
+                    width: '60px',
+                    height: '60px',
+                    border: '4px solid #f3f3f3',
+                    borderTop: '4px solid #667eea',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite'
+                }}></div>
+                <p style={{ color: '#666' }}>Loading community data...</p>
+            </div>
+        );
+    }
+
+    return (
+        <div style={{ padding: '20px', animation: 'fadeIn 0.5s' }}>
+            {/* Enhanced Navigation */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '15px 20px',
+                marginBottom: '20px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                display: 'flex',
+                gap: '10px',
+                flexWrap: 'wrap',
+                overflowX: 'auto'
+            }}>
+                {[
+                    { id: 'analytics', label: 'Analytics', icon: '📊' },
+                    { id: 'chat', label: 'Chat', icon: '💬' },
+                    { id: 'rooms', label: `Rooms (${topicRooms.length})`, icon: '🏠' },
+                    { id: 'supportGroups', label: `Support Groups (${supportGroups.length})`, icon: '🤝' },
+                    { id: 'meetings', label: `Meetings (${meetings.length})`, icon: '📅' },
+                    { id: 'moderation', label: `Moderation ${flaggedMessages.length > 0 ? `(${flaggedMessages.length})` : ''}`, icon: '🛡️' }
+                ].map(tab => (
+                    <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        style={{
+                            padding: '10px 20px',
+                            background: activeTab === tab.id 
+                                ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
+                                : '#f0f0f0',
+                            color: activeTab === tab.id ? 'white' : '#666',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            transition: 'all 0.2s',
+                            whiteSpace: 'nowrap'
+                        }}
+                    >
+                        {tab.icon} {tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* Render Active Tab */}
+            {activeTab === 'analytics' && (
+                <AnalyticsTab 
+                    stats={stats}
+                    analyticsData={analyticsData}
+                    activityChartRef={activityChartRef}
+                    sentimentChartRef={sentimentChartRef}
+                    engagementChartRef={engagementChartRef}
+                    exportData={exportData}
+                />
+            )}
+
+            {activeTab === 'chat' && (
+                <EnhancedChatTab
+                    messages={filteredMessages}
+                    selectedRoom={selectedRoom}
+                    setSelectedRoom={setSelectedRoom}
+                    topicRooms={topicRooms}
+                    newMessage={newMessage}
+                    setNewMessage={setNewMessage}
+                    handleSendMessage={handleSendMessage}
+                    handleReaction={handleReaction}
+                    handlePinMessage={handlePinMessage}
+                    handleDeleteMessage={handleDeleteMessage}
+                    handleWarnUser={handleWarnUser}
+                    pinnedMessages={pinnedMessages}
+                    chatSearch={chatSearch}
+                    setChatSearch={setChatSearch}
+                    onlineUsers={onlineUsers}
+                    setSelectedImage={setSelectedImage}
+                    viewMode={viewMode}
+                    setViewMode={setViewMode}
+                    selectedThread={selectedThread}
+                    setSelectedThread={setSelectedThread}
+                    user={user}
+                    exportData={exportData}
+                />
+            )}
+
+            {activeTab === 'rooms' && (
+                <RoomsTab
+                    topicRooms={topicRooms}
+                    handleToggleRoom={handleToggleRoom}
+                    handleDeleteRoom={handleDeleteRoom}
+                    setShowCreateModal={setShowCreateModal}
+                    setCreateType={setCreateType}
+                />
+            )}
+
+            {activeTab === 'supportGroups' && (
+                <SupportGroupsTab
+                    supportGroups={supportGroups}
+                    setShowCreateModal={setShowCreateModal}
+                    setCreateType={setCreateType}
+                    loadCommunityData={loadCommunityData}
+                />
+            )}
+
+            {activeTab === 'meetings' && (
+                <MeetingsTab
+                    meetings={meetings}
+                    setShowCreateModal={setShowCreateModal}
+                    setCreateType={setCreateType}
+                    setSelectedMeeting={setSelectedMeeting}
+                    setShowAttendanceModal={setShowAttendanceModal}
+                    loadCommunityData={loadCommunityData}
+                />
+            )}
+
+            {activeTab === 'moderation' && (
+                <ModerationTab
+                    flaggedMessages={flaggedMessages}
+                    moderationHistory={moderationHistory}
+                    userWarnings={userWarnings}
+                    moderationKeywords={moderationKeywords}
+                    setModerationKeywords={setModerationKeywords}
+                    handleFlagResolve={handleFlagResolve}
+                    stats={stats}
+                    exportData={exportData}
+                />
+            )}
+
+            {/* Modals */}
+            {selectedImage && (
+                <ImageModal image={selectedImage} onClose={() => setSelectedImage(null)} />
+            )}
+
+            {showCreateModal && (
+                <CommunityCreateModal
+                    type={createType}
+                    item={selectedItem}
+                    onSubmit={(data) => {
+                        if (createType === 'meeting') {
+                            handleCreateMeeting(data);
+                        } else if (createType === 'room') {
+                            handleCreateRoom(data);
+                        } else if (createType === 'supportGroup') {
+                            handleCreateSupportGroup(data);
+                        }
+                    }}
+                    onClose={() => {
+                        setShowCreateModal(false);
+                        setSelectedItem(null);
+                    }}
+                    user={user}
+                />
+            )}
+
+            {showAttendanceModal && selectedMeeting && (
+                <AttendanceModal
+                    meeting={selectedMeeting}
+                    onClose={() => {
+                        setShowAttendanceModal(false);
+                        setSelectedMeeting(null);
+                    }}
+                    handleRecordAttendance={handleRecordAttendance}
+                />
+            )}
         </div>
     );
-}
-
-return (
-    <div style={{ padding: '20px', animation: 'fadeIn 0.5s' }}>
-        {/* Enhanced Navigation */}
-        <div style={{
-            background: 'white',
-            borderRadius: '15px',
-            padding: '15px 20px',
-            marginBottom: '20px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-            display: 'flex',
-            gap: '10px',
-            flexWrap: 'wrap',
-            overflowX: 'auto'
-        }}>
-            {[
-                { id: 'analytics', label: 'Analytics', icon: '📊' },
-                { id: 'chat', label: 'Chat', icon: '💬' },
-                { id: 'rooms', label: `Rooms (${topicRooms.length})`, icon: '🏠' },
-                { id: 'supportGroups', label: `Support Groups (${supportGroups.length})`, icon: '🤝' },
-                { id: 'meetings', label: `Meetings (${meetings.length})`, icon: '📅' },
-                { id: 'moderation', label: `Moderation ${flaggedMessages.length > 0 ? `(${flaggedMessages.length})` : ''}`, icon: '🛡️' }
-            ].map(tab => (
-                <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    style={{
-                        padding: '10px 20px',
-                        background: activeTab === tab.id 
-                            ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
-                            : '#f0f0f0',
-                        color: activeTab === tab.id ? 'white' : '#666',
-                        border: 'none',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                        fontSize: '14px',
-                        fontWeight: '500',
-                        transition: 'all 0.2s',
-                        whiteSpace: 'nowrap'
-                    }}
-                >
-                    {tab.icon} {tab.label}
-                </button>
-            ))}
-        </div>
-
-        {/* Render Active Tab */}
-        {activeTab === 'analytics' && (
-            <AnalyticsTab 
-                stats={stats}
-                analyticsData={analyticsData}
-                activityChartRef={activityChartRef}
-                sentimentChartRef={sentimentChartRef}
-                engagementChartRef={engagementChartRef}
-                exportData={exportData}
-            />
-        )}
-
-        {activeTab === 'chat' && (
-            <EnhancedChatTab
-                messages={filteredMessages}
-                selectedRoom={selectedRoom}
-                setSelectedRoom={setSelectedRoom}
-                topicRooms={topicRooms}
-                newMessage={newMessage}
-                setNewMessage={setNewMessage}
-                handleSendMessage={handleSendMessage}
-                handleReaction={handleReaction}
-                handlePinMessage={handlePinMessage}
-                handleDeleteMessage={handleDeleteMessage}
-                handleWarnUser={handleWarnUser}
-                pinnedMessages={pinnedMessages}
-                chatSearch={chatSearch}
-                setChatSearch={setChatSearch}
-                onlineUsers={onlineUsers}
-                setSelectedImage={setSelectedImage}
-                viewMode={viewMode}
-                setViewMode={setViewMode}
-                selectedThread={selectedThread}
-                setSelectedThread={setSelectedThread}
-                user={user}
-                exportData={exportData}
-            />
-        )}
-
-        {activeTab === 'rooms' && (
-            <RoomsTab
-                topicRooms={topicRooms}
-                handleToggleRoom={handleToggleRoom}
-                handleDeleteRoom={handleDeleteRoom}
-                setShowCreateModal={setShowCreateModal}
-                setCreateType={setCreateType}
-            />
-        )}
-
-        {activeTab === 'supportGroups' && (
-            <SupportGroupsTab
-                supportGroups={supportGroups}
-                setShowCreateModal={setShowCreateModal}
-                setCreateType={setCreateType}
-                loadCommunityData={loadCommunityData}
-            />
-        )}
-
-        {activeTab === 'meetings' && (
-            <MeetingsTab
-                meetings={meetings}
-                setShowCreateModal={setShowCreateModal}
-                setCreateType={setCreateType}
-                setSelectedMeeting={setSelectedMeeting}
-                setShowAttendanceModal={setShowAttendanceModal}
-                loadCommunityData={loadCommunityData}
-            />
-        )}
-
-        {activeTab === 'moderation' && (
-            <ModerationTab
-                flaggedMessages={flaggedMessages}
-                moderationHistory={moderationHistory}
-                userWarnings={userWarnings}
-                moderationKeywords={moderationKeywords}
-                setModerationKeywords={setModerationKeywords}
-                handleFlagResolve={handleFlagResolve}
-                stats={stats}
-                exportData={exportData}
-            />
-        )}
-
-        {/* Modals */}
-        {selectedImage && (
-            <ImageModal image={selectedImage} onClose={() => setSelectedImage(null)} />
-        )}
-
-        {showCreateModal && (
-            <CommunityCreateModal
-                type={createType}
-                item={editingItem}
-                onSubmit={handleCreateMeeting}
-                onClose={() => setShowCreateModal(false)}
-                user={user}
-            />
-        )}
-
-        {showAttendanceModal && selectedMeeting && (
-            <AttendanceModal
-                meeting={selectedMeeting}
-                onClose={() => {
-                    setShowAttendanceModal(false);
-                    setSelectedMeeting(null);
-                }}
-                handleRecordAttendance={handleRecordAttendance}
-            />
-        )}
-    </div>
-);
 }
         // ANALYTICS TAB
 function AnalyticsTab({ stats, analyticsData, activityChartRef, sentimentChartRef, engagementChartRef, exportData }) {
