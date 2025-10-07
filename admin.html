@@ -4896,7 +4896,7 @@ function PIRNotesModal({ pir, existingNotes, onClose, onSave }) {
         </div>
     );
 }
-// COMPLETE ENHANCED CommunityView - WITH AUTO TOKEN REFRESH
+// COMPLETE ENHANCED CommunityView - WITH AUTO TOKEN REFRESH AND PACIFIC TIME
 function CommunityView({ searchQuery, user }) {
     const [activeTab, setActiveTab] = useState('analytics');
     const [loading, setLoading] = useState(true);
@@ -5686,7 +5686,7 @@ function CommunityView({ searchQuery, user }) {
         }
     };
 
-    // NEW: AUTO-REFRESH - Silently refresh Google token if expired
+    // AUTO-REFRESH: Silently refresh Google token if expired
     const refreshGoogleToken = async () => {
         return new Promise((resolve, reject) => {
             try {
@@ -5747,7 +5747,7 @@ function CommunityView({ searchQuery, user }) {
         });
     };
 
-    // UPDATED: Check if Google token is valid and auto-refresh if needed
+    // Check if Google token is valid and auto-refresh if needed
     const checkGoogleToken = async () => {
         // Check if user has Google connected
         if (!user.googleConnected || !user.googleAccessToken) {
@@ -5769,7 +5769,7 @@ function CommunityView({ searchQuery, user }) {
                     console.log('⚠️ Token expired, attempting auto-refresh...');
                     await refreshGoogleToken();
                     console.log('✓ Token auto-refreshed successfully');
-                    return { valid: true }; // Token refreshed, proceed
+                    return { valid: true };
                 } catch (refreshError) {
                     console.error('❌ Auto-refresh failed:', refreshError);
                     return {
@@ -5783,16 +5783,25 @@ function CommunityView({ searchQuery, user }) {
         return { valid: true };
     };
 
-    // Google Calendar Helper - Create Meeting with Meet Link
+    // Google Calendar Helper - Create Meeting with Meet Link (PACIFIC TIME)
     const createGoogleMeeting = async (meetingData, accessToken) => {
         try {
-            // Prepare the calendar event
-            const startDateTime = new Date(meetingData.date);
-            startDateTime.setHours(
-                parseInt(meetingData.time.split(':')[0]),
-                parseInt(meetingData.time.split(':')[1]),
+            // Properly construct date in local timezone
+            const dateParts = meetingData.date.split('-');
+            const timeParts = meetingData.time.split(':');
+            
+            // Create date in LOCAL timezone, not UTC
+            const startDateTime = new Date(
+                parseInt(dateParts[0]),
+                parseInt(dateParts[1]) - 1,
+                parseInt(dateParts[2]),
+                parseInt(timeParts[0]),
+                parseInt(timeParts[1]),
                 0, 0
             );
+            
+            console.log('Meeting date constructed:', startDateTime.toString());
+            console.log('ISO string:', startDateTime.toISOString());
             
             const endDateTime = new Date(startDateTime);
             const durationHours = Math.floor(parseInt(meetingData.duration || 60) / 60);
@@ -5807,7 +5816,7 @@ function CommunityView({ searchQuery, user }) {
                 recurrence = [`RRULE:FREQ=${freq}`];
             }
             
-            // Create event with Meet link
+            // Create event with Meet link - PACIFIC TIME
             const event = {
                 summary: meetingData.title || meetingData.meetingTitle,
                 description: meetingData.description || meetingData.notes || '',
@@ -5839,6 +5848,7 @@ function CommunityView({ searchQuery, user }) {
             }
             
             console.log('Sending request to Google Calendar API...');
+            console.log('Event start time:', event.start.dateTime, 'in timezone:', event.start.timeZone);
             
             // Make API request
             const response = await fetch(
@@ -5881,14 +5891,13 @@ function CommunityView({ searchQuery, user }) {
         }
     };
 
-    // UPDATED: Handle Create Meeting with Auto Token Refresh
+    // Handle Create Meeting with Auto Token Refresh
     const handleCreateMeeting = async (meetingData) => {
         try {
             // CRITICAL: Check Google token FIRST (now async with auto-refresh)
             const tokenCheck = await checkGoogleToken();
             
             if (!tokenCheck.valid) {
-                // Token is expired or not connected - BLOCK meeting creation
                 alert('❌ Cannot create meeting without Google Calendar\n\n' + tokenCheck.error);
                 return;
             }
@@ -5950,7 +5959,8 @@ function CommunityView({ searchQuery, user }) {
                 alert(
                     '✅ Meeting scheduled successfully!\n\n' +
                     '📅 Added to Google Calendar\n' +
-                    '🔗 Meet link: ' + meetingData.meetingLink + '\n\n' +
+                    '🔗 Meet link: ' + meetingData.meetingLink + '\n' +
+                    '🕐 Time: Pacific Time (PT)\n\n' +
                     'The meeting is ready!'
                 );
             } else {
