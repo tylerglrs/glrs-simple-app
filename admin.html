@@ -4896,7 +4896,7 @@ function PIRNotesModal({ pir, existingNotes, onClose, onSave }) {
         </div>
     );
 }
-// COMPLETE ENHANCED CommunityView - ALL FEATURES
+// COMPLETE ENHANCED CommunityView - WITH AUTO TOKEN REFRESH
 function CommunityView({ searchQuery, user }) {
     const [activeTab, setActiveTab] = useState('analytics');
     const [loading, setLoading] = useState(true);
@@ -5686,54 +5686,104 @@ function CommunityView({ searchQuery, user }) {
         }
     };
 
-    const handleCreateMeeting = async (meetingData) => {
-        try {
-            let googleEventData = null;
-            
-            // Check if user has Google connected
-            if (user.googleConnected && user.googleAccessToken) {
-                try {
-                    console.log('Creating Google Calendar event with Meet link...');
-                    googleEventData = await createGoogleMeeting(meetingData, user.googleAccessToken);
-                    console.log('Google event created:', googleEventData);
-                    
-                    // Update meeting data with generated Meet link if not manually provided
-                    if (!meetingData.meetingLink && googleEventData.meetLink) {
-                        meetingData.meetingLink = googleEventData.meetLink;
-                    }
-                } catch (googleError) {
-                    console.error('Google Calendar integration failed:', googleError);
-                    // Continue without Google Calendar - don't block meeting creation
-                    alert('Meeting will be created, but Google Calendar sync failed. You can add the Meet link manually.');
+    // NEW: AUTO-REFRESH - Silently refresh Google token if expired
+    const refreshGoogleToken = async () => {
+        return new Promise((resolve, reject) => {
+            try {
+                console.log('Attempting to refresh Google token...');
+                
+                // Check if Google Identity Services is loaded
+                if (typeof google === 'undefined' || !google.accounts) {
+                    reject(new Error('Google Identity Services not loaded'));
+                    return;
                 }
+                
+                // Use token client to get new token silently
+                const tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: '457406864879-k1sunucuqofe22m5rg93hvo6nngiqh0u.apps.googleusercontent.com',
+                    scope: [
+                        'https://www.googleapis.com/auth/calendar.events',
+                        'https://www.googleapis.com/auth/drive.file',
+                        'https://www.googleapis.com/auth/gmail.send'
+                    ].join(' '),
+                    callback: async (tokenResponse) => {
+                        try {
+                            if (tokenResponse.error) {
+                                reject(new Error(tokenResponse.error));
+                                return;
+                            }
+                            
+                            if (tokenResponse.access_token) {
+                                // Update Firebase with new token
+                                await db.collection('users').doc(user.uid).update({
+                                    googleAccessToken: tokenResponse.access_token,
+                                    googleTokenExpiry: Date.now() + (tokenResponse.expires_in * 1000),
+                                    googleTokenRefreshedAt: firebase.firestore.FieldValue.serverTimestamp()
+                                });
+                                
+                                console.log('✓ Token refreshed successfully');
+                                
+                                // Update local user object
+                                user.googleAccessToken = tokenResponse.access_token;
+                                user.googleTokenExpiry = Date.now() + (tokenResponse.expires_in * 1000);
+                                
+                                resolve(tokenResponse.access_token);
+                            } else {
+                                reject(new Error('No access token received'));
+                            }
+                        } catch (error) {
+                            reject(error);
+                        }
+                    },
+                });
+                
+                // Request new token (will try silently first with prompt: '')
+                tokenClient.requestAccessToken({ prompt: '' });
+                
+            } catch (error) {
+                console.error('Failed to refresh token:', error);
+                reject(error);
             }
-            
-            // Save to Firebase
-            const meetingDoc = await db.collection('meetings').add({
-                ...meetingData,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                coachId: user.uid,
-                status: 'scheduled',
-                googleCalendarEventId: googleEventData?.eventId || null,
-                googleCalendarLink: googleEventData?.htmlLink || null,
-                recurring: meetingData.recurring || 'none',
-                timezone: 'America/Los_Angeles'
-            });
-            
-            console.log('Meeting saved to Firebase:', meetingDoc.id);
-            
-            alert(`✓ Meeting scheduled successfully!${googleEventData ? '\n\n📅 Added to Google Calendar\n🔗 Meet link: ' + meetingData.meetingLink : ''}`);
-            setShowCreateModal(false);
-            setSelectedItem(null);
-            loadCommunityData();
-            
-        } catch (error) {
-            console.error('Error creating meeting:', error);
-            alert('Failed to create meeting: ' + error.message);
-        }
+        });
     };
 
-    // GOOGLE CALENDAR HELPER - Create Meeting with Meet Link
+    // UPDATED: Check if Google token is valid and auto-refresh if needed
+    const checkGoogleToken = async () => {
+        // Check if user has Google connected
+        if (!user.googleConnected || !user.googleAccessToken) {
+            return {
+                valid: false,
+                error: 'Google Services not connected. Please connect Google in your Profile settings.'
+            };
+        }
+        
+        // Check if token is expired
+        if (user.googleTokenExpiry) {
+            const now = Date.now();
+            const expiryTime = user.googleTokenExpiry;
+            const fiveMinutes = 5 * 60 * 1000;
+            
+            if (now >= expiryTime - fiveMinutes) {
+                // Token expired - try to refresh automatically
+                try {
+                    console.log('⚠️ Token expired, attempting auto-refresh...');
+                    await refreshGoogleToken();
+                    console.log('✓ Token auto-refreshed successfully');
+                    return { valid: true }; // Token refreshed, proceed
+                } catch (refreshError) {
+                    console.error('❌ Auto-refresh failed:', refreshError);
+                    return {
+                        valid: false,
+                        error: 'Google token expired and could not be refreshed automatically.\n\nPlease:\n1. Go to Profile\n2. Click "Disconnect Google Services"\n3. Click "Connect Google Services" again\n\nThen try scheduling the meeting again.'
+                    };
+                }
+            }
+        }
+        
+        return { valid: true };
+    };
+
+    // Google Calendar Helper - Create Meeting with Meet Link
     const createGoogleMeeting = async (meetingData, accessToken) => {
         try {
             // Prepare the calendar event
@@ -5745,7 +5795,10 @@ function CommunityView({ searchQuery, user }) {
             );
             
             const endDateTime = new Date(startDateTime);
-            endDateTime.setHours(endDateTime.getHours() + 1); // Default 1 hour duration
+            const durationHours = Math.floor(parseInt(meetingData.duration || 60) / 60);
+            const durationMinutes = parseInt(meetingData.duration || 60) % 60;
+            endDateTime.setHours(endDateTime.getHours() + durationHours);
+            endDateTime.setMinutes(endDateTime.getMinutes() + durationMinutes);
             
             // Build recurrence rule if applicable
             let recurrence = [];
@@ -5756,8 +5809,8 @@ function CommunityView({ searchQuery, user }) {
             
             // Create event with Meet link
             const event = {
-                summary: meetingData.title,
-                description: meetingData.description || '',
+                summary: meetingData.title || meetingData.meetingTitle,
+                description: meetingData.description || meetingData.notes || '',
                 start: {
                     dateTime: startDateTime.toISOString(),
                     timeZone: 'America/Los_Angeles'
@@ -5775,7 +5828,7 @@ function CommunityView({ searchQuery, user }) {
                 reminders: {
                     useDefault: false,
                     overrides: [
-                        { method: 'email', minutes: 24 * 60 }, // 24 hours before
+                        { method: 'email', minutes: 24 * 60 },
                         { method: 'popup', minutes: 30 }
                     ]
                 }
@@ -5784,6 +5837,8 @@ function CommunityView({ searchQuery, user }) {
             if (recurrence.length > 0) {
                 event.recurrence = recurrence;
             }
+            
+            console.log('Sending request to Google Calendar API...');
             
             // Make API request
             const response = await fetch(
@@ -5798,12 +5853,21 @@ function CommunityView({ searchQuery, user }) {
                 }
             );
             
+            console.log('Google Calendar API response status:', response.status);
+            
             if (!response.ok) {
                 const error = await response.json();
+                console.error('Google Calendar API error:', error);
+                
+                if (response.status === 401) {
+                    throw new Error('TOKEN_EXPIRED');
+                }
+                
                 throw new Error(error.error?.message || 'Failed to create calendar event');
             }
             
             const createdEvent = await response.json();
+            console.log('Calendar event created successfully:', createdEvent.id);
             
             return {
                 eventId: createdEvent.id,
@@ -5814,6 +5878,96 @@ function CommunityView({ searchQuery, user }) {
         } catch (error) {
             console.error('Error creating Google Calendar event:', error);
             throw error;
+        }
+    };
+
+    // UPDATED: Handle Create Meeting with Auto Token Refresh
+    const handleCreateMeeting = async (meetingData) => {
+        try {
+            // CRITICAL: Check Google token FIRST (now async with auto-refresh)
+            const tokenCheck = await checkGoogleToken();
+            
+            if (!tokenCheck.valid) {
+                // Token is expired or not connected - BLOCK meeting creation
+                alert('❌ Cannot create meeting without Google Calendar\n\n' + tokenCheck.error);
+                return;
+            }
+            
+            console.log('✓ Google token valid, proceeding with meeting creation...');
+            
+            let googleEventData = null;
+            
+            try {
+                console.log('Creating Google Calendar event with Meet link...');
+                googleEventData = await createGoogleMeeting(meetingData, user.googleAccessToken);
+                console.log('✓ Google event created:', googleEventData);
+                
+                // Update meeting data with generated Meet link
+                if (googleEventData.meetLink) {
+                    meetingData.meetingLink = googleEventData.meetLink;
+                }
+            } catch (googleError) {
+                console.error('❌ Google Calendar integration failed:', googleError);
+                
+                // If token expired during creation, show reconnect message
+                if (googleError.message === 'TOKEN_EXPIRED') {
+                    alert('❌ Google token expired during creation!\n\nPlease:\n1. Go to Profile\n2. Disconnect Google Services\n3. Connect Google Services again\n4. Try scheduling the meeting again');
+                    return;
+                }
+                
+                // Other Google errors - let user decide
+                const continueWithoutGoogle = confirm(
+                    '⚠️ Google Calendar sync failed!\n\n' +
+                    'Error: ' + googleError.message + '\n\n' +
+                    'Do you want to create the meeting WITHOUT a Google Meet link?\n\n' +
+                    '(You can add the link manually later)'
+                );
+                
+                if (!continueWithoutGoogle) {
+                    return;
+                }
+            }
+            
+            // Only reach here if Google Calendar succeeded OR user chose to continue
+            console.log('Saving meeting to Firebase...');
+            
+            // Save to Firebase
+            const meetingDoc = await db.collection('meetings').add({
+                ...meetingData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                coachId: user.uid,
+                status: 'scheduled',
+                googleCalendarEventId: googleEventData?.eventId || null,
+                googleCalendarLink: googleEventData?.htmlLink || null,
+                recurring: meetingData.recurring || 'none',
+                timezone: 'America/Los_Angeles'
+            });
+            
+            console.log('✓ Meeting saved to Firebase:', meetingDoc.id);
+            
+            // Success message
+            if (googleEventData) {
+                alert(
+                    '✅ Meeting scheduled successfully!\n\n' +
+                    '📅 Added to Google Calendar\n' +
+                    '🔗 Meet link: ' + meetingData.meetingLink + '\n\n' +
+                    'The meeting is ready!'
+                );
+            } else {
+                alert(
+                    '✅ Meeting created!\n\n' +
+                    '⚠️ Note: No Google Meet link was added.\n' +
+                    'You can add it manually by editing the meeting.'
+                );
+            }
+            
+            setShowCreateModal(false);
+            setSelectedItem(null);
+            loadCommunityData();
+            
+        } catch (error) {
+            console.error('❌ Error creating meeting:', error);
+            alert('Failed to create meeting: ' + error.message);
         }
     };
 
