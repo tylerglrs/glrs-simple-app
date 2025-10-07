@@ -7964,7 +7964,7 @@ function ImageModal({ image, onClose }) {
     );
 }
 
-// COMMUNITY CREATE MODAL (Rooms, Support Groups, Meetings)
+// COMMUNITY CREATE MODAL (Rooms, Support Groups, Meetings) - WITH TIMEZONE BANNER
 function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
     const [formData, setFormData] = useState(() => {
         if (item) {
@@ -8005,7 +8005,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                 notes: '',
                 sendReminder: true,
                 status: 'scheduled',
-                recurring: 'none' // NEW FIELD
+                recurring: 'none'
             };
         }
     });
@@ -8016,9 +8016,8 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
 
     const icons = ['💬', '🎯', '💪', '🧘', '📖', '🌟', '❤️', '🙏', '🎨', '🎵'];
 
-
     useEffect(() => {
-        if (type === 'meeting') {
+        if (type === 'meeting' || type === 'supportGroup') {
             loadPIRs();
         } else {
             setLoading(false);
@@ -8062,6 +8061,15 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                 alert('Please fill in all required fields');
                 return;
             }
+            
+            // Add selectedPIRs to support group data
+            const finalData = {
+                ...formData,
+                assignedPIRs: selectedPIRs
+            };
+            
+            onSubmit(finalData);
+            return;
         } else if (type === 'meeting') {
             if (!formData.meetingTitle || !formData.scheduledTime) {
                 alert('Please provide a meeting title and scheduled time');
@@ -8179,6 +8187,30 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
 
                 {/* Form Content */}
                 <form onSubmit={handleSubmit} style={{ padding: '30px' }}>
+                    {/* TIMEZONE BANNER - Only show for meetings and support groups */}
+                    {(type === 'meeting' || type === 'supportGroup') && (
+                        <div style={{
+                            marginBottom: '25px',
+                            padding: '15px 20px',
+                            background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+                            border: '2px solid #667eea',
+                            borderRadius: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px'
+                        }}>
+                            <span style={{ fontSize: '24px' }}>🕐</span>
+                            <div>
+                                <div style={{ fontWeight: '600', color: '#667eea', fontSize: '15px', marginBottom: '4px' }}>
+                                    Pacific Time Zone (PT)
+                                </div>
+                                <div style={{ fontSize: '13px', color: '#666' }}>
+                                    All times are in Pacific Time. Calendar events will be created in PT timezone.
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {type === 'room' && (
                         <>
                             <div style={{ marginBottom: '20px' }}>
@@ -8385,7 +8417,6 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                                         <option value="Friday">Friday</option>
                                         <option value="Saturday">Saturday</option>
                                         <option value="Sunday">Sunday</option>
-                                        <option value="Daily">Daily</option>
                                     </select>
                                 </div>
                             </div>
@@ -8398,7 +8429,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                                     color: '#333', 
                                     marginBottom: '8px' 
                                 }}>
-                                    Time *
+                                    Time (PT) *
                                 </label>
                                 <input
                                     type="time"
@@ -8491,6 +8522,105 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                                     }}
                                 />
                             </div>
+
+                            {/* PIR Selection for Support Groups */}
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ 
+                                    display: 'block', 
+                                    fontSize: '14px', 
+                                    fontWeight: '600', 
+                                    color: '#333', 
+                                    marginBottom: '8px' 
+                                }}>
+                                    Assign PIRs to This Support Group
+                                </label>
+                                <div style={{
+                                    marginBottom: '10px',
+                                    padding: '10px 12px',
+                                    background: '#f0f9ff',
+                                    borderRadius: '8px',
+                                    fontSize: '13px',
+                                    color: '#0369a1'
+                                }}>
+                                    ℹ️ Selected PIRs will have this support group added to their calendars
+                                </div>
+                                <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                                    <button 
+                                        type="button"
+                                        onClick={selectAllPIRs}
+                                        style={{
+                                            padding: '6px 12px',
+                                            background: '#667eea',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '500'
+                                        }}
+                                    >
+                                        Select All
+                                    </button>
+                                    <button 
+                                        type="button"
+                                        onClick={clearSelection}
+                                        style={{
+                                            padding: '6px 12px',
+                                            background: '#6c757d',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '500'
+                                        }}
+                                    >
+                                        Clear All
+                                    </button>
+                                    <span style={{ fontSize: '13px', color: '#666', lineHeight: '32px' }}>
+                                        {selectedPIRs.length} selected
+                                    </span>
+                                </div>
+                                <div style={{
+                                    maxHeight: '200px',
+                                    overflowY: 'auto',
+                                    border: '2px solid #e0e0e0',
+                                    borderRadius: '10px',
+                                    padding: '10px'
+                                }}>
+                                    {loading ? (
+                                        <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+                                            Loading PIRs...
+                                        </div>
+                                    ) : allPIRs.length > 0 ? (
+                                        allPIRs.map(pir => (
+                                            <label key={pir.id} style={{
+                                                display: 'block',
+                                                padding: '8px',
+                                                cursor: 'pointer',
+                                                background: selectedPIRs.includes(pir.id) ? '#e3f2fd' : 'transparent',
+                                                borderRadius: '6px',
+                                                marginBottom: '4px',
+                                                transition: 'background 0.2s'
+                                            }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedPIRs.includes(pir.id)}
+                                                    onChange={() => handlePIRSelection(pir.id)}
+                                                    style={{ marginRight: '10px', width: '16px', height: '16px', cursor: 'pointer' }}
+                                                />
+                                                <span style={{ fontSize: '14px' }}>
+                                                    {pir.name} <span style={{ color: '#999', fontSize: '12px' }}>({pir.email})</span>
+                                                </span>
+                                            </label>
+                                        ))
+                                    ) : (
+                                        <div style={{ color: '#999', textAlign: 'center', padding: '20px' }}>
+                                            No PIRs available
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </>
                     )}
 
@@ -8531,7 +8661,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                                         color: '#333', 
                                         marginBottom: '8px' 
                                     }}>
-                                        Date & Time (PST) *
+                                        Date & Time (PT) *
                                     </label>
                                     <input
                                         type="datetime-local"
@@ -8579,7 +8709,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                                 </div>
                             </div>
 
-                            {/* NEW: Recurring Options */}
+                            {/* Recurring Options */}
                             <div style={{ marginBottom: '20px' }}>
                                 <label style={{ 
                                     display: 'block', 
@@ -8656,7 +8786,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                                 </select>
                             </div>
                             
-                            {/* UPDATED: Meeting Link with Google Status */}
+                            {/* Meeting Link with Google Status */}
                             <div style={{ marginBottom: '20px' }}>
                                 <label style={{ 
                                     display: 'block', 
