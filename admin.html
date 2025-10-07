@@ -10299,9 +10299,8 @@ const connectGoogleServices = async () => {
             gapi.load('client:auth2', resolve);
         });
         
-        // Initialize with your credentials
+        // Initialize with your credentials (NO API KEY NEEDED)
         await gapi.client.init({
-            apiKey: 'AIzaSyBBpxZ3c-ZZsr9L_mUk_abb09GVgeFL8po',
             clientId: '457406864879-k1sunucuqofe22m5rg93hvo6nngiqh0u.apps.googleusercontent.com',
             discoveryDocs: [
                 'https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest',
@@ -10343,6 +10342,39 @@ const connectGoogleServices = async () => {
         } else {
             alert('Failed to connect Google Services. Please try again.');
         }
+    } finally {
+        setSaving(false);
+    }
+};
+
+const disconnectGoogleServices = async () => {
+    if (!confirm('Disconnect Google Services? This will disable Calendar sync, Drive integration, and email notifications.')) {
+        return;
+    }
+    
+    setSaving(true);
+    try {
+        // Revoke Google access
+        const auth2 = gapi.auth2.getAuthInstance();
+        if (auth2) {
+            await auth2.signOut();
+        }
+        
+        // Remove from Firebase
+        await db.collection('users').doc(user.uid).update({
+            googleConnected: false,
+            googleAccessToken: firebase.firestore.FieldValue.delete(),
+            googleRefreshToken: firebase.firestore.FieldValue.delete(),
+            googleTokenExpiry: firebase.firestore.FieldValue.delete(),
+            googleDisconnectedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        alert('Google Services disconnected.');
+        setTimeout(() => window.location.reload(), 500);
+        
+    } catch (error) {
+        console.error('Error disconnecting Google:', error);
+        alert('Failed to disconnect. Please try again.');
     } finally {
         setSaving(false);
     }
