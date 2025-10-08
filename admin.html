@@ -5985,31 +5985,47 @@ function CommunityView({ searchQuery, user }) {
         return { valid: true };
     };
 
-   // UPDATED: Google Calendar Helper - Create Meeting with Meet Link + Recurring End Options
+  // PERMANENT FIX: Google Calendar Helper - Timezone-Safe Meeting Creation
 const createGoogleMeeting = async (meetingData, accessToken) => {
     try {
-        // Properly construct date in local timezone
-        const dateParts = meetingData.date.split('-');
-        const timeParts = meetingData.time.split(':');
+        // BUILD DATETIME STRING DIRECTLY IN PACIFIC TIMEZONE (NO CONVERSIONS!)
+        const date = meetingData.date; // Already in YYYY-MM-DD format
+        const time = meetingData.time; // Already in HH:MM format
         
-        // Create date in LOCAL timezone, not UTC
-        const startDateTime = new Date(
-            parseInt(dateParts[0]),
-            parseInt(dateParts[1]) - 1,
-            parseInt(dateParts[2]),
-            parseInt(timeParts[0]),
-            parseInt(timeParts[1]),
-            0, 0
-        );
+        // Construct RFC3339 datetime in Pacific timezone (no Date object conversions)
+        const startDateTimeString = `${date}T${time}:00`; // e.g., "2025-10-08T14:30:00"
         
-        console.log('Meeting date constructed:', startDateTime.toString());
-        console.log('ISO string:', startDateTime.toISOString());
+        console.log('Meeting datetime (Pacific):', startDateTimeString);
         
-        const endDateTime = new Date(startDateTime);
-        const durationHours = Math.floor(parseInt(meetingData.duration || 60) / 60);
-        const durationMinutes = parseInt(meetingData.duration || 60) % 60;
-        endDateTime.setHours(endDateTime.getHours() + durationHours);
-        endDateTime.setMinutes(endDateTime.getMinutes() + durationMinutes);
+        // Calculate end time
+        const [startHours, startMinutes] = time.split(':').map(Number);
+        const durationMinutes = parseInt(meetingData.duration || 60);
+        
+        let endHours = startHours;
+        let endMinutes = startMinutes + durationMinutes;
+        
+        // Handle minute overflow
+        if (endMinutes >= 60) {
+            endHours += Math.floor(endMinutes / 60);
+            endMinutes = endMinutes % 60;
+        }
+        
+        // Handle hour overflow (next day)
+        let endDate = date;
+        if (endHours >= 24) {
+            endHours = endHours % 24;
+            const dateParts = date.split('-');
+            const nextDay = new Date(
+                parseInt(dateParts[0]),
+                parseInt(dateParts[1]) - 1,
+                parseInt(dateParts[2]) + 1
+            );
+            endDate = nextDay.toISOString().split('T')[0];
+        }
+        
+        const endDateTimeString = `${endDate}T${String(endHours).padStart(2, '0')}:${String(endMinutes).padStart(2, '0')}:00`;
+        
+        console.log('End datetime (Pacific):', endDateTimeString);
         
         // BUILD RECURRENCE RULE WITH PROPER END CONDITIONS
         let recurrence = [];
@@ -6023,14 +6039,17 @@ const createGoogleMeeting = async (meetingData, accessToken) => {
                 recurrence = [`RRULE:FREQ=${freq};COUNT=${meetingData.recurringCount}`];
                 estimatedOccurrences = parseInt(meetingData.recurringCount);
             } else if (meetingData.recurringEnd === 'until') {
-                // Until specific date
-                const untilDate = new Date(meetingData.recurringUntil);
-                untilDate.setHours(23, 59, 59);
-                const untilStr = untilDate.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+                // Until specific date - use 23:59:59 on that day in Pacific
+                const untilDateString = `${meetingData.recurringUntil}T23:59:59`;
+                // Convert to RRULE format (basic ISO string without separators + Z)
+                const untilStr = untilDateString.replace(/[-:]/g, '') + 'Z';
                 recurrence = [`RRULE:FREQ=${freq};UNTIL=${untilStr}`];
                 
                 // Calculate estimated occurrences
-                const daysBetween = Math.floor((untilDate - startDateTime) / (1000 * 60 * 60 * 24));
+                const startDate = new Date(date);
+                const untilDate = new Date(meetingData.recurringUntil);
+                const daysBetween = Math.floor((untilDate - startDate) / (1000 * 60 * 60 * 24));
+                
                 if (meetingData.recurring === 'daily') {
                     estimatedOccurrences = daysBetween + 1;
                 } else if (meetingData.recurring === 'weekly') {
@@ -6045,16 +6064,16 @@ const createGoogleMeeting = async (meetingData, accessToken) => {
             }
         }
         
-        // Create event with Meet link - PACIFIC TIME
+        // Create event with Meet link - PACIFIC TIME (NO CONVERSIONS!)
         const event = {
             summary: meetingData.title || meetingData.meetingTitle,
             description: meetingData.description || meetingData.notes || '',
             start: {
-                dateTime: startDateTime.toISOString(),
+                dateTime: startDateTimeString,
                 timeZone: 'America/Los_Angeles'
             },
             end: {
-                dateTime: endDateTime.toISOString(),
+                dateTime: endDateTimeString,
                 timeZone: 'America/Los_Angeles'
             },
             conferenceData: {
@@ -6077,9 +6096,7 @@ const createGoogleMeeting = async (meetingData, accessToken) => {
         }
         
         console.log('Sending request to Google Calendar API...');
-        console.log('Event start time:', event.start.dateTime, 'in timezone:', event.start.timeZone);
-        console.log('Recurrence rule:', recurrence);
-        console.log('Estimated occurrences:', estimatedOccurrences);
+        console.log('Event payload:', JSON.stringify(event, null, 2));
         
         // Make API request
         const response = await fetch(
@@ -6114,7 +6131,7 @@ const createGoogleMeeting = async (meetingData, accessToken) => {
             eventId: createdEvent.id,
             meetLink: createdEvent.hangoutLink,
             htmlLink: createdEvent.htmlLink,
-            occurrences: estimatedOccurrences // NEW: Return occurrence count
+            occurrences: estimatedOccurrences
         };
         
     } catch (error) {
