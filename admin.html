@@ -4000,6 +4000,78 @@ function MyPIRsView({ searchQuery, user }) {
             setLoading(false);
         }
     };
+    // CHECK & REFRESH GOOGLE TOKEN
+const checkGoogleToken = async () => {
+    try {
+        if (!user.googleConnected) {
+            return {
+                valid: false,
+                error: 'Google Calendar not connected.\n\nPlease connect Google Services in your Profile.'
+            };
+        }
+        
+        if (!user.googleAccessToken) {
+            return {
+                valid: false,
+                error: 'No Google access token found.\n\nPlease reconnect Google Services in your Profile.'
+            };
+        }
+        
+        // Check if token is expired (if we have expiry time)
+        if (user.googleTokenExpiry) {
+            const now = Date.now();
+            const expiry = user.googleTokenExpiry;
+            
+            // If token expires in less than 5 minutes, refresh it
+            if (expiry - now < 5 * 60 * 1000) {
+                console.log('Token expiring soon, refreshing...');
+                
+                try {
+                    // Attempt to refresh the token
+                    const refreshResponse = await fetch('/refresh-google-token', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            userId: user.uid
+                        })
+                    });
+                    
+                    if (refreshResponse.ok) {
+                        const newTokenData = await refreshResponse.json();
+                        
+                        // Update user object
+                        user.googleAccessToken = newTokenData.accessToken;
+                        user.googleTokenExpiry = newTokenData.expiry;
+                        
+                        console.log('✓ Token refreshed successfully');
+                        return { valid: true };
+                    } else {
+                        console.error('Token refresh failed');
+                        return {
+                            valid: false,
+                            error: 'Google token expired.\n\nPlease reconnect Google Services in your Profile.'
+                        };
+                    }
+                } catch (refreshError) {
+                    console.error('Error refreshing token:', refreshError);
+                    // Continue with existing token - might still work
+                }
+            }
+        }
+        
+        // Token is valid or we couldn't check expiry (use it anyway)
+        return { valid: true };
+        
+    } catch (error) {
+        console.error('Error checking Google token:', error);
+        return {
+            valid: false,
+            error: 'Error checking Google connection.\n\nPlease try reconnecting Google Services.'
+        };
+    }
+};
      // UPDATED: Comprehensive Recovery Milestones (matches index.html)
 const getRecoveryMilestones = (sobrietyDate) => {
     if (!sobrietyDate) return [];
