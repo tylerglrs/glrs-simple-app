@@ -4060,13 +4060,25 @@ const getRecoveryMilestones = (sobrietyDate) => {
         };
     });
 };
-    // NEW: Add PIR Milestones to Coach's Google Calendar
-const addMilestonesToCoachCalendar = async (pir, accessToken) => {
+    const addMilestonesToCoachCalendar = async (pir, accessToken) => {
     try {
         if (!pir.sobrietyDate) {
             alert('PIR has no sobriety date set. Cannot calculate milestones.');
             return;
         }
+        
+        // ✅ CRITICAL: Check Google token FIRST (with auto-refresh)
+        const tokenCheck = await checkGoogleToken();
+        
+        if (!tokenCheck.valid) {
+            alert('❌ Cannot add milestones without Google Calendar\n\n' + tokenCheck.error);
+            return;
+        }
+        
+        console.log('✓ Google token valid, proceeding with milestone creation...');
+        
+        // Use the refreshed token (not the passed-in one)
+        const validToken = user.googleAccessToken;
         
         console.log('Adding milestones to coach calendar for:', pir.displayName || pir.email);
         
@@ -4117,7 +4129,7 @@ const addMilestonesToCoachCalendar = async (pir, accessToken) => {
                     {
                         method: 'POST',
                         headers: {
-                            'Authorization': `Bearer ${accessToken}`,
+                            'Authorization': `Bearer ${validToken}`,
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify(event)
@@ -4129,7 +4141,8 @@ const addMilestonesToCoachCalendar = async (pir, accessToken) => {
                     console.log(`✓ Created: ${milestone.title}`);
                 } else {
                     failCount++;
-                    console.error(`✗ Failed: ${milestone.title}`);
+                    const errorData = await response.json().catch(() => ({}));
+                    console.error(`✗ Failed: ${milestone.title}`, errorData);
                 }
                 
             } catch (error) {
