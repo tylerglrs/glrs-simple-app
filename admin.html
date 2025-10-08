@@ -25997,30 +25997,73 @@ const formatDate = (date) => {
         }
     };
 
-    // Save profile
-    const handleSaveProfile = async () => {
-        try {
-            await db.collection('users').doc(pirId).update({
-                ...editData,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+   const handleSaveProfile = async () => {
+    try {
+        const updates = {
+            ...editData,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        
+        // Track coach assignment changes
+        if (editData.assignedCoach !== pirData.assignedCoach) {
+            const newCoach = availableCoaches.find(c => c.id === editData.assignedCoach);
+            const oldCoach = availableCoaches.find(c => c.id === pirData.assignedCoach);
             
-            await db.collection('activities').add({
-                userId: pirId,
-                type: 'profile_updated',
-                description: 'Profile information updated',
+            // Add to assignment history
+            const historyEntry = {
+                assignedAt: new Date().toISOString(),
+                assignedBy: user.uid,
+                coachId: editData.assignedCoach,
+                coachName: newCoach?.displayName || newCoach?.email || 'Unknown',
+                previousCoachId: pirData.assignedCoach || null,
+                previousCoachName: oldCoach?.displayName || oldCoach?.email || 'None'
+            };
+            
+            updates.coachAssignmentHistory = firebase.firestore.FieldValue.arrayUnion(historyEntry);
+            
+            // Create notification for new coach
+            if (editData.assignedCoach) {
+                await db.collection('notifications').add({
+                    recipientId: editData.assignedCoach,
+                    type: 'pir_assigned',
+                    message: `${pirData.displayName || pirData.email} has been assigned to you`,
+                    pirId: pirId,
+                    pirName: pirData.displayName || pirData.email,
+                    read: false,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+            
+            // Create notification for PIR
+            await db.collection('notifications').add({
+                recipientId: pirId,
+                type: 'coach_changed',
+                message: `Your coach has been updated to ${newCoach?.displayName || 'a new coach'}`,
+                read: false,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            
-            setPirData(editData);
-            setEditing(false);
-            alert('Profile updated successfully');
-            if (onUpdate) onUpdate();
-        } catch (error) {
-            console.error('Error updating profile:', error);
-            alert('Failed to update profile');
         }
-    };
+        
+        await db.collection('users').doc(pirId).update(updates);
+        
+        await db.collection('activities').add({
+            userId: pirId,
+            type: 'profile_updated',
+            description: 'Profile information updated' + 
+                (editData.assignedCoach !== pirData.assignedCoach ? ' - Coach assignment changed' : ''),
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        setPirData(editData);
+        setEditing(false);
+        alert('Profile updated successfully' + 
+            (editData.assignedCoach !== pirData.assignedCoach ? '\n\nCoach assignment changed and notifications sent!' : ''));
+        if (onUpdate) onUpdate();
+    } catch (error) {
+        console.error('Error updating profile:', error);
+        alert('Failed to update profile: ' + error.message);
+    }
+};
      // Fixed loadAllUserMessages function - add this to your load functions
 const loadAllUserMessages = async () => {
     try {
