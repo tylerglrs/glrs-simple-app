@@ -8166,14 +8166,17 @@ function ImageModal({ image, onClose }) {
     );
 }
 
-// COMMUNITY CREATE MODAL (Rooms, Support Groups, Meetings) - WITH TIMEZONE BANNER
+// COMMUNITY CREATE MODAL - WITH RECURRING END OPTIONS
 function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
     const [formData, setFormData] = useState(() => {
         if (item) {
             return {
                 ...item,
                 assignedPIRs: item.assignedPIRs || [],
-                recurring: item.recurring || 'none'
+                recurring: item.recurring || 'none',
+                recurringEnd: item.recurringEnd || 'never',
+                recurringCount: item.recurringCount || 10,
+                recurringUntil: item.recurringUntil || ''
             };
         }
         
@@ -8207,7 +8210,10 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                 notes: '',
                 sendReminder: true,
                 status: 'scheduled',
-                recurring: 'none'
+                recurring: 'none',
+                recurringEnd: 'never',
+                recurringCount: 10,
+                recurringUntil: ''
             };
         }
     });
@@ -8264,7 +8270,6 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                 return;
             }
             
-            // Add selectedPIRs to support group data
             const finalData = {
                 ...formData,
                 assignedPIRs: selectedPIRs
@@ -8278,20 +8283,30 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                 return;
             }
             
-            // Parse datetime-local into date and time for Google Calendar API
+            // Validate recurring end options
+            if (formData.recurring !== 'none') {
+                if (formData.recurringEnd === 'count' && (!formData.recurringCount || formData.recurringCount < 1)) {
+                    alert('Please specify how many times the meeting should repeat');
+                    return;
+                }
+                if (formData.recurringEnd === 'until' && !formData.recurringUntil) {
+                    alert('Please specify when the recurring meetings should end');
+                    return;
+                }
+            }
+            
             const scheduledDate = new Date(formData.scheduledTime);
-            const dateStr = scheduledDate.toISOString().split('T')[0]; // YYYY-MM-DD
-            const timeStr = formData.scheduledTime.split('T')[1]; // HH:MM
+            const dateStr = scheduledDate.toISOString().split('T')[0];
+            const timeStr = formData.scheduledTime.split('T')[1];
             
             const finalData = {
                 ...formData,
                 scheduledTime: firebase.firestore.Timestamp.fromDate(scheduledDate),
                 assignedPIRs: formData.isGlobal ? [] : selectedPIRs,
-                // Add parsed date/time for Google Calendar API
                 date: dateStr,
                 time: timeStr,
-                title: formData.meetingTitle, // Alias for Google API
-                description: formData.notes || '' // Alias for Google API
+                title: formData.meetingTitle,
+                description: formData.notes || ''
             };
             
             onSubmit(finalData);
@@ -8321,6 +8336,13 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
         const now = new Date();
         now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
         return now.toISOString().slice(0, 16);
+    };
+
+    const getMinRecurringEndDate = () => {
+        if (!formData.scheduledTime) return '';
+        const scheduledDate = new Date(formData.scheduledTime);
+        scheduledDate.setDate(scheduledDate.getDate() + 1); // At least 1 day after start
+        return scheduledDate.toISOString().split('T')[0];
     };
 
     return (
@@ -8389,7 +8411,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
 
                 {/* Form Content */}
                 <form onSubmit={handleSubmit} style={{ padding: '30px' }}>
-                    {/* TIMEZONE BANNER - Only show for meetings and support groups */}
+                    {/* TIMEZONE BANNER */}
                     {(type === 'meeting' || type === 'supportGroup') && (
                         <div style={{
                             marginBottom: '25px',
@@ -8416,13 +8438,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                     {type === 'room' && (
                         <>
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Room Name *
                                 </label>
                                 <input
@@ -8442,13 +8458,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                             </div>
 
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Description *
                                 </label>
                                 <textarea
@@ -8470,13 +8480,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                             </div>
 
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Icon
                                 </label>
                                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -8502,13 +8506,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                             </div>
 
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Room Rules (optional)
                                 </label>
                                 <textarea
@@ -8533,13 +8531,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                     {type === 'supportGroup' && (
                         <>
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Group Name *
                                 </label>
                                 <input
@@ -8560,13 +8552,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                             
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
                                 <div>
-                                    <label style={{ 
-                                        display: 'block', 
-                                        fontSize: '14px', 
-                                        fontWeight: '600', 
-                                        color: '#333', 
-                                        marginBottom: '8px' 
-                                    }}>
+                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                         Type *
                                     </label>
                                     <select
@@ -8591,13 +8577,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                                 </div>
                                 
                                 <div>
-                                    <label style={{ 
-                                        display: 'block', 
-                                        fontSize: '14px', 
-                                        fontWeight: '600', 
-                                        color: '#333', 
-                                        marginBottom: '8px' 
-                                    }}>
+                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                         Day *
                                     </label>
                                     <select
@@ -8624,13 +8604,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                             </div>
                             
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Time (PT) *
                                 </label>
                                 <input
@@ -8649,13 +8623,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                             </div>
                             
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Meeting Link (for virtual meetings)
                                 </label>
                                 <input
@@ -8674,13 +8642,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                             </div>
                             
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Location (for in-person meetings)
                                 </label>
                                 <input
@@ -8699,13 +8661,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                             </div>
                             
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Description
                                 </label>
                                 <textarea
@@ -8725,15 +8681,8 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                                 />
                             </div>
 
-                            {/* PIR Selection for Support Groups */}
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Assign PIRs to This Support Group
                                 </label>
                                 <div style={{
@@ -8829,13 +8778,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                     {type === 'meeting' && (
                         <>
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Meeting Title *
                                 </label>
                                 <input
@@ -8856,13 +8799,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                             
                             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '15px', marginBottom: '20px' }}>
                                 <div>
-                                    <label style={{ 
-                                        display: 'block', 
-                                        fontSize: '14px', 
-                                        fontWeight: '600', 
-                                        color: '#333', 
-                                        marginBottom: '8px' 
-                                    }}>
+                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                         Date & Time (PT) *
                                     </label>
                                     <input
@@ -8882,13 +8819,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                                 </div>
                                 
                                 <div>
-                                    <label style={{ 
-                                        display: 'block', 
-                                        fontSize: '14px', 
-                                        fontWeight: '600', 
-                                        color: '#333', 
-                                        marginBottom: '8px' 
-                                    }}>
+                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                         Duration
                                     </label>
                                     <select
@@ -8911,15 +8842,9 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                                 </div>
                             </div>
 
-                            {/* Recurring Options */}
+                            {/* RECURRING OPTIONS */}
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Recurring Schedule
                                 </label>
                                 <select
@@ -8939,32 +8864,157 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                                     <option value="weekly">Weekly</option>
                                     <option value="monthly">Monthly</option>
                                 </select>
-                                {formData.recurring && formData.recurring !== 'none' && (
-                                    <div style={{
-                                        marginTop: '8px',
-                                        padding: '10px 12px',
-                                        background: '#f0f9ff',
-                                        borderRadius: '8px',
-                                        fontSize: '13px',
-                                        color: '#0369a1',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px'
-                                    }}>
-                                        <span>ℹ️</span>
-                                        <span>This meeting will repeat {formData.recurring} starting from the selected date</span>
-                                    </div>
-                                )}
                             </div>
+
+                            {/* RECURRING END OPTIONS - NEW! */}
+                            {formData.recurring !== 'none' && (
+                                <div style={{ 
+                                    marginBottom: '20px',
+                                    padding: '20px',
+                                    background: '#f8f9fa',
+                                    borderRadius: '12px',
+                                    border: '2px solid #e0e0e0'
+                                }}>
+                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '12px' }}>
+                                        When should this recurring meeting end?
+                                    </label>
+                                    
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        {/* After X occurrences */}
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                                            <input
+                                                type="radio"
+                                                name="recurringEnd"
+                                                value="count"
+                                                checked={formData.recurringEnd === 'count'}
+                                                onChange={(e) => setFormData({...formData, recurringEnd: e.target.value})}
+                                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                            />
+                                            <span style={{ fontSize: '14px', fontWeight: '500', color: '#333' }}>
+                                                After
+                                            </span>
+                                            <select
+                                                value={formData.recurringCount}
+                                                onChange={(e) => setFormData({...formData, recurringEnd: 'count', recurringCount: e.target.value})}
+                                                disabled={formData.recurringEnd !== 'count'}
+                                                style={{
+                                                    padding: '8px 12px',
+                                                    border: '2px solid #e0e0e0',
+                                                    borderRadius: '8px',
+                                                    fontSize: '14px',
+                                                    background: 'white',
+                                                    cursor: formData.recurringEnd !== 'count' ? 'not-allowed' : 'pointer',
+                                                    opacity: formData.recurringEnd !== 'count' ? 0.5 : 1
+                                                }}
+                                            >
+                                                <option value="5">5</option>
+                                                <option value="10">10</option>
+                                                <option value="15">15</option>
+                                                <option value="20">20</option>
+                                                <option value="25">25</option>
+                                                <option value="30">30</option>
+                                            </select>
+                                            <span style={{ fontSize: '14px', fontWeight: '500', color: '#333' }}>
+                                                occurrences
+                                            </span>
+                                        </label>
+
+                                        {/* Until specific date */}
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                                            <input
+                                                type="radio"
+                                                name="recurringEnd"
+                                                value="until"
+                                                checked={formData.recurringEnd === 'until'}
+                                                onChange={(e) => setFormData({...formData, recurringEnd: e.target.value})}
+                                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                            />
+                                            <span style={{ fontSize: '14px', fontWeight: '500', color: '#333' }}>
+                                                Until
+                                            </span>
+                                            <input
+                                                type="date"
+                                                value={formData.recurringUntil}
+                                                onChange={(e) => setFormData({...formData, recurringEnd: 'until', recurringUntil: e.target.value})}
+                                                min={getMinRecurringEndDate()}
+                                                disabled={formData.recurringEnd !== 'until'}
+                                                style={{
+                                                    padding: '8px 12px',
+                                                    border: '2px solid #e0e0e0',
+                                                    borderRadius: '8px',
+                                                    fontSize: '14px',
+                                                    cursor: formData.recurringEnd !== 'until' ? 'not-allowed' : 'pointer',
+                                                    opacity: formData.recurringEnd !== 'until' ? 0.5 : 1
+                                                }}
+                                            />
+                                        </label>
+
+                                        {/* Never (infinite) */}
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                                            <input
+                                                type="radio"
+                                                name="recurringEnd"
+                                                value="never"
+                                                checked={formData.recurringEnd === 'never'}
+                                                onChange={(e) => setFormData({...formData, recurringEnd: e.target.value})}
+                                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                            />
+                                            <span style={{ fontSize: '14px', fontWeight: '500', color: '#333' }}>
+                                                Never (infinite)
+                                            </span>
+                                        </label>
+                                    </div>
+
+                                    {/* Warning for "Never" */}
+                                    {formData.recurringEnd === 'never' && (
+                                        <div style={{
+                                            marginTop: '12px',
+                                            padding: '12px',
+                                            background: '#fff3cd',
+                                            border: '2px solid #ffc107',
+                                            borderRadius: '8px',
+                                            fontSize: '13px',
+                                            color: '#856404',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}>
+                                            <span>⚠️</span>
+                                            <span>This meeting will repeat forever until manually deleted. Consider setting an end date or occurrence limit.</span>
+                                        </div>
+                                    )}
+
+                                    {/* Info for selected option */}
+                                    {formData.recurringEnd === 'count' && formData.recurringCount && (
+                                        <div style={{
+                                            marginTop: '12px',
+                                            padding: '10px 12px',
+                                            background: '#f0f9ff',
+                                            borderRadius: '8px',
+                                            fontSize: '13px',
+                                            color: '#0369a1'
+                                        }}>
+                                            ℹ️ This meeting will repeat {formData.recurring} {formData.recurringCount} times
+                                        </div>
+                                    )}
+
+                                    {formData.recurringEnd === 'until' && formData.recurringUntil && (
+                                        <div style={{
+                                            marginTop: '12px',
+                                            padding: '10px 12px',
+                                            background: '#f0f9ff',
+                                            borderRadius: '8px',
+                                            fontSize: '13px',
+                                            color: '#0369a1'
+                                        }}>
+                                            ℹ️ This meeting will repeat {formData.recurring} until {new Date(formData.recurringUntil).toLocaleDateString()}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Meeting Type
                                 </label>
                                 <select
@@ -8988,15 +9038,8 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                                 </select>
                             </div>
                             
-                            {/* Meeting Link with Google Status */}
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Meeting Link
                                 </label>
                                 <input
@@ -9061,13 +9104,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                             
                             {!formData.isGlobal && (
                                 <div style={{ marginBottom: '20px' }}>
-                                    <label style={{ 
-                                        display: 'block', 
-                                        fontSize: '14px', 
-                                        fontWeight: '600', 
-                                        color: '#333', 
-                                        marginBottom: '8px' 
-                                    }}>
+                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                         Select PIRs to Invite
                                     </label>
                                     <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
@@ -9150,13 +9187,7 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
                             )}
                             
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ 
-                                    display: 'block', 
-                                    fontSize: '14px', 
-                                    fontWeight: '600', 
-                                    color: '#333', 
-                                    marginBottom: '8px' 
-                                }}>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '8px' }}>
                                     Meeting Notes
                                 </label>
                                 <textarea
