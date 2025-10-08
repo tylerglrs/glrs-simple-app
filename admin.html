@@ -4178,6 +4178,243 @@ const getRecoveryMilestones = (sobrietyDate) => {
     }
 };
 
+    // DELETE: Remove PIR's milestone events from Google Calendar
+const deletePIRMilestones = async (pirId) => {
+    try {
+        // Check token first
+        const tokenCheck = await checkGoogleToken();
+        if (!tokenCheck.valid) {
+            console.error('Cannot delete milestones - invalid token');
+            return false;
+        }
+        
+        const validToken = user.googleAccessToken;
+        
+        // Get stored milestone events from Firestore
+        const pirDoc = await db.collection('users').doc(pirId).get();
+        const events = pirDoc.data()?.milestoneCalendarEvents || [];
+        
+        if (events.length === 0) {
+            console.log('No milestone events to delete');
+            return true;
+        }
+        
+        console.log(`Deleting ${events.length} milestone events...`);
+        
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (const event of events) {
+            try {
+                const response = await fetch(
+                    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${event.eventId}`,
+                    {
+                        method: 'DELETE',
+                        headers: {
+                            'Authorization': `Bearer ${validToken}`
+                        }
+                    }
+                );
+                
+                if (response.ok || response.status === 404) {
+                    successCount++;
+                    console.log(`✓ Deleted: ${event.eventId}`);
+                } else {
+                    failCount++;
+                    console.error(`✗ Failed to delete: ${event.eventId}`);
+                }
+            } catch (error) {
+                failCount++;
+                console.error('Error deleting event:', event.eventId, error);
+            }
+        }
+        
+        // Clear the array in Firestore
+        await db.collection('users').doc(pirId).update({
+            milestoneCalendarEvents: []
+        });
+        
+        console.log(`Deletion complete: ${successCount} deleted, ${failCount} failed`);
+        return true;
+        
+    } catch (error) {
+        console.error('Error in deletePIRMilestones:', error);
+        return false;
+    }
+};
+
+// RECREATE: Delete old milestones and create new ones
+const recreatePIRMilestones = async (pir) => {
+    try {
+        // Check token first
+        const tokenCheck = await checkGoogleToken();
+        if (!tokenCheck.valid) {
+            alert('❌ Cannot recreate milestones without Google Calendar\n\n' + tokenCheck.error);
+            return false;
+        }
+        
+        console.log('Recreating milestones for:', pir.displayName || pir.email);
+        
+        // Step 1: Delete old milestones
+        const deleted = await deletePIRMilestones(pir.id);
+        if (!deleted) {
+            console.error('Failed to delete old milestones');
+        }
+        
+        // Step 2: Create new milestones
+        await addMilestonesToCoachCalendar(pir, user.googleAccessToken);
+        
+        return true;
+        
+    } catch (error) {
+        console.error('Error recreating milestones:', error);
+        alert('Failed to recreate milestones: ' + error.message);
+        return false;
+    }
+};
+
+// UPDATED: Add milestones WITH event tracking
+const addMilestonesToCoachCalendar = async (pir, accessToken) => {
+    try {
+        if (!pir.sobrietyDate) {
+            alert('PIR has no sobriety date set. Cannot calculate milestones.');
+            return;
+        }
+        
+        // ✅ CRITICAL: Check Google token FIRST (with auto-refresh)
+        const tokenCheck = await checkGoogleToken();
+        
+        if (!tokenCheck.valid) {
+            alert('❌ Cannot add milestones without Google Calendar\n\n' + tokenCheck.error);
+            return;
+        }
+        
+        console.log('✓ Google token valid, proceeding with milestone creation...');
+        
+        // Use the refreshed token
+        const validToken = user.googleAccessToken;
+        
+        console.log('Adding milestones to coach calendar for:', pir.displayName || pir.email);
+        
+        // Get all milestones
+        const milestones = getRecoveryMilestones(pir.sobrietyDate);
+        
+        // Filter: Only upcoming milestones (not already achieved)
+        const upcomingMilestones = milestones.filter(m => !m.achieved);
+        
+        if (upcomingMilestones.length === 0) {
+            alert(`${pir.displayName || 'PIR'} has achieved all defined milestones! 🎉`);
+            return;
+        }
+        
+        console.log(`Creating ${upcomingMilestones.length} milestone events...`);
+        
+        let successCount = 0;
+        let failCount = 0;
+        const createdEvents = []; // Track created events
+        
+        for (const milestone of upcomingMilestones) {
+            try {
+                // Create all-day event on milestone date
+                const eventDate = milestone.targetDate.toISOString().split('T')[0]; // YYYY-MM-DD
+                
+                const event = {
+                    summary: `${milestone.icon} ${pir.displayName || 'PIR'} - ${milestone.title}`,
+                    description: `Celebrate ${pir.displayName || pir.email}'s milestone!\n\nDays Clean: ${milestone.days}\n\nRemember to acknowledge this achievement!`,
+                    start: {
+                        date: eventDate,
+                        timeZone: 'America/Los_Angeles'
+                    },
+                    end: {
+                        date: eventDate,
+                        timeZone: 'America/Los_Angeles'
+                    },
+                    reminders: {
+                        useDefault: false,
+                        overrides: [
+                            { method: 'email', minutes: 24 * 60 }, // 1 day before
+                            { method: 'popup', minutes: 0 } // On the day
+                        ]
+                    },
+                    colorId: '9' // Blue color for milestones
+                };
+                
+                const response = await fetch(
+                    'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${validToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(event)
+                    }
+                );
+                
+                if (response.ok) {
+                    const createdEvent = await response.json();
+                    successCount++;
+                    console.log(`✓ Created: ${milestone.title}`);
+                    
+                    // Track the event
+                    createdEvents.push({
+                        eventId: createdEvent.id,
+                        milestoneDays: milestone.days,
+                        milestoneTitle: milestone.title,
+                        milestoneDate: eventDate,
+                        createdAt: new Date().toISOString()
+                    });
+                } else {
+                    failCount++;
+                    const errorData = await response.json().catch(() => ({}));
+                    console.error(`✗ Failed: ${milestone.title}`, errorData);
+                }
+                
+            } catch (error) {
+                failCount++;
+                console.error(`Error creating milestone event:`, error);
+            }
+        }
+        
+        // Save tracked events to Firestore
+        if (createdEvents.length > 0) {
+            try {
+                await db.collection('users').doc(pir.id).update({
+                    milestoneCalendarEvents: createdEvents,
+                    milestonesLastSynced: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                console.log(`✓ Saved ${createdEvents.length} event IDs to Firestore`);
+            } catch (error) {
+                console.error('Error saving event IDs to Firestore:', error);
+            }
+        }
+        
+        // Success message
+        if (successCount > 0 && failCount === 0) {
+            alert(
+                `✅ Success!\n\n` +
+                `${successCount} milestone celebration${successCount > 1 ? 's' : ''} added to your calendar!\n\n` +
+                `🎉 You'll be reminded to celebrate each milestone with ${pir.displayName || 'your PIR'}!`
+            );
+        } else if (successCount > 0 && failCount > 0) {
+            alert(
+                `⚠️ Partial Success\n\n` +
+                `✅ ${successCount} milestone${successCount > 1 ? 's' : ''} added\n` +
+                `❌ ${failCount} failed\n\n` +
+                `Check console for details.`
+            );
+        } else {
+            alert(
+                `❌ Failed to add milestones\n\n` +
+                `Please check your Google Calendar connection and try again.`
+            );
+        }
+        
+    } catch (error) {
+        console.error('Error adding milestones to calendar:', error);
+        alert('Failed to add milestones: ' + error.message);
+    }
+};
     const getMilestone = (days) => {
         if (days >= 365) return { label: '1 Year+', color: '#9C27B0', icon: '👑' };
         if (days >= 180) return { label: '6 Months', color: '#673AB7', icon: '💎' };
@@ -11215,28 +11452,117 @@ function ProfileView({ user }) {
         return 'Strong';
     };
 
-    const handleSaveProfile = async () => {
-        setSaving(true);
-        try {
-            await db.collection('users').doc(user.uid).update({
-                displayName: `${profileData.firstName} ${profileData.lastName}`,
-                firstName: profileData.firstName,
-                lastName: profileData.lastName,
-                phone: profileData.phone,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+   const handleSaveProfile = async () => {
+    try {
+        // Check if sobriety date changed
+        const sobrietyDateChanged = editData.sobrietyDate !== pirData.sobrietyDate;
+        
+        const updates = {
+            ...editData,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        
+        // Track coach assignment changes
+        if (editData.assignedCoach !== pirData.assignedCoach) {
+            const newCoach = availableCoaches.find(c => c.id === editData.assignedCoach);
+            const oldCoach = availableCoaches.find(c => c.id === pirData.assignedCoach);
             
-            alert('Profile updated successfully!');
-            setEditing(false);
-            setTimeout(() => window.location.reload(), 500);
-        } catch (error) {
-            console.error('Error updating profile:', error);
-            alert('Failed to update profile');
-        } finally {
-            setSaving(false);
+            // Add to assignment history
+            const historyEntry = {
+                assignedAt: new Date().toISOString(),
+                assignedBy: user.uid,
+                coachId: editData.assignedCoach,
+                coachName: newCoach?.displayName || newCoach?.email || 'Unknown',
+                previousCoachId: pirData.assignedCoach || null,
+                previousCoachName: oldCoach?.displayName || oldCoach?.email || 'None'
+            };
+            
+            updates.coachAssignmentHistory = firebase.firestore.FieldValue.arrayUnion(historyEntry);
+            
+            // Create notification for new coach
+            if (editData.assignedCoach) {
+                await db.collection('notifications').add({
+                    recipientId: editData.assignedCoach,
+                    type: 'pir_assigned',
+                    message: `${pirData.displayName || pirData.email} has been assigned to you`,
+                    pirId: pirId,
+                    pirName: pirData.displayName || pirData.email,
+                    read: false,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+            
+            // Create notification for PIR
+            await db.collection('notifications').add({
+                recipientId: pirId,
+                type: 'coach_changed',
+                message: `Your coach has been updated to ${newCoach?.displayName || 'a new coach'}`,
+                read: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
         }
-    };
-
+        
+        // Save profile updates
+        await db.collection('users').doc(pirId).update(updates);
+        
+        // Log activity
+        await db.collection('activities').add({
+            userId: pirId,
+            type: 'profile_updated',
+            description: 'Profile information updated' + 
+                (editData.assignedCoach !== pirData.assignedCoach ? ' - Coach assignment changed' : '') +
+                (sobrietyDateChanged ? ' - Sobriety date changed' : ''),
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Handle sobriety date change
+        if (sobrietyDateChanged) {
+            const hasGoogleCalendar = user.googleConnected && user.googleAccessToken;
+            
+            if (hasGoogleCalendar) {
+                const shouldRecreate = confirm(
+                    '⚠️ Sobriety Date Changed!\n\n' +
+                    'The milestone celebrations in your calendar are now outdated.\n\n' +
+                    'Would you like to:\n' +
+                    '✓ Delete old milestone events\n' +
+                    '✓ Create new milestone events based on the new date?\n\n' +
+                    '(Recommended: Yes)'
+                );
+                
+                if (shouldRecreate) {
+                    // Use the updated PIR data with new sobriety date
+                    const updatedPIR = { ...pirData, ...editData };
+                    
+                    // This will delete old and create new milestones
+                    await recreatePIRMilestones(updatedPIR);
+                }
+            } else {
+                alert(
+                    'ℹ️ Sobriety Date Updated\n\n' +
+                    'Connect Google Calendar in your Profile to automatically sync milestone celebrations!'
+                );
+            }
+        }
+        
+        setPirData(editData);
+        setEditing(false);
+        
+        let successMessage = 'Profile updated successfully';
+        if (editData.assignedCoach !== pirData.assignedCoach) {
+            successMessage += '\n\nCoach assignment changed and notifications sent!';
+        }
+        if (sobrietyDateChanged) {
+            successMessage += '\n\nSobriety date updated!';
+        }
+        
+        alert(successMessage);
+        
+        if (onUpdate) onUpdate();
+    } catch (error) {
+        console.error('Error updating profile:', error);
+        alert('Failed to update profile: ' + error.message);
+    }
+};
     const handleChangePassword = async () => {
         if (passwordData.newPassword !== passwordData.confirmPassword) {
             alert('New passwords do not match');
