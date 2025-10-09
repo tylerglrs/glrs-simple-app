@@ -4146,7 +4146,7 @@ const getRecoveryMilestones = (sobrietyDate) => {
     
     dayBased.forEach(milestone => {
         const targetDate = new Date(startDate);
-        targetDate.setDate(targetDate.getDate() + milestone.days - 2); // ✅ CHANGED FROM -1 TO -2
+        targetDate.setDate(targetDate.getDate() + milestone.days - 1); // ✅ FIXED: Changed from -2 to -1
         
         milestones.push({
             ...milestone,
@@ -27725,49 +27725,145 @@ const loadAllUserMessages = async () => {
     </div>
 );
   
-    const renderMilestonesTab = () => {
-    // Calculate milestones based on sobriety date
+   const renderMilestonesTab = () => {
+    // Calculate milestones based on sobriety date using same logic as getRecoveryMilestones
     const calculateMilestones = () => {
         if (!pirData?.sobrietyDate) return [];
         
-        const sobrietyDate = pirData.sobrietyDate?.toDate ? pirData.sobrietyDate.toDate() : new Date(pirData.sobrietyDate);
+        // Parse sobriety date in LOCAL timezone (Pacific) - SAME AS getRecoveryMilestones
+        let startYear, startMonth, startDay;
+        
+        if (typeof pirData.sobrietyDate === 'string' && pirData.sobrietyDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            [startYear, startMonth, startDay] = pirData.sobrietyDate.split('-').map(Number);
+        } else if (pirData.sobrietyDate.toDate) {
+            const d = pirData.sobrietyDate.toDate();
+            startYear = d.getFullYear();
+            startMonth = d.getMonth() + 1;
+            startDay = d.getDate();
+        } else if (pirData.sobrietyDate.seconds) {
+            const d = new Date(pirData.sobrietyDate.seconds * 1000);
+            startYear = d.getFullYear();
+            startMonth = d.getMonth() + 1;
+            startDay = d.getDate();
+        } else {
+            const d = new Date(pirData.sobrietyDate);
+            startYear = d.getFullYear();
+            startMonth = d.getMonth() + 1;
+            startDay = d.getDate();
+        }
+        
+        const startDate = new Date(startYear, startMonth - 1, startDay, 0, 0, 0, 0);
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        sobrietyDate.setHours(0, 0, 0, 0);  // FIXED: Changed from 'sobriety' to 'sobrietyDate'
         
-        const standardMilestones = [
-            { days: 1, title: '24 Hours', icon: '🌅', description: 'The first day - the hardest step' },
-            { days: 3, title: '3 Days', icon: '💪', description: 'Past the acute phase' },
-            { days: 7, title: 'One Week', icon: '📅', description: 'A full week of sobriety' },
-            { days: 14, title: 'Two Weeks', icon: '🌟', description: 'Building momentum' },
-            { days: 30, title: 'One Month', icon: '📆', description: 'First major milestone' },
-            { days: 60, title: 'Two Months', icon: '🏃', description: 'Establishing new habits' },
-            { days: 90, title: 'Three Months', icon: '🏆', description: 'Quarter year achieved' },
-            { days: 120, title: 'Four Months', icon: '🎯', description: 'Solid foundation built' },
-            { days: 180, title: 'Six Months', icon: '⭐', description: 'Half year milestone' },
-            { days: 365, title: 'One Year', icon: '🎉', description: 'Full year of recovery' },
-            { days: 548, title: '18 Months', icon: '🌈', description: 'A year and a half strong' },
-            { days: 730, title: 'Two Years', icon: '🎊', description: 'Two years of sobriety' },
-            { days: 1095, title: 'Three Years', icon: '🏅', description: 'Three years of growth' },
-            { days: 1825, title: 'Five Years', icon: '👑', description: 'Half a decade of recovery' },
-            { days: 3650, title: 'Ten Years', icon: '💎', description: 'A decade of sobriety' }
+        const allMilestones = [];
+        
+        // DAY-BASED MILESTONES (count exact days)
+        const dayBased = [
+            { days: 1, title: '24 Hours Clean', icon: '🌟', description: 'The first day - the hardest step' },
+            { days: 7, title: '1 Week Clean', icon: '📅', description: 'A full week of sobriety' },
+            { days: 30, title: '1 Month Clean', icon: '🏆', description: 'First major milestone' },
+            { days: 60, title: '2 Months Clean', icon: '💪', description: 'Establishing new habits' },
+            { days: 90, title: '3 Months Clean', icon: '🎯', description: 'Quarter year achieved' },
+            { days: 100, title: '100 Days Clean', icon: '💯', description: 'Triple digits!' },
+            { days: 200, title: '200 Days Clean', icon: '✨', description: 'Incredible progress' },
+            { days: 500, title: '500 Days Clean', icon: '🏆', description: 'Over a year of dedication' },
+            { days: 1000, title: '1000 Days Clean', icon: '🏅', description: 'A thousand days strong' }
         ];
         
-        return standardMilestones.map(m => {
-            const targetDate = new Date(sobrietyDate);
-            targetDate.setDate(targetDate.getDate() + m.days);
+        dayBased.forEach(milestone => {
+            const targetDate = new Date(startDate);
+            targetDate.setDate(targetDate.getDate() + milestone.days - 1); // ✅ FIXED: Using -1
             const achieved = today >= targetDate;
             const daysUntil = Math.ceil((targetDate - today) / (1000 * 60 * 60 * 24));
             
-            return {
-                ...m,
+            allMilestones.push({
+                ...milestone,
                 targetDate,
                 achieved,
                 daysUntil: achieved ? 0 : daysUntil,
                 achievedDate: achieved ? targetDate : null,
-                id: `standard-${m.days}`
-            };
+                id: `day-${milestone.days}`
+            });
         });
+        
+        // MONTHLY MILESTONES (same day of month)
+        const monthBased = [
+            { months: 4, title: '4 Months Clean', icon: '⭐', description: 'Solid foundation built' },
+            { months: 5, title: '5 Months Clean', icon: '🌈', description: 'Five months of growth' },
+            { months: 6, title: '6 Months Clean', icon: '🎉', description: 'Half year milestone' },
+            { months: 7, title: '7 Months Clean', icon: '🌟', description: 'Seven months strong' },
+            { months: 8, title: '8 Months Clean', icon: '🏅', description: 'Eight months of progress' },
+            { months: 9, title: '9 Months Clean', icon: '💎', description: 'Nine months of recovery' },
+            { months: 10, title: '10 Months Clean', icon: '🌺', description: 'Ten months achieved' },
+            { months: 11, title: '11 Months Clean', icon: '🎊', description: 'Almost a year!' },
+            { months: 12, title: '1 Year Clean', icon: '🎂', description: 'Full year of recovery' },
+            { months: 18, title: '18 Months Clean', icon: '🌟', description: 'A year and a half strong' }
+        ];
+        
+        monthBased.forEach(milestone => {
+            const targetDate = new Date(startYear, (startMonth - 1) + milestone.months, startDay, 0, 0, 0, 0);
+            const achieved = today >= targetDate;
+            const daysUntil = Math.ceil((targetDate - today) / (1000 * 60 * 60 * 24));
+            
+            allMilestones.push({
+                days: Math.floor((targetDate - startDate) / (1000 * 60 * 60 * 24)) + 2,
+                title: milestone.title,
+                icon: milestone.icon,
+                description: milestone.description,
+                targetDate,
+                achieved,
+                daysUntil: achieved ? 0 : daysUntil,
+                achievedDate: achieved ? targetDate : null,
+                id: `month-${milestone.months}`
+            });
+        });
+        
+        // YEARLY MILESTONES (same month & day every year)
+        const yearBased = [
+            { years: 2, title: '2 Years Clean', icon: '🎈', description: 'Two years of sobriety' },
+            { years: 3, title: '3 Years Clean', icon: '🎉', description: 'Three years of growth' },
+            { years: 4, title: '4 Years Clean', icon: '🌟', description: 'Four years strong' },
+            { years: 5, title: '5 Years Clean', icon: '💫', description: 'Half a decade of recovery' },
+            { years: 6, title: '6 Years Clean', icon: '🌟', description: 'Six years of dedication' },
+            { years: 7, title: '7 Years Clean', icon: '🌟', description: 'Seven years achieved' },
+            { years: 8, title: '8 Years Clean', icon: '🌟', description: 'Eight years of sobriety' },
+            { years: 9, title: '9 Years Clean', icon: '🌟', description: 'Nine years strong' },
+            { years: 10, title: '10 Years Clean', icon: '💎', description: 'A decade of sobriety' }
+        ];
+        
+        // Add 11-20 years dynamically
+        for (let year = 11; year <= 20; year++) {
+            yearBased.push({
+                years: year,
+                title: `${year} Years Clean`,
+                icon: '🌟',
+                description: `${year} years of recovery`
+            });
+        }
+        
+        yearBased.forEach(milestone => {
+            const targetDate = new Date(startYear + milestone.years, startMonth - 1, startDay, 0, 0, 0, 0);
+            const achieved = today >= targetDate;
+            const daysUntil = Math.ceil((targetDate - today) / (1000 * 60 * 60 * 24));
+            
+            allMilestones.push({
+                days: Math.floor((targetDate - startDate) / (1000 * 60 * 60 * 24)) + 2,
+                title: milestone.title,
+                icon: milestone.icon,
+                description: milestone.description,
+                targetDate,
+                achieved,
+                daysUntil: achieved ? 0 : daysUntil,
+                achievedDate: achieved ? targetDate : null,
+                id: `year-${milestone.years}`
+            });
+        });
+        
+        // Sort by target date
+        allMilestones.sort((a, b) => a.targetDate - b.targetDate);
+        
+        return allMilestones;
     };
     
     const allMilestones = calculateMilestones();
@@ -27983,7 +28079,6 @@ const loadAllUserMessages = async () => {
         </div>
     );
 };
-
    
 
 // Fixed renderCommunicationsTab
