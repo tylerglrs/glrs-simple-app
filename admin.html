@@ -25457,38 +25457,54 @@ const loadCompletePIRData = async () => {
         setLoading(false);
     }
 };
-   const calculateSobrietyDaysFixed = (sobrietyDate) => {
+ const calculateSobrietyDays = (sobrietyDate) => {
     if (!sobrietyDate) return 0;
     
-    let sobriety;
+    // Parse sobriety date components
+    let year, month, day;
     
-    // Handle string dates more carefully
-    if (typeof sobrietyDate === 'string') {
-        // For YYYY-MM-DD format, parse components directly to avoid timezone issues
-        if (sobrietyDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-            const [year, month, day] = sobrietyDate.split('-').map(Number);
-            sobriety = new Date(year, month - 1, day); // month is 0-indexed
-        } else {
-            sobriety = new Date(sobrietyDate);
-        }
+    if (typeof sobrietyDate === 'string' && sobrietyDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        // YYYY-MM-DD format
+        [year, month, day] = sobrietyDate.split('-').map(Number);
     } else if (sobrietyDate.toDate) {
-        sobriety = sobrietyDate.toDate();
+        // Firestore Timestamp
+        const date = sobrietyDate.toDate();
+        year = date.getFullYear();
+        month = date.getMonth() + 1;
+        day = date.getDate();
     } else if (sobrietyDate.seconds) {
-        sobriety = new Date(sobrietyDate.seconds * 1000);
+        // Firestore timestamp object
+        const date = new Date(sobrietyDate.seconds * 1000);
+        year = date.getFullYear();
+        month = date.getMonth() + 1;
+        day = date.getDate();
     } else {
-        sobriety = new Date(sobrietyDate);
+        // Assume Date object
+        const date = new Date(sobrietyDate);
+        year = date.getFullYear();
+        month = date.getMonth() + 1;
+        day = date.getDate();
     }
     
-    // Set to midnight
+    // Get today's date components
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    sobriety.setHours(0, 0, 0, 0);
+    const todayYear = today.getFullYear();
+    const todayMonth = today.getMonth() + 1;
+    const todayDay = today.getDate();
     
-    // Calculate difference
-    const diffTime = today.getTime() - sobriety.getTime();
-    const days = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 2;
+    // Create dates at midnight (LOCAL timezone, no conversion)
+    const startDate = new Date(year, month - 1, day, 0, 0, 0, 0);
+    const endDate = new Date(todayYear, todayMonth - 1, todayDay, 0, 0, 0, 0);
     
-    return days >= 0 ? days : 0;
+    // Calculate complete 24-hour periods
+    const millisecondsDiff = endDate.getTime() - startDate.getTime();
+    const complete24HourPeriods = Math.floor(millisecondsDiff / (1000 * 60 * 60 * 24));
+    
+    // Add 1 to include the starting day
+    const totalDays = complete24HourPeriods + 1;
+    
+    // Return at least 1 if date is valid
+    return Math.max(1, totalDays);
 };
 
     const getLastLoginFormatted = async (userId, userData) => {
