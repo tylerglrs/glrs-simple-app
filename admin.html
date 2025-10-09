@@ -4000,54 +4000,101 @@ function MyPIRsView({ searchQuery, user }) {
             setLoading(false);
         }
     };
-  // CHECK GOOGLE TOKEN (Client-side only - no refresh)
+ // AUTO-REFRESH: Silently refresh Google token if expired
+const refreshGoogleToken = async () => {
+    return new Promise((resolve, reject) => {
+        try {
+            console.log('Attempting to refresh Google token...');
+            
+            // Check if Google Identity Services is loaded
+            if (typeof google === 'undefined' || !google.accounts) {
+                reject(new Error('Google Identity Services not loaded'));
+                return;
+            }
+            
+            // Use token client to get new token silently
+            const tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: '457406864879-k1sunucuqofe22m5rg93hvo6nngiqh0u.apps.googleusercontent.com',
+                scope: [
+                    'https://www.googleapis.com/auth/calendar.events',
+                    'https://www.googleapis.com/auth/drive.file',
+                    'https://www.googleapis.com/auth/gmail.send'
+                ].join(' '),
+                callback: async (tokenResponse) => {
+                    try {
+                        if (tokenResponse.error) {
+                            reject(new Error(tokenResponse.error));
+                            return;
+                        }
+                        
+                        if (tokenResponse.access_token) {
+                            // Update Firebase with new token
+                            await db.collection('users').doc(user.uid).update({
+                                googleAccessToken: tokenResponse.access_token,
+                                googleTokenExpiry: Date.now() + (tokenResponse.expires_in * 1000),
+                                googleTokenRefreshedAt: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                            
+                            console.log('✓ Token refreshed successfully');
+                            
+                            // Update local user object
+                            user.googleAccessToken = tokenResponse.access_token;
+                            user.googleTokenExpiry = Date.now() + (tokenResponse.expires_in * 1000);
+                            
+                            resolve(tokenResponse.access_token);
+                        } else {
+                            reject(new Error('No access token received'));
+                        }
+                    } catch (error) {
+                        reject(error);
+                    }
+                },
+            });
+            
+            // Request new token (will try silently first with prompt: '')
+            tokenClient.requestAccessToken({ prompt: '' });
+            
+        } catch (error) {
+            console.error('Failed to refresh token:', error);
+            reject(error);
+        }
+    });
+};
+
+// Check if Google token is valid and auto-refresh if needed
 const checkGoogleToken = async () => {
-    try {
-        if (!user.googleConnected) {
-            return {
-                valid: false,
-                error: 'Google Calendar not connected.\n\nPlease connect Google Services in your Profile.'
-            };
-        }
-        
-        if (!user.googleAccessToken) {
-            return {
-                valid: false,
-                error: 'No Google access token found.\n\nPlease reconnect Google Services in your Profile.'
-            };
-        }
-        
-        // Check if token is expired (if we have expiry time)
-        if (user.googleTokenExpiry) {
-            const now = Date.now();
-            const expiry = user.googleTokenExpiry;
-            
-            // If token is expired, user needs to reconnect
-            if (expiry <= now) {
-                console.log('❌ Token expired');
-                return {
-                    valid: false,
-                    error: 'Google token expired.\n\nPlease reconnect Google Services in your Profile.'
-                };
-            }
-            
-            // Warn if expiring soon (within 5 minutes)
-            if (expiry - now < 5 * 60 * 1000) {
-                console.log('⚠️ Token expiring soon (within 5 minutes)');
-            }
-        }
-        
-        // Token exists and is not expired
-        console.log('✓ Google token valid');
-        return { valid: true };
-        
-    } catch (error) {
-        console.error('Error checking Google token:', error);
+    // Check if user has Google connected
+    if (!user.googleConnected || !user.googleAccessToken) {
         return {
             valid: false,
-            error: 'Error checking Google connection.\n\nPlease try reconnecting Google Services.'
+            error: 'Google Services not connected. Please connect Google in your Profile settings.'
         };
     }
+    
+    // Check if token is expired
+    if (user.googleTokenExpiry) {
+        const now = Date.now();
+        const expiryTime = user.googleTokenExpiry;
+        const fiveMinutes = 5 * 60 * 1000;
+        
+        if (now >= expiryTime - fiveMinutes) {
+            // Token expired - try to refresh automatically
+            try {
+                console.log('⚠️ Token expired, attempting auto-refresh...');
+                await refreshGoogleToken();
+                console.log('✓ Token auto-refreshed successfully');
+                return { valid: true };
+            } catch (refreshError) {
+                console.error('❌ Auto-refresh failed:', refreshError);
+                return {
+                    valid: false,
+                    error: 'Google token expired and could not be refreshed automatically.\n\nPlease:\n1. Go to Profile\n2. Click "Disconnect Google Services"\n3. Click "Connect Google Services" again\n\nThen try scheduling the meeting again.'
+                };
+            }
+        }
+    }
+    
+    return { valid: true };
 };
      // UPDATED: Comprehensive Recovery Milestones (matches index.html)
 const getRecoveryMilestones = (sobrietyDate) => {
