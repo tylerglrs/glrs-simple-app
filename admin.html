@@ -4096,65 +4096,141 @@ const checkGoogleToken = async () => {
     
     return { valid: true };
 };
-     // UPDATED: Comprehensive Recovery Milestones (matches index.html)
+    // UPDATED: Simplified milestone calculation with calendar-based logic
 const getRecoveryMilestones = (sobrietyDate) => {
     if (!sobrietyDate) return [];
     
-    const startDate = sobrietyDate.toDate ? sobrietyDate.toDate() : new Date(sobrietyDate);
+    // Parse sobriety date in LOCAL timezone (Pacific)
+    let startYear, startMonth, startDay;
     
-    const milestones = [
+    if (typeof sobrietyDate === 'string' && sobrietyDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        [startYear, startMonth, startDay] = sobrietyDate.split('-').map(Number);
+    } else if (sobrietyDate.toDate) {
+        const d = sobrietyDate.toDate();
+        startYear = d.getFullYear();
+        startMonth = d.getMonth() + 1;
+        startDay = d.getDate();
+    } else if (sobrietyDate.seconds) {
+        const d = new Date(sobrietyDate.seconds * 1000);
+        startYear = d.getFullYear();
+        startMonth = d.getMonth() + 1;
+        startDay = d.getDate();
+    } else {
+        const d = new Date(sobrietyDate);
+        startYear = d.getFullYear();
+        startMonth = d.getMonth() + 1;
+        startDay = d.getDate();
+    }
+    
+    const startDate = new Date(startYear, startMonth - 1, startDay, 0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Calculate current days sober (matching calculateSobrietyDaysFixed logic with +2)
+    const daysSober = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 2;
+    
+    const milestones = [];
+    
+    // DAY-BASED MILESTONES (count exact days)
+    const dayBased = [
         { days: 1, title: '24 Hours Clean', icon: '🌟' },
         { days: 7, title: '1 Week Clean', icon: '📅' },
         { days: 30, title: '1 Month Clean', icon: '🏆' },
         { days: 60, title: '2 Months Clean', icon: '💪' },
         { days: 90, title: '3 Months Clean', icon: '🎯' },
         { days: 100, title: '100 Days Clean', icon: '💯' },
-        { days: 120, title: '4 Months Clean', icon: '⭐' },
-        { days: 150, title: '5 Months Clean', icon: '🌈' },
-        { days: 180, title: '6 Months Clean', icon: '🎉' },
         { days: 200, title: '200 Days Clean', icon: '✨' },
-        { days: 210, title: '7 Months Clean', icon: '🌟' },
-        { days: 240, title: '8 Months Clean', icon: '🏅' },
-        { days: 270, title: '9 Months Clean', icon: '💎' },
-        { days: 300, title: '10 Months Clean', icon: '🌺' },
-        { days: 330, title: '11 Months Clean', icon: '🎊' },
-        { days: 365, title: '1 Year Clean', icon: '🎂' },
         { days: 500, title: '500 Days Clean', icon: '🏆' },
-        { days: 548, title: '18 Months Clean', icon: '🌟' },
-        { days: 730, title: '2 Years Clean', icon: '🎈' },
-        { days: 1000, title: '1000 Days Clean', icon: '🏅' },
-        { days: 1095, title: '3 Years Clean', icon: '🎉' },
-        { days: 1460, title: '4 Years Clean', icon: '🌟' },
-        { days: 1825, title: '5 Years Clean', icon: '💫' }
+        { days: 1000, title: '1000 Days Clean', icon: '🏅' }
     ];
     
-    // Add yearly milestones dynamically up to 20 years
-    for (let year = 6; year <= 20; year++) {
+    dayBased.forEach(milestone => {
+        const targetDate = new Date(startDate);
+        targetDate.setDate(targetDate.getDate() + milestone.days - 2); // ✅ CHANGED FROM -1 TO -2
+        
         milestones.push({
-            days: year * 365,
+            ...milestone,
+            date: targetDate,
+            targetDate: targetDate,
+            achieved: daysSober >= milestone.days,
+            isToday: daysSober === milestone.days,
+            isTomorrow: daysSober === (milestone.days - 1),
+            daysUntil: milestone.days - daysSober,
+            type: 'recovery'
+        });
+    });
+    
+    // MONTHLY MILESTONES (same day of month)
+    const monthBased = [
+        { months: 4, title: '4 Months Clean', icon: '⭐' },
+        { months: 5, title: '5 Months Clean', icon: '🌈' },
+        { months: 6, title: '6 Months Clean', icon: '🎉' },
+        { months: 7, title: '7 Months Clean', icon: '🌟' },
+        { months: 8, title: '8 Months Clean', icon: '🏅' },
+        { months: 9, title: '9 Months Clean', icon: '💎' },
+        { months: 10, title: '10 Months Clean', icon: '🌺' },
+        { months: 11, title: '11 Months Clean', icon: '🎊' },
+        { months: 12, title: '1 Year Clean', icon: '🎂' },
+        { months: 18, title: '18 Months Clean', icon: '🌟' }
+    ];
+    
+    monthBased.forEach(milestone => {
+        const targetDate = new Date(startYear, (startMonth - 1) + milestone.months, startDay, 0, 0, 0, 0);
+        const approxDays = Math.floor((targetDate - startDate) / (1000 * 60 * 60 * 24)) + 2;
+        
+        milestones.push({
+            days: approxDays,
+            title: milestone.title,
+            icon: milestone.icon,
+            date: targetDate,
+            targetDate: targetDate,
+            achieved: today >= targetDate,
+            isToday: today.toDateString() === targetDate.toDateString(),
+            isTomorrow: false,
+            daysUntil: Math.ceil((targetDate - today) / (1000 * 60 * 60 * 24)),
+            type: 'recovery'
+        });
+    });
+    
+    // YEARLY MILESTONES (same month & day every year)
+    const yearBased = [
+        { years: 2, title: '2 Years Clean', icon: '🎈' },
+        { years: 3, title: '3 Years Clean', icon: '🎉' },
+        { years: 4, title: '4 Years Clean', icon: '🌟' },
+        { years: 5, title: '5 Years Clean', icon: '💫' }
+    ];
+    
+    // Add 6-20 years dynamically
+    for (let year = 6; year <= 20; year++) {
+        yearBased.push({
+            years: year,
             title: `${year} Years Clean`,
             icon: '🌟'
         });
     }
     
-    const today = new Date();
-    const daysSober = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
-    
-    return milestones.map(milestone => {
-        const milestoneDate = new Date(startDate);
-        milestoneDate.setDate(milestoneDate.getDate() + milestone.days - 1);
+    yearBased.forEach(milestone => {
+        const targetDate = new Date(startYear + milestone.years, startMonth - 1, startDay, 0, 0, 0, 0);
+        const approxDays = Math.floor((targetDate - startDate) / (1000 * 60 * 60 * 24)) + 2;
         
-        return {
-            ...milestone,
-            date: milestoneDate,
-            achieved: daysSober >= milestone.days,
-            isToday: daysSober === milestone.days,
-            isTomorrow: daysSober === (milestone.days - 1),
-            daysUntil: milestone.days - daysSober,
-            targetDate: milestoneDate,
+        milestones.push({
+            days: approxDays,
+            title: milestone.title,
+            icon: milestone.icon,
+            date: targetDate,
+            targetDate: targetDate,
+            achieved: today >= targetDate,
+            isToday: today.toDateString() === targetDate.toDateString(),
+            isTomorrow: false,
+            daysUntil: Math.ceil((targetDate - today) / (1000 * 60 * 60 * 24)),
             type: 'recovery'
-        };
+        });
     });
+    
+    // Sort by target date
+    milestones.sort((a, b) => a.targetDate - b.targetDate);
+    
+    return milestones;
 };
    
     // DELETE: Remove PIR's milestone events from Google Calendar
@@ -25500,8 +25576,8 @@ const loadCompletePIRData = async () => {
     const millisecondsDiff = endDate.getTime() - startDate.getTime();
     const complete24HourPeriods = Math.floor(millisecondsDiff / (1000 * 60 * 60 * 24));
     
-    // Add 1 to include the starting day
-    const totalDays = complete24HourPeriods + 1;
+    // Add 2 to include starting day (matching milestone calculation logic)
+    const totalDays = complete24HourPeriods + 2; // ✅ CHANGED FROM +1 TO +2
     
     // Return at least 1 if date is valid
     return Math.max(1, totalDays);
