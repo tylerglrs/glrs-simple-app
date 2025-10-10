@@ -12008,10 +12008,6 @@ const disconnectGoogleServices = async () => {
         setSaving(false);
     }
 };
-   // ==========================================
-// GOOGLE TOKEN MANAGEMENT
-// ==========================================
-
 // Check if Google token is valid
 const checkGoogleToken = async () => {
     try {
@@ -12192,9 +12188,6 @@ const sendGmail = async (to, subject, htmlContent, options = {}) => {
         };
     }
 };
-    // ==========================================
-// EMAIL TEMPLATES
-// ==========================================
 
 // Base email template with GLRS branding
 const getEmailTemplate = (content, options = {}) => {
@@ -12321,10 +12314,6 @@ const getEmailTemplate = (content, options = {}) => {
 </html>
     `;
 };
-    // ==========================================
-// GMAIL WITH ATTACHMENTS (for PDF reports)
-// ==========================================
-
 const sendGmailWithAttachment = async (to, subject, htmlContent, attachment, options = {}) => {
     try {
         // Check Gmail connection
@@ -12438,11 +12427,6 @@ const sendGmailWithAttachment = async (to, subject, htmlContent, attachment, opt
     }
 };
 
-
-// ==========================================
-// PDF REPORT GENERATION FOR EMAILS
-// ==========================================
-
 const generateReportPDF = async (reportData, reportTitle) => {
     return new Promise(async (resolve, reject) => {
         try {
@@ -12551,56 +12535,6 @@ const generateReportPDF = async (reportData, reportTitle) => {
         }
     });
 };
-
-// ==========================================
-// REPORT EMAIL FUNCTIONS
-// ==========================================
-
-const sendWeeklyProgressReport = async (pirId) => {
-    try {
-        const pirDoc = await db.collection('users').doc(pirId).get();
-        const pir = pirDoc.data();
-        
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - 7);
-        
-        console.log(`  Generating weekly report for ${pir.displayName}...`);
-        const reportData = await generateOverviewReport(start, end);
-        
-        console.log(`  Creating PDF...`);
-        const pdfBlob = await generateReportPDF(reportData, 'Weekly Progress Report');
-        
-        console.log(`  Sending email...`);
-        const emailHTML = getWeeklyReportEmailTemplate(pir.firstName, reportData.summary);
-        
-        const result = await sendGmailWithAttachment(
-            pir.email,
-            'Your Weekly Progress Report',
-            emailHTML,
-            {
-                filename: `Weekly_Progress_Report_${new Date().toISOString().split('T')[0]}.pdf`,
-                content: pdfBlob,
-                mimeType: 'application/pdf'
-            },
-            { emailType: 'weekly_report' }
-        );
-        
-        if (result.success) {
-            console.log(`  ✓ Weekly report sent to ${pir.displayName}`);
-            return { success: true };
-        } else {
-            throw new Error(result.error);
-        }
-        
-    } catch (error) {
-        console.error(`  ✗ Failed to send weekly report:`, error.message);
-        return { success: false, error: error.message };
-    }
-};
-// ==========================================
-// COMPREHENSIVE REPORT DATA GENERATION
-// ==========================================
 
 const generateOverviewReport = async (startDate, endDate) => {
     try {
@@ -13030,6 +12964,54 @@ const calculateEngagementScore = (report) => {
     
     return ((score / maxScore) * 100).toFixed(1) + '%';
 };
+
+// ==========================================
+// REPORT EMAIL FUNCTIONS
+// ==========================================
+
+const sendWeeklyProgressReport = async (pirId) => {
+    try {
+        const pirDoc = await db.collection('users').doc(pirId).get();
+        const pir = pirDoc.data();
+        
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - 7);
+        
+        console.log(`  Generating weekly report for ${pir.displayName}...`);
+        const reportData = await generateOverviewReport(start, end);
+        
+        console.log(`  Creating PDF...`);
+        const pdfBlob = await generateReportPDF(reportData, 'Weekly Progress Report');
+        
+        console.log(`  Sending email...`);
+        const emailHTML = getWeeklyReportEmailTemplate(pir.firstName, reportData.summary);
+        
+        const result = await sendGmailWithAttachment(
+            pir.email,
+            'Your Weekly Progress Report',
+            emailHTML,
+            {
+                filename: `Weekly_Progress_Report_${new Date().toISOString().split('T')[0]}.pdf`,
+                content: pdfBlob,
+                mimeType: 'application/pdf'
+            },
+            { emailType: 'weekly_report' }
+        );
+        
+        if (result.success) {
+            console.log(`  ✓ Weekly report sent to ${pir.displayName}`);
+            return { success: true };
+        } else {
+            throw new Error(result.error);
+        }
+        
+    } catch (error) {
+        console.error(`  ✗ Failed to send weekly report:`, error.message);
+        return { success: false, error: error.message };
+    }
+};
+
 const sendMonthlyProgressReport = async (pirId) => {
     try {
         const pirDoc = await db.collection('users').doc(pirId).get();
@@ -13041,35 +13023,117 @@ const sendMonthlyProgressReport = async (pirId) => {
         
         console.log(`  Generating monthly report for ${pir.displayName}...`);
         
-        // Use individual PIR report for monthly
+        // Initialize report data structure
         const reportData = {
             pirInfo: pir,
-            checkIns: {},
-            goals: {},
-            summary: {}
+            checkIns: {
+                total: 0,
+                avgMood: 'N/A',
+                avgCravings: 'N/A',
+                avgAnxiety: 'N/A',
+                avgSleep: 'N/A'
+            },
+            goals: {
+                total: 0,
+                completed: 0
+            },
+            assignments: {
+                total: 0,
+                completed: 0
+            },
+            summary: {},
+            charts: {}
         };
         
-        // Get check-ins
+        // ========================================
+        // GET CHECK-INS (without complex query)
+        // ========================================
         const checkInsSnap = await db.collection('checkIns')
             .where('userId', '==', pirId)
-            .where('date', '>=', firebase.firestore.Timestamp.fromDate(start))
-            .where('date', '<=', firebase.firestore.Timestamp.fromDate(end))
             .get();
         
-        reportData.checkIns.total = checkInsSnap.size;
-        if (checkInsSnap.size > 0) {
-            let totalMood = 0;
-            let totalCravings = 0;
-            checkInsSnap.forEach(doc => {
-                const data = doc.data();
-                totalMood += data.mood || 0;
-                totalCravings += data.cravings || 0;
+        // Filter by date in JavaScript to avoid index requirement
+        const filteredCheckIns = [];
+        checkInsSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.date) {
+                const checkInDate = data.date.toDate ? data.date.toDate() : new Date(data.date);
+                if (checkInDate >= start && checkInDate <= end) {
+                    filteredCheckIns.push(data);
+                }
+            }
+        });
+        
+        // Calculate check-in statistics
+        reportData.checkIns.total = filteredCheckIns.length;
+        
+        if (filteredCheckIns.length > 0) {
+            let totalMood = 0, totalCravings = 0, totalAnxiety = 0, totalSleep = 0;
+            let moodCount = 0, cravingsCount = 0, anxietyCount = 0, sleepCount = 0;
+            
+            filteredCheckIns.forEach(checkIn => {
+                if (checkIn.mood != null) {
+                    totalMood += checkIn.mood;
+                    moodCount++;
+                }
+                if (checkIn.cravings != null) {
+                    totalCravings += checkIn.cravings;
+                    cravingsCount++;
+                }
+                if (checkIn.anxiety != null) {
+                    totalAnxiety += checkIn.anxiety;
+                    anxietyCount++;
+                }
+                if (checkIn.sleep != null) {
+                    totalSleep += checkIn.sleep;
+                    sleepCount++;
+                }
             });
-            reportData.checkIns.avgMood = (totalMood / checkInsSnap.size).toFixed(1);
-            reportData.checkIns.avgCravings = (totalCravings / checkInsSnap.size).toFixed(1);
+            
+            reportData.checkIns.avgMood = moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 'N/A';
+            reportData.checkIns.avgCravings = cravingsCount > 0 ? (totalCravings / cravingsCount).toFixed(1) : 'N/A';
+            reportData.checkIns.avgAnxiety = anxietyCount > 0 ? (totalAnxiety / anxietyCount).toFixed(1) : 'N/A';
+            reportData.checkIns.avgSleep = sleepCount > 0 ? (totalSleep / sleepCount).toFixed(1) : 'N/A';
+            
+            // Chart data for PDF
+            filteredCheckIns.sort((a, b) => {
+                const dateA = a.date.toDate ? a.date.toDate() : new Date(a.date);
+                const dateB = b.date.toDate ? b.date.toDate() : new Date(b.date);
+                return dateA - dateB;
+            });
+            
+            const dates = filteredCheckIns.map(c => {
+                const date = c.date.toDate ? c.date.toDate() : new Date(c.date);
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            });
+            const moods = filteredCheckIns.map(c => c.mood || 0);
+            const cravings = filteredCheckIns.map(c => c.cravings || 0);
+            
+            reportData.charts.moodTrends = {
+                type: 'line',
+                data: {
+                    labels: dates,
+                    datasets: [
+                        {
+                            label: 'Mood',
+                            data: moods,
+                            borderColor: '#4CAF50',
+                            backgroundColor: 'rgba(76, 175, 80, 0.1)'
+                        },
+                        {
+                            label: 'Cravings',
+                            data: cravings,
+                            borderColor: '#f44336',
+                            backgroundColor: 'rgba(244, 67, 54, 0.1)'
+                        }
+                    ]
+                }
+            };
         }
         
-        // Get goals
+        // ========================================
+        // GET GOALS
+        // ========================================
         const goalsSnap = await db.collection('goals')
             .where('userId', '==', pirId)
             .get();
@@ -13077,16 +13141,71 @@ const sendMonthlyProgressReport = async (pirId) => {
         reportData.goals.total = goalsSnap.size;
         reportData.goals.completed = goalsSnap.docs.filter(doc => doc.data().status === 'completed').length;
         
-        // Calculate sobriety days
+        // ========================================
+        // GET ASSIGNMENTS
+        // ========================================
+        const assignmentsSnap = await db.collection('assignments')
+            .where('userId', '==', pirId)
+            .get();
+        
+        reportData.assignments.total = assignmentsSnap.size;
+        reportData.assignments.completed = assignmentsSnap.docs.filter(doc => doc.data().status === 'completed').length;
+        
+        // ========================================
+        // CALCULATE SOBRIETY DAYS - FIXED
+        // ========================================
         if (pir.sobrietyDate) {
-            const soberDate = pir.sobrietyDate.toDate();
+            let soberDate;
+            
+            // Handle different date formats
+            if (pir.sobrietyDate.toDate && typeof pir.sobrietyDate.toDate === 'function') {
+                // It's a Firestore Timestamp
+                soberDate = pir.sobrietyDate.toDate();
+            } else if (pir.sobrietyDate instanceof Date) {
+                // It's already a Date object
+                soberDate = pir.sobrietyDate;
+            } else if (typeof pir.sobrietyDate === 'string') {
+                // It's a string date
+                soberDate = new Date(pir.sobrietyDate);
+            } else if (typeof pir.sobrietyDate === 'number') {
+                // It's a timestamp number
+                soberDate = new Date(pir.sobrietyDate);
+            } else {
+                // Unknown format - default to today
+                console.warn('Unknown sobrietyDate format:', pir.sobrietyDate);
+                soberDate = new Date();
+            }
+            
             const daysSober = Math.floor((end - soberDate) / (1000 * 60 * 60 * 24));
-            reportData.pirInfo.daysSober = daysSober;
+            reportData.pirInfo.daysSober = daysSober >= 0 ? daysSober : 0;
+        } else {
+            reportData.pirInfo.daysSober = 'N/A';
         }
         
+        // ========================================
+        // BUILD SUMMARY
+        // ========================================
+        reportData.summary = {
+            periodDays: 30,
+            checkInTotal: reportData.checkIns.total,
+            avgMood: reportData.checkIns.avgMood,
+            avgCravings: reportData.checkIns.avgCravings,
+            goalsTotal: reportData.goals.total,
+            goalsCompleted: reportData.goals.completed,
+            assignmentsTotal: reportData.assignments.total,
+            assignmentsCompleted: reportData.assignments.completed,
+            daysSober: reportData.pirInfo.daysSober
+        };
+        
+        // ========================================
+        // GENERATE PDF
+        // ========================================
         console.log(`  Creating PDF...`);
         const pdfBlob = await generateReportPDF(reportData, 'Monthly Progress Report');
         
+        // ========================================
+        // SEND EMAIL
+        // ========================================
         console.log(`  Sending email...`);
         const emailHTML = getMonthlyReportEmailTemplate(pir.firstName, reportData);
         
@@ -13114,7 +13233,6 @@ const sendMonthlyProgressReport = async (pirId) => {
         return { success: false, error: error.message };
     }
 };
-
 // ==========================================
 // EMAIL SYSTEM TEST FUNCTION
 // ==========================================
