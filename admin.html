@@ -11711,6 +11711,386 @@ function EmailLogModal({ onClose, user }) {
         </div>
     );
 }
+        const generateOverviewReport = async (startDate, endDate) => {
+    try {
+        console.log(`Generating comprehensive report from ${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}`);
+        
+        const report = {
+            period: {
+                start: startDate.toLocaleDateString(),
+                end: endDate.toLocaleDateString(),
+                days: Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24))
+            },
+            summary: {},
+            checkIns: {},
+            goals: {},
+            assignments: {},
+            milestones: {},
+            sessions: {},
+            charts: {},
+            patterns: [],
+            highlights: [],
+            recommendations: []
+        };
+        
+        // ========================================
+        // CHECK-INS ANALYSIS
+        // ========================================
+        const checkInsSnap = await db.collection('checkIns')
+            .where('date', '>=', firebase.firestore.Timestamp.fromDate(startDate))
+            .where('date', '<=', firebase.firestore.Timestamp.fromDate(endDate))
+            .get();
+        
+        console.log(`Found ${checkInsSnap.size} check-ins`);
+        
+        if (checkInsSnap.size > 0) {
+            let totalMood = 0, totalCravings = 0, totalAnxiety = 0, totalSleep = 0;
+            let moodCount = 0, cravingsCount = 0, anxietyCount = 0, sleepCount = 0;
+            let moodTrend = [], cravingsTrend = [], anxietyTrend = [], sleepTrend = [];
+            
+            const checkInsData = [];
+            const checkInsByDate = {};
+            
+            checkInsSnap.forEach(doc => {
+                const data = doc.data();
+                checkInsData.push(data);
+                
+                const dateKey = data.date.toDate().toLocaleDateString();
+                if (!checkInsByDate[dateKey]) {
+                    checkInsByDate[dateKey] = [];
+                }
+                checkInsByDate[dateKey].push(data);
+                
+                if (data.mood != null) {
+                    totalMood += data.mood;
+                    moodCount++;
+                    moodTrend.push(data.mood);
+                }
+                if (data.cravings != null) {
+                    totalCravings += data.cravings;
+                    cravingsCount++;
+                    cravingsTrend.push(data.cravings);
+                }
+                if (data.anxiety != null) {
+                    totalAnxiety += data.anxiety;
+                    anxietyCount++;
+                    anxietyTrend.push(data.anxiety);
+                }
+                if (data.sleep != null) {
+                    totalSleep += data.sleep;
+                    sleepCount++;
+                    sleepTrend.push(data.sleep);
+                }
+            });
+            
+            // Sort by date for trend analysis
+            checkInsData.sort((a, b) => a.date.toMillis() - b.date.toMillis());
+            
+            // Calculate averages
+            report.checkIns = {
+                total: checkInsSnap.size,
+                expectedTotal: report.period.days * 2, // Morning + Evening
+                completionRate: ((checkInsSnap.size / (report.period.days * 2)) * 100).toFixed(1) + '%',
+                avgMood: moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 'N/A',
+                avgCravings: cravingsCount > 0 ? (totalCravings / cravingsCount).toFixed(1) : 'N/A',
+                avgAnxiety: anxietyCount > 0 ? (totalAnxiety / anxietyCount).toFixed(1) : 'N/A',
+                avgSleep: sleepCount > 0 ? (totalSleep / sleepCount).toFixed(1) : 'N/A',
+                bestMoodDay: null,
+                worstCravingsDay: null,
+                consistentDays: Object.keys(checkInsByDate).length
+            };
+            
+            // Find best/worst days
+            let bestMood = -1, worstCravings = 11;
+            Object.entries(checkInsByDate).forEach(([date, checkIns]) => {
+                const dayAvgMood = checkIns.reduce((sum, c) => sum + (c.mood || 0), 0) / checkIns.length;
+                const dayAvgCravings = checkIns.reduce((sum, c) => sum + (c.cravings || 0), 0) / checkIns.length;
+                
+                if (dayAvgMood > bestMood) {
+                    bestMood = dayAvgMood;
+                    report.checkIns.bestMoodDay = { date, mood: dayAvgMood.toFixed(1) };
+                }
+                if (dayAvgCravings < worstCravings && dayAvgCravings > 0) {
+                    worstCravings = dayAvgCravings;
+                    report.checkIns.bestCravingsDay = { date, cravings: dayAvgCravings.toFixed(1) };
+                }
+            });
+            
+            // Trend detection
+            if (moodTrend.length >= 3) {
+                const recentMood = moodTrend.slice(-3).reduce((a, b) => a + b) / 3;
+                const earlierMood = moodTrend.slice(0, 3).reduce((a, b) => a + b) / 3;
+                if (recentMood > earlierMood + 0.5) {
+                    report.patterns.push({
+                        type: 'positive',
+                        category: 'mood',
+                        message: `Mood trending upward - recent average ${recentMood.toFixed(1)} vs earlier ${earlierMood.toFixed(1)}`
+                    });
+                    report.highlights.push('📈 Mood improvement detected - Keep up the great work!');
+                } else if (recentMood < earlierMood - 0.5) {
+                    report.patterns.push({
+                        type: 'concern',
+                        category: 'mood',
+                        message: `Mood declining - recent average ${recentMood.toFixed(1)} vs earlier ${earlierMood.toFixed(1)}`
+                    });
+                    report.recommendations.push('Consider discussing mood patterns with your coach');
+                }
+            }
+            
+            if (cravingsTrend.length >= 3) {
+                const recentCravings = cravingsTrend.slice(-3).reduce((a, b) => a + b) / 3;
+                const earlierCravings = cravingsTrend.slice(0, 3).reduce((a, b) => a + b) / 3;
+                if (recentCravings < earlierCravings - 0.5) {
+                    report.patterns.push({
+                        type: 'positive',
+                        category: 'cravings',
+                        message: `Cravings decreasing - recent average ${recentCravings.toFixed(1)} vs earlier ${earlierCravings.toFixed(1)}`
+                    });
+                    report.highlights.push('💪 Cravings are decreasing - Your strategies are working!');
+                }
+            }
+            
+            // Chart data
+            const dates = checkInsData.map(c => c.date.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+            const moods = checkInsData.map(c => c.mood || 0);
+            const cravings = checkInsData.map(c => c.cravings || 0);
+            const anxiety = checkInsData.map(c => c.anxiety || 0);
+            const sleepQuality = checkInsData.map(c => c.sleep || 0);
+            
+            report.charts.moodTrends = {
+                type: 'line',
+                data: {
+                    labels: dates,
+                    datasets: [
+                        {
+                            label: 'Mood',
+                            data: moods,
+                            borderColor: '#4CAF50',
+                            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Cravings',
+                            data: cravings,
+                            borderColor: '#f44336',
+                            backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                            tension: 0.4
+                        }
+                    ]
+                }
+            };
+            
+            report.charts.wellnessTrends = {
+                type: 'line',
+                data: {
+                    labels: dates,
+                    datasets: [
+                        {
+                            label: 'Anxiety',
+                            data: anxiety,
+                            borderColor: '#FF9800',
+                            backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Sleep Quality',
+                            data: sleepQuality,
+                            borderColor: '#2196F3',
+                            backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                            tension: 0.4
+                        }
+                    ]
+                }
+            };
+            
+            // Completion consistency chart
+            const dailyCompletion = [];
+            for (let i = 0; i < report.period.days; i++) {
+                const date = new Date(startDate);
+                date.setDate(date.getDate() + i);
+                const dateKey = date.toLocaleDateString();
+                const count = checkInsByDate[dateKey]?.length || 0;
+                dailyCompletion.push(count);
+            }
+            
+            report.charts.checkInConsistency = {
+                type: 'bar',
+                data: {
+                    labels: dailyCompletion.map((_, i) => {
+                        const d = new Date(startDate);
+                        d.setDate(d.getDate() + i);
+                        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    }),
+                    datasets: [{
+                        label: 'Check-ins Completed',
+                        data: dailyCompletion,
+                        backgroundColor: dailyCompletion.map(count => 
+                            count >= 2 ? '#4CAF50' : count === 1 ? '#FFC107' : '#f44336'
+                        )
+                    }]
+                }
+            };
+        } else {
+            report.checkIns = {
+                total: 0,
+                expectedTotal: report.period.days * 2,
+                completionRate: '0%',
+                avgMood: 'N/A',
+                avgCravings: 'N/A',
+                avgAnxiety: 'N/A',
+                avgSleep: 'N/A'
+            };
+            report.recommendations.push('Increase check-in consistency for better insights');
+        }
+        
+        // ========================================
+        // GOALS ANALYSIS
+        // ========================================
+        const goalsSnap = await db.collection('goals')
+            .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(startDate))
+            .where('createdAt', '<=', firebase.firestore.Timestamp.fromDate(endDate))
+            .get();
+        
+        const completedGoals = [];
+        const inProgressGoals = [];
+        const notStartedGoals = [];
+        
+        goalsSnap.forEach(doc => {
+            const goal = doc.data();
+            if (goal.status === 'completed') completedGoals.push(goal);
+            else if (goal.status === 'in-progress') inProgressGoals.push(goal);
+            else notStartedGoals.push(goal);
+        });
+        
+        report.goals = {
+            total: goalsSnap.size,
+            completed: completedGoals.length,
+            inProgress: inProgressGoals.length,
+            notStarted: notStartedGoals.length,
+            completionRate: goalsSnap.size > 0 ? ((completedGoals.length / goalsSnap.size) * 100).toFixed(1) + '%' : '0%'
+        };
+        
+        if (completedGoals.length > 0) {
+            report.highlights.push(`🎯 Completed ${completedGoals.length} goal${completedGoals.length > 1 ? 's' : ''} this period!`);
+        }
+        
+        // ========================================
+        // ASSIGNMENTS ANALYSIS
+        // ========================================
+        const assignmentsSnap = await db.collection('assignments')
+            .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(startDate))
+            .where('createdAt', '<=', firebase.firestore.Timestamp.fromDate(endDate))
+            .get();
+        
+        const completedAssignments = [];
+        const pendingAssignments = [];
+        
+        assignmentsSnap.forEach(doc => {
+            const assignment = doc.data();
+            if (assignment.status === 'completed') completedAssignments.push(assignment);
+            else pendingAssignments.push(assignment);
+        });
+        
+        report.assignments = {
+            total: assignmentsSnap.size,
+            completed: completedAssignments.length,
+            pending: pendingAssignments.length,
+            completionRate: assignmentsSnap.size > 0 ? ((completedAssignments.length / assignmentsSnap.size) * 100).toFixed(1) + '%' : '0%'
+        };
+        
+        if (completedAssignments.length > 0) {
+            report.highlights.push(`✅ Completed ${completedAssignments.length} assignment${completedAssignments.length > 1 ? 's' : ''}!`);
+        }
+        
+        // ========================================
+        // MILESTONES ANALYSIS
+        // ========================================
+        const milestonesSnap = await db.collection('milestones')
+            .where('achievedDate', '>=', firebase.firestore.Timestamp.fromDate(startDate))
+            .where('achievedDate', '<=', firebase.firestore.Timestamp.fromDate(endDate))
+            .where('achieved', '==', true)
+            .get();
+        
+        const achievedMilestones = [];
+        milestonesSnap.forEach(doc => {
+            achievedMilestones.push(doc.data());
+        });
+        
+        report.milestones = {
+            total: achievedMilestones.length,
+            list: achievedMilestones.map(m => ({ title: m.title, date: m.achievedDate.toDate().toLocaleDateString() }))
+        };
+        
+        if (achievedMilestones.length > 0) {
+            achievedMilestones.forEach(m => {
+                report.highlights.push(`🎉 Milestone Achieved: ${m.title}!`);
+            });
+        }
+        
+        // ========================================
+        // SESSIONS ANALYSIS
+        // ========================================
+        const sessionsSnap = await db.collection('meetings')
+            .where('scheduledTime', '>=', firebase.firestore.Timestamp.fromDate(startDate))
+            .where('scheduledTime', '<=', firebase.firestore.Timestamp.fromDate(endDate))
+            .get();
+        
+        let attendedSessions = 0;
+        sessionsSnap.forEach(doc => {
+            const session = doc.data();
+            if (session.attended === true) attendedSessions++;
+        });
+        
+        report.sessions = {
+            total: sessionsSnap.size,
+            attended: attendedSessions,
+            missed: sessionsSnap.size - attendedSessions,
+            attendanceRate: sessionsSnap.size > 0 ? ((attendedSessions / sessionsSnap.size) * 100).toFixed(1) + '%' : 'N/A'
+        };
+        
+        if (attendedSessions === sessionsSnap.size && sessionsSnap.size > 0) {
+            report.highlights.push('🌟 Perfect session attendance!');
+        }
+        
+        // ========================================
+        // OVERALL SUMMARY
+        // ========================================
+        report.summary = {
+            periodDays: report.period.days,
+            checkInRate: report.checkIns.completionRate,
+            avgMood: report.checkIns.avgMood,
+            avgCravings: report.checkIns.avgCravings,
+            goalsCompleted: report.goals.completed,
+            assignmentsCompleted: report.assignments.completed,
+            milestonesAchieved: report.milestones.total,
+            sessionAttendance: report.sessions.attendanceRate,
+            overallEngagement: calculateEngagementScore(report)
+        };
+        
+        // ========================================
+        // RECOMMENDATIONS
+        // ========================================
+        if (report.checkIns.completionRate < 50) {
+            report.recommendations.push('Try setting reminders for daily check-ins to track your progress better');
+        }
+        if (report.assignments.pending > 0) {
+            report.recommendations.push(`Complete ${report.assignments.pending} pending assignment${report.assignments.pending > 1 ? 's' : ''} to stay on track`);
+        }
+        if (parseFloat(report.checkIns.avgMood) < 5 && report.checkIns.avgMood !== 'N/A') {
+            report.recommendations.push('Consider discussing mood support strategies with your coach');
+        }
+        if (parseFloat(report.checkIns.avgCravings) > 7 && report.checkIns.avgCravings !== 'N/A') {
+            report.recommendations.push('Cravings are elevated - review your coping strategies with your coach');
+        }
+        
+        console.log('Report generated successfully:', report);
+        return report;
+        
+    } catch (error) {
+        console.error('Error generating comprehensive report:', error);
+        throw error;
+    }
+};
       // ENHANCED ProfileView
 function ProfileView({ user }) {
     const [editing, setEditing] = useState(false);
@@ -12536,386 +12916,7 @@ const generateReportPDF = async (reportData, reportTitle) => {
     });
 };
 
-const generateOverviewReport = async (startDate, endDate) => {
-    try {
-        console.log(`Generating comprehensive report from ${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}`);
-        
-        const report = {
-            period: {
-                start: startDate.toLocaleDateString(),
-                end: endDate.toLocaleDateString(),
-                days: Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24))
-            },
-            summary: {},
-            checkIns: {},
-            goals: {},
-            assignments: {},
-            milestones: {},
-            sessions: {},
-            charts: {},
-            patterns: [],
-            highlights: [],
-            recommendations: []
-        };
-        
-        // ========================================
-        // CHECK-INS ANALYSIS
-        // ========================================
-        const checkInsSnap = await db.collection('checkIns')
-            .where('date', '>=', firebase.firestore.Timestamp.fromDate(startDate))
-            .where('date', '<=', firebase.firestore.Timestamp.fromDate(endDate))
-            .get();
-        
-        console.log(`Found ${checkInsSnap.size} check-ins`);
-        
-        if (checkInsSnap.size > 0) {
-            let totalMood = 0, totalCravings = 0, totalAnxiety = 0, totalSleep = 0;
-            let moodCount = 0, cravingsCount = 0, anxietyCount = 0, sleepCount = 0;
-            let moodTrend = [], cravingsTrend = [], anxietyTrend = [], sleepTrend = [];
-            
-            const checkInsData = [];
-            const checkInsByDate = {};
-            
-            checkInsSnap.forEach(doc => {
-                const data = doc.data();
-                checkInsData.push(data);
-                
-                const dateKey = data.date.toDate().toLocaleDateString();
-                if (!checkInsByDate[dateKey]) {
-                    checkInsByDate[dateKey] = [];
-                }
-                checkInsByDate[dateKey].push(data);
-                
-                if (data.mood != null) {
-                    totalMood += data.mood;
-                    moodCount++;
-                    moodTrend.push(data.mood);
-                }
-                if (data.cravings != null) {
-                    totalCravings += data.cravings;
-                    cravingsCount++;
-                    cravingsTrend.push(data.cravings);
-                }
-                if (data.anxiety != null) {
-                    totalAnxiety += data.anxiety;
-                    anxietyCount++;
-                    anxietyTrend.push(data.anxiety);
-                }
-                if (data.sleep != null) {
-                    totalSleep += data.sleep;
-                    sleepCount++;
-                    sleepTrend.push(data.sleep);
-                }
-            });
-            
-            // Sort by date for trend analysis
-            checkInsData.sort((a, b) => a.date.toMillis() - b.date.toMillis());
-            
-            // Calculate averages
-            report.checkIns = {
-                total: checkInsSnap.size,
-                expectedTotal: report.period.days * 2, // Morning + Evening
-                completionRate: ((checkInsSnap.size / (report.period.days * 2)) * 100).toFixed(1) + '%',
-                avgMood: moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 'N/A',
-                avgCravings: cravingsCount > 0 ? (totalCravings / cravingsCount).toFixed(1) : 'N/A',
-                avgAnxiety: anxietyCount > 0 ? (totalAnxiety / anxietyCount).toFixed(1) : 'N/A',
-                avgSleep: sleepCount > 0 ? (totalSleep / sleepCount).toFixed(1) : 'N/A',
-                bestMoodDay: null,
-                worstCravingsDay: null,
-                consistentDays: Object.keys(checkInsByDate).length
-            };
-            
-            // Find best/worst days
-            let bestMood = -1, worstCravings = 11;
-            Object.entries(checkInsByDate).forEach(([date, checkIns]) => {
-                const dayAvgMood = checkIns.reduce((sum, c) => sum + (c.mood || 0), 0) / checkIns.length;
-                const dayAvgCravings = checkIns.reduce((sum, c) => sum + (c.cravings || 0), 0) / checkIns.length;
-                
-                if (dayAvgMood > bestMood) {
-                    bestMood = dayAvgMood;
-                    report.checkIns.bestMoodDay = { date, mood: dayAvgMood.toFixed(1) };
-                }
-                if (dayAvgCravings < worstCravings && dayAvgCravings > 0) {
-                    worstCravings = dayAvgCravings;
-                    report.checkIns.bestCravingsDay = { date, cravings: dayAvgCravings.toFixed(1) };
-                }
-            });
-            
-            // Trend detection
-            if (moodTrend.length >= 3) {
-                const recentMood = moodTrend.slice(-3).reduce((a, b) => a + b) / 3;
-                const earlierMood = moodTrend.slice(0, 3).reduce((a, b) => a + b) / 3;
-                if (recentMood > earlierMood + 0.5) {
-                    report.patterns.push({
-                        type: 'positive',
-                        category: 'mood',
-                        message: `Mood trending upward - recent average ${recentMood.toFixed(1)} vs earlier ${earlierMood.toFixed(1)}`
-                    });
-                    report.highlights.push('📈 Mood improvement detected - Keep up the great work!');
-                } else if (recentMood < earlierMood - 0.5) {
-                    report.patterns.push({
-                        type: 'concern',
-                        category: 'mood',
-                        message: `Mood declining - recent average ${recentMood.toFixed(1)} vs earlier ${earlierMood.toFixed(1)}`
-                    });
-                    report.recommendations.push('Consider discussing mood patterns with your coach');
-                }
-            }
-            
-            if (cravingsTrend.length >= 3) {
-                const recentCravings = cravingsTrend.slice(-3).reduce((a, b) => a + b) / 3;
-                const earlierCravings = cravingsTrend.slice(0, 3).reduce((a, b) => a + b) / 3;
-                if (recentCravings < earlierCravings - 0.5) {
-                    report.patterns.push({
-                        type: 'positive',
-                        category: 'cravings',
-                        message: `Cravings decreasing - recent average ${recentCravings.toFixed(1)} vs earlier ${earlierCravings.toFixed(1)}`
-                    });
-                    report.highlights.push('💪 Cravings are decreasing - Your strategies are working!');
-                }
-            }
-            
-            // Chart data
-            const dates = checkInsData.map(c => c.date.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-            const moods = checkInsData.map(c => c.mood || 0);
-            const cravings = checkInsData.map(c => c.cravings || 0);
-            const anxiety = checkInsData.map(c => c.anxiety || 0);
-            const sleepQuality = checkInsData.map(c => c.sleep || 0);
-            
-            report.charts.moodTrends = {
-                type: 'line',
-                data: {
-                    labels: dates,
-                    datasets: [
-                        {
-                            label: 'Mood',
-                            data: moods,
-                            borderColor: '#4CAF50',
-                            backgroundColor: 'rgba(76, 175, 80, 0.1)',
-                            tension: 0.4
-                        },
-                        {
-                            label: 'Cravings',
-                            data: cravings,
-                            borderColor: '#f44336',
-                            backgroundColor: 'rgba(244, 67, 54, 0.1)',
-                            tension: 0.4
-                        }
-                    ]
-                }
-            };
-            
-            report.charts.wellnessTrends = {
-                type: 'line',
-                data: {
-                    labels: dates,
-                    datasets: [
-                        {
-                            label: 'Anxiety',
-                            data: anxiety,
-                            borderColor: '#FF9800',
-                            backgroundColor: 'rgba(255, 152, 0, 0.1)',
-                            tension: 0.4
-                        },
-                        {
-                            label: 'Sleep Quality',
-                            data: sleepQuality,
-                            borderColor: '#2196F3',
-                            backgroundColor: 'rgba(33, 150, 243, 0.1)',
-                            tension: 0.4
-                        }
-                    ]
-                }
-            };
-            
-            // Completion consistency chart
-            const dailyCompletion = [];
-            for (let i = 0; i < report.period.days; i++) {
-                const date = new Date(startDate);
-                date.setDate(date.getDate() + i);
-                const dateKey = date.toLocaleDateString();
-                const count = checkInsByDate[dateKey]?.length || 0;
-                dailyCompletion.push(count);
-            }
-            
-            report.charts.checkInConsistency = {
-                type: 'bar',
-                data: {
-                    labels: dailyCompletion.map((_, i) => {
-                        const d = new Date(startDate);
-                        d.setDate(d.getDate() + i);
-                        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                    }),
-                    datasets: [{
-                        label: 'Check-ins Completed',
-                        data: dailyCompletion,
-                        backgroundColor: dailyCompletion.map(count => 
-                            count >= 2 ? '#4CAF50' : count === 1 ? '#FFC107' : '#f44336'
-                        )
-                    }]
-                }
-            };
-        } else {
-            report.checkIns = {
-                total: 0,
-                expectedTotal: report.period.days * 2,
-                completionRate: '0%',
-                avgMood: 'N/A',
-                avgCravings: 'N/A',
-                avgAnxiety: 'N/A',
-                avgSleep: 'N/A'
-            };
-            report.recommendations.push('Increase check-in consistency for better insights');
-        }
-        
-        // ========================================
-        // GOALS ANALYSIS
-        // ========================================
-        const goalsSnap = await db.collection('goals')
-            .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(startDate))
-            .where('createdAt', '<=', firebase.firestore.Timestamp.fromDate(endDate))
-            .get();
-        
-        const completedGoals = [];
-        const inProgressGoals = [];
-        const notStartedGoals = [];
-        
-        goalsSnap.forEach(doc => {
-            const goal = doc.data();
-            if (goal.status === 'completed') completedGoals.push(goal);
-            else if (goal.status === 'in-progress') inProgressGoals.push(goal);
-            else notStartedGoals.push(goal);
-        });
-        
-        report.goals = {
-            total: goalsSnap.size,
-            completed: completedGoals.length,
-            inProgress: inProgressGoals.length,
-            notStarted: notStartedGoals.length,
-            completionRate: goalsSnap.size > 0 ? ((completedGoals.length / goalsSnap.size) * 100).toFixed(1) + '%' : '0%'
-        };
-        
-        if (completedGoals.length > 0) {
-            report.highlights.push(`🎯 Completed ${completedGoals.length} goal${completedGoals.length > 1 ? 's' : ''} this period!`);
-        }
-        
-        // ========================================
-        // ASSIGNMENTS ANALYSIS
-        // ========================================
-        const assignmentsSnap = await db.collection('assignments')
-            .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(startDate))
-            .where('createdAt', '<=', firebase.firestore.Timestamp.fromDate(endDate))
-            .get();
-        
-        const completedAssignments = [];
-        const pendingAssignments = [];
-        
-        assignmentsSnap.forEach(doc => {
-            const assignment = doc.data();
-            if (assignment.status === 'completed') completedAssignments.push(assignment);
-            else pendingAssignments.push(assignment);
-        });
-        
-        report.assignments = {
-            total: assignmentsSnap.size,
-            completed: completedAssignments.length,
-            pending: pendingAssignments.length,
-            completionRate: assignmentsSnap.size > 0 ? ((completedAssignments.length / assignmentsSnap.size) * 100).toFixed(1) + '%' : '0%'
-        };
-        
-        if (completedAssignments.length > 0) {
-            report.highlights.push(`✅ Completed ${completedAssignments.length} assignment${completedAssignments.length > 1 ? 's' : ''}!`);
-        }
-        
-        // ========================================
-        // MILESTONES ANALYSIS
-        // ========================================
-        const milestonesSnap = await db.collection('milestones')
-            .where('achievedDate', '>=', firebase.firestore.Timestamp.fromDate(startDate))
-            .where('achievedDate', '<=', firebase.firestore.Timestamp.fromDate(endDate))
-            .where('achieved', '==', true)
-            .get();
-        
-        const achievedMilestones = [];
-        milestonesSnap.forEach(doc => {
-            achievedMilestones.push(doc.data());
-        });
-        
-        report.milestones = {
-            total: achievedMilestones.length,
-            list: achievedMilestones.map(m => ({ title: m.title, date: m.achievedDate.toDate().toLocaleDateString() }))
-        };
-        
-        if (achievedMilestones.length > 0) {
-            achievedMilestones.forEach(m => {
-                report.highlights.push(`🎉 Milestone Achieved: ${m.title}!`);
-            });
-        }
-        
-        // ========================================
-        // SESSIONS ANALYSIS
-        // ========================================
-        const sessionsSnap = await db.collection('meetings')
-            .where('scheduledTime', '>=', firebase.firestore.Timestamp.fromDate(startDate))
-            .where('scheduledTime', '<=', firebase.firestore.Timestamp.fromDate(endDate))
-            .get();
-        
-        let attendedSessions = 0;
-        sessionsSnap.forEach(doc => {
-            const session = doc.data();
-            if (session.attended === true) attendedSessions++;
-        });
-        
-        report.sessions = {
-            total: sessionsSnap.size,
-            attended: attendedSessions,
-            missed: sessionsSnap.size - attendedSessions,
-            attendanceRate: sessionsSnap.size > 0 ? ((attendedSessions / sessionsSnap.size) * 100).toFixed(1) + '%' : 'N/A'
-        };
-        
-        if (attendedSessions === sessionsSnap.size && sessionsSnap.size > 0) {
-            report.highlights.push('🌟 Perfect session attendance!');
-        }
-        
-        // ========================================
-        // OVERALL SUMMARY
-        // ========================================
-        report.summary = {
-            periodDays: report.period.days,
-            checkInRate: report.checkIns.completionRate,
-            avgMood: report.checkIns.avgMood,
-            avgCravings: report.checkIns.avgCravings,
-            goalsCompleted: report.goals.completed,
-            assignmentsCompleted: report.assignments.completed,
-            milestonesAchieved: report.milestones.total,
-            sessionAttendance: report.sessions.attendanceRate,
-            overallEngagement: calculateEngagementScore(report)
-        };
-        
-        // ========================================
-        // RECOMMENDATIONS
-        // ========================================
-        if (report.checkIns.completionRate < 50) {
-            report.recommendations.push('Try setting reminders for daily check-ins to track your progress better');
-        }
-        if (report.assignments.pending > 0) {
-            report.recommendations.push(`Complete ${report.assignments.pending} pending assignment${report.assignments.pending > 1 ? 's' : ''} to stay on track`);
-        }
-        if (parseFloat(report.checkIns.avgMood) < 5 && report.checkIns.avgMood !== 'N/A') {
-            report.recommendations.push('Consider discussing mood support strategies with your coach');
-        }
-        if (parseFloat(report.checkIns.avgCravings) > 7 && report.checkIns.avgCravings !== 'N/A') {
-            report.recommendations.push('Cravings are elevated - review your coping strategies with your coach');
-        }
-        
-        console.log('Report generated successfully:', report);
-        return report;
-        
-    } catch (error) {
-        console.error('Error generating comprehensive report:', error);
-        throw error;
-    }
-};
+
 
 // Helper function to calculate engagement score
 const calculateEngagementScore = (report) => {
