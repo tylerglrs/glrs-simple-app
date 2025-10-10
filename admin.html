@@ -12008,7 +12008,90 @@ const disconnectGoogleServices = async () => {
         setSaving(false);
     }
 };
-   
+   // ==========================================
+// GOOGLE TOKEN MANAGEMENT
+// ==========================================
+
+// Check if Google token is valid
+const checkGoogleToken = async () => {
+    try {
+        if (!user.googleAccessToken || !user.googleTokenExpiry) {
+            return { valid: false, reason: 'No token found' };
+        }
+        
+        const now = Date.now();
+        const expiryTime = user.googleTokenExpiry;
+        const fiveMinutes = 5 * 60 * 1000;
+        
+        // If token expires in less than 5 minutes, refresh it
+        if (now >= expiryTime - fiveMinutes) {
+            console.log('Token expires soon, needs refresh');
+            return { valid: false, reason: 'Token expiring soon' };
+        }
+        
+        return { valid: true };
+        
+    } catch (error) {
+        console.error('Error checking Google token:', error);
+        return { valid: false, reason: error.message };
+    }
+};
+
+// Auto-refresh Google token if expired
+const refreshGoogleToken = async () => {
+    return new Promise((resolve, reject) => {
+        try {
+            console.log('Attempting to refresh Google token...');
+            
+            // Check if Google Identity Services is loaded
+            if (typeof google === 'undefined' || !google.accounts) {
+                throw new Error('Google Identity Services not loaded');
+            }
+            
+            const client = google.accounts.oauth2.initTokenClient({
+                client_id: '830378577655-5vhqam3a7md4pv0gqslcu6k3kr5n98r1.apps.googleusercontent.com',
+                scope: 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send',
+                callback: async (response) => {
+                    if (response.error) {
+                        console.error('Token refresh failed:', response.error);
+                        reject(new Error(response.error));
+                        return;
+                    }
+                    
+                    try {
+                        // Calculate token expiry (usually 1 hour from now)
+                        const expiryTime = Date.now() + (response.expires_in * 1000);
+                        
+                        // Update user document with new token
+                        await db.collection('users').doc(user.uid).update({
+                            googleAccessToken: response.access_token,
+                            googleTokenExpiry: expiryTime,
+                            googleTokenRefreshed: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        
+                        // Update local user object
+                        user.googleAccessToken = response.access_token;
+                        user.googleTokenExpiry = expiryTime;
+                        
+                        console.log('✓ Google token refreshed successfully');
+                        resolve({ success: true });
+                        
+                    } catch (error) {
+                        console.error('Error updating token:', error);
+                        reject(error);
+                    }
+                }
+            });
+            
+            // Request new token
+            client.requestAccessToken({ prompt: '' });
+            
+        } catch (error) {
+            console.error('Error in refreshGoogleToken:', error);
+            reject(error);
+        }
+    });
+};
 // Core Gmail API sending function
 const sendGmail = async (to, subject, htmlContent, options = {}) => {
     try {
