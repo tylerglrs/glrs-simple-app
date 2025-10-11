@@ -3,7 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://accounts.google.com https://www.gstatic.com https://www.googleapis.com https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com; frame-src 'self' https://accounts.google.com https://content.googleapis.com; connect-src 'self' https://*.googleapis.com https://*.google.com https://accounts.google.com https://*.firebaseio.com https://firestore.googleapis.com https://content.googleapis.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:;">
+   <meta http-equiv="Content-Security-Policy" 
+      content="default-src 'self'; 
+               script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://accounts.google.com https://www.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; 
+               style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; 
+               font-src 'self' https://fonts.gstatic.com; 
+               img-src 'self' data: https: blob:; 
+               connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://firebase.googleapis.com https://gmail.googleapis.com https://www.googleapis.com wss://*.firebaseio.com; 
+               frame-src 'self' https://accounts.google.com https://content.googleapis.com https://glrs-pir-system.firebaseapp.com https://glrs-pir-system.web.app;">
     <title>GLRS Admin Portal</title>
     
     <!-- Firebase SDK -->
@@ -11438,8 +11445,8 @@ function GoalsView({ searchQuery, user }) {
     );
 }
 
-// Enhanced Golden Thread Modal with FIXED userId field
-function CreateGoalModal({ type, selectedPIR, selectedParent, onSubmit, onClose }) {
+// Enhanced Golden Thread Modal - COMPLETE VERSION
+function CreateGoalModal({ type, selectedPIR, selectedParent, currentUser, onSubmit, onClose }) {
     const [goldenThreadData, setGoldenThreadData] = useState({
         goals: [
             {
@@ -11536,7 +11543,7 @@ function CreateGoalModal({ type, selectedPIR, selectedParent, onSubmit, onClose 
                     description: goal.description,
                     dueDate: goal.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(goal.dueDate)) : null,
                     status: 'active',
-                    createdBy: auth.currentUser.uid,
+                    createdBy: currentUser.uid,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
 
@@ -11560,10 +11567,10 @@ function CreateGoalModal({ type, selectedPIR, selectedParent, onSubmit, onClose 
                         await db.collection('assignments').add({
                             goalId: goalRef.id,
                             objectiveId: objectiveRef.id,
-                            userId: selectedPIR.id,  // CHANGED FROM pirId to userId
+                            userId: selectedPIR.id,
                             pirName: selectedPIR.displayName || selectedPIR.email,
-                            coachId: auth.currentUser.uid,
-                            coachName: auth.currentUser.displayName || auth.currentUser.email,
+                            coachId: currentUser.uid,
+                            coachName: currentUser.displayName || currentUser.email,
                             title: assignment.title,
                             description: assignment.description,
                             dueDate: assignment.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignment.dueDate)) : null,
@@ -11576,7 +11583,7 @@ function CreateGoalModal({ type, selectedPIR, selectedParent, onSubmit, onClose 
 
             alert('Golden Thread created successfully!');
             onClose();
-            window.location.reload(); // Reload to show new data
+            window.location.reload();
         } catch (error) {
             console.error('Error creating golden thread:', error);
             alert('Failed to create golden thread');
@@ -27933,53 +27940,54 @@ const loadAllUserMessages = async () => {
 
             {/* Golden Thread Modal */}
             {showGoldenThread && (
-                <CreateGoalModal
-                    type="goldenThread"
-                    selectedPIR={{ id: pirId, displayName: pirData?.displayName, email: pirData?.email }}
-                    selectedParent={null}
-                    onSubmit={handleCreateGoldenThread}
-                    onClose={() => setShowGoldenThread(false)}
-                />
-            )}
+    <CreateGoalModal
+        type="goldenThread"
+        selectedPIR={{ id: pirId, displayName: pirData?.displayName, email: pirData?.email }}
+        selectedParent={null}
+        currentUser={user}  // ✅ ADD THIS
+        onSubmit={handleCreateGoldenThread}
+        onClose={() => setShowGoldenThread(false)}
+    />
+)}
 
-            {/* Add Goal Modal */}
-            {showAddGoal && (
-                <CreateGoalModal
-                    type="goal"
-                    selectedPIR={{ id: pirId }}
-                    selectedParent={null}
-                    onSubmit={handleAddGoal}
-                    onClose={() => setShowAddGoal(false)}
-                />
-            )}
+{showAddGoal && (
+    <CreateGoalModal
+        type="goal"
+        selectedPIR={{ id: pirId }}
+        selectedParent={null}
+        currentUser={user}  // ✅ ADD THIS
+        onSubmit={handleAddGoal}
+        onClose={() => setShowAddGoal(false)}
+    />
+)}
 
-            {/* Add Objective Modal */}
-            {showAddObjective && (
-                <CreateGoalModal
-                    type="objective"
-                    selectedPIR={{ id: pirId }}
-                    selectedParent={selectedGoalForObjective}
-                    onSubmit={handleAddObjective}
-                    onClose={() => {
-                        setShowAddObjective(false);
-                        setSelectedGoalForObjective(null);
-                    }}
-                />
-            )}
+{showAddObjective && (
+    <CreateGoalModal
+        type="objective"
+        selectedPIR={{ id: pirId }}
+        selectedParent={selectedGoalForObjective}
+        currentUser={user}  // ✅ ADD THIS
+        onSubmit={handleAddObjective}
+        onClose={() => {
+            setShowAddObjective(false);
+            setSelectedGoalForObjective(null);
+        }}
+    />
+)}
 
-            {/* Add Assignment Modal */}
-            {showAddAssignment && (
-                <CreateGoalModal
-                    type="assignment"
-                    selectedPIR={{ id: pirId }}
-                    selectedParent={selectedObjectiveForAssignment}
-                    onSubmit={handleAddAssignment}
-                    onClose={() => {
-                        setShowAddAssignment(false);
-                        setSelectedObjectiveForAssignment(null);
-                    }}
-                />
-            )}
+{showAddAssignment && (
+    <CreateGoalModal
+        type="assignment"
+        selectedPIR={{ id: pirId }}
+        selectedParent={selectedObjectiveForAssignment}
+        currentUser={user}  // ✅ ADD THIS
+        onSubmit={handleAddAssignment}
+        onClose={() => {
+            setShowAddAssignment(false);
+            setSelectedObjectiveForAssignment(null);
+        }}
+    />
+)}
         </div>
     );
 };  // FIXED: Removed the extra closing brace here
