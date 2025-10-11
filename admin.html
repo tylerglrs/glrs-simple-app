@@ -1404,7 +1404,7 @@ const getEmailTemplate = (content) => {
 // INDIVIDUAL EMAIL TEMPLATES
 // ============================================
 
-const getWelcomeEmailTemplate = (pirName, coachName) => {
+const getWelcomeEmailTemplate = (pirName, coachName, email, password) => {
     const content = `
         <h1 style="color: #667eea; margin: 0 0 20px 0; font-size: 28px;">Welcome to Your Recovery Journey!</h1>
         <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 15px 0;">
@@ -1417,12 +1417,32 @@ const getWelcomeEmailTemplate = (pirName, coachName) => {
             I'm ${coachName}, your dedicated recovery coach. I'll be here to guide, support, and celebrate with you every step of the way.
         </p>
         
+        <div style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-left: 4px solid #f59e0b; padding: 20px; margin: 25px 0; border-radius: 8px;">
+            <p style="margin: 0 0 15px 0; font-size: 16px; color: #92400e; font-weight: 600;">
+                Your Login Credentials
+            </p>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <td style="padding: 8px 0; font-size: 14px; color: #78350f; font-weight: 600;">Email:</td>
+                    <td style="padding: 8px 0; font-size: 14px; color: #92400e; font-family: monospace;">${email}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; font-size: 14px; color: #78350f; font-weight: 600;">Password:</td>
+                    <td style="padding: 8px 0; font-size: 16px; color: #92400e; font-family: monospace; font-weight: 700;">${password}</td>
+                </tr>
+            </table>
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #fbbf24; font-size: 13px; color: #78350f;">
+                <strong>⚠️ IMPORTANT:</strong> Please change your password immediately after your first login for security.
+            </div>
+        </div>
+        
         <div style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-left: 4px solid #667eea; padding: 20px; margin: 25px 0; border-radius: 8px;">
             <p style="margin: 0 0 10px 0; font-size: 15px; color: #0c4a6e; font-weight: 600;">
                 Your Next Steps:
             </p>
             <ul style="margin: 0; padding-left: 20px; color: #0c4a6e; font-size: 14px; line-height: 1.8;">
-                <li>Log in to your dashboard</li>
+                <li>Log in to your dashboard using the credentials above</li>
+                <li>Change your password in your profile settings</li>
                 <li>Complete your profile setup</li>
                 <li>Set up your emergency contacts</li>
                 <li>Complete your first daily check-in</li>
@@ -25184,7 +25204,7 @@ function SettingsView({ user }) {
 function CreateUserModal({ onClose, onSuccess, defaultRole }) {
     const [formData, setFormData] = useState({
         email: '',
-        password: 'TempPassword123!',
+        password: '',
         firstName: '',
         lastName: '',
         role: defaultRole || 'pir',
@@ -25200,6 +25220,36 @@ function CreateUserModal({ onClose, onSuccess, defaultRole }) {
     useEffect(() => {
         loadCoaches();
     }, []);
+
+    // Auto-generate password when names change
+    useEffect(() => {
+        if (formData.firstName && formData.lastName) {
+            const newPassword = generateTempPassword(formData.firstName, formData.lastName);
+            setFormData(prev => ({ ...prev, password: newPassword }));
+        }
+    }, [formData.firstName, formData.lastName]);
+
+    const generateTempPassword = (firstName, lastName) => {
+        if (!firstName || !lastName) return 'TempPass123!';
+        
+        // Get up to 3 letters from first name (or whatever is available)
+        const firstPart = firstName.slice(0, Math.min(3, firstName.length));
+        const firstFormatted = firstPart.charAt(0).toUpperCase() + firstPart.slice(1).toLowerCase();
+        
+        // Get up to 3 letters from last name (or whatever is available)
+        const lastPart = lastName.slice(0, Math.min(3, lastName.length));
+        const lastFormatted = lastPart.charAt(0).toUpperCase() + lastPart.slice(1).toLowerCase();
+        
+        // Random 2-digit number (10-99)
+        const randomNum = Math.floor(Math.random() * 90) + 10;
+        
+        // Random special character
+        const specialChars = ['!', '@', '#', '$', '%', '&', '*'];
+        const randomSpecial = specialChars[Math.floor(Math.random() * specialChars.length)];
+        
+        // Combine: HeiRob45!
+        return `${firstFormatted}${lastFormatted}${randomNum}${randomSpecial}`;
+    };
 
     const loadCoaches = async () => {
         const coachesSnap = await db.collection('users')
@@ -25279,7 +25329,6 @@ function CreateUserModal({ onClose, onSuccess, defaultRole }) {
             }
             
             await db.collection('users').doc(userCredential.user.uid).set(userData);
-            await auth.sendPasswordResetEmail(formData.email);
             
             await db.collection('notifications').add({
                 type: 'user-created',
@@ -25290,9 +25339,34 @@ function CreateUserModal({ onClose, onSuccess, defaultRole }) {
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
+            // Send welcome email if PIR
+            if (formData.role === 'pir') {
+                try {
+                    const currentUserDoc = await db.collection('users').doc(auth.currentUser.uid).get();
+                    const currentUserData = currentUserDoc.data();
+                    
+                    await sendGmail(
+                        auth.currentUser.uid,
+                        formData.email,
+                        'Welcome to Guiding Light Recovery Services',
+                        getWelcomeEmailTemplate(
+                            `${formData.firstName} ${formData.lastName}`,
+                            currentUserData.displayName || `${currentUserData.firstName} ${currentUserData.lastName}`,
+                            formData.email,
+                            formData.password
+                        )
+                    );
+                    
+                    console.log('✅ Welcome email sent to new PIR');
+                } catch (emailError) {
+                    console.error('⚠️ Failed to send welcome email:', emailError);
+                    // Don't block user creation if email fails
+                }
+            }
+            
             await secondaryApp.delete();
             
-            alert('User created successfully! Password reset email sent.');
+            alert('User created successfully!' + (formData.role === 'pir' ? ' Welcome email sent with login credentials.' : ''));
             onSuccess();
         } catch (error) {
             console.error('Error creating user:', error);
@@ -25562,6 +25636,27 @@ function CreateUserModal({ onClose, onSuccess, defaultRole }) {
                                 />
                             </div>
 
+                            {/* Auto-generated Password Preview */}
+                            {formData.role === 'pir' && formData.firstName && formData.lastName && (
+                                <div style={{
+                                    padding: '15px',
+                                    background: '#f0f9ff',
+                                    border: '2px solid #667eea',
+                                    borderRadius: '10px',
+                                    marginBottom: '20px'
+                                }}>
+                                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#0c4a6e', marginBottom: '5px' }}>
+                                        Auto-Generated Password:
+                                    </div>
+                                    <div style={{ fontSize: '18px', color: '#667eea', fontFamily: 'monospace', fontWeight: '600' }}>
+                                        {formData.password}
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '5px' }}>
+                                        This will be sent to the PIR in their welcome email
+                                    </div>
+                                </div>
+                            )}
+
                             <button
                                 type="button"
                                 onClick={() => setStep(2)}
@@ -25662,10 +25757,13 @@ function CreateUserModal({ onClose, onSuccess, defaultRole }) {
                                 marginBottom: '25px'
                             }}>
                                 <div style={{ fontSize: '14px', fontWeight: '600', color: '#1976d2', marginBottom: '5px' }}>
-                                    🔒 Password Reset Email
+                                    Welcome Email
                                 </div>
                                 <div style={{ fontSize: '13px', color: '#1565c0' }}>
-                                    A password reset link will be sent to the user's email address. They will set their own secure password.
+                                    {formData.role === 'pir' 
+                                        ? 'A welcome email with login credentials will be sent to the PIR. They should change their password immediately after first login.'
+                                        : 'User will be created and notified.'
+                                    }
                                 </div>
                             </div>
 
@@ -25722,7 +25820,6 @@ function CreateUserModal({ onClose, onSuccess, defaultRole }) {
         </div>
     );
 }
-
 // ENHANCED CreateAssignmentModal
 function CreateAssignmentModal({ onClose, onSuccess, users, createdBy }) {
     const [formData, setFormData] = useState({
