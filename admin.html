@@ -1144,32 +1144,7 @@
 // GOOGLE TOKEN & EMAIL UTILITIES (ROOT LEVEL)
 // ============================================
 
-const checkGoogleToken = async (userId) => {
-    try {
-        const userDoc = await db.collection('users').doc(userId).get();
-        const userData = userDoc.data();
-        
-        if (!userData.googleAccessToken) {
-            console.error('No Google access token found');
-            return false;
-        }
-        
-        const expiresAt = userData.googleTokenExpiresAt?.toDate();
-        const now = new Date();
-        const fifteenMinutes = 15 * 60 * 1000;
-        
-        // Check if token expires in less than 15 minutes
-        if (expiresAt && (expiresAt - now) < fifteenMinutes) {
-            console.log('Token expiring soon, refreshing...');
-            return await refreshGoogleToken(userId);
-        }
-        
-        return userData.googleAccessToken;
-    } catch (error) {
-        console.error('Error checking Google token:', error);
-        return false;
-    }
-};
+
 
 const refreshGoogleToken = async (userId) => {
     try {
@@ -1213,62 +1188,50 @@ const refreshGoogleToken = async (userId) => {
     }
 };
 
-const sendGmail = async (userId, to, subject, htmlBody) => {
+async function sendGmail({ accessToken, to, subject, body, attachmentBase64 = null, attachmentFilename = null }) {
     try {
-        const token = await checkGoogleToken(userId);
-        if (!token) {
-            console.error('No valid Google token available');
-            alert('Google services not connected. Please connect Google in your profile.');
-            return false;
-        }
-        
-        const email = [
+        // Build the email
+        const emailLines = [
+            'Content-Type: text/html; charset=utf-8',
+            'MIME-Version: 1.0',
             `To: ${to}`,
             `Subject: ${subject}`,
-            'MIME-Version: 1.0',
-            'Content-Type: text/html; charset=utf-8',
             '',
-            htmlBody
-        ].join('\r\n');
+            body
+        ];
         
-        const encodedEmail = btoa(unescape(encodeURIComponent(email)))
+        const email = emailLines.join('\r\n');
+        const base64Email = btoa(unescape(encodeURIComponent(email)))
             .replace(/\+/g, '-')
             .replace(/\//g, '_')
             .replace(/=+$/, '');
         
+        // Send via Gmail API
         const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${token}`,
+                'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ raw: encodedEmail })
+            body: JSON.stringify({
+                raw: base64Email
+            })
         });
         
         if (!response.ok) {
-            const errorData = await response.text();
-            console.error('Gmail send failed:', errorData);
-            return false;
+            const error = await response.json();
+            throw new Error(error.error?.message || 'Failed to send email');
         }
         
-        console.log(`Email sent successfully to ${to}`);
+        const result = await response.json();
+        console.log('✅ Email sent successfully:', result.id);
+        return result;
         
-        // Log email in Firestore
-        await db.collection('emailLogs').add({
-            sentBy: userId,
-            sentTo: to,
-            subject: subject,
-            sentAt: new Date(),
-            status: 'sent'
-        });
-        
-        return true;
     } catch (error) {
         console.error('Error sending email:', error);
-        return false;
+        throw error;
     }
-};
-
+}
 const sendGmailWithAttachment = async (userId, to, subject, htmlBody, attachment) => {
     try {
         const token = await checkGoogleToken(userId);
@@ -1404,70 +1367,72 @@ const getEmailTemplate = (content) => {
 // INDIVIDUAL EMAIL TEMPLATES
 // ============================================
 
-const getWelcomeEmailTemplate = (pirName, coachName, email, password) => {
-    const content = `
-        <h1 style="color: #667eea; margin: 0 0 20px 0; font-size: 28px;">Welcome to Your Recovery Journey!</h1>
-        <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 15px 0;">
-            Hi ${pirName},
-        </p>
-        <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 15px 0;">
-            Welcome to Guiding Light Recovery Services! We're honored to support you on your recovery journey.
-        </p>
-        <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 15px 0;">
-            I'm ${coachName}, your dedicated recovery coach. I'll be here to guide, support, and celebrate with you every step of the way.
-        </p>
-        
-        <div style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-left: 4px solid #f59e0b; padding: 20px; margin: 25px 0; border-radius: 8px;">
-            <p style="margin: 0 0 15px 0; font-size: 16px; color: #92400e; font-weight: 600;">
-                Your Login Credentials
-            </p>
-            <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                    <td style="padding: 8px 0; font-size: 14px; color: #78350f; font-weight: 600;">Email:</td>
-                    <td style="padding: 8px 0; font-size: 14px; color: #92400e; font-family: monospace;">${email}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px 0; font-size: 14px; color: #78350f; font-weight: 600;">Password:</td>
-                    <td style="padding: 8px 0; font-size: 16px; color: #92400e; font-family: monospace; font-weight: 700;">${password}</td>
-                </tr>
-            </table>
-            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #fbbf24; font-size: 13px; color: #78350f;">
-                <strong>⚠️ IMPORTANT:</strong> Please change your password immediately after your first login for security.
+function getWelcomeEmailTemplate({ pirName, email, tempPassword, coachName }) {
+    const subject = '🎉 Welcome to Guiding Light Recovery Services!';
+    
+    const body = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+                <h1 style="color: white; margin: 0; font-size: 32px;">Welcome to Your Recovery Journey! 🌟</h1>
+            </div>
+            
+            <div style="background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <p style="font-size: 18px; color: #333; margin-bottom: 20px;">
+                    Hi <strong>${pirName}</strong>,
+                </p>
+                
+                <p style="font-size: 16px; color: #333; line-height: 1.6; margin-bottom: 20px;">
+                    We're thrilled to have you join Guiding Light Recovery Services! Your coach, <strong>${coachName}</strong>, has created your account and is ready to support you every step of the way.
+                </p>
+                
+                <div style="background: #f0f8ff; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 5px;">
+                    <h2 style="color: #667eea; margin: 0 0 15px 0; font-size: 20px;">📧 Your Login Credentials</h2>
+                    <p style="margin: 10px 0; color: #555;"><strong>Email:</strong> ${email}</p>
+                    <p style="margin: 10px 0; color: #555;"><strong>Temporary Password:</strong> <code style="background: #e8e8e8; padding: 5px 10px; border-radius: 4px; font-size: 16px;">${tempPassword}</code></p>
+                    <p style="margin: 15px 0 0 0; color: #d32f2f; font-size: 14px;">
+                        ⚠️ <strong>Important:</strong> Please change this password after your first login for security.
+                    </p>
+                </div>
+                
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="https://app.glrecoveryservices.com" 
+                       style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 18px;">
+                        Access Your Portal
+                    </a>
+                </div>
+                
+                <div style="background: #fff9e6; border-left: 4px solid #ffa726; padding: 15px; margin: 20px 0; border-radius: 5px;">
+                    <h3 style="color: #f57c00; margin: 0 0 10px 0; font-size: 16px;">🚀 Getting Started</h3>
+                    <ul style="margin: 0; padding-left: 20px; color: #666;">
+                        <li style="margin: 8px 0;">Complete your profile setup</li>
+                        <li style="margin: 8px 0;">Set up emergency contacts</li>
+                        <li style="margin: 8px 0;">Review your first assignment</li>
+                        <li style="margin: 8px 0;">Schedule your welcome session</li>
+                    </ul>
+                </div>
+                
+                <p style="font-size: 14px; color: #666; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+                    If you have any questions or need assistance, don't hesitate to reach out to your coach through the messaging system.
+                </p>
+                
+                <p style="font-size: 14px; color: #666; margin-top: 20px;">
+                    We're here to support you!<br>
+                    <strong>Guiding Light Recovery Services Team</strong>
+                </p>
+            </div>
+            
+            <div style="text-align: center; margin-top: 20px; padding: 20px; color: #999; font-size: 12px;">
+                <p style="margin: 5px 0;">Guiding Light Recovery Services</p>
+                <p style="margin: 5px 0;">Virtual Recovery Coaching</p>
+                <p style="margin: 5px 0;">
+                    <a href="https://glrecoveryservices.com" style="color: #667eea; text-decoration: none;">glrecoveryservices.com</a>
+                </p>
             </div>
         </div>
-        
-        <div style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-left: 4px solid #667eea; padding: 20px; margin: 25px 0; border-radius: 8px;">
-            <p style="margin: 0 0 10px 0; font-size: 15px; color: #0c4a6e; font-weight: 600;">
-                Your Next Steps:
-            </p>
-            <ul style="margin: 0; padding-left: 20px; color: #0c4a6e; font-size: 14px; line-height: 1.8;">
-                <li>Log in to your dashboard using the credentials above</li>
-                <li>Change your password in your profile settings</li>
-                <li>Complete your profile setup</li>
-                <li>Set up your emergency contacts</li>
-                <li>Complete your first daily check-in</li>
-            </ul>
-        </div>
-        
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="https://app.glrecoveryservices.com" 
-               style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
-                Access Your Dashboard
-            </a>
-        </div>
-        
-        <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 20px 0 15px 0;">
-            Remember, recovery is a journey, not a destination. You've already taken the most important step by being here.
-        </p>
-        <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 5px 0;">
-            With support and belief,
-        </p>
-        <p style="font-size: 16px; color: #667eea; font-weight: 600; margin: 0;">
-            ${coachName}
-        </p>
     `;
-    return getEmailTemplate(content);
-};
+    
+    return { subject, body };
+}
         // ==========================================
 // NEW ASSIGNMENT EMAIL TEMPLATE
 // ==========================================
@@ -1533,6 +1498,8 @@ function getNewAssignmentEmailTemplate({ pirName, coachName, assignmentTitle, as
     return { subject, body };
 }
 
+console.log('✅ Email system initialized - Root level functions loaded');
+        
 const getMilestoneApproachingTemplate = (pirName, milestone, daysUntil) => {
     const content = `
         <h1 style="color: #667eea; margin: 0 0 20px 0; font-size: 28px;">Milestone Approaching!</h1>
