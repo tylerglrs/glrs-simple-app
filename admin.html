@@ -19035,7 +19035,9 @@ function FeedbackDetailModal({ feedback, onClose, onRespond, onMarkReviewed, get
     );
 }
 
-       // FULLY ENHANCED AlertsView with SOS EMAIL NOTIFICATIONS
+    // ==========================================
+// ALERTS VIEW - FIREBASE EXTENSION VERSION
+// ==========================================
 function AlertsView({ searchQuery, user }) {
     const [alerts, setAlerts] = useState([]);
     const [filteredAlerts, setFilteredAlerts] = useState([]);
@@ -19101,10 +19103,12 @@ function AlertsView({ searchQuery, user }) {
         }
     }, [frequencyData]);
 
-    // ENHANCED SOS HANDLER WITH EMAIL
+    // ==========================================
+    // ENHANCED SOS HANDLER - FIREBASE EXTENSION VERSION
+    // ==========================================
     const handleNewSOSAlert = async (alert) => {
         try {
-            console.log('📧 Processing SOS alert for notifications...');
+            console.log('🚨 Processing SOS alert for notifications...');
             
             // Show browser notification first (instant feedback)
             showBrowserNotification(alert);
@@ -19125,94 +19129,90 @@ function AlertsView({ searchQuery, user }) {
                 return;
             }
             
-            // Get current coach's data and token
+            // Get current coach's email
             const coachDoc = await db.collection('users').doc(user.uid).get();
             const coachData = coachDoc.data();
+            const coachEmail = coachData.email;
             
-            // Check if Google is connected
-            if (!coachData.googleConnected || !coachData.googleAccessToken) {
-                console.warn('⚠️ Google services not connected - cannot send email');
-                
-                // Show notification about missing Google connection
-                if ('Notification' in window && Notification.permission === 'granted') {
-                    new Notification('🚨 SOS ALERT - Email Not Sent', {
-                        body: `${pirData.displayName || pirData.email} triggered SOS.\n\nConnect Google Services in Profile to enable email alerts.`,
-                        icon: '/favicon.ico',
-                        requireInteraction: true,
-                        tag: 'sos-no-email'
-                    });
+            console.log('📧 Sending SOS email via Firebase Extension to:', coachEmail);
+            
+            // Send email using Firebase Extension (NEW METHOD)
+            await db.collection('mail').add({
+                to: [coachEmail],
+                message: {
+                    subject: '🚨 URGENT: SOS Alert from ' + (pirData.displayName || pirData.firstName || pirData.email),
+                    html: `
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                            <div style="background: #dc2626; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+                                <h1 style="margin: 0; font-size: 24px;">🚨 SOS ALERT</h1>
+                            </div>
+                            
+                            <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb;">
+                                <h2 style="color: #dc2626; margin-top: 0;">Person in Recovery Needs Help</h2>
+                                
+                                <div style="background: white; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                                    <p style="margin: 5px 0;"><strong>Name:</strong> ${pirData.displayName || pirData.firstName || 'Not provided'}</p>
+                                    <p style="margin: 5px 0;"><strong>Email:</strong> ${pirData.email}</p>
+                                    <p style="margin: 5px 0;"><strong>Phone:</strong> ${pirData.phone || 'Not provided'}</p>
+                                    <p style="margin: 5px 0;"><strong>Time:</strong> ${new Date(alert.timestamp?.toDate ? alert.timestamp.toDate() : Date.now()).toLocaleString()}</p>
+                                </div>
+                                
+                                ${alert.message ? `
+                                <div style="background: #fef2f2; padding: 15px; border-left: 4px solid #dc2626; margin: 15px 0;">
+                                    <p style="margin: 0;"><strong>Message:</strong></p>
+                                    <p style="margin: 10px 0 0 0;">${alert.message}</p>
+                                </div>
+                                ` : ''}
+                                
+                                <div style="background: #fffbeb; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                                    <p style="margin: 0; color: #92400e;">
+                                        <strong>⚠️ Action Required:</strong> Please contact this person immediately.
+                                    </p>
+                                </div>
+                                
+                                <div style="text-align: center; margin-top: 20px;">
+                                    <a href="https://glrs-pir-system.web.app/coach.html" 
+                                       style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                                        View in Coach Portal
+                                    </a>
+                                </div>
+                            </div>
+                            
+                            <div style="background: #f3f4f6; padding: 15px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 8px 8px;">
+                                <p style="margin: 0;">Guiding Light Recovery Services</p>
+                                <p style="margin: 5px 0 0 0;">Automated alert system</p>
+                            </div>
+                        </div>
+                    `,
+                    text: `
+🚨 SOS ALERT - ${pirData.displayName || pirData.firstName || pirData.email}
+
+A person in recovery has triggered an SOS alert and needs immediate assistance.
+
+Name: ${pirData.displayName || pirData.firstName || 'Not provided'}
+Email: ${pirData.email}
+Phone: ${pirData.phone || 'Not provided'}
+Time: ${new Date(alert.timestamp?.toDate ? alert.timestamp.toDate() : Date.now()).toLocaleString()}
+${alert.message ? `\nMessage: ${alert.message}` : ''}
+
+⚠️ Please contact this person immediately.
+
+View details: https://glrs-pir-system.web.app/coach.html
+
+---
+Guiding Light Recovery Services
+Automated alert system
+                    `
                 }
-                
-                // Still create in-app notification
-                await createInAppNotification(alert, pirData);
-                return;
-            }
-            
-            console.log('📧 Coach has Google connected - preparing email...');
-            
-            // Check if token needs refresh (expires within 5 minutes)
-            let accessToken = coachData.googleAccessToken;
-            const tokenExpiry = coachData.googleTokenExpiry?.toDate ? coachData.googleTokenExpiry.toDate() : new Date(coachData.googleTokenExpiry);
-            const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000);
-            
-            if (tokenExpiry < fiveMinutesFromNow) {
-                console.log('🔄 Token expired or expiring soon - refreshing...');
-                const newToken = await refreshGoogleToken(user.uid);
-                if (newToken) {
-                    accessToken = newToken;
-                    console.log('✅ Token refreshed successfully');
-                } else {
-                    console.error('❌ Token refresh failed');
-                    
-                    // Notify coach to reconnect Google
-                    if ('Notification' in window && Notification.permission === 'granted') {
-                        new Notification('🚨 SOS ALERT - Token Expired', {
-                            body: `${pirData.displayName || pirData.email} triggered SOS.\n\nPlease reconnect Google Services in Profile.`,
-                            icon: '/favicon.ico',
-                            requireInteraction: true,
-                            tag: 'sos-token-expired'
-                        });
-                    }
-                    
-                    await createInAppNotification(alert, pirData);
-                    return;
-                }
-            }
-            
-            console.log('📧 Generating SOS email...');
-            
-            // Generate email template
-            const emailTemplate = getSOSEmailTemplate({
-                pirName: pirData.displayName || pirData.firstName || pirData.email.split('@')[0],
-                pirEmail: pirData.email,
-                pirPhone: pirData.phone || 'Not provided',
-                timestamp: new Date().toLocaleString('en-US', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    hour12: true
-                })
             });
             
-            // Send email
-            console.log('📧 Sending SOS email to:', coachData.email);
-            await sendGmail({
-                accessToken: accessToken,
-                to: coachData.email,
-                subject: emailTemplate.subject,
-                body: emailTemplate.body
-            });
-            
-            console.log('✅ SOS email sent successfully!');
+            console.log('✅ SOS email queued successfully!');
             
             // Update alert to mark email was sent
             await db.collection('alerts').doc(alert.id).update({
                 emailSent: true,
                 emailSentAt: firebase.firestore.FieldValue.serverTimestamp(),
-                emailSentTo: coachData.email
+                emailSentTo: coachEmail
             });
             
             // Show success notification
@@ -19654,7 +19654,7 @@ function AlertsView({ searchQuery, user }) {
                                 {filteredAlerts.filter(a => a.type === 'sos' && a.status === 'active').length} Active SOS Alert(s)
                             </div>
                             <div style={{ fontSize: '14px', opacity: 0.9 }}>
-                                Immediate attention required
+                                Immediate attention required - Email notifications sent automatically
                             </div>
                         </div>
                     </div>
