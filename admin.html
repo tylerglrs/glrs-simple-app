@@ -10896,42 +10896,47 @@ function GoalsView({ searchQuery, user }) {
     };
 
     const handleCreateAssignment = async (assignmentData) => {
-        try {
-            await db.collection('assignments').add({
-                goalId: assignmentData.goalId,
-                objectiveId: assignmentData.objectiveId,
-                userId: selectedPIR.id,  // CHANGED FROM pirId to userId
-                pirName: selectedPIR.displayName || selectedPIR.email,
-                coachId: user.uid,
-                coachName: user.displayName || user.email,
-                title: assignmentData.title,
-                description: assignmentData.description,
-                dueDate: assignmentData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignmentData.dueDate)) : null,
-                status: 'pending',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            // Send notification to PIR
-await db.collection('notifications').add({
-    userId: selectedPIR.id,
-    type: 'assignment_created',
-    title: 'New Assignment',
-    message: `You have a new assignment: ${assignmentData.title}`,
-    read: false,
-    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-});
-
-// ✅ NEW: Send email notification
-await sendNewAssignmentEmail(
-    selectedPIR.email,
-    selectedPIR.displayName || selectedPIR.email,
-    assignmentData,
-    user.displayName || user.email
-);
-
-alert('Assignment created successfully!');
-        }
-    };
+    try {
+        await db.collection('assignments').add({
+            goalId: assignmentData.goalId,
+            objectiveId: assignmentData.objectiveId,
+            userId: selectedPIR.id,
+            pirName: selectedPIR.displayName || selectedPIR.email,
+            coachId: user.uid,
+            coachName: user.displayName || user.email,
+            title: assignmentData.title,
+            description: assignmentData.description,
+            dueDate: assignmentData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignmentData.dueDate)) : null,
+            status: 'pending',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Send notification to PIR
+        await db.collection('notifications').add({
+            userId: selectedPIR.id,
+            type: 'assignment_created',
+            title: 'New Assignment',
+            message: `You have a new assignment: ${assignmentData.title}`,
+            read: false,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // ✅ Send email notification
+        await sendNewAssignmentEmail(
+            selectedPIR.email,
+            selectedPIR.displayName || selectedPIR.email,
+            assignmentData,
+            user.displayName || user.email
+        );
+        
+        alert('Assignment created successfully!');
+        setShowCreateModal(false);
+        loadPIRGoalsData(selectedPIR.id);
+    } catch (error) {
+        console.error('Error creating assignment:', error);
+        alert('Failed to create assignment');
+    }
+};
 
     const handleCreateMilestone = async (milestoneData) => {
         try {
