@@ -10895,8 +10895,17 @@ function GoalsView({ searchQuery, user }) {
         }
     };
 
-    const handleCreateAssignment = async (assignmentData) => {
+   const handleCreateAssignment = async (assignmentData) => {
     try {
+        // ✅ FIXED: Proper date handling
+        let dueDateTimestamp = null;
+        if (assignmentData.dueDate && assignmentData.dueDate.trim() !== '') {
+            const dateObj = new Date(assignmentData.dueDate);
+            if (!isNaN(dateObj.getTime())) {
+                dueDateTimestamp = firebase.firestore.Timestamp.fromDate(dateObj);
+            }
+        }
+        
         await db.collection('assignments').add({
             goalId: assignmentData.goalId,
             objectiveId: assignmentData.objectiveId,
@@ -10906,7 +10915,7 @@ function GoalsView({ searchQuery, user }) {
             coachName: user.displayName || user.email,
             title: assignmentData.title,
             description: assignmentData.description,
-            dueDate: assignmentData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignmentData.dueDate)) : null,
+            dueDate: dueDateTimestamp,  // ✅ Safe timestamp or null
             status: 'pending',
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
@@ -28002,18 +28011,27 @@ const loadAllUserMessages = async () => {
             coachName = coachData?.displayName || coachData?.email || 'Unknown Coach';
         }
         
+        // ✅ FIXED: Proper date handling
+        let dueDateTimestamp = null;
+        if (assignmentData.dueDate && assignmentData.dueDate.trim() !== '') {
+            const dateObj = new Date(assignmentData.dueDate);
+            if (!isNaN(dateObj.getTime())) {
+                dueDateTimestamp = firebase.firestore.Timestamp.fromDate(dateObj);
+            }
+        }
+        
         await db.collection('assignments').add({
             goalId: selectedObjectiveForAssignment.goalId,
             objectiveId: selectedObjectiveForAssignment.id,
             userId: pirId,
             pirName: pirData.displayName || pirData.email,
-            coachId: assignedCoachId || null,  // ✅ PIR's assigned coach
+            coachId: assignedCoachId || null,
             coachName: coachName,
             title: assignmentData.title,
             description: assignmentData.description,
-            dueDate: assignmentData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignmentData.dueDate)) : null,
+            dueDate: dueDateTimestamp,  // ✅ Safe timestamp or null
             status: 'pending',
-            createdBy: currentUser.uid,  // ✅ Track who actually created it
+            createdBy: currentUser.uid,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
