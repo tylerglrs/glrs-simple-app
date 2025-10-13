@@ -27982,49 +27982,68 @@ const loadAllUserMessages = async () => {
         }
     };
 
-    const handleAddAssignment = async (assignmentData) => {
-        try {
-            await db.collection('assignments').add({
-                goalId: selectedObjectiveForAssignment.goalId,
-                objectiveId: selectedObjectiveForAssignment.id,
-                userId: pirId,
-                pirName: pirData.displayName || pirData.email,
-                coachId: user.uid,
-                coachName: user.displayName || user.email,
-                title: assignmentData.title,
-                description: assignmentData.description,
-                dueDate: assignmentData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignmentData.dueDate)) : null,
-                status: 'pending',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            // ✅ NEW: Send notification to PIR
-await db.collection('notifications').add({
-    userId: pirId,
-    type: 'assignment_created',
-    title: 'New Assignment',
-    message: `You have a new assignment: ${assignmentData.title}`,
-    read: false,
-    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-});
-
-// ✅ NEW: Send email notification
-await sendNewAssignmentEmail(
-    pirData.email,
-    pirData.displayName || pirData.email,
-    assignmentData,
-    user.displayName || user.email
-);
-
-await loadAssignmentsData();
-setShowAddAssignment(false);
-setSelectedObjectiveForAssignment(null);
-alert('Assignment added successfully');
-        } catch (error) {
-            console.error('Error adding assignment:', error);
-            alert('Failed to add assignment');
+   const handleAddAssignment = async (assignmentData) => {
+    try {
+        // Get current logged-in user (for tracking who created it)
+        const currentUser = firebase.auth().currentUser;
+        if (!currentUser) {
+            alert('Error: Not logged in');
+            return;
         }
-    };
+        
+        // ✅ Use PIR's ASSIGNED COACH (can be admin or coach)
+        const assignedCoachId = pirData.assignedCoach;
+        
+        // Get assigned coach info
+        let coachName = 'Unassigned';
+        if (assignedCoachId) {
+            const coachDoc = await db.collection('users').doc(assignedCoachId).get();
+            const coachData = coachDoc.data();
+            coachName = coachData?.displayName || coachData?.email || 'Unknown Coach';
+        }
+        
+        await db.collection('assignments').add({
+            goalId: selectedObjectiveForAssignment.goalId,
+            objectiveId: selectedObjectiveForAssignment.id,
+            userId: pirId,
+            pirName: pirData.displayName || pirData.email,
+            coachId: assignedCoachId || null,  // ✅ PIR's assigned coach
+            coachName: coachName,
+            title: assignmentData.title,
+            description: assignmentData.description,
+            dueDate: assignmentData.dueDate ? firebase.firestore.Timestamp.fromDate(new Date(assignmentData.dueDate)) : null,
+            status: 'pending',
+            createdBy: currentUser.uid,  // ✅ Track who actually created it
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Send notification to PIR
+        await db.collection('notifications').add({
+            userId: pirId,
+            type: 'assignment_created',
+            title: 'New Assignment',
+            message: `You have a new assignment: ${assignmentData.title}`,
+            read: false,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // ✅ Send email notification
+        await sendNewAssignmentEmail(
+            pirData.email,
+            pirData.displayName || pirData.email,
+            assignmentData,
+            coachName
+        );
+        
+        await loadAssignmentsData();
+        setShowAddAssignment(false);
+        setSelectedObjectiveForAssignment(null);
+        alert('Assignment added successfully');
+    } catch (error) {
+        console.error('Error adding assignment:', error);
+        alert('Failed to add assignment: ' + error.message);
+    }
+};
 
     return (
         <div style={{ padding: '20px' }}>
