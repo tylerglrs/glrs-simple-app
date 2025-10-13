@@ -1146,10 +1146,8 @@
             
             doc.save(`${title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`);
         }
-    // ============================================
-// GOOGLE TOKEN & EMAIL UTILITIES (ROOT LEVEL)
-// ============================================
 
+        
 
 
 // ==========================================
@@ -1179,6 +1177,76 @@ const refreshGoogleToken = async (userId) => {
         
     } catch (error) {
         console.error('❌ Error refreshing Google token:', error);
+        return false;
+    }
+};
+        // ==========================================
+// SEND NEW ASSIGNMENT EMAIL
+// ==========================================
+const sendNewAssignmentEmail = async (pirEmail, pirName, assignmentData, coachName) => {
+    try {
+        console.log('📧 Sending new assignment email...');
+        
+        await db.collection('mail').add({
+            to: [pirEmail],
+            message: {
+                subject: `📝 New Assignment: ${assignmentData.title}`,
+                html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+                            <h1 style="margin: 0; font-size: 24px;">📝 New Assignment</h1>
+                        </div>
+                        
+                        <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb;">
+                            <h2 style="color: #667eea; margin-top: 0;">You Have a New Task</h2>
+                            
+                            <div style="background: white; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                                <p style="margin: 5px 0;"><strong>Assignment:</strong> ${assignmentData.title}</p>
+                                ${assignmentData.description ? `<p style="margin: 10px 0; color: #666;">${assignmentData.description}</p>` : ''}
+                                ${assignmentData.dueDate ? `<p style="margin: 5px 0;"><strong>Due Date:</strong> ${new Date(assignmentData.dueDate).toLocaleDateString()}</p>` : ''}
+                                <p style="margin: 5px 0;"><strong>Assigned By:</strong> ${coachName}</p>
+                            </div>
+                            
+                            <div style="background: #fffbeb; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                                <p style="margin: 0; color: #92400e;">
+                                    💡 <strong>Tip:</strong> Complete this assignment on time to maintain your progress streak!
+                                </p>
+                            </div>
+                            
+                            <div style="text-align: center; margin-top: 20px;">
+                                <a href="https://glrs-pir-system.web.app" 
+                                   style="background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                                    View Assignment
+                                </a>
+                            </div>
+                        </div>
+                        
+                        <div style="background: #f3f4f6; padding: 15px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 8px 8px;">
+                            <p style="margin: 0;">Guiding Light Recovery Services</p>
+                            <p style="margin: 5px 0 0 0;">Supporting your recovery journey</p>
+                        </div>
+                    </div>
+                `,
+                text: `
+New Assignment: ${assignmentData.title}
+
+${assignmentData.description || ''}
+
+${assignmentData.dueDate ? 'Due: ' + new Date(assignmentData.dueDate).toLocaleDateString() : ''}
+Assigned By: ${coachName}
+
+View your assignment: https://glrs-pir-system.web.app
+
+---
+Guiding Light Recovery Services
+                `
+            }
+        });
+        
+        console.log('✅ New assignment email sent');
+        return true;
+    } catch (error) {
+        console.error('❌ Failed to send assignment email:', error);
         return false;
     }
 };
@@ -10844,21 +10912,24 @@ function GoalsView({ searchQuery, user }) {
             });
             
             // Send notification to PIR
-            await db.collection('notifications').add({
-                userId: selectedPIR.id,
-                type: 'assignment_created',
-                title: 'New Assignment',
-                message: `You have a new assignment: ${assignmentData.title}`,
-                read: false,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            alert('Assignment created successfully!');
-            setShowCreateModal(false);
-            loadPIRGoalsData(selectedPIR.id);
-        } catch (error) {
-            console.error('Error creating assignment:', error);
-            alert('Failed to create assignment');
+await db.collection('notifications').add({
+    userId: selectedPIR.id,
+    type: 'assignment_created',
+    title: 'New Assignment',
+    message: `You have a new assignment: ${assignmentData.title}`,
+    read: false,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+});
+
+// ✅ NEW: Send email notification
+await sendNewAssignmentEmail(
+    selectedPIR.email,
+    selectedPIR.displayName || selectedPIR.email,
+    assignmentData,
+    user.displayName || user.email
+);
+
+alert('Assignment created successfully!');
         }
     };
 
@@ -27922,10 +27993,28 @@ const loadAllUserMessages = async () => {
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             
-            await loadAssignmentsData();
-            setShowAddAssignment(false);
-            setSelectedObjectiveForAssignment(null);
-            alert('Assignment added successfully');
+            // ✅ NEW: Send notification to PIR
+await db.collection('notifications').add({
+    userId: pirId,
+    type: 'assignment_created',
+    title: 'New Assignment',
+    message: `You have a new assignment: ${assignmentData.title}`,
+    read: false,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+});
+
+// ✅ NEW: Send email notification
+await sendNewAssignmentEmail(
+    pirData.email,
+    pirData.displayName || pirData.email,
+    assignmentData,
+    user.displayName || user.email
+);
+
+await loadAssignmentsData();
+setShowAddAssignment(false);
+setSelectedObjectiveForAssignment(null);
+alert('Assignment added successfully');
         } catch (error) {
             console.error('Error adding assignment:', error);
             alert('Failed to add assignment');
