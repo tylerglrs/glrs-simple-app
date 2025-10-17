@@ -1146,7 +1146,1130 @@
             
             doc.save(`${title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`);
         }
+// ==========================================
+// WEEKLY & MONTHLY REPORT EMAIL FUNCTIONS
+// Add these AFTER Firebase init, BEFORE function AdminApp()
+// ==========================================
 
+// Logo Base64 - PLACEHOLDER (I'll provide full base64 in Part 3)
+const GLRS_LOGO_BASE64 = "PLACEHOLDER_LOGO_BASE64";
+
+// ========== EMAIL TEMPLATE WRAPPER ==========
+const getEmailTemplate = (content) => {
+    return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5;">
+            <div style="max-width: 800px; margin: 0 auto; background: white;">
+                ${content}
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
+                    <p style="color: white; margin: 0; font-size: 12px;">
+                        Guiding Light Recovery Services<br>
+                        Questions? Reply to this email to reach your recovery coach.
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+    `;
+};
+
+// ========== WEEKLY REPORT EMAIL TEMPLATE ==========
+const getWeeklyReportEmailTemplate = (pirData, reportData, coachName) => {
+    const { summary, highlights, areasToFocus, checkIns, reflections, charts } = reportData;
+    
+    const content = `
+        <!-- Cover Page -->
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 60px 40px; text-align: center;">
+            <img src="${GLRS_LOGO_BASE64}" alt="GLRS Logo" style="max-width: 200px; margin-bottom: 30px;">
+            <h1 style="color: white; margin: 0 0 10px 0; font-size: 36px;">Weekly Progress Report</h1>
+            <p style="color: rgba(255,255,255,0.9); font-size: 18px; margin: 0;">
+                ${reportData.dateRange}
+            </p>
+            <div style="background: rgba(255,255,255,0.2); padding: 20px; margin-top: 30px; border-radius: 10px;">
+                <p style="color: white; margin: 0; font-size: 16px;">
+                    <strong>For:</strong> ${pirData.displayName}<br>
+                    <strong>Recovery Coach:</strong> ${coachName}
+                </p>
+            </div>
+        </div>
+
+        <!-- Summary Section -->
+        <div style="padding: 40px;">
+            <h2 style="color: #667eea; margin: 0 0 20px 0; font-size: 28px; border-bottom: 3px solid #667eea; padding-bottom: 10px;">
+                📊 Weekly Summary
+            </h2>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px;">
+                <div style="background: #f8f9ff; padding: 20px; border-radius: 10px; border-left: 4px solid #667eea;">
+                    <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Check-Ins Completed</div>
+                    <div style="font-size: 32px; font-weight: bold; color: #667eea;">${summary.checkInRate}%</div>
+                    <div style="font-size: 12px; color: #999;">${summary.checkInsCompleted}/${summary.totalDays} days</div>
+                </div>
+                <div style="background: #f8f9ff; padding: 20px; border-radius: 10px; border-left: 4px solid #4CAF50;">
+                    <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Current Streak</div>
+                    <div style="font-size: 32px; font-weight: bold; color: #4CAF50;">${summary.currentStreak}</div>
+                    <div style="font-size: 12px; color: #999;">consecutive days</div>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 15px; margin-bottom: 30px;">
+                <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Avg Mood</div>
+                    <div style="font-size: 24px; font-weight: bold; color: #2196F3;">${summary.avgMood}/10</div>
+                    <div style="font-size: 11px; color: ${summary.moodChange >= 0 ? '#4CAF50' : '#f44336'};">
+                        ${summary.moodChange >= 0 ? '↑' : '↓'} ${Math.abs(summary.moodChange).toFixed(1)}
+                    </div>
+                </div>
+                <div style="background: #fce4ec; padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Avg Cravings</div>
+                    <div style="font-size: 24px; font-weight: bold; color: #e91e63;">${summary.avgCravings}/10</div>
+                    <div style="font-size: 11px; color: ${summary.cravingsChange <= 0 ? '#4CAF50' : '#f44336'};">
+                        ${summary.cravingsChange <= 0 ? '↓' : '↑'} ${Math.abs(summary.cravingsChange).toFixed(1)}
+                    </div>
+                </div>
+                <div style="background: #fff3e0; padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Avg Anxiety</div>
+                    <div style="font-size: 24px; font-weight: bold; color: #ff9800;">${summary.avgAnxiety}/10</div>
+                    <div style="font-size: 11px; color: ${summary.anxietyChange <= 0 ? '#4CAF50' : '#f44336'};">
+                        ${summary.anxietyChange <= 0 ? '↓' : '↑'} ${Math.abs(summary.anxietyChange).toFixed(1)}
+                    </div>
+                </div>
+                <div style="background: #f3e5f5; padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Avg Sleep</div>
+                    <div style="font-size: 24px; font-weight: bold; color: #9c27b0;">${summary.avgSleep}/10</div>
+                    <div style="font-size: 11px; color: ${summary.sleepChange >= 0 ? '#4CAF50' : '#f44336'};">
+                        ${summary.sleepChange >= 0 ? '↑' : '↓'} ${Math.abs(summary.sleepChange).toFixed(1)}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Highlights -->
+            <h3 style="color: #4CAF50; margin: 30px 0 15px 0; font-size: 22px;">🎉 Highlights This Week</h3>
+            <ul style="background: #f1f8f4; padding: 20px 20px 20px 40px; border-radius: 8px; border-left: 4px solid #4CAF50;">
+                ${highlights.map(h => `<li style="margin-bottom: 10px; color: #333;">${h}</li>`).join('')}
+            </ul>
+
+            <!-- Areas to Focus -->
+            ${areasToFocus.length > 0 ? `
+                <h3 style="color: #ff9800; margin: 30px 0 15px 0; font-size: 22px;">⚠️ Areas to Focus</h3>
+                <ul style="background: #fff8f1; padding: 20px 20px 20px 40px; border-radius: 8px; border-left: 4px solid #ff9800;">
+                    ${areasToFocus.map(a => `<li style="margin-bottom: 10px; color: #333;">${a}</li>`).join('')}
+                </ul>
+            ` : ''}
+
+            <!-- Trend Charts -->
+            <h3 style="color: #667eea; margin: 40px 0 20px 0; font-size: 22px;">📈 Your Trends</h3>
+            <p style="color: #666; margin-bottom: 20px;">Here's how you progressed over the past 4 weeks:</p>
+            
+            ${charts.weeklyTrends ? `
+                <img src="${charts.weeklyTrends}" alt="4-Week Trends" style="width: 100%; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            ` : ''}
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
+                ${charts.mood ? `<img src="${charts.mood}" alt="Mood Chart" style="width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">` : ''}
+                ${charts.cravings ? `<img src="${charts.cravings}" alt="Cravings Chart" style="width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">` : ''}
+                ${charts.anxiety ? `<img src="${charts.anxiety}" alt="Anxiety Chart" style="width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">` : ''}
+                ${charts.sleep ? `<img src="${charts.sleep}" alt="Sleep Chart" style="width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">` : ''}
+            </div>
+
+            <!-- Check-Ins Table -->
+            <h3 style="color: #667eea; margin: 40px 0 20px 0; font-size: 22px;">📝 Daily Check-Ins</h3>
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                    <thead>
+                        <tr style="background: #667eea; color: white;">
+                            <th style="padding: 12px; text-align: left;">Date</th>
+                            <th style="padding: 12px; text-align: center;">Mood</th>
+                            <th style="padding: 12px; text-align: center;">Cravings</th>
+                            <th style="padding: 12px; text-align: center;">Anxiety</th>
+                            <th style="padding: 12px; text-align: center;">Sleep</th>
+                            <th style="padding: 12px; text-align: left;">Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${checkIns.map((day, idx) => `
+                            <tr style="background: ${idx % 2 === 0 ? '#f8f9ff' : 'white'};">
+                                <td style="padding: 12px; border-bottom: 1px solid #eee;">${day.date}</td>
+                                <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${day.mood || '-'}</td>
+                                <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${day.cravings || '-'}</td>
+                                <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${day.anxiety || '-'}</td>
+                                <td style="padding: 12px; text-align: center; border-bottom: 1px solid #eee;">${day.sleep || '-'}</td>
+                                <td style="padding: 12px; border-bottom: 1px solid #eee; font-size: 12px;">${day.notes || ''}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Evening Reflections -->
+            <h3 style="color: #667eea; margin: 40px 0 20px 0; font-size: 22px;">🌙 Evening Reflections</h3>
+            ${reflections.map((day, idx) => `
+                <div style="background: ${idx % 2 === 0 ? '#f8f9ff' : 'white'}; padding: 15px; margin-bottom: 10px; border-radius: 8px; border-left: 4px solid #667eea;">
+                    <div style="font-weight: bold; color: #667eea; margin-bottom: 10px;">${day.date} - Overall Day: ${day.overallDay}/10</div>
+                    ${day.gratitude ? `<p style="margin: 5px 0; font-size: 14px;"><strong>Gratitude:</strong> ${day.gratitude}</p>` : ''}
+                    ${day.challenges ? `<p style="margin: 5px 0; font-size: 14px;"><strong>Challenges:</strong> ${day.challenges}</p>` : ''}
+                    ${day.tomorrowGoal ? `<p style="margin: 5px 0; font-size: 14px;"><strong>Tomorrow's Goal:</strong> ${day.tomorrowGoal}</p>` : ''}
+                </div>
+            `).join('')}
+
+            <!-- CTA Button -->
+            <div style="text-align: center; margin-top: 40px;">
+                <a href="app.glrecoveryservices.com" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 40px; text-decoration: none; border-radius: 25px; font-weight: bold; font-size: 16px;">
+                    View Full Dashboard
+                </a>
+            </div>
+        </div>
+    `;
+
+    return getEmailTemplate(content);
+};
+
+// ========== MONTHLY REPORT EMAIL TEMPLATE ==========
+const getMonthlyReportEmailTemplate = (pirData, reportData, coachName) => {
+    const { summary, highlights, milestones, goals, monthComparison, checkIns, charts } = reportData;
+    
+    const content = `
+        <!-- Cover Page -->
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 60px 40px; text-align: center;">
+            <img src="${GLRS_LOGO_BASE64}" alt="GLRS Logo" style="max-width: 200px; margin-bottom: 30px;">
+            <h1 style="color: white; margin: 0 0 10px 0; font-size: 36px;">Monthly Progress Report</h1>
+            <p style="color: rgba(255,255,255,0.9); font-size: 18px; margin: 0;">
+                ${reportData.dateRange}
+            </p>
+            <div style="background: rgba(255,255,255,0.2); padding: 20px; margin-top: 30px; border-radius: 10px;">
+                <p style="color: white; margin: 0; font-size: 16px;">
+                    <strong>For:</strong> ${pirData.displayName}<br>
+                    <strong>Recovery Coach:</strong> ${coachName}<br>
+                    <strong>Days Sober:</strong> ${summary.daysSober} days
+                </p>
+            </div>
+        </div>
+
+        <!-- Summary Section -->
+        <div style="padding: 40px;">
+            <h2 style="color: #667eea; margin: 0 0 20px 0; font-size: 28px; border-bottom: 3px solid #667eea; padding-bottom: 10px;">
+                📊 Monthly Summary
+            </h2>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 30px;">
+                <div style="background: #f8f9ff; padding: 20px; border-radius: 10px; border-left: 4px solid #667eea;">
+                    <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Check-In Rate</div>
+                    <div style="font-size: 32px; font-weight: bold; color: #667eea;">${summary.checkInRate}%</div>
+                    <div style="font-size: 12px; color: #999;">${summary.checkInsCompleted}/${summary.totalDays} days</div>
+                </div>
+                <div style="background: #f8f9ff; padding: 20px; border-radius: 10px; border-left: 4px solid #4CAF50;">
+                    <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Assignments</div>
+                    <div style="font-size: 32px; font-weight: bold; color: #4CAF50;">${summary.assignmentRate}%</div>
+                    <div style="font-size: 12px; color: #999;">${summary.assignmentsCompleted}/${summary.totalAssignments} completed</div>
+                </div>
+                <div style="background: #f8f9ff; padding: 20px; border-radius: 10px; border-left: 4px solid #ff9800;">
+                    <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Goals</div>
+                    <div style="font-size: 32px; font-weight: bold; color: #ff9800;">${summary.goalRate}%</div>
+                    <div style="font-size: 12px; color: #999;">${summary.goalsCompleted}/${summary.totalGoals} achieved</div>
+                </div>
+            </div>
+
+            <!-- Month-over-Month Comparison -->
+            <h3 style="color: #667eea; margin: 30px 0 15px 0; font-size: 22px;">📊 Month-Over-Month Progress</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 15px; margin-bottom: 30px;">
+                ${monthComparison.map(metric => `
+                    <div style="background: ${metric.change >= 0 ? '#f1f8f4' : '#fff8f1'}; padding: 15px; border-radius: 8px; text-align: center; border-left: 4px solid ${metric.change >= 0 ? '#4CAF50' : '#ff9800'};">
+                        <div style="font-size: 12px; color: #666; margin-bottom: 5px;">${metric.name}</div>
+                        <div style="font-size: 20px; font-weight: bold; color: #333; margin: 5px 0;">
+                            ${metric.current.toFixed(1)}
+                        </div>
+                        <div style="font-size: 14px; color: ${metric.change >= 0 ? '#4CAF50' : '#ff9800'}; font-weight: bold;">
+                            ${metric.change >= 0 ? '↑' : '↓'} ${Math.abs(metric.change).toFixed(1)}
+                            <span style="font-size: 11px; font-weight: normal;">(${metric.changePercent >= 0 ? '+' : ''}${metric.changePercent.toFixed(0)}%)</span>
+                        </div>
+                        <div style="font-size: 11px; color: #999; margin-top: 5px;">
+                            Last month: ${metric.previous.toFixed(1)}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+
+            <!-- Milestones -->
+            ${milestones.length > 0 ? `
+                <h3 style="color: #4CAF50; margin: 30px 0 15px 0; font-size: 22px;">🏆 Milestones Achieved</h3>
+                <div style="background: #f1f8f4; padding: 20px; border-radius: 8px; border-left: 4px solid #4CAF50;">
+                    ${milestones.map(m => `
+                        <div style="padding: 15px; margin-bottom: 10px; background: white; border-radius: 6px;">
+                            <div style="font-weight: bold; color: #4CAF50; font-size: 16px; margin-bottom: 5px;">
+                                🎉 ${m.title}
+                            </div>
+                            <div style="font-size: 14px; color: #666;">
+                                Achieved on ${m.date}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
+
+            <!-- Goals -->
+            ${goals.length > 0 ? `
+                <h3 style="color: #667eea; margin: 30px 0 15px 0; font-size: 22px;">🎯 Goal Progress</h3>
+                ${goals.map(g => `
+                    <div style="background: ${g.completed ? '#f1f8f4' : '#f8f9ff'}; padding: 15px; margin-bottom: 10px; border-radius: 8px; border-left: 4px solid ${g.completed ? '#4CAF50' : '#667eea'};">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-weight: bold; color: #333; margin-bottom: 5px;">
+                                    ${g.completed ? '✓' : '○'} ${g.title}
+                                </div>
+                                <div style="font-size: 12px; color: #666;">
+                                    ${g.description || ''}
+                                </div>
+                            </div>
+                            <div style="font-size: 24px; font-weight: bold; color: ${g.completed ? '#4CAF50' : '#667eea'};">
+                                ${g.progress}%
+                            </div>
+                        </div>
+                        ${g.progress > 0 && g.progress < 100 ? `
+                            <div style="background: #e0e0e0; height: 8px; border-radius: 4px; margin-top: 10px; overflow: hidden;">
+                                <div style="background: #667eea; width: ${g.progress}%; height: 100%;"></div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('')}
+            ` : ''}
+
+            <!-- Highlights -->
+            <h3 style="color: #4CAF50; margin: 30px 0 15px 0; font-size: 22px;">🎉 Highlights This Month</h3>
+            <ul style="background: #f1f8f4; padding: 20px 20px 20px 40px; border-radius: 8px; border-left: 4px solid #4CAF50;">
+                ${highlights.map(h => `<li style="margin-bottom: 10px; color: #333;">${h}</li>`).join('')}
+            </ul>
+
+            <!-- 3-Month Trend Charts -->
+            <h3 style="color: #667eea; margin: 40px 0 20px 0; font-size: 22px;">📈 3-Month Trends</h3>
+            ${charts.threeMonthTrends ? `
+                <img src="${charts.threeMonthTrends}" alt="3-Month Trends" style="width: 100%; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            ` : ''}
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
+                ${charts.mood ? `<img src="${charts.mood}" alt="Mood Chart" style="width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">` : ''}
+                ${charts.cravings ? `<img src="${charts.cravings}" alt="Cravings Chart" style="width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">` : ''}
+                ${charts.moodVsCraving ? `<img src="${charts.moodVsCraving}" alt="Mood vs Cravings" style="width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">` : ''}
+                ${charts.compliance ? `<img src="${charts.compliance}" alt="Compliance" style="width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">` : ''}
+            </div>
+
+            <!-- CTA Button -->
+            <div style="text-align: center; margin-top: 40px;">
+                <a href="app.glrecoveryservices.com" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 40px; text-decoration: none; border-radius: 25px; font-weight: bold; font-size: 16px;">
+                    View Full Dashboard
+                </a>
+            </div>
+        </div>
+    `;
+
+    return getEmailTemplate(content);
+};
+        // ========== HELPER: GENERATE CHART AS BASE64 IMAGE ==========
+const generateChartImage = async (chartConfig) => {
+    return new Promise((resolve) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 800;
+        canvas.height = 400;
+        const ctx = canvas.getContext('2d');
+        
+        new Chart(ctx, chartConfig);
+        
+        // Wait for chart to render
+        setTimeout(() => {
+            const base64Image = canvas.toDataURL('image/png');
+            resolve(base64Image);
+        }, 500);
+    });
+};
+
+// ========== HELPER: CALCULATE WEEKLY METRICS ==========
+const calculateWeeklyMetrics = (checkIns, previousWeekCheckIns) => {
+    const totalDays = 7;
+    const checkInsCompleted = checkIns.length;
+    const checkInRate = Math.round((checkInsCompleted / totalDays) * 100);
+    
+    // Calculate averages
+    const avgMood = checkIns.length > 0 
+        ? (checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / checkIns.length).toFixed(1)
+        : 0;
+    const avgCravings = checkIns.length > 0
+        ? (checkIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / checkIns.length).toFixed(1)
+        : 0;
+    const avgAnxiety = checkIns.length > 0
+        ? (checkIns.reduce((sum, c) => sum + (c.morningData?.anxietyLevel || 0), 0) / checkIns.length).toFixed(1)
+        : 0;
+    const avgSleep = checkIns.length > 0
+        ? (checkIns.reduce((sum, c) => sum + (c.morningData?.sleepQuality || 0), 0) / checkIns.length).toFixed(1)
+        : 0;
+    
+    // Calculate changes from previous week
+    const prevAvgMood = previousWeekCheckIns.length > 0
+        ? (previousWeekCheckIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / previousWeekCheckIns.length)
+        : avgMood;
+    const prevAvgCravings = previousWeekCheckIns.length > 0
+        ? (previousWeekCheckIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / previousWeekCheckIns.length)
+        : avgCravings;
+    const prevAvgAnxiety = previousWeekCheckIns.length > 0
+        ? (previousWeekCheckIns.reduce((sum, c) => sum + (c.morningData?.anxietyLevel || 0), 0) / previousWeekCheckIns.length)
+        : avgAnxiety;
+    const prevAvgSleep = previousWeekCheckIns.length > 0
+        ? (previousWeekCheckIns.reduce((sum, c) => sum + (c.morningData?.sleepQuality || 0), 0) / previousWeekCheckIns.length)
+        : avgSleep;
+    
+    const moodChange = (avgMood - prevAvgMood).toFixed(1);
+    const cravingsChange = (avgCravings - prevAvgCravings).toFixed(1);
+    const anxietyChange = (avgAnxiety - prevAvgAnxiety).toFixed(1);
+    const sleepChange = (avgSleep - prevAvgSleep).toFixed(1);
+    
+    // Calculate streak
+    let currentStreak = 0;
+    const sortedCheckIns = [...checkIns].sort((a, b) => 
+        b.createdAt.toDate() - a.createdAt.toDate()
+    );
+    
+    for (let i = 0; i < sortedCheckIns.length; i++) {
+        const checkInDate = sortedCheckIns[i].createdAt.toDate();
+        const expectedDate = new Date();
+        expectedDate.setDate(expectedDate.getDate() - i);
+        
+        if (checkInDate.toDateString() === expectedDate.toDateString()) {
+            currentStreak++;
+        } else {
+            break;
+        }
+    }
+    
+    return {
+        totalDays,
+        checkInsCompleted,
+        checkInRate,
+        avgMood: parseFloat(avgMood),
+        avgCravings: parseFloat(avgCravings),
+        avgAnxiety: parseFloat(avgAnxiety),
+        avgSleep: parseFloat(avgSleep),
+        moodChange: parseFloat(moodChange),
+        cravingsChange: parseFloat(cravingsChange),
+        anxietyChange: parseFloat(anxietyChange),
+        sleepChange: parseFloat(sleepChange),
+        currentStreak
+    };
+};
+
+// ========== HELPER: GENERATE HIGHLIGHTS ==========
+const generateHighlights = (summary) => {
+    const highlights = [];
+    
+    if (summary.checkInRate >= 85) {
+        highlights.push(`Excellent check-in consistency - ${summary.checkInRate}% completion rate!`);
+    }
+    
+    if (summary.currentStreak >= 5) {
+        highlights.push(`${summary.currentStreak}-day check-in streak!`);
+    }
+    
+    if (summary.avgMood >= 7) {
+        highlights.push(`Strong mood average this week (${summary.avgMood}/10)`);
+    }
+    
+    if (summary.cravingsChange <= -1.5) {
+        highlights.push(`Cravings decreased ${Math.abs(summary.cravingsChange).toFixed(1)} points from last week`);
+    }
+    
+    if (summary.moodChange >= 1) {
+        highlights.push(`Mood improved ${summary.moodChange} points from last week`);
+    }
+    
+    if (summary.sleepChange >= 1) {
+        highlights.push(`Sleep quality improved ${summary.sleepChange} points`);
+    }
+    
+    if (highlights.length === 0) {
+        highlights.push('You completed check-ins this week - keep building momentum!');
+    }
+    
+    return highlights;
+};
+
+// ========== HELPER: GENERATE AREAS TO FOCUS ==========
+const generateAreasToFocus = (summary) => {
+    const areas = [];
+    
+    if (summary.checkInRate < 70) {
+        areas.push(`Check-in compliance below target (${summary.checkInRate}%) - let's aim for 80%+`);
+    }
+    
+    if (summary.avgMood < 5) {
+        areas.push(`Mood lower than usual this week - reach out to your coach for support`);
+    }
+    
+    if (summary.cravingsChange >= 2) {
+        areas.push(`Cravings increased this week - practice your coping strategies`);
+    }
+    
+    if (summary.avgAnxiety >= 7) {
+        areas.push(`Anxiety elevated - consider using relaxation techniques daily`);
+    }
+    
+    if (summary.currentStreak === 0) {
+        areas.push('Start a new check-in streak today!');
+    }
+    
+    return areas;
+};
+
+// ========== SEND WEEKLY PROGRESS REPORT ==========
+const sendWeeklyProgressReport = async (pirId) => {
+    try {
+        console.log(`📧 Generating weekly report for PIR: ${pirId}`);
+        
+        // Get PIR data
+        const pirDoc = await db.collection('users').doc(pirId).get();
+        if (!pirDoc.exists) {
+            throw new Error('PIR not found');
+        }
+        const pirData = pirDoc.data();
+        
+        // Get coach data
+        let coachName = 'Your Recovery Coach';
+        if (pirData.assignedCoach) {
+            const coachDoc = await db.collection('users').doc(pirData.assignedCoach).get();
+            if (coachDoc.exists) {
+                coachName = coachDoc.data().displayName || coachName;
+            }
+        }
+        
+        // Calculate date range (last 7 days)
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 6);
+        
+        const dateRange = `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+        
+        // Get check-ins for this week
+        const checkInsSnapshot = await db.collection('checkIns')
+            .where('userId', '==', pirId)
+            .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(startDate))
+            .where('createdAt', '<=', firebase.firestore.Timestamp.fromDate(endDate))
+            .orderBy('createdAt', 'asc')
+            .get();
+        
+        const checkIns = checkInsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // Get previous week's check-ins for comparison
+        const prevWeekStart = new Date(startDate);
+        prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+        const prevWeekEnd = new Date(startDate);
+        prevWeekEnd.setDate(prevWeekEnd.getDate() - 1);
+        
+        const previousWeekSnapshot = await db.collection('checkIns')
+            .where('userId', '==', pirId)
+            .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(prevWeekStart))
+            .where('createdAt', '<=', firebase.firestore.Timestamp.fromDate(prevWeekEnd))
+            .orderBy('createdAt', 'asc')
+            .get();
+        
+        const previousWeekCheckIns = previousWeekSnapshot.docs.map(doc => doc.data());
+        
+        // Calculate summary metrics
+        const summary = calculateWeeklyMetrics(checkIns, previousWeekCheckIns);
+        
+        // Generate highlights and areas to focus
+        const highlights = generateHighlights(summary);
+        const areasToFocus = generateAreasToFocus(summary);
+        
+        // Format check-ins for table
+        const checkInsTable = [];
+        for (let i = 0; i < 7; i++) {
+            const date = new Date(startDate);
+            date.setDate(date.getDate() + i);
+            const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            
+            const dayCheckIn = checkIns.find(c => 
+                c.createdAt.toDate().toDateString() === date.toDateString()
+            );
+            
+            checkInsTable.push({
+                date: dateStr,
+                mood: dayCheckIn?.morningData?.mood || '-',
+                cravings: dayCheckIn?.morningData?.craving || '-',
+                anxiety: dayCheckIn?.morningData?.anxietyLevel || '-',
+                sleep: dayCheckIn?.morningData?.sleepQuality || '-',
+                notes: dayCheckIn?.morningData?.notes || ''
+            });
+        }
+        
+        // Format evening reflections
+        const reflections = checkIns
+            .filter(c => c.eveningData)
+            .map(c => ({
+                date: c.createdAt.toDate().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+                overallDay: c.eveningData.overallDay || '-',
+                gratitude: c.eveningData.gratitude || '',
+                challenges: c.eveningData.challenges || '',
+                tomorrowGoal: c.eveningData.tomorrowGoal || ''
+            }));
+        
+        // Generate charts
+        const charts = {};
+        
+        // Mood trend chart
+        const moodChartConfig = {
+            type: 'line',
+            data: {
+                labels: checkInsTable.map(d => d.date),
+                datasets: [{
+                    label: 'Mood',
+                    data: checkInsTable.map(d => d.mood === '-' ? null : d.mood),
+                    borderColor: '#2196F3',
+                    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: { display: true, text: 'Mood Trend (7 Days)' },
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { min: 0, max: 10 }
+                }
+            }
+        };
+        charts.mood = await generateChartImage(moodChartConfig);
+        
+        // Cravings trend chart
+        const cravingsChartConfig = {
+            type: 'line',
+            data: {
+                labels: checkInsTable.map(d => d.date),
+                datasets: [{
+                    label: 'Cravings',
+                    data: checkInsTable.map(d => d.cravings === '-' ? null : d.cravings),
+                    borderColor: '#e91e63',
+                    backgroundColor: 'rgba(233, 30, 99, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: { display: true, text: 'Cravings Trend (7 Days)' },
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { min: 0, max: 10 }
+                }
+            }
+        };
+        charts.cravings = await generateChartImage(cravingsChartConfig);
+        
+        // Anxiety trend chart
+        const anxietyChartConfig = {
+            type: 'line',
+            data: {
+                labels: checkInsTable.map(d => d.date),
+                datasets: [{
+                    label: 'Anxiety',
+                    data: checkInsTable.map(d => d.anxiety === '-' ? null : d.anxiety),
+                    borderColor: '#ff9800',
+                    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: { display: true, text: 'Anxiety Trend (7 Days)' },
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { min: 0, max: 10 }
+                }
+            }
+        };
+        charts.anxiety = await generateChartImage(anxietyChartConfig);
+        
+        // Sleep trend chart
+        const sleepChartConfig = {
+            type: 'line',
+            data: {
+                labels: checkInsTable.map(d => d.date),
+                datasets: [{
+                    label: 'Sleep',
+                    data: checkInsTable.map(d => d.sleep === '-' ? null : d.sleep),
+                    borderColor: '#9c27b0',
+                    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: { display: true, text: 'Sleep Quality Trend (7 Days)' },
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { min: 0, max: 10 }
+                }
+            }
+        };
+        charts.sleep = await generateChartImage(sleepChartConfig);
+        
+        // 4-Week trends (bar chart)
+        // Get last 4 weeks of data
+        const fourWeeksAgo = new Date();
+        fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
+        
+        const fourWeeksSnapshot = await db.collection('checkIns')
+            .where('userId', '==', pirId)
+            .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(fourWeeksAgo))
+            .orderBy('createdAt', 'asc')
+            .get();
+        
+        const fourWeeksData = fourWeeksSnapshot.docs.map(doc => doc.data());
+        
+        // Group by week
+        const weeklyAverages = [];
+        for (let i = 3; i >= 0; i--) {
+            const weekStart = new Date();
+            weekStart.setDate(weekStart.getDate() - (i * 7 + 6));
+            const weekEnd = new Date();
+            weekEnd.setDate(weekEnd.getDate() - (i * 7));
+            
+            const weekData = fourWeeksData.filter(c => {
+                const checkInDate = c.createdAt.toDate();
+                return checkInDate >= weekStart && checkInDate <= weekEnd;
+            });
+            
+            const avgMood = weekData.length > 0
+                ? (weekData.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / weekData.length)
+                : 0;
+            const avgCravings = weekData.length > 0
+                ? (weekData.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / weekData.length)
+                : 0;
+            
+            weeklyAverages.push({
+                label: `Week ${4 - i}`,
+                mood: avgMood.toFixed(1),
+                cravings: avgCravings.toFixed(1)
+            });
+        }
+        
+        const weeklyTrendsChartConfig = {
+            type: 'bar',
+            data: {
+                labels: weeklyAverages.map(w => w.label),
+                datasets: [
+                    {
+                        label: 'Avg Mood',
+                        data: weeklyAverages.map(w => w.mood),
+                        backgroundColor: '#2196F3'
+                    },
+                    {
+                        label: 'Avg Cravings',
+                        data: weeklyAverages.map(w => w.cravings),
+                        backgroundColor: '#e91e63'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: { display: true, text: '4-Week Trend Comparison' }
+                },
+                scales: {
+                    y: { min: 0, max: 10 }
+                }
+            }
+        };
+        charts.weeklyTrends = await generateChartImage(weeklyTrendsChartConfig);
+        
+        // Build report data
+        const reportData = {
+            dateRange,
+            summary,
+            highlights,
+            areasToFocus,
+            checkIns: checkInsTable,
+            reflections,
+            charts
+        };
+        
+        // Generate email HTML
+        const emailHtml = getWeeklyReportEmailTemplate(pirData, reportData, coachName);
+        
+        // Get coach email for CC
+        let coachEmail = null;
+        if (pirData.assignedCoach) {
+            const coachDoc = await db.collection('users').doc(pirData.assignedCoach).get();
+            if (coachDoc.exists) {
+                coachEmail = coachDoc.data().email;
+            }
+        }
+        
+        // Send email via Firebase mail extension
+        const emailData = {
+            to: pirData.email,
+            from: 'tyler@glrecoveryservices.com',
+            replyTo: coachEmail || 'tyler@glrecoveryservices.com',
+            subject: `Your Weekly Progress Report - ${dateRange}`,
+            html: emailHtml,
+            text: `Your Weekly Progress Report for ${dateRange}. View the full report at app.glrecoveryservices.com`
+        };
+        
+        // Add CC if coach email exists
+        if (coachEmail) {
+            emailData.cc = coachEmail;
+        }
+        
+        await db.collection('mail').add(emailData);
+        
+        console.log(`✅ Weekly report sent successfully to ${pirData.email}`);
+        return { success: true, pirEmail: pirData.email };
+        
+    } catch (error) {
+        console.error('❌ Error sending weekly report:', error);
+        throw error;
+    }
+};
+
+// ========== SEND MONTHLY PROGRESS REPORT ==========
+const sendMonthlyProgressReport = async (pirId) => {
+    try {
+        console.log(`📧 Generating monthly report for PIR: ${pirId}`);
+        
+        // Get PIR data
+        const pirDoc = await db.collection('users').doc(pirId).get();
+        if (!pirDoc.exists) {
+            throw new Error('PIR not found');
+        }
+        const pirData = pirDoc.data();
+        
+        // Get coach data
+        let coachName = 'Your Recovery Coach';
+        let coachEmail = null;
+        if (pirData.assignedCoach) {
+            const coachDoc = await db.collection('users').doc(pirData.assignedCoach).get();
+            if (coachDoc.exists) {
+                coachName = coachDoc.data().displayName || coachName;
+                coachEmail = coachDoc.data().email;
+            }
+        }
+        
+        // Calculate days sober
+        let daysSober = 0;
+        if (pirData.sobrietyDate) {
+            const sobrietyDate = pirData.sobrietyDate.toDate();
+            const today = new Date();
+            daysSober = Math.floor((today - sobrietyDate) / (1000 * 60 * 60 * 24));
+        }
+        
+        // Calculate date range (last 30 days)
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 29);
+        
+        const dateRange = `${startDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
+        
+        // Get check-ins for this month
+        const checkInsSnapshot = await db.collection('checkIns')
+            .where('userId', '==', pirId)
+            .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(startDate))
+            .where('createdAt', '<=', firebase.firestore.Timestamp.fromDate(endDate))
+            .orderBy('createdAt', 'asc')
+            .get();
+        
+        const checkIns = checkInsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // Get previous month's data for comparison
+        const prevMonthStart = new Date(startDate);
+        prevMonthStart.setDate(prevMonthStart.getDate() - 30);
+        const prevMonthEnd = new Date(startDate);
+        prevMonthEnd.setDate(prevMonthEnd.getDate() - 1);
+        
+        const prevMonthSnapshot = await db.collection('checkIns')
+            .where('userId', '==', pirId)
+            .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(prevMonthStart))
+            .where('createdAt', '<=', firebase.firestore.Timestamp.fromDate(prevMonthEnd))
+            .orderBy('createdAt', 'asc')
+            .get();
+        
+        const prevMonthCheckIns = prevMonthSnapshot.docs.map(doc => doc.data());
+        
+        // Calculate summary metrics
+        const totalDays = 30;
+        const checkInsCompleted = checkIns.length;
+        const checkInRate = Math.round((checkInsCompleted / totalDays) * 100);
+        
+        // Calculate averages for this month
+        const avgMood = checkIns.length > 0
+            ? (checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / checkIns.length)
+            : 0;
+        const avgCravings = checkIns.length > 0
+            ? (checkIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / checkIns.length)
+            : 0;
+        const avgAnxiety = checkIns.length > 0
+            ? (checkIns.reduce((sum, c) => sum + (c.morningData?.anxietyLevel || 0), 0) / checkIns.length)
+            : 0;
+        const avgSleep = checkIns.length > 0
+            ? (checkIns.reduce((sum, c) => sum + (c.morningData?.sleepQuality || 0), 0) / checkIns.length)
+            : 0;
+        
+        // Calculate averages for previous month
+        const prevAvgMood = prevMonthCheckIns.length > 0
+            ? (prevMonthCheckIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / prevMonthCheckIns.length)
+            : avgMood;
+        const prevAvgCravings = prevMonthCheckIns.length > 0
+            ? (prevMonthCheckIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / prevMonthCheckIns.length)
+            : avgCravings;
+        const prevAvgAnxiety = prevMonthCheckIns.length > 0
+            ? (prevMonthCheckIns.reduce((sum, c) => sum + (c.morningData?.anxietyLevel || 0), 0) / prevMonthCheckIns.length)
+            : avgAnxiety;
+        const prevAvgSleep = prevMonthCheckIns.length > 0
+            ? (prevMonthCheckIns.reduce((sum, c) => sum + (c.morningData?.sleepQuality || 0), 0) / prevMonthCheckIns.length)
+            : avgSleep;
+        
+        // Get assignments data
+        const assignmentsSnapshot = await db.collection('assignments')
+            .where('pirId', '==', pirId)
+            .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(startDate))
+            .where('createdAt', '<=', firebase.firestore.Timestamp.fromDate(endDate))
+            .get();
+        
+        const assignments = assignmentsSnapshot.docs.map(doc => doc.data());
+        const totalAssignments = assignments.length;
+        const assignmentsCompleted = assignments.filter(a => a.completed).length;
+        const assignmentRate = totalAssignments > 0 ? Math.round((assignmentsCompleted / totalAssignments) * 100) : 0;
+        
+        // Get goals data
+        const goalsSnapshot = await db.collection('goals')
+            .where('pirId', '==', pirId)
+            .get();
+        
+        const goals = goalsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const totalGoals = goals.length;
+        const goalsCompleted = goals.filter(g => g.completed).length;
+        const goalRate = totalGoals > 0 ? Math.round((goalsCompleted / totalGoals) * 100) : 0;
+        
+        // Get milestones achieved this month
+        const milestonesSnapshot = await db.collection('milestones')
+            .where('pirId', '==', pirId)
+            .where('achievedDate', '>=', firebase.firestore.Timestamp.fromDate(startDate))
+            .where('achievedDate', '<=', firebase.firestore.Timestamp.fromDate(endDate))
+            .get();
+        
+        const milestones = milestonesSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                title: data.title,
+                date: data.achievedDate.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            };
+        });
+        
+        // Build summary object
+        const summary = {
+            daysSober,
+            totalDays,
+            checkInsCompleted,
+            checkInRate,
+            totalAssignments,
+            assignmentsCompleted,
+            assignmentRate,
+            totalGoals,
+            goalsCompleted,
+            goalRate
+        };
+        
+        // Month-over-month comparison
+        const monthComparison = [
+            {
+                name: 'Mood',
+                current: avgMood,
+                previous: prevAvgMood,
+                change: avgMood - prevAvgMood,
+                changePercent: prevAvgMood > 0 ? ((avgMood - prevAvgMood) / prevAvgMood) * 100 : 0
+            },
+            {
+                name: 'Cravings',
+                current: avgCravings,
+                previous: prevAvgCravings,
+                change: avgCravings - prevAvgCravings,
+                changePercent: prevAvgCravings > 0 ? ((avgCravings - prevAvgCravings) / prevAvgCravings) * 100 : 0
+            },
+            {
+                name: 'Anxiety',
+                current: avgAnxiety,
+                previous: prevAvgAnxiety,
+                change: avgAnxiety - prevAvgAnxiety,
+                changePercent: prevAvgAnxiety > 0 ? ((avgAnxiety - prevAvgAnxiety) / prevAvgAnxiety) * 100 : 0
+            },
+            {
+                name: 'Sleep',
+                current: avgSleep,
+                previous: prevAvgSleep,
+                change: avgSleep - prevAvgSleep,
+                changePercent: prevAvgSleep > 0 ? ((avgSleep - prevAvgSleep) / prevAvgSleep) * 100 : 0
+            }
+        ];
+        
+        // Generate highlights
+        const highlights = [];
+        if (checkInRate >= 90) highlights.push(`Outstanding ${checkInRate}% check-in rate this month!`);
+        if (assignmentRate >= 80) highlights.push(`Completed ${assignmentRate}% of assignments`);
+        if (goalsCompleted > 0) highlights.push(`Achieved ${goalsCompleted} goal${goalsCompleted > 1 ? 's' : ''} this month`);
+        if (avgMood - prevAvgMood >= 1) highlights.push(`Mood improved ${(avgMood - prevAvgMood).toFixed(1)} points from last month`);
+        if (prevAvgCravings - avgCravings >= 1) highlights.push(`Cravings decreased ${(prevAvgCravings - avgCravings).toFixed(1)} points`);
+        if (milestones.length > 0) highlights.push(`Reached ${milestones.length} milestone${milestones.length > 1 ? 's' : ''}!`);
+        if (highlights.length === 0) highlights.push('You showed up this month - that\'s what matters most!');
+        
+        // Generate charts (similar to weekly, but for 30 days and 3 months)
+        const charts = {};
+        
+        // TODO: Generate monthly charts here (similar to weekly but with 30 days data)
+        // For now, using placeholder
+        charts.mood = await generateChartImage({
+            type: 'line',
+            data: {
+                labels: checkIns.slice(0, 15).map((c, i) => `Day ${i + 1}`),
+                datasets: [{
+                    label: 'Mood',
+                    data: checkIns.slice(0, 15).map(c => c.morningData?.mood || null),
+                    borderColor: '#2196F3',
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { title: { display: true, text: 'Mood Trend (30 Days)' } },
+                scales: { y: { min: 0, max: 10 } }
+            }
+        });
+        
+        // Format goals with progress
+        const goalsWithProgress = goals.map(g => ({
+            title: g.title,
+            description: g.description || '',
+            completed: g.completed || false,
+            progress: g.completed ? 100 : (g.progress || 0)
+        }));
+        
+        // Build report data
+        const reportData = {
+            dateRange,
+            summary,
+            highlights,
+            milestones,
+            goals: goalsWithProgress,
+            monthComparison,
+            checkIns,
+            charts
+        };
+        
+        // Generate email HTML
+        const emailHtml = getMonthlyReportEmailTemplate(pirData, reportData, coachName);
+        
+        // Send email
+        const emailData = {
+            to: pirData.email,
+            from: 'tyler@glrecoveryservices.com',
+            replyTo: coachEmail || 'tyler@glrecoveryservices.com',
+            subject: `Your Monthly Progress Report - ${dateRange}`,
+            html: emailHtml,
+            text: `Your Monthly Progress Report for ${dateRange}. View the full report at app.glrecoveryservices.com`
+        };
+        
+        if (coachEmail) {
+            emailData.cc = coachEmail;
+        }
+        
+        await db.collection('mail').add(emailData);
+        
+        console.log(`✅ Monthly report sent successfully to ${pirData.email}`);
+        return { success: true, pirEmail: pirData.email };
+        
+    } catch (error) {
+        console.error('❌ Error sending monthly report:', error);
+        throw error;
+    }
+};
+
+// ========== SEND ALL WEEKLY REPORTS ==========
+const sendAllWeeklyReports = async () => {
+    try {
+        console.log('📧 Sending weekly reports to all PIRs...');
+        
+        const pirsSnapshot = await db.collection('users')
+            .where('role', '==', 'pir')
+            .where('active', '==', true)
+            .get();
+        
+        const results = [];
+        
+        for (const pirDoc of pirsSnapshot.docs) {
+            try {
+                const result = await sendWeeklyProgressReport(pirDoc.id);
+                results.push({ pirId: pirDoc.id, ...result });
+            } catch (error) {
+                console.error(`Failed to send weekly report to ${pirDoc.id}:`, error);
+                results.push({ pirId: pirDoc.id, success: false, error: error.message });
+            }
+        }
+        
+        const successCount = results.filter(r => r.success).length;
+        console.log(`✅ Weekly reports sent: ${successCount}/${results.length}`);
+        
+        alert(`Weekly reports sent to ${successCount} out of ${results.length} PIRs`);
+        return results;
+        
+    } catch (error) {
+        console.error('❌ Error sending weekly reports:', error);
+        alert('Error sending weekly reports. Check console for details.');
+        throw error;
+    }
+};
+
+// ========== SEND ALL MONTHLY REPORTS ==========
+const sendAllMonthlyReports = async () => {
+    try {
+        console.log('📧 Sending monthly reports to all PIRs...');
+        
+        const pirsSnapshot = await db.collection('users')
+            .where('role', '==', 'pir')
+            .where('active', '==', true)
+            .get();
+        
+        const results = [];
+        
+        for (const pirDoc of pirsSnapshot.docs) {
+            try {
+                const result = await sendMonthlyProgressReport(pirDoc.id);
+                results.push({ pirId: pirDoc.id, ...result });
+            } catch (error) {
+                console.error(`Failed to send monthly report to ${pirDoc.id}:`, error);
+                results.push({ pirId: pirDoc.id, success: false, error: error.message });
+            }
+        }
+        
+        const successCount = results.filter(r => r.success).length;
+        console.log(`✅ Monthly reports sent: ${successCount}/${results.length}`);
+        
+        alert(`Monthly reports sent to ${successCount} out of ${results.length} PIRs`);
+        return results;
+        
+    } catch (error) {
+        console.error('❌ Error sending monthly reports:', error);
+        alert('Error sending monthly reports. Check console for details.');
+        throw error;
+    }
+};
         
 
 
