@@ -21529,101 +21529,150 @@ function ReportsView({ user }) {
         setAnalyticsData({ pirStats, allPIRsData });
     };
 
-    // ========== REPORT GENERATOR 1: OVERVIEW ==========
-    const generateOverviewReport = async (start, end) => {
-        try {
-            const [usersSnap, checkInsSnap, assignmentsSnap, alertsSnap, goalsSnap] = await Promise.all([
-                db.collection('users').get(),
-                db.collection('checkIns')
-                    .where('createdAt', '>=', start)
-                    .where('createdAt', '<=', end)
-                    .get(),
-                db.collection('assignments')
-                    .where('createdAt', '>=', start)
-                    .where('createdAt', '<=', end)
-                    .get(),
-                db.collection('alerts')
-                    .where('createdAt', '>=', start)
-                    .where('createdAt', '<=', end)
-                    .get(),
-                db.collection('goals').get()
-            ]);
+   // ========== PROFESSIONAL OVERVIEW REPORT ==========
+const generateOverviewReport = async (start, end) => {
+    try {
+        const [usersSnap, checkInsSnap, assignmentsSnap, alertsSnap, goalsSnap] = await Promise.all([
+            db.collection('users').get(),
+            db.collection('checkIns')
+                .where('createdAt', '>=', start)
+                .where('createdAt', '<=', end)
+                .get(),
+            db.collection('assignments')
+                .where('createdAt', '>=', start)
+                .where('createdAt', '<=', end)
+                .get(),
+            db.collection('alerts')
+                .where('createdAt', '>=', start)
+                .where('createdAt', '<=', end)
+                .get(),
+            db.collection('goals').get()
+        ]);
 
-            const pirs = usersSnap.docs.filter(doc => doc.data().role === 'pir');
-            const checkIns = checkInsSnap.docs.map(doc => doc.data());
+        const pirs = usersSnap.docs.filter(doc => doc.data().role === 'pir');
+        const checkIns = checkInsSnap.docs.map(doc => doc.data());
 
-            const dates = [];
-            const moods = [];
-            const cravings = [];
-            const anxiety = [];
-            const sleep = [];
+        // Calculate dates and metrics
+        const dates = [];
+        const moods = [];
+        const cravings = [];
+        const anxiety = [];
+        const sleep = [];
+        
+        const current = new Date(start);
+        while (current <= end) {
+            const dayCheckIns = checkIns.filter(c => {
+                const date = c.createdAt?.toDate ? c.createdAt.toDate() : new Date(c.createdAt);
+                return date.toDateString() === current.toDateString();
+            });
             
-            const current = new Date(start);
-            while (current <= end) {
-                const dayCheckIns = checkIns.filter(c => {
-                    const date = c.createdAt?.toDate ? c.createdAt.toDate() : new Date(c.createdAt);
-                    return date.toDateString() === current.toDateString();
-                });
-                
-                dates.push(current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-                
-                if (dayCheckIns.length > 0) {
-                    moods.push((dayCheckIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / dayCheckIns.length).toFixed(1));
-                    cravings.push((dayCheckIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / dayCheckIns.length).toFixed(1));
-                    anxiety.push((dayCheckIns.reduce((sum, c) => sum + (c.morningData?.anxietyLevel || 0), 0) / dayCheckIns.length).toFixed(1));
-                    sleep.push((dayCheckIns.reduce((sum, c) => sum + (c.morningData?.sleepQuality || 0), 0) / dayCheckIns.length).toFixed(1));
-                } else {
-                    moods.push(null);
-                    cravings.push(null);
-                    anxiety.push(null);
-                    sleep.push(null);
-                }
-                
-                current.setDate(current.getDate() + 1);
+            dates.push(current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+            
+            if (dayCheckIns.length > 0) {
+                moods.push(parseFloat((dayCheckIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / dayCheckIns.length).toFixed(1)));
+                cravings.push(parseFloat((dayCheckIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / dayCheckIns.length).toFixed(1)));
+                anxiety.push(parseFloat((dayCheckIns.reduce((sum, c) => sum + (c.morningData?.anxietyLevel || 0), 0) / dayCheckIns.length).toFixed(1)));
+                sleep.push(parseFloat((dayCheckIns.reduce((sum, c) => sum + (c.morningData?.sleepQuality || 0), 0) / dayCheckIns.length).toFixed(1)));
+            } else {
+                moods.push(null);
+                cravings.push(null);
+                anxiety.push(null);
+                sleep.push(null);
             }
-
-            const avgMood = checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / checkIns.length || 0;
-            const avgCraving = checkIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / checkIns.length || 0;
-
-            return {
-                type: 'overview',
-                summary: {
-                    totalPIRs: pirs.length,
-                    activePIRs: pirs.filter(p => p.data().active !== false).length,
-                    totalCheckIns: checkInsSnap.size,
-                    avgMood: avgMood.toFixed(1),
-                    avgCravings: avgCraving.toFixed(1),
-                    totalAssignments: assignmentsSnap.size,
-                    completedAssignments: assignmentsSnap.docs.filter(d => d.data().status === 'completed').length,
-                    totalAlerts: alertsSnap.size,
-                    sosAlerts: alertsSnap.docs.filter(d => d.data().type === 'sos').length,
-                    totalGoals: goalsSnap.size,
-                    completedGoals: goalsSnap.docs.filter(d => d.data().status === 'completed').length
-                },
-                charts: {
-                    trends: { dates, moods, cravings, anxiety, sleep },
-                    distribution: calculateMoodDistribution(checkIns),
-                    moodVsCravings: {
-                        data: checkIns.map(c => ({
-                            x: c.morningData?.mood || 0,
-                            y: c.morningData?.craving || 0
-                        }))
-                    },
-                    anxietyVsSleep: {
-                        data: checkIns.map(c => ({
-                            x: c.morningData?.anxietyLevel || 0,
-                            y: c.morningData?.sleepQuality || 0
-                        }))
-                    }
-                },
-                patterns: detectPatterns(checkIns)
-            };
-        } catch (error) {
-            console.error('Error generating overview:', error);
-            throw error;
+            
+            current.setDate(current.getDate() + 1);
         }
-    };
 
+        const avgMood = checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / checkIns.length || 0;
+        const avgCraving = checkIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / checkIns.length || 0;
+        const avgAnxiety = checkIns.reduce((sum, c) => sum + (c.morningData?.anxietyLevel || 0), 0) / checkIns.length || 0;
+        const avgSleep = checkIns.reduce((sum, c) => sum + (c.morningData?.sleepQuality || 0), 0) / checkIns.length || 0;
+
+        // Calculate previous period for comparison
+        const periodLength = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+        const prevStart = new Date(start);
+        prevStart.setDate(prevStart.getDate() - periodLength);
+        const prevEnd = new Date(start);
+        prevEnd.setDate(prevEnd.getDate() - 1);
+
+        const prevCheckInsSnap = await db.collection('checkIns')
+            .where('createdAt', '>=', prevStart)
+            .where('createdAt', '<=', prevEnd)
+            .get();
+
+        const prevCheckIns = prevCheckInsSnap.docs.map(doc => doc.data());
+        const prevAvgMood = prevCheckIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / prevCheckIns.length || 0;
+        const prevAvgCraving = prevCheckIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / prevCheckIns.length || 0;
+
+        // Calculate changes
+        const moodChange = avgMood - prevAvgMood;
+        const cravingChange = avgCraving - prevAvgCraving;
+
+        // Generate insights
+        const insights = [];
+        if (moodChange > 1) insights.push(`🎉 Mood improved ${moodChange.toFixed(1)} points - excellent progress!`);
+        else if (moodChange < -1) insights.push(`⚠️ Mood decreased ${Math.abs(moodChange).toFixed(1)} points - reach out for support`);
+        
+        if (cravingChange < -1) insights.push(`✨ Cravings decreased ${Math.abs(cravingChange).toFixed(1)} points - stay strong!`);
+        else if (cravingChange > 1) insights.push(`⚠️ Cravings increased ${cravingChange.toFixed(1)} points - use coping strategies`);
+        
+        if (avgMood >= 7) insights.push('💚 Overall mood is in a healthy range this period');
+        if (avgCraving <= 3) insights.push('🌟 Cravings are well-managed - keep up the great work!');
+        if (insights.length === 0) insights.push('📊 Continue building positive momentum in your recovery');
+
+        const completedAssignments = assignmentsSnap.docs.filter(d => d.data().status === 'completed').length;
+        const assignmentRate = assignmentsSnap.size > 0 ? ((completedAssignments / assignmentsSnap.size) * 100).toFixed(0) : 0;
+
+        return {
+            type: 'overview',
+            metadata: {
+                title: 'Program Overview Report',
+                period: `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+                generatedAt: new Date().toLocaleString('en-US'),
+                reportType: 'overview'
+            },
+            summary: {
+                totalPIRs: pirs.length,
+                activePIRs: pirs.filter(p => p.data().active !== false).length,
+                totalCheckIns: checkInsSnap.size,
+                avgMood: parseFloat(avgMood.toFixed(1)),
+                avgCravings: parseFloat(avgCraving.toFixed(1)),
+                avgAnxiety: parseFloat(avgAnxiety.toFixed(1)),
+                avgSleep: parseFloat(avgSleep.toFixed(1)),
+                totalAssignments: assignmentsSnap.size,
+                completedAssignments,
+                assignmentRate: parseFloat(assignmentRate),
+                totalAlerts: alertsSnap.size,
+                sosAlerts: alertsSnap.docs.filter(d => d.data().type === 'sos').length,
+                totalGoals: goalsSnap.size,
+                completedGoals: goalsSnap.docs.filter(d => d.data().status === 'completed').length,
+                moodChange: parseFloat(moodChange.toFixed(1)),
+                cravingChange: parseFloat(cravingChange.toFixed(1))
+            },
+            insights,
+            charts: {
+                trends: { dates, moods, cravings, anxiety, sleep },
+                distribution: calculateMoodDistribution(checkIns),
+                moodVsCravings: {
+                    data: checkIns.map(c => ({
+                        x: c.morningData?.mood || 0,
+                        y: c.morningData?.craving || 0
+                    }))
+                },
+                anxietyVsSleep: {
+                    data: checkIns.map(c => ({
+                        x: c.morningData?.anxietyLevel || 0,
+                        y: c.morningData?.sleepQuality || 0
+                    }))
+                }
+            },
+            patterns: detectPatterns(checkIns)
+        };
+    } catch (error) {
+        console.error('Error generating overview:', error);
+        throw error;
+    }
+};
     // ========== REPORT GENERATOR 2: SOBRIETY ==========
     const generateSobrietyReport = async (start, end) => {
         const pirsSnap = await db.collection('users')
