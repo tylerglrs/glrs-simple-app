@@ -21132,6 +21132,8 @@ function ReportsView({ user }) {
     const [selectedPIRForReport, setSelectedPIRForReport] = useState(null);
     const [allPIRs, setAllPIRs] = useState([]);
     const [allCheckIns, setAllCheckIns] = useState([]);
+    const [sendingWeekly, setSendingWeekly] = useState(false);
+    const [sendingMonthly, setSendingMonthly] = useState(false);
     
     const [customConfig, setCustomConfig] = useState({
         selectedPIRs: [],
@@ -23060,7 +23062,37 @@ function ReportsView({ user }) {
 
         doc.save(`${reportTitle.replace(/\s+/g, '_')}_${startDate}_to_${endDate}.pdf`);
     };
+// ========== NEW: SEND WEEKLY REPORTS HANDLER ==========
+    const handleSendWeeklyReports = async () => {
+        if (!confirm('Send weekly progress reports to all active PIRs?')) {
+            return;
+        }
+        
+        setSendingWeekly(true);
+        try {
+            await sendAllWeeklyReports();
+        } catch (error) {
+            console.error('Error sending weekly reports:', error);
+        } finally {
+            setSendingWeekly(false);
+        }
+    };
 
+    // ========== NEW: SEND MONTHLY REPORTS HANDLER ==========
+    const handleSendMonthlyReports = async () => {
+        if (!confirm('Send monthly progress reports to all active PIRs?')) {
+            return;
+        }
+        
+        setSendingMonthly(true);
+        try {
+            await sendAllMonthlyReports();
+        } catch (error) {
+            console.error('Error sending monthly reports:', error);
+        } finally {
+            setSendingMonthly(false);
+        }
+    };
     // ========== MAIN GENERATE ==========
     const generateReport = async () => {
         if (!startDate || !endDate) {
@@ -23849,6 +23881,108 @@ function ReportsView({ user }) {
                 </button>
             </div>
 
+            {/* NEW: Email Reports Action Buttons */}
+            <div style={{ 
+                background: 'white',
+                borderRadius: '15px',
+                padding: '25px',
+                marginBottom: '30px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+            }}>
+                <h3 style={{ margin: '0 0 20px 0', color: '#333', fontSize: '20px' }}>
+                    📧 Automated Progress Reports
+                </h3>
+                <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                    <button
+                        onClick={handleSendWeeklyReports}
+                        disabled={sendingWeekly}
+                        style={{
+                            flex: '1',
+                            minWidth: '250px',
+                            padding: '20px',
+                            background: sendingWeekly ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '12px',
+                            fontSize: '16px',
+                            fontWeight: 'bold',
+                            cursor: sendingWeekly ? 'not-allowed' : 'pointer',
+                            transition: 'transform 0.2s',
+                            boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                        onMouseOver={(e) => {
+                            if (!sendingWeekly) {
+                                e.target.style.transform = 'translateY(-2px)';
+                                e.target.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.5)';
+                            }
+                        }}
+                        onMouseOut={(e) => {
+                            e.target.style.transform = 'translateY(0)';
+                            e.target.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+                        }}
+                    >
+                        <div style={{ fontSize: '24px' }}>📅</div>
+                        <div>{sendingWeekly ? 'Sending Weekly Reports...' : 'Send All Weekly Reports Now'}</div>
+                        <div style={{ fontSize: '12px', opacity: 0.9 }}>
+                            Last 7 days progress for all active PIRs
+                        </div>
+                    </button>
+
+                    <button
+                        onClick={handleSendMonthlyReports}
+                        disabled={sendingMonthly}
+                        style={{
+                            flex: '1',
+                            minWidth: '250px',
+                            padding: '20px',
+                            background: sendingMonthly ? '#ccc' : 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '12px',
+                            fontSize: '16px',
+                            fontWeight: 'bold',
+                            cursor: sendingMonthly ? 'not-allowed' : 'pointer',
+                            transition: 'transform 0.2s',
+                            boxShadow: '0 4px 12px rgba(76, 175, 80, 0.4)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                        onMouseOver={(e) => {
+                            if (!sendingMonthly) {
+                                e.target.style.transform = 'translateY(-2px)';
+                                e.target.style.boxShadow = '0 6px 16px rgba(76, 175, 80, 0.5)';
+                            }
+                        }}
+                        onMouseOut={(e) => {
+                            e.target.style.transform = 'translateY(0)';
+                            e.target.style.boxShadow = '0 4px 12px rgba(76, 175, 80, 0.4)';
+                        }}
+                    >
+                        <div style={{ fontSize: '24px' }}>📆</div>
+                        <div>{sendingMonthly ? 'Sending Monthly Reports...' : 'Send All Monthly Reports Now'}</div>
+                        <div style={{ fontSize: '12px', opacity: 0.9 }}>
+                            Last 30 days progress for all active PIRs
+                        </div>
+                    </button>
+                </div>
+                <div style={{ 
+                    marginTop: '15px',
+                    padding: '12px',
+                    background: '#f0f7ff',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    color: '#0066cc'
+                }}>
+                    <strong>ℹ️ Note:</strong> Reports are automatically sent every Sunday at 11:59 PM (weekly) and on the 1st of each month at 12:01 AM (monthly). Use these buttons to send reports manually when needed.
+                </div>
+            </div>
+
             {/* Report Generation Section */}
             <div style={{
                 background: 'white',
@@ -23905,7 +24039,6 @@ function ReportsView({ user }) {
                         />
                     </div>
                 </div>
-
                 {/* Report Templates Grid */}
                 <div>
                     <h4 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#333' }}>
