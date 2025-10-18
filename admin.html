@@ -20232,7 +20232,13 @@ const generatePDFCoverPage = (reportTitle, pirName, coachName, dateRange) => {
 // Add this BEFORE sendWeeklyProgressReport
 // ==========================================
 
-const generateReportPDF = async (reportData, reportTitle, pirName, coachName, dateRange) => {
+// ==========================================
+// PDF GENERATION + STORAGE UPLOAD + EMAIL SENDERS
+// Complete replacement for all 3 functions
+// ==========================================
+
+// ========== GENERATE PDF & UPLOAD TO STORAGE ==========
+const generateReportPDF = async (reportData, reportTitle, pirName, coachName, dateRange, pirId, reportType) => {
     return new Promise((resolve) => {
         // Create a temporary container for rendering charts
         const tempContainer = document.createElement('div');
@@ -20308,19 +20314,47 @@ const generateReportPDF = async (reportData, reportTitle, pirName, coachName, da
                         html2canvas: { scale: 2, useCORS: true },
                         jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
                     })
-                    .outputPdf('datauristring')
-                    .then((pdfData) => {
+                    .output('blob')
+                    .then(async (pdfBlob) => {
                         document.body.removeChild(tempContainer);
                         
-                        // Extract base64 data (remove data:application/pdf;base64, prefix)
-                        const base64Data = pdfData.split(',')[1];
+                        // Upload PDF to Firebase Storage
+                        const timestamp = new Date().toISOString().split('T')[0];
+                        const filename = `${reportType}_${reportTitle.replace(/\s+/g, '_')}_${timestamp}.pdf`;
+                        const storageRef = storage.ref(`reports/${pirId}/${filename}`);
                         
-                        resolve({
-                            filename: `${reportTitle.replace(/\s+/g, '_')}.pdf`,
-                            content: base64Data,
-                            type: 'application/pdf',
-                            disposition: 'attachment'
-                        });
+                        try {
+                            // Upload the blob
+                            const uploadTask = await storageRef.put(pdfBlob, {
+                                contentType: 'application/pdf',
+                                customMetadata: {
+                                    pirId: pirId,
+                                    reportTitle: reportTitle,
+                                    dateRange: dateRange,
+                                    generatedAt: new Date().toISOString()
+                                }
+                            });
+                            
+                            // Get download URL
+                            const downloadURL = await storageRef.getDownloadURL();
+                            
+                            console.log(`✅ Uploaded ${filename} to Storage`);
+                            
+                            resolve({
+                                filename: filename,
+                                url: downloadURL,
+                                path: `reports/${pirId}/${filename}`
+                            });
+                            
+                        } catch (uploadError) {
+                            console.error('Error uploading PDF to Storage:', uploadError);
+                            resolve(null);
+                        }
+                    })
+                    .catch((error) => {
+                        console.error('Error generating PDF:', error);
+                        document.body.removeChild(tempContainer);
+                        resolve(null);
                     });
             } else {
                 console.error('html2pdf library not loaded');
@@ -20369,44 +20403,64 @@ const sendWeeklyProgressReport = async (pirId) => {
             generateEveningReflectionsReport(startDate, endDate)
         ]);
         
-        // Convert reports to PDFs
-        console.log('📄 Converting reports to PDFs...');
-        const pdfAttachments = [];
+        // Convert reports to PDFs and upload to Storage
+        console.log('📄 Converting reports to PDFs and uploading to Storage...');
+        const reportLinks = [];
         
         const reportTitles = [
-            'Weekly_Overview_Report',
-            'Weekly_Mood_Analysis_Report',
-            'Weekly_Engagement_Report',
-            'Weekly_Morning_Checkins_Report',
-            'Weekly_Evening_Reflections_Report'
+            'Overview_Report',
+            'Mood_Analysis_Report',
+            'Engagement_Report',
+            'Morning_Checkins_Report',
+            'Evening_Reflections_Report'
         ];
         
         for (let i = 0; i < reports.length; i++) {
-            const pdf = await generateReportPDF(
+            const pdfData = await generateReportPDF(
                 reports[i],
                 reportTitles[i].replace(/_/g, ' '),
                 pirData.displayName || pirData.email,
                 coachName,
-                dateRange
+                dateRange,
+                pirId,
+                'weekly'
             );
             
-            if (pdf) {
-                pdfAttachments.push(pdf);
+            if (pdfData) {
+                reportLinks.push({
+                    name: reportTitles[i].replace(/_/g, ' '),
+                    url: pdfData.url,
+                    filename: pdfData.filename
+                });
             }
         }
         
-        console.log(`✅ Generated ${pdfAttachments.length} PDF attachments`);
+        console.log(`✅ Generated and uploaded ${reportLinks.length} reports to Storage`);
         
-        // Generate email HTML
-        const emailHtml = getEmailTemplate(pirData.displayName || pirData.email, 'weekly', dateRange);
+        // Generate email HTML with download links
+        let emailHtml = getEmailTemplate(pirData.displayName || pirData.email, 'weekly', dateRange);
         
-        // Send email via Firebase mail extension with attachments
+        // Add download links section to email
+        emailHtml = emailHtml.replace(
+            'Please review them at your convenience.',
+            `Please review them at your convenience by clicking the download links below:
+            <div style="margin: 20px 0;">
+                ${reportLinks.map(link => `
+                    <div style="margin: 10px 0;">
+                        <a href="${link.url}" style="display: inline-block; padding: 10px 20px; background-color: #667eea; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                            📄 Download ${link.name}
+                        </a>
+                    </div>
+                `).join('')}
+            </div>`
+        );
+        
+        // Send email via Firebase mail extension
         await db.collection('mail').add({
             to: [pirData.email],
             message: {
                 subject: `Your Weekly Progress Reports - ${dateRange}`,
-                html: emailHtml,
-                attachments: pdfAttachments
+                html: emailHtml
             }
         });
         
@@ -20457,44 +20511,64 @@ const sendMonthlyProgressReport = async (pirId) => {
             generateEveningReflectionsReport(startDate, endDate)
         ]);
         
-        // Convert reports to PDFs
-        console.log('📄 Converting reports to PDFs...');
-        const pdfAttachments = [];
+        // Convert reports to PDFs and upload to Storage
+        console.log('📄 Converting reports to PDFs and uploading to Storage...');
+        const reportLinks = [];
         
         const reportTitles = [
-            'Monthly_Overview_Report',
-            'Monthly_Sobriety_Analysis_Report',
-            'Monthly_Mood_Analysis_Report',
-            'Monthly_Milestones_Report',
-            'Monthly_Evening_Reflections_Report'
+            'Overview_Report',
+            'Sobriety_Analysis_Report',
+            'Mood_Analysis_Report',
+            'Milestones_Report',
+            'Evening_Reflections_Report'
         ];
         
         for (let i = 0; i < reports.length; i++) {
-            const pdf = await generateReportPDF(
+            const pdfData = await generateReportPDF(
                 reports[i],
                 reportTitles[i].replace(/_/g, ' '),
                 pirData.displayName || pirData.email,
                 coachName,
-                dateRange
+                dateRange,
+                pirId,
+                'monthly'
             );
             
-            if (pdf) {
-                pdfAttachments.push(pdf);
+            if (pdfData) {
+                reportLinks.push({
+                    name: reportTitles[i].replace(/_/g, ' '),
+                    url: pdfData.url,
+                    filename: pdfData.filename
+                });
             }
         }
         
-        console.log(`✅ Generated ${pdfAttachments.length} PDF attachments`);
+        console.log(`✅ Generated and uploaded ${reportLinks.length} reports to Storage`);
         
-        // Generate email HTML
-        const emailHtml = getEmailTemplate(pirData.displayName || pirData.email, 'monthly', dateRange);
+        // Generate email HTML with download links
+        let emailHtml = getEmailTemplate(pirData.displayName || pirData.email, 'monthly', dateRange);
         
-        // Send email via Firebase mail extension with attachments
+        // Add download links section to email
+        emailHtml = emailHtml.replace(
+            'Please review them at your convenience.',
+            `Please review them at your convenience by clicking the download links below:
+            <div style="margin: 20px 0;">
+                ${reportLinks.map(link => `
+                    <div style="margin: 10px 0;">
+                        <a href="${link.url}" style="display: inline-block; padding: 10px 20px; background-color: #667eea; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                            📄 Download ${link.name}
+                        </a>
+                    </div>
+                `).join('')}
+            </div>`
+        );
+        
+        // Send email via Firebase mail extension
         await db.collection('mail').add({
             to: [pirData.email],
             message: {
                 subject: `Your Monthly Progress Reports - ${dateRange}`,
-                html: emailHtml,
-                attachments: pdfAttachments
+                html: emailHtml
             }
         });
         
