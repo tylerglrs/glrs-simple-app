@@ -20601,67 +20601,72 @@ const sendWeeklyProgressReport = async (pirId) => {
             'eveningReflections'
         ];
         
-        // Send 5 separate emails
-        console.log('📄 Creating PDFs via PDFPlum and sending emails...');
-        let successCount = 0;
+       // Send 5 separate emails
+console.log('📄 Creating PDFs via PDFPlum and sending emails...');
+let successCount = 0;
+
+for (let i = 0; i < reportsData.length; i++) {
+    try {
+        console.log(`\n📧 Processing report ${i + 1}/5: ${reportTitles[i]}`);
         
-        for (let i = 0; i < reportsData.length; i++) {
-            try {
-                // Set the report data in state to render charts
-                setReportData(reportsData[i]);
-                
-                // Wait for charts to render
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                // Create a unique report ID for this report
-                const reportId = `${reportTypes[i]}_${Date.now()}_${i}`;
-                
-                // Convert charts to base64 AND upload to Storage
-                const chartURLs = await convertAndUploadCharts(reportsData[i], reportId);
-                
-                // Create Firestore document for PDFPlum (with URLs, not base64)
-                const docRef = await createReportDocument(
-                    reportsData[i],
-                    reportTitles[i],
-                    reportTypes[i],
-                    pirData.displayName || pirData.email,
-                    coachName,
-                    dateRange,
-                    chartURLs // URLs instead of base64!
-                );
-                
-                // Wait for PDF generation (max 120 seconds)
-                const pdfUrl = await waitForPDFGeneration(docRef, 120000);
-                
-                // Generate email HTML with download link
-                const emailHtml = getEmailTemplateWithLink(
-                    pirData.displayName || pirData.email,
-                    reportTitles[i],
-                    'weekly',
-                    dateRange,
-                    pdfUrl
-                );
-                
-                // Send email with download link
-                await db.collection('mail').add({
-                    to: [pirData.email],
-                    message: {
-                        subject: `Weekly ${reportTitles[i]} - ${dateRange}`,
-                        html: emailHtml
-                    }
-                });
-                
-                console.log(`✅ Sent: ${reportTitles[i]}`);
-                successCount++;
-                
-            } catch (error) {
-                console.error(`❌ Failed to send ${reportTitles[i]}:`, error);
+        // Set the report data in state to render charts
+        setReportData(reportsData[i]);
+        
+        // Wait for charts to render
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Create a unique report ID for this report
+        const reportId = `${reportTypes[i]}_${Date.now()}_${i}`;
+        
+        // Convert charts to base64 AND upload to Storage
+        const chartURLs = await convertAndUploadCharts(reportsData[i], reportId);
+        
+        // Create Firestore document for PDFPlum (with URLs, not base64)
+        const docRef = await createReportDocument(
+            reportsData[i],
+            reportTitles[i],
+            reportTypes[i],
+            pirData.displayName || pirData.email,
+            coachName,
+            dateRange,
+            chartURLs
+        );
+        
+        console.log(`⏳ Waiting for PDFPlum to generate PDF for ${reportTitles[i]}...`);
+        
+        // Wait for PDF generation (max 120 seconds) - UPDATED CALL
+        const pdfUrl = await waitForPDFGeneration(docRef, reportId, 120000);
+        
+        console.log(`✅ PDF ready: ${reportTitles[i]}`);
+        
+        // Generate email HTML with download link
+        const emailHtml = getEmailTemplateWithLink(
+            pirData.displayName || pirData.email,
+            reportTitles[i],
+            'weekly',
+            dateRange,
+            pdfUrl
+        );
+        
+        // Send email with download link
+        await db.collection('mail').add({
+            to: [pirData.email],
+            message: {
+                subject: `Weekly ${reportTitles[i]} - ${dateRange}`,
+                html: emailHtml
             }
-        }
+        });
         
-        console.log(`✅ Weekly reports sent: ${successCount}/5 emails to ${pirData.email}`);
-        return { success: successCount === 5, pirEmail: pirData.email, sentCount: successCount };
+        console.log(`✅ Email sent: ${reportTitles[i]}`);
+        successCount++;
         
+    } catch (error) {
+        console.error(`❌ Failed to send ${reportTitles[i]}:`, error);
+    }
+}
+
+console.log(`\n✅ Weekly reports complete: ${successCount}/5 emails sent to ${pirData.email}`);
+return { success: successCount === 5, pirEmail: pirData.email, sentCount: successCount };
     } catch (error) {
         console.error('❌ Error sending weekly reports:', error);
         throw error;
@@ -20722,67 +20727,72 @@ const sendMonthlyProgressReport = async (pirId) => {
             'eveningReflections'
         ];
         
-        // Send 5 separate emails
-        console.log('📄 Creating PDFs via PDFPlum and sending emails...');
-        let successCount = 0;
+      // Send 5 separate emails
+console.log('📄 Creating PDFs via PDFPlum and sending emails...');
+let successCount = 0;
+
+for (let i = 0; i < reportsData.length; i++) {
+    try {
+        console.log(`\n📧 Processing report ${i + 1}/5: ${reportTitles[i]}`);
         
-        for (let i = 0; i < reportsData.length; i++) {
-            try {
-                // Set the report data in state to render charts
-                setReportData(reportsData[i]);
-                
-                // Wait for charts to render
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                // Create a unique report ID for this report
-                const reportId = `${reportTypes[i]}_${Date.now()}_${i}`;
-                
-                // Convert charts to base64 AND upload to Storage
-                const chartURLs = await convertAndUploadCharts(reportsData[i], reportId);
-                
-                // Create Firestore document for PDFPlum (with URLs, not base64)
-                const docRef = await createReportDocument(
-                    reportsData[i],
-                    reportTitles[i],
-                    reportTypes[i],
-                    pirData.displayName || pirData.email,
-                    coachName,
-                    dateRange,
-                    chartURLs // URLs instead of base64!
-                );
-                
-                // Wait for PDF generation (max 120 seconds)
-                const pdfUrl = await waitForPDFGeneration(docRef, 120000);
-                
-                // Generate email HTML with download link
-                const emailHtml = getEmailTemplateWithLink(
-                    pirData.displayName || pirData.email,
-                    reportTitles[i],
-                    'monthly',
-                    dateRange,
-                    pdfUrl
-                );
-                
-                // Send email with download link
-                await db.collection('mail').add({
-                    to: [pirData.email],
-                    message: {
-                        subject: `Monthly ${reportTitles[i]} - ${dateRange}`,
-                        html: emailHtml
-                    }
-                });
-                
-                console.log(`✅ Sent: ${reportTitles[i]}`);
-                successCount++;
-                
-            } catch (error) {
-                console.error(`❌ Failed to send ${reportTitles[i]}:`, error);
+        // Set the report data in state to render charts
+        setReportData(reportsData[i]);
+        
+        // Wait for charts to render
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Create a unique report ID for this report
+        const reportId = `${reportTypes[i]}_${Date.now()}_${i}`;
+        
+        // Convert charts to base64 AND upload to Storage
+        const chartURLs = await convertAndUploadCharts(reportsData[i], reportId);
+        
+        // Create Firestore document for PDFPlum (with URLs, not base64)
+        const docRef = await createReportDocument(
+            reportsData[i],
+            reportTitles[i],
+            reportTypes[i],
+            pirData.displayName || pirData.email,
+            coachName,
+            dateRange,
+            chartURLs
+        );
+        
+        console.log(`⏳ Waiting for PDFPlum to generate PDF for ${reportTitles[i]}...`);
+        
+        // Wait for PDF generation (max 120 seconds) - UPDATED CALL
+        const pdfUrl = await waitForPDFGeneration(docRef, reportId, 120000);
+        
+        console.log(`✅ PDF ready: ${reportTitles[i]}`);
+        
+        // Generate email HTML with download link
+        const emailHtml = getEmailTemplateWithLink(
+            pirData.displayName || pirData.email,
+            reportTitles[i],
+            'monthly',
+            dateRange,
+            pdfUrl
+        );
+        
+        // Send email with download link
+        await db.collection('mail').add({
+            to: [pirData.email],
+            message: {
+                subject: `Monthly ${reportTitles[i]} - ${dateRange}`,
+                html: emailHtml
             }
-        }
+        });
         
-        console.log(`✅ Monthly reports sent: ${successCount}/5 emails to ${pirData.email}`);
-        return { success: successCount === 5, pirEmail: pirData.email, sentCount: successCount };
+        console.log(`✅ Email sent: ${reportTitles[i]}`);
+        successCount++;
         
+    } catch (error) {
+        console.error(`❌ Failed to send ${reportTitles[i]}:`, error);
+    }
+}
+
+console.log(`\n✅ Monthly reports complete: ${successCount}/5 emails sent to ${pirData.email}`);
+return { success: successCount === 5, pirEmail: pirData.email, sentCount: successCount };
     } catch (error) {
         console.error('❌ Error sending monthly reports:', error);
         throw error;
