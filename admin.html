@@ -1232,198 +1232,7 @@ const generatePDFCoverPage = (reportTitle, pirName, coachName, dateRange) => {
     `;
 };
 
-// ========== SEND WEEKLY PROGRESS REPORTS ==========
-const sendWeeklyProgressReport = async (pirId) => {
-    try {
-        console.log(`📧 Generating weekly reports for PIR: ${pirId}`);
-        
-        // Get PIR data
-        const pirDoc = await db.collection('users').doc(pirId).get();
-        if (!pirDoc.exists) {
-            throw new Error('PIR not found');
-        }
-        const pirData = pirDoc.data();
-        
-        // Get coach data
-        let coachName = 'Your Recovery Coach';
-        if (pirData.assignedCoach) {
-            const coachDoc = await db.collection('users').doc(pirData.assignedCoach).get();
-            if (coachDoc.exists) {
-                coachName = coachDoc.data().displayName || coachName;
-            }
-        }
-        
-        // Calculate date range (last 7 days)
-        const endDate = new Date();
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - 6);
-        
-        const dateRange = `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
-        
-        // Generate 5 reports (these functions already exist in your code)
-        const reports = await Promise.all([
-            generateOverviewReport(startDate, endDate),
-            generateMoodAnalysisReport(startDate, endDate),
-            generateEngagementReport(startDate, endDate),
-            generateMorningCheckinsReport(startDate, endDate),
-            generateEveningReflectionsReport(startDate, endDate)
-        ]);
-        
-        // TODO: Convert reports to PDFs with cover pages
-        // For now, we'll send the email without attachments
-        // You'll need jsPDF library to generate actual PDFs
-        
-        // Generate email HTML
-        const emailHtml = getSimpleEmailTemplate(pirData.displayName || pirData.email, 'weekly', dateRange);
-        
-        // Send email via Firebase mail extension
-        await db.collection('mail').add({
-            to: [pirData.email],
-            message: {
-                subject: `Your Weekly Progress Reports - ${dateRange}`,
-                html: emailHtml
-            }
-        });
-        
-        console.log(`✅ Weekly reports sent to ${pirData.email}`);
-        return { success: true, pirEmail: pirData.email };
-        
-    } catch (error) {
-        console.error('❌ Error sending weekly reports:', error);
-        throw error;
-    }
-};
 
-// ========== SEND MONTHLY PROGRESS REPORTS ==========
-const sendMonthlyProgressReport = async (pirId) => {
-    try {
-        console.log(`📧 Generating monthly reports for PIR: ${pirId}`);
-        
-        // Get PIR data
-        const pirDoc = await db.collection('users').doc(pirId).get();
-        if (!pirDoc.exists) {
-            throw new Error('PIR not found');
-        }
-        const pirData = pirDoc.data();
-        
-        // Get coach data
-        let coachName = 'Your Recovery Coach';
-        if (pirData.assignedCoach) {
-            const coachDoc = await db.collection('users').doc(pirData.assignedCoach).get();
-            if (coachDoc.exists) {
-                coachName = coachDoc.data().displayName || coachName;
-            }
-        }
-        
-        // Calculate date range (last 30 days)
-        const endDate = new Date();
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - 29);
-        
-        const dateRange = startDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        
-        // Generate 5 reports (these functions already exist in your code)
-        const reports = await Promise.all([
-            generateOverviewReport(startDate, endDate),
-            generateSobrietyReport(startDate, endDate),
-            generateMoodAnalysisReport(startDate, endDate),
-            generateMilestonesReport(startDate, endDate),
-            generateEveningReflectionsReport(startDate, endDate)
-        ]);
-        
-        // TODO: Convert reports to PDFs with cover pages
-        // For now, we'll send the email without attachments
-        
-        // Generate email HTML
-        const emailHtml = getSimpleEmailTemplate(pirData.displayName || pirData.email, 'monthly', dateRange);
-        
-        // Send email via Firebase mail extension
-        await db.collection('mail').add({
-            to: [pirData.email],
-            message: {
-                subject: `Your Monthly Progress Reports - ${dateRange}`,
-                html: emailHtml
-            }
-        });
-        
-        console.log(`✅ Monthly reports sent to ${pirData.email}`);
-        return { success: true, pirEmail: pirData.email };
-        
-    } catch (error) {
-        console.error('❌ Error sending monthly reports:', error);
-        throw error;
-    }
-};
-
-// ========== SEND ALL WEEKLY REPORTS ==========
-const sendAllWeeklyReports = async () => {
-    try {
-        console.log('📧 Sending weekly reports to all PIRs...');
-        
-        const pirsSnapshot = await db.collection('users')
-            .where('role', '==', 'pir')
-            .where('active', '==', true)
-            .get();
-        
-        const results = [];
-        
-        for (const pirDoc of pirsSnapshot.docs) {
-            try {
-                const result = await sendWeeklyProgressReport(pirDoc.id);
-                results.push({ pirId: pirDoc.id, ...result });
-            } catch (error) {
-                console.error(`Failed to send weekly reports to ${pirDoc.id}:`, error);
-                results.push({ pirId: pirDoc.id, success: false, error: error.message });
-            }
-        }
-        
-        const successCount = results.filter(r => r.success).length;
-        console.log(`✅ Weekly reports sent: ${successCount}/${results.length}`);
-        
-        alert(`Weekly reports sent to ${successCount} out of ${results.length} PIRs`);
-        return results;
-        
-    } catch (error) {
-        console.error('❌ Error sending weekly reports:', error);
-        alert('Error sending weekly reports. Check console for details.');
-        throw error;
-    }
-};
-
-// ========== SEND ALL MONTHLY REPORTS ==========
-const sendAllMonthlyReports = async () => {
-    try {
-        console.log('📧 Sending monthly reports to all PIRs...');
-        
-        const pirsSnapshot = await db.collection('users')
-            .where('role', '==', 'pir')
-            .where('active', '==', true)
-            .get();
-        
-        const results = [];
-        
-        for (const pirDoc of pirsSnapshot.docs) {
-            try {
-                const result = await sendMonthlyProgressReport(pirDoc.id);
-                results.push({ pirId: pirDoc.id, ...result });
-            } catch (error) {
-                console.error(`Failed to send monthly reports to ${pirDoc.id}:`, error);
-                results.push({ pirId: pirDoc.id, success: false, error: error.message });
-            }
-        }
-        
-        const successCount = results.filter(r => r.success).length;
-        console.log(`✅ Monthly reports sent: ${successCount}/${results.length}`);
-        
-        alert(`Monthly reports sent to ${successCount} out of ${results.length} PIRs`);
-        return results;
-        
-    } catch (error) {
-        console.error('❌ Error sending monthly reports:', error);
-        alert('Error sending monthly reports. Check console for details.');
-        throw error;
-    }
-};
 
 
 // ==========================================
@@ -20417,6 +20226,198 @@ const chartInstances = useRef({});
             console.error('Error loading check-ins:', error);
         }
     };
+    // ========== SEND WEEKLY PROGRESS REPORTS ==========
+const sendWeeklyProgressReport = async (pirId) => {
+    try {
+        console.log(`📧 Generating weekly reports for PIR: ${pirId}`);
+        
+        // Get PIR data
+        const pirDoc = await db.collection('users').doc(pirId).get();
+        if (!pirDoc.exists) {
+            throw new Error('PIR not found');
+        }
+        const pirData = pirDoc.data();
+        
+        // Get coach data
+        let coachName = 'Your Recovery Coach';
+        if (pirData.assignedCoach) {
+            const coachDoc = await db.collection('users').doc(pirData.assignedCoach).get();
+            if (coachDoc.exists) {
+                coachName = coachDoc.data().displayName || coachName;
+            }
+        }
+        
+        // Calculate date range (last 7 days)
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 6);
+        
+        const dateRange = `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+        
+        // Generate 5 reports (these functions already exist in your code)
+        const reports = await Promise.all([
+            generateOverviewReport(startDate, endDate),
+            generateMoodAnalysisReport(startDate, endDate),
+            generateEngagementReport(startDate, endDate),
+            generateMorningCheckinsReport(startDate, endDate),
+            generateEveningReflectionsReport(startDate, endDate)
+        ]);
+        
+        // TODO: Convert reports to PDFs with cover pages
+        // For now, we'll send the email without attachments
+        // You'll need jsPDF library to generate actual PDFs
+        
+        // Generate email HTML
+        const emailHtml = getSimpleEmailTemplate(pirData.displayName || pirData.email, 'weekly', dateRange);
+        
+        // Send email via Firebase mail extension
+        await db.collection('mail').add({
+            to: [pirData.email],
+            message: {
+                subject: `Your Weekly Progress Reports - ${dateRange}`,
+                html: emailHtml
+            }
+        });
+        
+        console.log(`✅ Weekly reports sent to ${pirData.email}`);
+        return { success: true, pirEmail: pirData.email };
+        
+    } catch (error) {
+        console.error('❌ Error sending weekly reports:', error);
+        throw error;
+    }
+};
+
+// ========== SEND MONTHLY PROGRESS REPORTS ==========
+const sendMonthlyProgressReport = async (pirId) => {
+    try {
+        console.log(`📧 Generating monthly reports for PIR: ${pirId}`);
+        
+        // Get PIR data
+        const pirDoc = await db.collection('users').doc(pirId).get();
+        if (!pirDoc.exists) {
+            throw new Error('PIR not found');
+        }
+        const pirData = pirDoc.data();
+        
+        // Get coach data
+        let coachName = 'Your Recovery Coach';
+        if (pirData.assignedCoach) {
+            const coachDoc = await db.collection('users').doc(pirData.assignedCoach).get();
+            if (coachDoc.exists) {
+                coachName = coachDoc.data().displayName || coachName;
+            }
+        }
+        
+        // Calculate date range (last 30 days)
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 29);
+        
+        const dateRange = startDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        
+        // Generate 5 reports (these functions already exist in your code)
+        const reports = await Promise.all([
+            generateOverviewReport(startDate, endDate),
+            generateSobrietyReport(startDate, endDate),
+            generateMoodAnalysisReport(startDate, endDate),
+            generateMilestonesReport(startDate, endDate),
+            generateEveningReflectionsReport(startDate, endDate)
+        ]);
+        
+        // TODO: Convert reports to PDFs with cover pages
+        // For now, we'll send the email without attachments
+        
+        // Generate email HTML
+        const emailHtml = getSimpleEmailTemplate(pirData.displayName || pirData.email, 'monthly', dateRange);
+        
+        // Send email via Firebase mail extension
+        await db.collection('mail').add({
+            to: [pirData.email],
+            message: {
+                subject: `Your Monthly Progress Reports - ${dateRange}`,
+                html: emailHtml
+            }
+        });
+        
+        console.log(`✅ Monthly reports sent to ${pirData.email}`);
+        return { success: true, pirEmail: pirData.email };
+        
+    } catch (error) {
+        console.error('❌ Error sending monthly reports:', error);
+        throw error;
+    }
+};
+
+// ========== SEND ALL WEEKLY REPORTS ==========
+const sendAllWeeklyReports = async () => {
+    try {
+        console.log('📧 Sending weekly reports to all PIRs...');
+        
+        const pirsSnapshot = await db.collection('users')
+            .where('role', '==', 'pir')
+            .where('active', '==', true)
+            .get();
+        
+        const results = [];
+        
+        for (const pirDoc of pirsSnapshot.docs) {
+            try {
+                const result = await sendWeeklyProgressReport(pirDoc.id);
+                results.push({ pirId: pirDoc.id, ...result });
+            } catch (error) {
+                console.error(`Failed to send weekly reports to ${pirDoc.id}:`, error);
+                results.push({ pirId: pirDoc.id, success: false, error: error.message });
+            }
+        }
+        
+        const successCount = results.filter(r => r.success).length;
+        console.log(`✅ Weekly reports sent: ${successCount}/${results.length}`);
+        
+        alert(`Weekly reports sent to ${successCount} out of ${results.length} PIRs`);
+        return results;
+        
+    } catch (error) {
+        console.error('❌ Error sending weekly reports:', error);
+        alert('Error sending weekly reports. Check console for details.');
+        throw error;
+    }
+};
+
+// ========== SEND ALL MONTHLY REPORTS ==========
+const sendAllMonthlyReports = async () => {
+    try {
+        console.log('📧 Sending monthly reports to all PIRs...');
+        
+        const pirsSnapshot = await db.collection('users')
+            .where('role', '==', 'pir')
+            .where('active', '==', true)
+            .get();
+        
+        const results = [];
+        
+        for (const pirDoc of pirsSnapshot.docs) {
+            try {
+                const result = await sendMonthlyProgressReport(pirDoc.id);
+                results.push({ pirId: pirDoc.id, ...result });
+            } catch (error) {
+                console.error(`Failed to send monthly reports to ${pirDoc.id}:`, error);
+                results.push({ pirId: pirDoc.id, success: false, error: error.message });
+            }
+        }
+        
+        const successCount = results.filter(r => r.success).length;
+        console.log(`✅ Monthly reports sent: ${successCount}/${results.length}`);
+        
+        alert(`Monthly reports sent to ${successCount} out of ${results.length} PIRs`);
+        return results;
+        
+    } catch (error) {
+        console.error('❌ Error sending monthly reports:', error);
+        alert('Error sending monthly reports. Check console for details.');
+        throw error;
+    }
+};
 
     // ========== UTILITY FUNCTIONS ==========
     const formatDate = (date) => {
