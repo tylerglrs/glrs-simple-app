@@ -20445,32 +20445,105 @@ const createReportDocument = async (reportData, reportTitle, reportType, pirName
     }
 };
 
-// ========== WAIT FOR PDF GENERATION ==========
-const waitForPDFGeneration = (docRef, timeoutMs = 120000) => { // Increased to 120 seconds
+// ========== WAIT FOR PDF GENERATION AND GET URL FROM STORAGE ==========
+const waitForPDFGeneration = async (docRef, reportId, timeoutMs = 120000) => {
     return new Promise((resolve, reject) => {
         const startTime = Date.now();
+        let checkCount = 0;
         
-        const unsubscribe = docRef.onSnapshot((snapshot) => {
-            const data = snapshot.data();
+        const checkPDF = async () => {
+            checkCount++;
             
-            if (data.pdfUrl) {
-                console.log('✅ PDF generated:', data.pdfUrl);
-                unsubscribe();
-                resolve(data.pdfUrl);
-            } else if (data.status === 'error') {
-                console.error('❌ PDF generation failed:', data.error);
-                unsubscribe();
-                reject(new Error(data.error || 'PDF generation failed'));
-            } else if (Date.now() - startTime > timeoutMs) {
-                console.error('❌ PDF generation timeout');
-                unsubscribe();
-                reject(new Error('PDF generation timeout'));
+            try {
+                // Get the report document data
+                const snapshot = await docRef.get();
+                const data = snapshot.data();
+                
+                // Method 1: Check if PDFPlum updated Firestore (ideal case)
+                if (data.pdfUrl) {
+                    console.log('✅ PDF URL found in Firestore:', data.pdfUrl);
+                    resolve(data.pdfUrl);
+                    return;
+                }
+                
+                if (data.status === 'error') {
+                    console.error('❌ PDF generation failed:', data.error);
+                    reject(new Error(data.error || 'PDF generation failed'));
+                    return;
+                }
+                
+                // Method 2: Check Storage directly for the PDF
+                console.log(`🔍 Checking Storage for PDF... (attempt ${checkCount})`);
+                
+                const storageRef = firebase.storage().ref('reports/');
+                const result = await storageRef.listAll();
+                
+                // Get the report creation time
+                const reportCreatedAt = data.createdAt ? data.createdAt.toDate() : new Date(startTime);
+                
+                // Look for PDF files created after our report
+                for (const item of result.items) {
+                    if (item.name.endsWith('.pdf')) {
+                        try {
+                            // Get file metadata to check creation time
+                            const metadata = await item.getMetadata();
+                            const fileCreatedAt = new Date(metadata.timeCreated);
+                            
+                            // If PDF was created after our report (within 2 minutes)
+                            const timeDiff = fileCreatedAt - reportCreatedAt;
+                            
+                            if (timeDiff > 0 && timeDiff < 120000) {
+                                console.log(`📄 Found matching PDF: ${item.name}`);
+                                
+                                const pdfUrl = await item.getDownloadURL();
+                                console.log('✅ PDF URL retrieved from Storage:', pdfUrl);
+                                
+                                // Update Firestore with the PDF URL
+                                await docRef.update({
+                                    pdfUrl: pdfUrl,
+                                    status: 'complete',
+                                    completedAt: firebase.firestore.FieldValue.serverTimestamp()
+                                });
+                                
+                                console.log('✅ Firestore document updated with PDF URL');
+                                resolve(pdfUrl);
+                                return;
+                            }
+                        } catch (metaError) {
+                            console.warn('⚠️ Could not check metadata for:', item.name, metaError);
+                        }
+                    }
+                }
+                
+                // Check if timeout exceeded
+                if (Date.now() - startTime > timeoutMs) {
+                    console.error('❌ PDF generation timeout after', checkCount, 'attempts');
+                    await docRef.update({
+                        status: 'error',
+                        error: 'PDF generation timeout'
+                    });
+                    reject(new Error('PDF generation timeout'));
+                    return;
+                }
+                
+                // Try again in 3 seconds
+                console.log(`⏳ PDF not ready yet, waiting... (${Math.floor((Date.now() - startTime) / 1000)}s elapsed)`);
+                setTimeout(checkPDF, 3000);
+                
+            } catch (error) {
+                console.error('❌ Error checking for PDF:', error);
+                
+                if (Date.now() - startTime > timeoutMs) {
+                    reject(error);
+                } else {
+                    // Retry on error
+                    setTimeout(checkPDF, 3000);
+                }
             }
-        }, (error) => {
-            console.error('❌ Firestore listener error:', error);
-            unsubscribe();
-            reject(error);
-        });
+        };
+        
+        // Start checking after 2 seconds (give PDFPlum time to start)
+        setTimeout(checkPDF, 2000);
     });
 };
 
