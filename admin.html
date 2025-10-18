@@ -21529,7 +21529,7 @@ function ReportsView({ user }) {
         setAnalyticsData({ pirStats, allPIRsData });
     };
 
-   // ========== PROFESSIONAL OVERVIEW REPORT ==========
+  // ========== PROFESSIONAL OVERVIEW REPORT ==========
 const generateOverviewReport = async (start, end) => {
     try {
         const [usersSnap, checkInsSnap, assignmentsSnap, alertsSnap, goalsSnap] = await Promise.all([
@@ -21652,19 +21652,7 @@ const generateOverviewReport = async (start, end) => {
             insights,
             charts: {
                 trends: { dates, moods, cravings, anxiety, sleep },
-                distribution: calculateMoodDistribution(checkIns),
-                moodVsCravings: {
-                    data: checkIns.map(c => ({
-                        x: c.morningData?.mood || 0,
-                        y: c.morningData?.craving || 0
-                    }))
-                },
-                anxietyVsSleep: {
-                    data: checkIns.map(c => ({
-                        x: c.morningData?.anxietyLevel || 0,
-                        y: c.morningData?.sleepQuality || 0
-                    }))
-                }
+                distribution: calculateMoodDistribution(checkIns)
             },
             patterns: detectPatterns(checkIns)
         };
@@ -21746,8 +21734,9 @@ const generateOverviewReport = async (start, end) => {
         };
     };
 
-    // ========== REPORT GENERATOR 3: MORNING CHECK-INS ==========
-    const generateMorningCheckinsReport = async (start, end) => {
+   // ========== PROFESSIONAL MORNING CHECK-INS REPORT ==========
+const generateMorningCheckinsReport = async (start, end) => {
+    try {
         const checkInsSnap = await db.collection('checkIns')
             .where('createdAt', '>=', start)
             .where('createdAt', '<=', end)
@@ -21761,7 +21750,7 @@ const generateOverviewReport = async (start, end) => {
             if (checkIn.morningData) {
                 if (!usersCache[checkIn.userId]) {
                     const userDoc = await db.collection('users').doc(checkIn.userId).get();
-                    usersCache[checkIn.userId] = userDoc.data()?.displayName || 'Unknown';
+                    usersCache[checkIn.userId] = userDoc.exists() ? userDoc.data()?.displayName || 'Unknown' : 'Unknown';
                 }
                 
                 morningData.push({
@@ -21771,66 +21760,217 @@ const generateOverviewReport = async (start, end) => {
                     craving: checkIn.morningData.craving,
                     anxiety: checkIn.morningData.anxietyLevel,
                     sleep: checkIn.morningData.sleepQuality,
-                    notes: checkIn.morningData.notes
+                    notes: checkIn.morningData.notes || ''
                 });
             }
         }
 
+        // Calculate trends over time
+        const dates = [];
+        const moods = [];
+        const cravings = [];
+        const anxiety = [];
+        const sleep = [];
+        
+        const current = new Date(start);
+        while (current <= end) {
+            const dayData = morningData.filter(m => {
+                const date = m.date?.toDate ? m.date.toDate() : new Date(m.date);
+                return date.toDateString() === current.toDateString();
+            });
+            
+            dates.push(current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+            
+            if (dayData.length > 0) {
+                moods.push(parseFloat((dayData.reduce((sum, d) => sum + (d.mood || 0), 0) / dayData.length).toFixed(1)));
+                cravings.push(parseFloat((dayData.reduce((sum, d) => sum + (d.craving || 0), 0) / dayData.length).toFixed(1)));
+                anxiety.push(parseFloat((dayData.reduce((sum, d) => sum + (d.anxiety || 0), 0) / dayData.length).toFixed(1)));
+                sleep.push(parseFloat((dayData.reduce((sum, d) => sum + (d.sleep || 0), 0) / dayData.length).toFixed(1)));
+            } else {
+                moods.push(null);
+                cravings.push(null);
+                anxiety.push(null);
+                sleep.push(null);
+            }
+            
+            current.setDate(current.getDate() + 1);
+        }
+
+        // Calculate summary
+        const avgMood = morningData.reduce((sum, c) => sum + (c.mood || 0), 0) / morningData.length || 0;
+        const avgCravings = morningData.reduce((sum, c) => sum + (c.craving || 0), 0) / morningData.length || 0;
+        const avgAnxiety = morningData.reduce((sum, c) => sum + (c.anxiety || 0), 0) / morningData.length || 0;
+        const avgSleep = morningData.reduce((sum, c) => sum + (c.sleep || 0), 0) / morningData.length || 0;
+        const withNotes = morningData.filter(m => m.notes && m.notes.length > 0).length;
+
+        // Generate insights
+        const insights = [];
+        if (avgMood >= 7) insights.push('💚 Morning mood consistently positive');
+        if (avgCravings <= 3) insights.push('🌟 Cravings well-managed in mornings');
+        if (avgSleep >= 7) insights.push('😴 Sleep quality is excellent');
+        if (withNotes > morningData.length * 0.5) insights.push('📝 Great job adding notes to check-ins');
+
         return {
             type: 'morningCheckins',
+            metadata: {
+                title: 'Morning Check-ins Report',
+                period: `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+                generatedAt: new Date().toLocaleString('en-US'),
+                reportType: 'morningCheckins'
+            },
             morningData,
             summary: {
                 totalCheckIns: morningData.length,
-                avgMood: (morningData.reduce((sum, c) => sum + (c.mood || 0), 0) / morningData.length).toFixed(1),
-                avgCravings: (morningData.reduce((sum, c) => sum + (c.craving || 0), 0) / morningData.length).toFixed(1),
-                avgAnxiety: (morningData.reduce((sum, c) => sum + (c.anxiety || 0), 0) / morningData.length).toFixed(1),
-                avgSleep: (morningData.reduce((sum, c) => sum + (c.sleep || 0), 0) / morningData.length).toFixed(1),
-                withNotes: morningData.filter(m => m.notes && m.notes.length > 0).length
+                avgMood: parseFloat(avgMood.toFixed(1)),
+                avgCravings: parseFloat(avgCravings.toFixed(1)),
+                avgAnxiety: parseFloat(avgAnxiety.toFixed(1)),
+                avgSleep: parseFloat(avgSleep.toFixed(1)),
+                withNotes
+            },
+            insights,
+            charts: {
+                trends: { dates, moods, cravings, anxiety, sleep }
             }
         };
-    };
-
-    // ========== REPORT GENERATOR 4: EVENING REFLECTIONS ==========
-    const generateEveningReflectionsReport = async (start, end) => {
+    } catch (error) {
+        console.error('Error generating morning check-ins report:', error);
+        throw error;
+    }
+};
+  // ========== PROFESSIONAL EVENING REFLECTIONS REPORT ==========
+const generateEveningReflectionsReport = async (start, end) => {
+    try {
         const checkInsSnap = await db.collection('checkIns')
             .where('createdAt', '>=', start)
             .where('createdAt', '<=', end)
             .get();
-
+        
         const eveningData = [];
         const checkIns = checkInsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
+        
         const usersCache = {};
         for (const checkIn of checkIns) {
             if (checkIn.eveningData) {
                 if (!usersCache[checkIn.userId]) {
                     const userDoc = await db.collection('users').doc(checkIn.userId).get();
-                    usersCache[checkIn.userId] = userDoc.data()?.displayName || 'Unknown';
+                    usersCache[checkIn.userId] = userDoc.exists() ? userDoc.data()?.displayName || 'Unknown' : 'Unknown';
                 }
                 
                 eveningData.push({
                     pirName: usersCache[checkIn.userId],
                     date: checkIn.createdAt,
                     overallDay: checkIn.eveningData.overallDay,
-                    gratitude: checkIn.eveningData.gratitude,
-                    challenges: checkIn.eveningData.challenges,
-                    tomorrowGoal: checkIn.eveningData.tomorrowGoal
+                    gratitude: checkIn.eveningData.gratitude || '',
+                    challenges: checkIn.eveningData.challenges || '',
+                    tomorrowGoal: checkIn.eveningData.tomorrowGoal || ''
                 });
             }
         }
-
+        
+        // Calculate daily averages for trend chart
+        const dates = [];
+        const overallDayScores = [];
+        
+        const current = new Date(start);
+        while (current <= end) {
+            const dayData = eveningData.filter(e => {
+                const date = e.date?.toDate ? e.date.toDate() : new Date(e.date);
+                return date.toDateString() === current.toDateString();
+            });
+            
+            dates.push(current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+            
+            if (dayData.length > 0) {
+                const dayAvg = dayData.reduce((sum, d) => sum + (d.overallDay || 0), 0) / dayData.length;
+                overallDayScores.push(parseFloat(dayAvg.toFixed(1)));
+            } else {
+                overallDayScores.push(null);
+            }
+            
+            current.setDate(current.getDate() + 1);
+        }
+        
+        // Calculate summary metrics
+        const avgOverallDay = eveningData.reduce((sum, c) => sum + (c.overallDay || 0), 0) / eveningData.length || 0;
+        const withGratitude = eveningData.filter(e => e.gratitude && e.gratitude.length > 0).length;
+        const withChallenges = eveningData.filter(e => e.challenges && e.challenges.length > 0).length;
+        const withGoals = eveningData.filter(e => e.tomorrowGoal && e.tomorrowGoal.length > 0).length;
+        const completionRate = eveningData.length > 0 ? ((withGratitude + withChallenges + withGoals) / (eveningData.length * 3) * 100) : 0;
+        
+        // Calculate day quality distribution
+        const excellentDays = eveningData.filter(e => (e.overallDay || 0) >= 8).length;
+        const goodDays = eveningData.filter(e => (e.overallDay || 0) >= 6 && (e.overallDay || 0) < 8).length;
+        const challengingDays = eveningData.filter(e => (e.overallDay || 0) < 6).length;
+        
+        // Generate insights
+        const insights = [];
+        
+        if (avgOverallDay >= 7) {
+            insights.push('🎉 Overall day ratings are consistently positive');
+        } else if (avgOverallDay >= 5) {
+            insights.push('📊 Day quality is moderate - identifying patterns can help');
+        } else {
+            insights.push('⚠️ Multiple challenging days - reach out for additional support');
+        }
+        
+        const gratitudePercent = ((withGratitude / eveningData.length) * 100).toFixed(0);
+        if (withGratitude > eveningData.length * 0.8) {
+            insights.push(`💚 Excellent gratitude practice - ${gratitudePercent}% completion`);
+        } else if (withGratitude > eveningData.length * 0.5) {
+            insights.push(`🌟 Good gratitude engagement - ${gratitudePercent}% completion`);
+        }
+        
+        if (withGoals > eveningData.length * 0.7) {
+            insights.push('🎯 Strong goal-setting habit - planning ahead consistently');
+        }
+        
+        if (excellentDays > eveningData.length * 0.4) {
+            insights.push(`✨ ${excellentDays} excellent days (8+ rating) - great progress!`);
+        }
+        
+        if (insights.length === 0) {
+            insights.push('📝 Continue building your evening reflection practice');
+        }
+        
         return {
             type: 'eveningReflections',
+            metadata: {
+                title: 'Evening Reflections Report',
+                period: `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+                generatedAt: new Date().toLocaleString('en-US'),
+                reportType: 'eveningReflections'
+            },
             eveningData,
             summary: {
                 totalReflections: eveningData.length,
-                avgOverallDay: (eveningData.reduce((sum, c) => sum + (c.overallDay || 0), 0) / eveningData.length).toFixed(1),
-                withGratitude: eveningData.filter(e => e.gratitude && e.gratitude.length > 0).length,
-                withChallenges: eveningData.filter(e => e.challenges && e.challenges.length > 0).length,
-                withGoals: eveningData.filter(e => e.tomorrowGoal && e.tomorrowGoal.length > 0).length
+                avgOverallDay: parseFloat(avgOverallDay.toFixed(1)),
+                withGratitude,
+                withChallenges,
+                withGoals,
+                completionRate: parseFloat(completionRate.toFixed(1)),
+                excellentDays,
+                goodDays,
+                challengingDays,
+                gratitudePercent: parseFloat(gratitudePercent)
+            },
+            insights,
+            charts: {
+                trends: { dates, overallDayScores },
+                dayQualityDistribution: {
+                    labels: ['Excellent (8-10)', 'Good (6-7)', 'Challenging (1-5)'],
+                    data: [excellentDays, goodDays, challengingDays]
+                },
+                completionBreakdown: {
+                    labels: ['Gratitude', 'Challenges', 'Tomorrow Goals'],
+                    data: [withGratitude, withChallenges, withGoals]
+                }
             }
         };
-    };
+    } catch (error) {
+        console.error('Error generating evening reflections report:', error);
+        throw error;
+    }
+};
 
     // ========== REPORT GENERATOR 5: FULL PIR ==========
     const generateFullPIRReport = async (start, end) => {
@@ -21900,16 +22040,18 @@ const generateOverviewReport = async (start, end) => {
         };
     };
 
-    // ========== REPORT GENERATOR 6: MOOD ANALYSIS ==========
-    const generateMoodAnalysisReport = async (start, end) => {
+  // ========== PROFESSIONAL MOOD ANALYSIS REPORT ==========
+const generateMoodAnalysisReport = async (start, end) => {
+    try {
         const checkInsSnap = await db.collection('checkIns')
             .where('createdAt', '>=', start)
             .where('createdAt', '<=', end)
             .get();
 
         const checkIns = checkInsSnap.docs.map(doc => doc.data());
+        
+        // Calculate mood distribution (1-10 scale)
         const moodDistribution = Array(10).fill(0);
-
         checkIns.forEach(checkIn => {
             const mood = checkIn.morningData?.mood;
             if (mood >= 1 && mood <= 10) {
@@ -21917,20 +22059,85 @@ const generateOverviewReport = async (start, end) => {
             }
         });
 
+        // Calculate averages
+        const avgMood = checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / checkIns.length || 0;
+        const highMoodDays = checkIns.filter(c => (c.morningData?.mood || 0) >= 7).length;
+        const lowMoodDays = checkIns.filter(c => (c.morningData?.mood || 0) <= 3).length;
+        const moderateMoodDays = checkIns.filter(c => {
+            const mood = c.morningData?.mood || 0;
+            return mood > 3 && mood < 7;
+        }).length;
+
+        // Calculate daily mood trends
+        const dates = [];
+        const moods = [];
+        const current = new Date(start);
+        
+        while (current <= end) {
+            const dayCheckIns = checkIns.filter(c => {
+                const date = c.createdAt?.toDate ? c.createdAt.toDate() : new Date(c.createdAt);
+                return date.toDateString() === current.toDateString();
+            });
+            
+            dates.push(current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+            
+            if (dayCheckIns.length > 0) {
+                const dayAvg = dayCheckIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / dayCheckIns.length;
+                moods.push(parseFloat(dayAvg.toFixed(1)));
+            } else {
+                moods.push(null);
+            }
+            
+            current.setDate(current.getDate() + 1);
+        }
+
+        // Generate insights
+        const insights = [];
+        const healthyPercentage = ((highMoodDays / checkIns.length) * 100).toFixed(0);
+        const concerningPercentage = ((lowMoodDays / checkIns.length) * 100).toFixed(0);
+
+        if (highMoodDays > checkIns.length * 0.6) {
+            insights.push(`🎉 ${healthyPercentage}% of days in healthy mood range (7-10)`);
+        }
+        if (lowMoodDays > checkIns.length * 0.3) {
+            insights.push(`⚠️ ${concerningPercentage}% of days in low mood range - consider additional support`);
+        }
+        if (avgMood >= 7) {
+            insights.push('💚 Overall mood average is excellent');
+        } else if (avgMood >= 5) {
+            insights.push('📊 Mood is in moderate range - opportunities for improvement');
+        } else {
+            insights.push('⚠️ Mood average below target - reach out to your recovery coach');
+        }
+
         return {
             type: 'moodAnalysis',
-            moodDistribution,
-            summary: {
-                avgMood: (checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / checkIns.length).toFixed(1),
-                highMoodDays: checkIns.filter(c => (c.morningData?.mood || 0) >= 7).length,
-                lowMoodDays: checkIns.filter(c => (c.morningData?.mood || 0) <= 3).length,
-                totalCheckIns: checkIns.length
+            metadata: {
+                title: 'Mood Analysis Report',
+                period: `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+                generatedAt: new Date().toLocaleString('en-US'),
+                reportType: 'moodAnalysis'
             },
+            summary: {
+                avgMood: parseFloat(avgMood.toFixed(1)),
+                highMoodDays,
+                moderateMoodDays,
+                lowMoodDays,
+                totalCheckIns: checkIns.length,
+                healthyPercentage: parseFloat(healthyPercentage),
+                concerningPercentage: parseFloat(concerningPercentage)
+            },
+            insights,
             charts: {
-                distribution: moodDistribution
+                distribution: moodDistribution,
+                trends: { dates, moods }
             }
         };
-    };
+    } catch (error) {
+        console.error('Error generating mood analysis:', error);
+        throw error;
+    }
+};
 
     // ========== REPORT GENERATOR 7: CRISIS ==========
     const generateCrisisReport = async (start, end) => {
@@ -21966,18 +22173,19 @@ const generateOverviewReport = async (start, end) => {
         };
     };
 
-    // ========== REPORT GENERATOR 8: ENGAGEMENT ==========
-    const generateEngagementReport = async (start, end) => {
+   // ========== PROFESSIONAL ENGAGEMENT REPORT ==========
+const generateEngagementReport = async (start, end) => {
+    try {
         const pirsSnap = await db.collection('users')
             .where('role', '==', 'pir')
             .get();
-
+        
         const engagementData = [];
-
+        
         for (const pirDoc of pirsSnap.docs) {
             const pirId = pirDoc.id;
             const pirData = pirDoc.data();
-
+            
             const [checkInsSnap, assignmentsSnap, messagesSnap] = await Promise.all([
                 db.collection('checkIns').where('userId', '==', pirId)
                     .where('createdAt', '>=', start).where('createdAt', '<=', end).get(),
@@ -21986,7 +22194,7 @@ const generateOverviewReport = async (start, end) => {
                 db.collection('messages').where('senderId', '==', pirId)
                     .where('createdAt', '>=', start).where('createdAt', '<=', end).get()
             ]);
-
+            
             const checkIns = checkInsSnap.docs.map(d => d.data());
             const streak = calculateStreak(checkIns);
             
@@ -21994,31 +22202,64 @@ const generateOverviewReport = async (start, end) => {
             const assignmentCompletion = assignments.length > 0 
                 ? ((assignments.filter(a => a.status === 'completed').length / assignments.length) * 100).toFixed(0)
                 : 0;
-
+            
+            const engagementScore = calculateEngagementScore(
+                checkInsSnap.size, 
+                assignmentCompletion, 
+                messagesSnap.size
+            );
+            
             engagementData.push({
                 pirName: pirData.displayName || pirData.email,
                 checkInCount: checkInsSnap.size,
                 checkInStreak: streak,
                 assignmentCount: assignmentsSnap.size,
-                assignmentCompletion: assignmentCompletion,
+                assignmentCompletion: parseFloat(assignmentCompletion),
                 messageCount: messagesSnap.size,
-                engagementScore: calculateEngagementScore(
-                    checkInsSnap.size, 
-                    assignmentCompletion, 
-                    messagesSnap.size
-                )
+                engagementScore
             });
         }
-
+        
+        // Sort by engagement score
+        engagementData.sort((a, b) => b.engagementScore - a.engagementScore);
+        
+        // Calculate summary
+        const avgCheckIns = engagementData.reduce((sum, p) => sum + p.checkInCount, 0) / engagementData.length;
+        const avgCompletion = engagementData.reduce((sum, p) => sum + p.assignmentCompletion, 0) / engagementData.length;
+        const highEngagement = engagementData.filter(p => p.engagementScore >= 75).length;
+        const lowEngagement = engagementData.filter(p => p.engagementScore < 50).length;
+        
+        // Generate insights
+        const insights = [];
+        const highEngagementPercent = ((highEngagement / engagementData.length) * 100).toFixed(0);
+        
+        if (highEngagement > engagementData.length * 0.5) {
+            insights.push(`🎉 ${highEngagementPercent}% of PIRs have high engagement (75+)`);
+        }
+        if (lowEngagement > engagementData.length * 0.3) {
+            insights.push(`⚠️ ${lowEngagement} PIRs need engagement support`);
+        }
+        if (avgCheckIns >= 5) {
+            insights.push(`💚 Strong check-in activity - average ${avgCheckIns.toFixed(1)} per PIR`);
+        }
+        
         return {
             type: 'engagement',
-            engagementData: engagementData.sort((a, b) => b.engagementScore - a.engagementScore),
-            summary: {
-                avgCheckIns: (engagementData.reduce((sum, p) => sum + p.checkInCount, 0) / engagementData.length).toFixed(1),
-                avgCompletion: (engagementData.reduce((sum, p) => sum + parseFloat(p.assignmentCompletion), 0) / engagementData.length).toFixed(0),
-                highEngagement: engagementData.filter(p => p.engagementScore >= 75).length,
-                lowEngagement: engagementData.filter(p => p.engagementScore < 50).length
+            metadata: {
+                title: 'Engagement Report',
+                period: `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+                generatedAt: new Date().toLocaleString('en-US'),
+                reportType: 'engagement'
             },
+            engagementData,
+            summary: {
+                avgCheckIns: parseFloat(avgCheckIns.toFixed(1)),
+                avgCompletion: parseFloat(avgCompletion.toFixed(0)),
+                highEngagement,
+                lowEngagement,
+                totalPIRs: engagementData.length
+            },
+            insights,
             charts: {
                 engagementDistribution: {
                     labels: engagementData.map(e => e.pirName),
@@ -22026,8 +22267,11 @@ const generateOverviewReport = async (start, end) => {
                 }
             }
         };
-    };
-
+    } catch (error) {
+        console.error('Error generating engagement report:', error);
+        throw error;
+    }
+};
     // ========== REPORT GENERATOR 9: COMPARATIVE ==========
     const generateComparativeReport = async (start, end) => {
         const pirId = customConfig.selectedPIRs[0];
@@ -22068,31 +22312,37 @@ const generateOverviewReport = async (start, end) => {
         };
     };
 
-    // ========== REPORT GENERATOR 10: MILESTONES ==========
-    const generateMilestonesReport = async (start, end) => {
-        const [goalsSnap, milestonesSnap] = await Promise.all([
+  // ========== PROFESSIONAL MILESTONES REPORT ==========
+const generateMilestonesReport = async (start, end) => {
+    try {
+        const [goalsSnap, milestonesSnap, usersSnap] = await Promise.all([
             db.collection('goals')
                 .where('status', '==', 'completed')
                 .get(),
             db.collection('milestones')
                 .where('achieved', '==', true)
+                .get(),
+            db.collection('users')
+                .where('role', '==', 'pir')
                 .get()
         ]);
-
+        
+        // Filter completed goals within date range
         const completedGoals = goalsSnap.docs
             .map(doc => ({ id: doc.id, ...doc.data() }))
             .filter(g => {
                 const completedDate = g.completedAt?.toDate ? g.completedAt.toDate() : new Date(g.completedAt);
                 return completedDate >= start && completedDate <= end;
             });
-
+        
+        // Build achievements array
         const achievements = [];
-
         const usersCache = {};
+        
         for (const goal of completedGoals) {
             if (!usersCache[goal.userId]) {
                 const userDoc = await db.collection('users').doc(goal.userId).get();
-                usersCache[goal.userId] = userDoc.data()?.displayName || 'Unknown';
+                usersCache[goal.userId] = userDoc.exists() ? userDoc.data()?.displayName || 'Unknown' : 'Unknown';
             }
             
             achievements.push({
@@ -22100,21 +22350,23 @@ const generateOverviewReport = async (start, end) => {
                 type: 'goal',
                 title: goal.title,
                 completedAt: goal.completedAt,
-                category: goal.category || 'general'
+                category: goal.category || 'general',
+                description: goal.description || ''
             });
         }
-
+        
+        // Filter achieved milestones within date range
         const achievedMilestones = milestonesSnap.docs
             .map(doc => ({ id: doc.id, ...doc.data() }))
             .filter(m => {
                 const achievedDate = m.achievedAt?.toDate ? m.achievedAt.toDate() : new Date(m.achievedAt);
                 return achievedDate >= start && achievedDate <= end;
             });
-
+        
         for (const milestone of achievedMilestones) {
             if (!usersCache[milestone.userId]) {
                 const userDoc = await db.collection('users').doc(milestone.userId).get();
-                usersCache[milestone.userId] = userDoc.data()?.displayName || 'Unknown';
+                usersCache[milestone.userId] = userDoc.exists() ? userDoc.data()?.displayName || 'Unknown' : 'Unknown';
             }
             
             achievements.push({
@@ -22122,29 +22374,64 @@ const generateOverviewReport = async (start, end) => {
                 type: 'milestone',
                 title: milestone.title,
                 completedAt: milestone.achievedAt,
-                category: milestone.type || 'sobriety'
+                category: milestone.type || 'sobriety',
+                description: milestone.description || ''
             });
         }
-
+        
+        // Sort by date (newest first)
+        achievements.sort((a, b) => {
+            const dateA = a.completedAt?.toDate ? a.completedAt.toDate() : new Date(a.completedAt);
+            const dateB = b.completedAt?.toDate ? b.completedAt.toDate() : new Date(b.completedAt);
+            return dateB - dateA;
+        });
+        
+        // Get sobriety milestones
         const sobrietyMilestones = await getSobrietyMilestones(start, end);
-
+        
+        // Generate insights
+        const insights = [];
+        const totalAchievements = achievements.length;
+        
+        if (totalAchievements > 10) {
+            insights.push(`🎉 ${totalAchievements} achievements unlocked this period!`);
+        } else if (totalAchievements > 0) {
+            insights.push(`🌟 ${totalAchievements} achievements completed`);
+        }
+        
+        if (sobrietyMilestones.length > 0) {
+            insights.push(`🏆 ${sobrietyMilestones.length} sobriety milestones reached`);
+        }
+        
+        const uniquePIRs = [...new Set(achievements.map(a => a.pirName))].length;
+        if (uniquePIRs > 0) {
+            insights.push(`💪 ${uniquePIRs} PIRs achieved milestones`);
+        }
+        
         return {
             type: 'milestones',
-            achievements: achievements.sort((a, b) => {
-                const dateA = a.completedAt?.toDate ? a.completedAt.toDate() : new Date(a.completedAt);
-                const dateB = b.completedAt?.toDate ? b.completedAt.toDate() : new Date(b.completedAt);
-                return dateB - dateA;
-            }),
+            metadata: {
+                title: 'Milestones & Achievements Report',
+                period: `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+                generatedAt: new Date().toLocaleString('en-US'),
+                reportType: 'milestones'
+            },
+            achievements,
             sobrietyMilestones,
             summary: {
                 totalAchievements: achievements.length,
                 goalsCompleted: completedGoals.length,
                 milestonesAchieved: achievedMilestones.length,
-                sobrietyMilestones: sobrietyMilestones.length
-            }
+                sobrietyMilestones: sobrietyMilestones.length,
+                uniquePIRs
+            },
+            insights
         };
-    };
-
+    } catch (error) {
+        console.error('Error generating milestones report:', error);
+        throw error;
+    }
+};
     // ========== REPORT GENERATOR 11: COMMUNICATION ==========
     const generateCommunicationReport = async (start, end) => {
         const messagesSnap = await db.collection('messages')
@@ -22472,410 +22759,749 @@ const generateOverviewReport = async (start, end) => {
         return recs;
     };
 
-    // ========== CHART RENDERING ==========
-    const renderCharts = () => {
-        Object.values(chartInstances.current).forEach(chart => {
-            if (chart) chart.destroy();
-        });
+  // ========== PROFESSIONAL CHART RENDERING ==========
+const renderCharts = () => {
+    // Destroy existing charts
+    Object.values(chartInstances.current).forEach(chart => {
+        if (chart) chart.destroy();
+    });
 
-        const data = reportData;
-        const newCharts = {};
+    const data = reportData;
+    const newCharts = {};
 
-        // Mood Trend
-        if (data.charts?.trends && chartRefs.moodTrend.current) {
-            const ctx = chartRefs.moodTrend.current.getContext('2d');
-            newCharts.moodTrend = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: data.charts.trends.dates,
-                    datasets: [{
-                        label: 'Average Mood',
+    // ========== MOOD & CRAVINGS CORRELATION (LINE CHART) ==========
+    if (data.charts?.trends && chartRefs.moodVsCravings.current) {
+        const ctx = chartRefs.moodVsCravings.current.getContext('2d');
+        newCharts.moodVsCravings = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.charts.trends.dates,
+                datasets: [
+                    {
+                        label: 'Mood',
                         data: data.charts.trends.moods,
-                        borderColor: '#667eea',
-                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderColor: '#4CAF50',
+                        backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                        borderWidth: 3,
                         tension: 0.4,
-                        fill: true,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: true, position: 'top' }
+                        fill: false,
+                        pointRadius: 5,
+                        pointHoverRadius: 7,
+                        pointBackgroundColor: '#4CAF50',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2
                     },
-                    scales: {
-                        y: { 
-                            beginAtZero: true, 
-                            max: 10,
-                            title: { display: true, text: 'Mood Level' }
-                        },
-                        x: {
-                            title: { display: true, text: 'Date' }
-                        }
-                    }
-                }
-            });
-        }
-
-        // Craving Trend
-        if (data.charts?.trends && chartRefs.cravingTrend.current) {
-            const ctx = chartRefs.cravingTrend.current.getContext('2d');
-            newCharts.cravingTrend = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: data.charts.trends.dates,
-                    datasets: [{
-                        label: 'Average Cravings',
+                    {
+                        label: 'Cravings',
                         data: data.charts.trends.cravings,
                         borderColor: '#f44336',
                         backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                        borderWidth: 3,
                         tension: 0.4,
-                        fill: true,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
-                    }]
+                        fill: false,
+                        pointRadius: 5,
+                        pointHoverRadius: 7,
+                        pointBackgroundColor: '#f44336',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: true, position: 'top' }
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Mood & Cravings Correlation',
+                        font: { size: 16, weight: 'bold' },
+                        padding: 15
                     },
-                    scales: {
-                        y: { 
-                            beginAtZero: true, 
-                            max: 10,
-                            title: { display: true, text: 'Craving Level' }
+                    subtitle: {
+                        display: true,
+                        text: 'Notice how these metrics relate to each other over time',
+                        font: { size: 12 },
+                        color: '#666',
+                        padding: { bottom: 15 }
+                    },
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 15,
+                            font: { size: 13 }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0,0,0,0.8)',
+                        padding: 12,
+                        titleFont: { size: 13, weight: 'bold' },
+                        bodyFont: { size: 12 },
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.parsed.y + '/10';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            font: { size: 13, weight: 'bold' }
                         },
-                        x: {
-                            title: { display: true, text: 'Date' }
+                        grid: {
+                            display: false
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Level (0-10)',
+                            font: { size: 13, weight: 'bold' }
+                        },
+                        min: 0,
+                        max: 10,
+                        ticks: {
+                            stepSize: 1
+                        },
+                        grid: {
+                            color: 'rgba(0,0,0,0.08)'
                         }
                     }
                 }
-            });
-        }
+            }
+        });
+    }
 
-        // Anxiety Trend
-        if (data.charts?.trends && chartRefs.anxietyTrend.current) {
-            const ctx = chartRefs.anxietyTrend.current.getContext('2d');
-            newCharts.anxietyTrend = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: data.charts.trends.dates,
-                    datasets: [{
-                        label: 'Average Anxiety',
+    // ========== ANXIETY & SLEEP CORRELATION (LINE CHART) ==========
+    if (data.charts?.trends && chartRefs.anxietyVsSleep.current) {
+        const ctx = chartRefs.anxietyVsSleep.current.getContext('2d');
+        newCharts.anxietyVsSleep = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.charts.trends.dates,
+                datasets: [
+                    {
+                        label: 'Anxiety',
                         data: data.charts.trends.anxiety,
                         borderColor: '#FF9800',
                         backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                        borderWidth: 3,
                         tension: 0.4,
-                        fill: true,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: true, position: 'top' }
+                        fill: false,
+                        pointRadius: 5,
+                        pointHoverRadius: 7,
+                        pointBackgroundColor: '#FF9800',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2
                     },
-                    scales: {
-                        y: { 
-                            beginAtZero: true, 
-                            max: 10,
-                            title: { display: true, text: 'Anxiety Level' }
-                        },
-                        x: {
-                            title: { display: true, text: 'Date' }
-                        }
-                    }
-                }
-            });
-        }
-
-        // Sleep Trend
-        if (data.charts?.trends && chartRefs.sleepTrend.current) {
-            const ctx = chartRefs.sleepTrend.current.getContext('2d');
-            newCharts.sleepTrend = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: data.charts.trends.dates,
-                    datasets: [{
-                        label: 'Average Sleep Quality',
+                    {
+                        label: 'Sleep Quality',
                         data: data.charts.trends.sleep,
                         borderColor: '#9C27B0',
                         backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                        borderWidth: 3,
                         tension: 0.4,
-                        fill: true,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: true, position: 'top' }
-                    },
-                    scales: {
-                        y: { 
-                            beginAtZero: true, 
-                            max: 10,
-                            title: { display: true, text: 'Sleep Quality' }
-                        },
-                        x: {
-                            title: { display: true, text: 'Date' }
-                        }
-                    }
-                }
-            });
-        }
-
-        // Mood vs Cravings Scatter
-        if (data.charts?.moodVsCravings && chartRefs.moodVsCravings.current) {
-            const ctx = chartRefs.moodVsCravings.current.getContext('2d');
-            newCharts.moodVsCravings = new Chart(ctx, {
-                type: 'scatter',
-                data: {
-                    datasets: [{
-                        label: 'Mood vs Cravings',
-                        data: data.charts.moodVsCravings.data,
-                        backgroundColor: 'rgba(102, 126, 234, 0.6)',
-                        borderColor: '#667eea',
+                        fill: false,
                         pointRadius: 5,
-                        pointHoverRadius: 7
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: true, position: 'top' }
-                    },
-                    scales: {
-                        x: { 
-                            title: { display: true, text: 'Mood' }, 
-                            min: 0, 
-                            max: 10 
-                        },
-                        y: { 
-                            title: { display: true, text: 'Cravings' }, 
-                            min: 0, 
-                            max: 10 
-                        }
+                        pointHoverRadius: 7,
+                        pointBackgroundColor: '#9C27B0',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2
                     }
-                }
-            });
-        }
-
-        // Anxiety vs Sleep Scatter
-        if (data.charts?.anxietyVsSleep && chartRefs.anxietyVsSleep.current) {
-            const ctx = chartRefs.anxietyVsSleep.current.getContext('2d');
-            newCharts.anxietyVsSleep = new Chart(ctx, {
-                type: 'scatter',
-                data: {
-                    datasets: [{
-                        label: 'Anxiety vs Sleep Quality',
-                        data: data.charts.anxietyVsSleep.data,
-                        backgroundColor: 'rgba(156, 39, 176, 0.6)',
-                        borderColor: '#9C27B0',
-                        pointRadius: 5,
-                        pointHoverRadius: 7
-                    }]
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: true, position: 'top' }
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Anxiety & Sleep Quality Correlation',
+                        font: { size: 16, weight: 'bold' },
+                        padding: 15
                     },
-                    scales: {
-                        x: { 
-                            title: { display: true, text: 'Anxiety Level' }, 
-                            min: 0, 
-                            max: 10 
-                        },
-                        y: { 
-                            title: { display: true, text: 'Sleep Quality' }, 
-                            min: 0, 
-                            max: 10 
-                        }
-                    }
-                }
-            });
-        }
-
-        // Mood Distribution Bar Chart
-        if (data.charts?.distribution && chartRefs.moodDistribution.current) {
-            const ctx = chartRefs.moodDistribution.current.getContext('2d');
-            newCharts.moodDistribution = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
-                    datasets: [{
-                        label: 'Mood Distribution',
-                        data: data.charts.distribution,
-                        backgroundColor: 'rgba(102, 126, 234, 0.6)',
-                        borderColor: '#667eea',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: true, position: 'top' }
+                    subtitle: {
+                        display: true,
+                        text: 'See how anxiety levels affect your sleep quality',
+                        font: { size: 12 },
+                        color: '#666',
+                        padding: { bottom: 15 }
                     },
-                    scales: {
-                        y: { 
-                            beginAtZero: true,
-                            title: { display: true, text: 'Frequency' }
-                        },
-                        x: {
-                            title: { display: true, text: 'Mood Level' }
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 15,
+                            font: { size: 13 }
                         }
-                    }
-                }
-            });
-        }
-
-        // Risk Distribution Doughnut
-        if (data.charts?.riskDistribution && chartRefs.riskDistribution.current) {
-            const ctx = chartRefs.riskDistribution.current.getContext('2d');
-            newCharts.riskDistribution = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: data.charts.riskDistribution.labels,
-                    datasets: [{
-                        data: data.charts.riskDistribution.data,
-                        backgroundColor: ['#4CAF50', '#FF9800', '#f44336'],
-                        borderWidth: 2,
-                        borderColor: '#fff'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { 
-                            display: true, 
-                            position: 'bottom',
-                            labels: {
-                                padding: 15,
-                                font: { size: 12 }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0,0,0,0.8)',
+                        padding: 12,
+                        titleFont: { size: 13, weight: 'bold' },
+                        bodyFont: { size: 12 },
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.parsed.y + '/10';
                             }
                         }
                     }
-                }
-            });
-        }
-
-        // Sobriety vs Cravings Scatter
-        if (data.charts?.sobrietyVsCravings && chartRefs.sobrietyVsCravings.current) {
-            const ctx = chartRefs.sobrietyVsCravings.current.getContext('2d');
-            newCharts.sobrietyVsCravings = new Chart(ctx, {
-                type: 'scatter',
-                data: {
-                    datasets: [{
-                        label: 'Days Sober vs Cravings',
-                        data: data.charts.sobrietyVsCravings.data,
-                        backgroundColor: 'rgba(76, 175, 80, 0.6)',
-                        borderColor: '#4CAF50',
-                        pointRadius: 5,
-                        pointHoverRadius: 7
-                    }]
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: true, position: 'top' }
-                    },
-                    scales: {
-                        x: { 
-                            title: { display: true, text: 'Days Sober' },
-                            beginAtZero: true
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            font: { size: 13, weight: 'bold' }
                         },
-                        y: { 
-                            title: { display: true, text: 'Average Cravings' }, 
-                            min: 0, 
-                            max: 10 
+                        grid: {
+                            display: false
                         }
-                    }
-                }
-            });
-        }
-
-        // Goal Completion Pie Chart
-        if (data.charts?.goalCompletion && chartRefs.goalCompletion.current) {
-            const ctx = chartRefs.goalCompletion.current.getContext('2d');
-            newCharts.goalCompletion = new Chart(ctx, {
-                type: 'pie',
-                data: {
-                    labels: data.charts.goalCompletion.labels,
-                    datasets: [{
-                        data: data.charts.goalCompletion.data,
-                        backgroundColor: ['#667eea', '#4CAF50'],
-                        borderWidth: 2,
-                        borderColor: '#fff'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { 
-                            display: true, 
-                            position: 'bottom',
-                            labels: {
-                                padding: 15,
-                                font: { size: 12 }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        // Engagement Distribution Bar Chart
-        if (data.charts?.engagementDistribution && chartRefs.engagementChart.current) {
-            const ctx = chartRefs.engagementChart.current.getContext('2d');
-            newCharts.engagementChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: data.charts.engagementDistribution.labels,
-                    datasets: [{
-                        label: 'Engagement Score',
-                        data: data.charts.engagementDistribution.data,
-                        backgroundColor: data.charts.engagementDistribution.data.map(score => 
-                            score >= 75 ? '#4CAF50' : score >= 50 ? '#FF9800' : '#f44336'
-                        ),
-                        borderColor: '#fff',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    indexAxis: 'y',
-                    plugins: {
-                        legend: { display: false }
                     },
-                    scales: {
-                        x: { 
-                            beginAtZero: true, 
-                            max: 100,
-                            title: { display: true, text: 'Engagement Score' }
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Level (0-10)',
+                            font: { size: 13, weight: 'bold' }
+                        },
+                        min: 0,
+                        max: 10,
+                        ticks: {
+                            stepSize: 1
+                        },
+                        grid: {
+                            color: 'rgba(0,0,0,0.08)'
                         }
                     }
                 }
-            });
-        }
+            }
+        });
+    }
 
-        chartInstances.current = newCharts;
-    };
+    // ========== MOOD DISTRIBUTION (COLOR-CODED BAR CHART) ==========
+    if (data.charts?.distribution && chartRefs.moodDistribution.current) {
+        const ctx = chartRefs.moodDistribution.current.getContext('2d');
+        newCharts.moodDistribution = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
+                datasets: [{
+                    label: 'Days at this mood level',
+                    data: data.charts.distribution,
+                    backgroundColor: [
+                        '#f44336', '#f44336', '#f44336', // 1-3: Red (Concerning)
+                        '#FF9800', '#FF9800', '#FF9800', // 4-6: Orange (Moderate)
+                        '#4CAF50', '#4CAF50', '#4CAF50', '#4CAF50' // 7-10: Green (Healthy)
+                    ],
+                    borderColor: '#fff',
+                    borderWidth: 2,
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Mood Distribution - Where You Spend Your Time',
+                        font: { size: 16, weight: 'bold' },
+                        padding: 15
+                    },
+                    subtitle: {
+                        display: true,
+                        text: 'Red (1-3): Needs Support | Orange (4-6): Moderate | Green (7-10): Healthy',
+                        font: { size: 11 },
+                        color: '#666',
+                        padding: { bottom: 15 }
+                    },
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Number of Days',
+                            font: { size: 13, weight: 'bold' }
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: '← Low Mood — MOOD SCALE — High Mood →',
+                            font: { size: 13, weight: 'bold' }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // ========== MOOD TREND (SINGLE LINE) ==========
+    if (data.charts?.trends && chartRefs.moodTrend.current) {
+        const ctx = chartRefs.moodTrend.current.getContext('2d');
+        newCharts.moodTrend = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.charts.trends.dates,
+                datasets: [{
+                    label: 'Average Mood',
+                    data: data.charts.trends.moods,
+                    borderColor: '#4CAF50',
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    borderWidth: 3,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    pointBackgroundColor: '#4CAF50',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Daily Mood Trend',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { 
+                        beginAtZero: true, 
+                        max: 10,
+                        title: { display: true, text: 'Mood Level (0-10)', font: { weight: 'bold' } }
+                    },
+                    x: {
+                        title: { display: true, text: 'Date', font: { weight: 'bold' } }
+                    }
+                }
+            }
+        });
+    }
+
+    // ========== CRAVING TREND (SINGLE LINE) ==========
+    if (data.charts?.trends && chartRefs.cravingTrend.current) {
+        const ctx = chartRefs.cravingTrend.current.getContext('2d');
+        newCharts.cravingTrend = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.charts.trends.dates,
+                datasets: [{
+                    label: 'Average Cravings',
+                    data: data.charts.trends.cravings,
+                    borderColor: '#f44336',
+                    backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                    borderWidth: 3,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    pointBackgroundColor: '#f44336',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Daily Cravings Trend',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { 
+                        beginAtZero: true, 
+                        max: 10,
+                        title: { display: true, text: 'Craving Level (0-10)', font: { weight: 'bold' } }
+                    },
+                    x: {
+                        title: { display: true, text: 'Date', font: { weight: 'bold' } }
+                    }
+                }
+            }
+        });
+    }
+
+    // ========== ANXIETY TREND (SINGLE LINE) ==========
+    if (data.charts?.trends && chartRefs.anxietyTrend.current) {
+        const ctx = chartRefs.anxietyTrend.current.getContext('2d');
+        newCharts.anxietyTrend = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.charts.trends.dates,
+                datasets: [{
+                    label: 'Average Anxiety',
+                    data: data.charts.trends.anxiety,
+                    borderColor: '#FF9800',
+                    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                    borderWidth: 3,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    pointBackgroundColor: '#FF9800',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Daily Anxiety Trend',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { 
+                        beginAtZero: true, 
+                        max: 10,
+                        title: { display: true, text: 'Anxiety Level (0-10)', font: { weight: 'bold' } }
+                    },
+                    x: {
+                        title: { display: true, text: 'Date', font: { weight: 'bold' } }
+                    }
+                }
+            }
+        });
+    }
+
+    // ========== SLEEP TREND (SINGLE LINE) ==========
+    if (data.charts?.trends && chartRefs.sleepTrend.current) {
+        const ctx = chartRefs.sleepTrend.current.getContext('2d');
+        newCharts.sleepTrend = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.charts.trends.dates,
+                datasets: [{
+                    label: 'Average Sleep Quality',
+                    data: data.charts.trends.sleep,
+                    borderColor: '#9C27B0',
+                    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                    borderWidth: 3,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    pointBackgroundColor: '#9C27B0',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Daily Sleep Quality Trend',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { 
+                        beginAtZero: true, 
+                        max: 10,
+                        title: { display: true, text: 'Sleep Quality (0-10)', font: { weight: 'bold' } }
+                    },
+                    x: {
+                        title: { display: true, text: 'Date', font: { weight: 'bold' } }
+                    }
+                }
+            }
+        });
+    }
+
+    // ========== ENGAGEMENT DISTRIBUTION ==========
+    if (data.charts?.engagementDistribution && chartRefs.engagementChart.current) {
+        const ctx = chartRefs.engagementChart.current.getContext('2d');
+        newCharts.engagementChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.charts.engagementDistribution.labels,
+                datasets: [{
+                    label: 'Engagement Score',
+                    data: data.charts.engagementDistribution.data,
+                    backgroundColor: data.charts.engagementDistribution.data.map(score => 
+                        score >= 75 ? '#4CAF50' : score >= 50 ? '#FF9800' : '#f44336'
+                    ),
+                    borderColor: '#fff',
+                    borderWidth: 2,
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'PIR Engagement Scores',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: { display: false }
+                },
+                scales: {
+                    x: { 
+                        beginAtZero: true, 
+                        max: 100,
+                        title: { display: true, text: 'Engagement Score (%)', font: { weight: 'bold' } }
+                    }
+                }
+            }
+        });
+    }
+
+    // ========== EVENING REFLECTIONS - OVERALL DAY TREND ==========
+    if (data.charts?.trends?.overallDayScores && chartRefs.overallDayTrend.current) {
+        const ctx = chartRefs.overallDayTrend.current.getContext('2d');
+        newCharts.overallDayTrend = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.charts.trends.dates,
+                datasets: [{
+                    label: 'Overall Day Rating',
+                    data: data.charts.trends.overallDayScores,
+                    borderColor: '#667eea',
+                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                    borderWidth: 3,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    pointBackgroundColor: '#667eea',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Daily Overall Day Rating',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { 
+                        beginAtZero: true, 
+                        max: 10,
+                        title: { display: true, text: 'Overall Day (0-10)', font: { weight: 'bold' } }
+                    },
+                    x: {
+                        title: { display: true, text: 'Date', font: { weight: 'bold' } }
+                    }
+                }
+            }
+        });
+    }
+
+    // ========== EVENING REFLECTIONS - DAY QUALITY PIE CHART ==========
+    if (data.charts?.dayQualityDistribution && chartRefs.dayQualityPie.current) {
+        const ctx = chartRefs.dayQualityPie.current.getContext('2d');
+        newCharts.dayQualityPie = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: data.charts.dayQualityDistribution.labels,
+                datasets: [{
+                    data: data.charts.dayQualityDistribution.data,
+                    backgroundColor: ['#4CAF50', '#FF9800', '#f44336'],
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Day Quality Distribution',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: { 
+                        display: true, 
+                        position: 'bottom',
+                        labels: {
+                            padding: 15,
+                            font: { size: 12 }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // ========== EVENING REFLECTIONS - COMPLETION BREAKDOWN ==========
+    if (data.charts?.completionBreakdown && chartRefs.completionBar.current) {
+        const ctx = chartRefs.completionBar.current.getContext('2d');
+        newCharts.completionBar = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.charts.completionBreakdown.labels,
+                datasets: [{
+                    label: 'Completed',
+                    data: data.charts.completionBreakdown.data,
+                    backgroundColor: ['#4CAF50', '#FF9800', '#667eea'],
+                    borderColor: '#fff',
+                    borderWidth: 2,
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Reflection Component Completion',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { 
+                        beginAtZero: true,
+                        title: { display: true, text: 'Number of Entries', font: { weight: 'bold' } }
+                    }
+                }
+            }
+        });
+    }
+
+    // ========== KEEP EXISTING CHARTS (Risk, Sobriety, Goals) ==========
+    
+    // Risk Distribution Doughnut
+    if (data.charts?.riskDistribution && chartRefs.riskDistribution.current) {
+        const ctx = chartRefs.riskDistribution.current.getContext('2d');
+        newCharts.riskDistribution = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: data.charts.riskDistribution.labels,
+                datasets: [{
+                    data: data.charts.riskDistribution.data,
+                    backgroundColor: ['#4CAF50', '#FF9800', '#f44336'],
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { 
+                        display: true, 
+                        position: 'bottom',
+                        labels: {
+                            padding: 15,
+                            font: { size: 12 }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Sobriety vs Cravings Scatter
+    if (data.charts?.sobrietyVsCravings && chartRefs.sobrietyVsCravings.current) {
+        const ctx = chartRefs.sobrietyVsCravings.current.getContext('2d');
+        newCharts.sobrietyVsCravings = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: 'Days Sober vs Cravings',
+                    data: data.charts.sobrietyVsCravings.data,
+                    backgroundColor: 'rgba(76, 175, 80, 0.6)',
+                    borderColor: '#4CAF50',
+                    pointRadius: 5,
+                    pointHoverRadius: 7
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: true, position: 'top' }
+                },
+                scales: {
+                    x: { 
+                        title: { display: true, text: 'Days Sober' },
+                        beginAtZero: true
+                    },
+                    y: { 
+                        title: { display: true, text: 'Average Cravings' }, 
+                        min: 0, 
+                        max: 10 
+                    }
+                }
+            }
+        });
+    }
+
+    // Goal Completion Pie Chart
+    if (data.charts?.goalCompletion && chartRefs.goalCompletion.current) {
+        const ctx = chartRefs.goalCompletion.current.getContext('2d');
+        newCharts.goalCompletion = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: data.charts.goalCompletion.labels,
+                datasets: [{
+                    data: data.charts.goalCompletion.data,
+                    backgroundColor: ['#667eea', '#4CAF50'],
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { 
+                        display: true, 
+                        position: 'bottom',
+                        labels: {
+                            padding: 15,
+                            font: { size: 12 }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    chartInstances.current = newCharts;
+};
 
     // ========== PDF EXPORT (CONTINUED) ==========
     const exportReportToPDF = async (data, reportTitle) => {
