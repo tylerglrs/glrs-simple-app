@@ -20481,39 +20481,35 @@ const waitForPDFGeneration = async (docRef, reportId, timeoutMs = 120000) => {
                 // Get the report creation time
                 const reportCreatedAt = data.createdAt ? data.createdAt.toDate() : new Date(startTime);
                 
-                // Look for PDF files created after our report
-                for (const item of result.items) {
-                    if (item.name.endsWith('.pdf')) {
-                        try {
-                            // Get file metadata to check creation time
-                            const metadata = await item.getMetadata();
-                            const fileCreatedAt = new Date(metadata.timeCreated);
-                            
-                            // If PDF was created after our report (within 2 minutes)
-                            const timeDiff = fileCreatedAt - reportCreatedAt;
-                            
-                            if (timeDiff > 0 && timeDiff < 120000) {
-                                console.log(`📄 Found matching PDF: ${item.name}`);
-                                
-                                const pdfUrl = await item.getDownloadURL();
-                                console.log('✅ PDF URL retrieved from Storage:', pdfUrl);
-                                
-                                // Update Firestore with the PDF URL
-                                await docRef.update({
-                                    pdfUrl: pdfUrl,
-                                    status: 'complete',
-                                    completedAt: firebase.firestore.FieldValue.serverTimestamp()
-                                });
-                                
-                                console.log('✅ Firestore document updated with PDF URL');
-                                resolve(pdfUrl);
-                                return;
-                            }
-                        } catch (metaError) {
-                            console.warn('⚠️ Could not check metadata for:', item.name, metaError);
-                        }
-                    }
-                }
+                // Look for PDF files - match by document ID
+for (const item of result.items) {
+    if (item.name.endsWith('.pdf')) {
+        // Check if filename matches the report document ID
+        const reportDocId = docRef.id;
+        
+        if (item.name.includes(reportDocId) || item.name === `${reportDocId}.pdf`) {
+            console.log(`📄 Found matching PDF: ${item.name}`);
+            
+            try {
+                const pdfUrl = await item.getDownloadURL();
+                console.log('✅ PDF URL retrieved from Storage:', pdfUrl);
+                
+                // Update Firestore with the PDF URL
+                await docRef.update({
+                    pdfUrl: pdfUrl,
+                    status: 'complete',
+                    completedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                console.log('✅ Firestore document updated with PDF URL');
+                resolve(pdfUrl);
+                return;
+            } catch (urlError) {
+                console.error('❌ Error getting PDF URL:', urlError);
+            }
+        }
+    }
+}
                 
                 // Check if timeout exceeded
                 if (Date.now() - startTime > timeoutMs) {
