@@ -20795,10 +20795,6 @@ return { success: successCount === 5, pirEmail: pirData.email, sentCount: succes
     }
 };
 
-   
-
-
-
 // ========== SEND ALL WEEKLY REPORTS ==========
 const sendAllWeeklyReports = async () => {
     try {
@@ -20865,6 +20861,112 @@ const sendAllMonthlyReports = async () => {
     } catch (error) {
         console.error('❌ Error sending monthly reports:', error);
         alert('Error sending monthly reports. Check console for details.');
+        throw error;
+    }
+};
+   // ==========================================
+// GOOGLE DRIVE FOLDER MANAGEMENT
+// ==========================================
+
+const GLRS_MAIN_FOLDER_ID = '1Nuem8Nw8a3LxkVya0U3GcV6nwmdp3VCw'; // Your main folder
+
+// ========== CREATE OR GET PIR FOLDER ==========
+const getOrCreatePIRFolder = async (pirName, accessToken) => {
+    try {
+        console.log(`📁 Looking for folder: ${pirName}`);
+        
+        // Search for PIR folder inside main folder
+        const searchResponse = await fetch(
+            `https://www.googleapis.com/drive/v3/files?q=name='${pirName}' and '${GLRS_MAIN_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            }
+        );
+        
+        const searchData = await searchResponse.json();
+        
+        if (searchData.files && searchData.files.length > 0) {
+            console.log(`✅ Found existing PIR folder: ${searchData.files[0].id}`);
+            return searchData.files[0].id;
+        }
+        
+        // Create PIR folder if it doesn't exist
+        console.log(`📁 Creating new PIR folder: ${pirName}`);
+        const createResponse = await fetch(
+            'https://www.googleapis.com/drive/v3/files',
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: pirName,
+                    mimeType: 'application/vnd.google-apps.folder',
+                    parents: [GLRS_MAIN_FOLDER_ID]
+                })
+            }
+        );
+        
+        const createData = await createResponse.json();
+        console.log(`✅ Created PIR folder: ${createData.id}`);
+        return createData.id;
+        
+    } catch (error) {
+        console.error('❌ Error managing PIR folder:', error);
+        throw error;
+    }
+};
+
+// ========== CREATE OR GET REPORT TYPE FOLDER (Weekly/Monthly) ==========
+const getOrCreateReportTypeFolder = async (pirFolderId, reportType, accessToken) => {
+    try {
+        const folderName = reportType === 'weekly' ? 'Weekly Reports' : 'Monthly Reports';
+        console.log(`📁 Looking for ${folderName} folder...`);
+        
+        // Search for report type folder
+        const searchResponse = await fetch(
+            `https://www.googleapis.com/drive/v3/files?q=name='${folderName}' and '${pirFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            }
+        );
+        
+        const searchData = await searchResponse.json();
+        
+        if (searchData.files && searchData.files.length > 0) {
+            console.log(`✅ Found existing ${folderName} folder: ${searchData.files[0].id}`);
+            return searchData.files[0].id;
+        }
+        
+        // Create folder if doesn't exist
+        console.log(`📁 Creating ${folderName} folder...`);
+        const createResponse = await fetch(
+            'https://www.googleapis.com/drive/v3/files',
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: folderName,
+                    mimeType: 'application/vnd.google-apps.folder',
+                    parents: [pirFolderId]
+                })
+            }
+        );
+        
+        const createData = await createResponse.json();
+        console.log(`✅ Created ${folderName} folder: ${createData.id}`);
+        return createData.id;
+        
+    } catch (error) {
+        console.error(`❌ Error managing report type folder:`, error);
         throw error;
     }
 };
