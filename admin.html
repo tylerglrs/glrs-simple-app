@@ -20154,164 +20154,327 @@ const chartInstances = useRef({});
             console.error('Error loading check-ins:', error);
         }
     };
-  // ==========================================
-// PDFPLUM INTEGRATION - UPLOAD CHARTS TO STORAGE
+ // ==========================================
+// GOOGLE DRIVE PDF GENERATION & EMAIL SYSTEM
 // ==========================================
 
-// ========== LOGO BASE64 ==========
+// ========== CONSTANTS ==========
+const GLRS_MAIN_FOLDER_ID = '1Nuem8Nw8a3LxkVya0U3GcV6nwmdp3VCw';
 const GLRS_LOGO_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEAmpwYAAAEu0lEQVR4nO2ZW2wUVRzGv5mdmd3Z7rbbXbe7pbQtpRRKS0sRKBcRUB4UH4zRxBuJMSZqfPBBTXzwwQcTE40vvhhj4oMxMcYHE2OMiTHGGBNjjIkxxhgTY4yJMcYYY2L8zjkz252d2Z3tbktL0ZN8yc7MmXP+3/87l9kBHnjggQceeOD/Dco0KKVUSimlUkqplFIqpZRKKaVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqn/r1JKqZRSKqWUSilVSimVUkqllFIppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppZRSKqWUSv2/lVJKpZRSKaVUSqmUUiqllFIppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoplVJKpZRSKaVUSqmUUiqllEoppVRKKZVS/2+llFIppVRKKZVSSqWUUimllFJKpZRSKaVUSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoplVJKpZRSKaVUSqmUUiqllEoppVRK/X+VUkqllFIppVRKKZVSSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqWUUimllFIppVRKqZRSKqWUSqmUUiqllEr9v5VSSqmUUiqllEoplVJKpZRSKaVUSqmUUiqllEoplVJKpZRSKqWUSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7fSimlUkqplFIqpZRKKaVSSqmUUiqllEoplVJKpZRKKaVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7fSimlUkqplFIqpZRKKaVSSqmUUiqllEoplVJKpZRKKaVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7fSimlUkqplFIqpZRKKaVSSqmUUiqllEoplVJKpZRKKaVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7fSimlUkqplFIqpZRKKaVSSqmUUiqllEoplVJKpZRKKaVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7fSimlUkqplFIqpZRKKaVSSqmUUiqllEoplVJKpZRKKaVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7/6k+xKg0Q8QAAAABJRU5ErkJggg==";
 
-// ========== CONVERT BASE64 TO BLOB ==========
-const base64ToBlob = (base64Data) => {
-    const parts = base64Data.split(';base64,');
-    const contentType = parts[0].split(':')[1];
-    const raw = window.atob(parts[1]);
-    const rawLength = raw.length;
-    const uInt8Array = new Uint8Array(rawLength);
-
-    for (let i = 0; i < rawLength; ++i) {
-        uInt8Array[i] = raw.charCodeAt(i);
-    }
-
-    return new Blob([uInt8Array], { type: contentType });
-};
-
-// ========== UPLOAD BASE64 IMAGE TO FIREBASE STORAGE ==========
-const uploadChartToStorage = async (base64Image, chartName, reportId) => {
+// ========== GOOGLE DRIVE FOLDER MANAGEMENT ==========
+const getOrCreatePIRFolder = async (pirName, accessToken) => {
     try {
-        if (!base64Image) return null;
-
-        console.log(`📤 Uploading ${chartName}...`);
-
-        // Convert base64 to blob
-        const blob = base64ToBlob(base64Image);
-
-        // Create storage reference
-        const timestamp = Date.now();
-        const storageRef = firebase.storage().ref();
-        const chartRef = storageRef.child(`reports/${reportId}/${chartName}_${timestamp}.png`);
-
-        // Upload blob
-        await chartRef.put(blob, {
-            contentType: 'image/png',
-            cacheControl: 'public, max-age=31536000' // Cache for 1 year
-        });
-
-        // Get download URL
-        const downloadURL = await chartRef.getDownloadURL();
-        console.log(`✅ Uploaded ${chartName}`);
-
-        return downloadURL;
-
-    } catch (error) {
-        console.error(`❌ Error uploading ${chartName}:`, error);
-        return null;
-    }
-};
-
-// ========== CONVERT CHART.JS TO BASE64 IMAGE ==========
-const chartToBase64 = async (chartRef) => {
-    return new Promise((resolve) => {
-        if (!chartRef || !chartRef.current) {
-            resolve(null);
-            return;
-        }
-
-        try {
-            const canvas = chartRef.current;
-            const base64Image = canvas.toDataURL('image/png', 0.9);
-            resolve(base64Image);
-        } catch (error) {
-            console.error('Error converting chart to base64:', error);
-            resolve(null);
-        }
-    });
-};
-
-// ========== CONVERT ALL CHARTS TO BASE64 AND UPLOAD TO STORAGE ==========
-const convertAndUploadCharts = async (reportData, reportId) => {
-    const chartURLs = {};
-
-    try {
-        console.log('📊 Converting charts to images and uploading to Storage...');
+        console.log(`📁 Looking for folder: ${pirName}`);
         
-        // Wait a moment for charts to fully render
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Convert charts to base64
-        const chartBase64Map = {};
-        
-        if (chartRefs.moodVsCravings.current) {
-            chartBase64Map.moodVsCravings = await chartToBase64(chartRefs.moodVsCravings);
-        }
-        if (chartRefs.anxietyVsSleep.current) {
-            chartBase64Map.anxietyVsSleep = await chartToBase64(chartRefs.anxietyVsSleep);
-        }
-        if (chartRefs.moodDistribution.current) {
-            chartBase64Map.moodDistribution = await chartToBase64(chartRefs.moodDistribution);
-        }
-        if (chartRefs.moodTrend.current) {
-            chartBase64Map.moodTrend = await chartToBase64(chartRefs.moodTrend);
-        }
-        if (chartRefs.cravingTrend.current) {
-            chartBase64Map.cravingTrend = await chartToBase64(chartRefs.cravingTrend);
-        }
-        if (chartRefs.anxietyTrend.current) {
-            chartBase64Map.anxietyTrend = await chartToBase64(chartRefs.anxietyTrend);
-        }
-        if (chartRefs.sleepTrend.current) {
-            chartBase64Map.sleepTrend = await chartToBase64(chartRefs.sleepTrend);
-        }
-        if (chartRefs.overallDayTrend.current) {
-            chartBase64Map.overallDayTrend = await chartToBase64(chartRefs.overallDayTrend);
-        }
-        if (chartRefs.dayQualityPie.current) {
-            chartBase64Map.dayQualityPie = await chartToBase64(chartRefs.dayQualityPie);
-        }
-        if (chartRefs.completionBar.current) {
-            chartBase64Map.completionBar = await chartToBase64(chartRefs.completionBar);
-        }
-        if (chartRefs.riskDistribution.current) {
-            chartBase64Map.riskDistribution = await chartToBase64(chartRefs.riskDistribution);
-        }
-        if (chartRefs.sobrietyVsCravings.current) {
-            chartBase64Map.sobrietyVsCravings = await chartToBase64(chartRefs.sobrietyVsCravings);
-        }
-        if (chartRefs.goalCompletion.current) {
-            chartBase64Map.goalCompletion = await chartToBase64(chartRefs.goalCompletion);
-        }
-        if (chartRefs.engagementChart.current) {
-            chartBase64Map.engagement = await chartToBase64(chartRefs.engagementChart);
-        }
-
-        console.log(`✅ Converted ${Object.keys(chartBase64Map).length} charts to base64`);
-
-        // Upload all charts to Storage in parallel
-        const uploadPromises = Object.entries(chartBase64Map).map(([chartName, base64Data]) => {
-            return uploadChartToStorage(base64Data, chartName, reportId)
-                .then(url => ({ chartName, url }));
-        });
-
-        const uploadResults = await Promise.all(uploadPromises);
-
-        // Map results to chart URLs
-        uploadResults.forEach(({ chartName, url }) => {
-            if (url) {
-                chartURLs[`chart${chartName.charAt(0).toUpperCase() + chartName.slice(1)}`] = url;
+        const searchResponse = await fetch(
+            `https://www.googleapis.com/drive/v3/files?q=name='${pirName}' and '${GLRS_MAIN_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+            {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
             }
-        });
-
-        console.log(`✅ Uploaded ${Object.keys(chartURLs).length} charts to Storage`);
-        return chartURLs;
-
+        );
+        
+        const searchData = await searchResponse.json();
+        
+        if (searchData.files && searchData.files.length > 0) {
+            console.log(`✅ Found existing PIR folder: ${searchData.files[0].id}`);
+            return searchData.files[0].id;
+        }
+        
+        console.log(`📁 Creating new PIR folder: ${pirName}`);
+        const createResponse = await fetch(
+            'https://www.googleapis.com/drive/v3/files',
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: pirName,
+                    mimeType: 'application/vnd.google-apps.folder',
+                    parents: [GLRS_MAIN_FOLDER_ID]
+                })
+            }
+        );
+        
+        const createData = await createResponse.json();
+        console.log(`✅ Created PIR folder: ${createData.id}`);
+        return createData.id;
+        
     } catch (error) {
-        console.error('❌ Error converting and uploading charts:', error);
-        return {};
+        console.error('❌ Error managing PIR folder:', error);
+        throw error;
     }
 };
 
-// ========== EMAIL TEMPLATE WITH DOWNLOAD BUTTON ==========
-const getEmailTemplateWithLink = (pirName, reportTitle, reportType, dateRange, downloadUrl) => {
+const getOrCreateReportTypeFolder = async (pirFolderId, reportType, accessToken) => {
+    try {
+        const folderName = reportType === 'weekly' ? 'Weekly Reports' : 'Monthly Reports';
+        console.log(`📁 Looking for ${folderName} folder...`);
+        
+        const searchResponse = await fetch(
+            `https://www.googleapis.com/drive/v3/files?q=name='${folderName}' and '${pirFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+            {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            }
+        );
+        
+        const searchData = await searchResponse.json();
+        
+        if (searchData.files && searchData.files.length > 0) {
+            console.log(`✅ Found existing ${folderName} folder: ${searchData.files[0].id}`);
+            return searchData.files[0].id;
+        }
+        
+        console.log(`📁 Creating ${folderName} folder...`);
+        const createResponse = await fetch(
+            'https://www.googleapis.com/drive/v3/files',
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: folderName,
+                    mimeType: 'application/vnd.google-apps.folder',
+                    parents: [pirFolderId]
+                })
+            }
+        );
+        
+        const createData = await createResponse.json();
+        console.log(`✅ Created ${folderName} folder: ${createData.id}`);
+        return createData.id;
+        
+    } catch (error) {
+        console.error(`❌ Error managing report type folder:`, error);
+        throw error;
+    }
+};
+
+// ========== UPLOAD PDF TO GOOGLE DRIVE ==========
+const uploadPDFToDrive = async (pdfBlob, fileName, pirName, reportType, accessToken) => {
+    try {
+        console.log(`📤 Uploading ${fileName} to Google Drive...`);
+        
+        const pirFolderId = await getOrCreatePIRFolder(pirName, accessToken);
+        const reportFolderId = await getOrCreateReportTypeFolder(pirFolderId, reportType, accessToken);
+        
+        const metadata = {
+            name: fileName,
+            mimeType: 'application/pdf',
+            parents: [reportFolderId]
+        };
+        
+        const form = new FormData();
+        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+        form.append('file', pdfBlob);
+        
+        const uploadResponse = await fetch(
+            'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',
+            {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${accessToken}` },
+                body: form
+            }
+        );
+        
+        if (!uploadResponse.ok) {
+            const errorText = await uploadResponse.text();
+            throw new Error(`Upload failed: ${errorText}`);
+        }
+        
+        const fileData = await uploadResponse.json();
+        console.log(`✅ Uploaded to Drive: ${fileData.id}`);
+        
+        await fetch(
+            `https://www.googleapis.com/drive/v3/files/${fileData.id}/permissions`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    role: 'reader',
+                    type: 'anyone'
+                })
+            }
+        );
+        
+        console.log(`✅ Made shareable: ${fileData.webViewLink}`);
+        
+        return {
+            fileId: fileData.id,
+            webViewLink: fileData.webViewLink
+        };
+        
+    } catch (error) {
+        console.error('❌ Error uploading to Drive:', error);
+        throw error;
+    }
+};
+
+// ========== GENERATE PDF FROM REPORT DATA ==========
+const generatePDFFromReport = async (reportData, reportTitle, pirName, coachName, dateRange) => {
+    try {
+        console.log(`📄 Generating PDF: ${reportTitle}...`);
+        
+        const container = document.createElement('div');
+        container.style.position = 'absolute';
+        container.style.left = '-9999px';
+        container.style.width = '800px';
+        document.body.appendChild(container);
+        
+        container.innerHTML = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body { 
+                        font-family: 'Segoe UI', Arial, sans-serif;
+                        color: #2c3e50;
+                        padding: 40px;
+                        line-height: 1.6;
+                    }
+                    .header {
+                        text-align: center;
+                        border-bottom: 3px solid #667eea;
+                        padding-bottom: 20px;
+                        margin-bottom: 30px;
+                    }
+                    .header h1 {
+                        color: #667eea;
+                        font-size: 28px;
+                        margin-bottom: 10px;
+                    }
+                    .header p {
+                        color: #666;
+                        font-size: 14px;
+                    }
+                    .summary-grid {
+                        display: grid;
+                        grid-template-columns: repeat(3, 1fr);
+                        gap: 15px;
+                        margin: 30px 0;
+                    }
+                    .summary-card {
+                        background: #f8f9fa;
+                        padding: 15px;
+                        border-left: 4px solid #667eea;
+                        border-radius: 6px;
+                    }
+                    .summary-card .label {
+                        font-size: 11px;
+                        color: #666;
+                        text-transform: uppercase;
+                        margin-bottom: 5px;
+                    }
+                    .summary-card .value {
+                        font-size: 24px;
+                        color: #667eea;
+                        font-weight: bold;
+                    }
+                    .section {
+                        margin: 25px 0;
+                        page-break-inside: avoid;
+                    }
+                    .section-title {
+                        color: #667eea;
+                        font-size: 18px;
+                        border-bottom: 2px solid #667eea;
+                        padding-bottom: 8px;
+                        margin-bottom: 15px;
+                    }
+                    .insights-list {
+                        list-style: none;
+                        margin: 15px 0;
+                    }
+                    .insights-list li {
+                        background: #e3f2fd;
+                        padding: 12px;
+                        margin: 8px 0;
+                        border-left: 4px solid #667eea;
+                        border-radius: 4px;
+                        font-size: 13px;
+                    }
+                    .footer {
+                        margin-top: 40px;
+                        padding-top: 20px;
+                        border-top: 2px solid #e0e0e0;
+                        text-align: center;
+                        font-size: 11px;
+                        color: #999;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h1>${reportTitle}</h1>
+                    <p><strong>${pirName}</strong></p>
+                    <p>Coach: ${coachName}</p>
+                    <p>Period: ${dateRange}</p>
+                    <p>Generated: ${new Date().toLocaleDateString('en-US')}</p>
+                </div>
+
+                ${reportData.summary ? `
+                    <div class="section">
+                        <h2 class="section-title">Summary</h2>
+                        <div class="summary-grid">
+                            ${Object.entries(reportData.summary).slice(0, 9).map(([key, value]) => `
+                                <div class="summary-card">
+                                    <div class="label">${key.replace(/([A-Z])/g, ' $1').trim()}</div>
+                                    <div class="value">${value}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+
+                ${reportData.insights && reportData.insights.length > 0 ? `
+                    <div class="section">
+                        <h2 class="section-title">Key Insights</h2>
+                        <ul class="insights-list">
+                            ${reportData.insights.map(insight => `<li>${insight}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+
+                <div class="footer">
+                    <p><strong>Guiding Light Recovery Services</strong></p>
+                    <p>Confidential Recovery Report - For Professional Use Only</p>
+                    <p>www.glrecoveryservices.com</p>
+                </div>
+            </body>
+            </html>
+        `;
+        
+        const opt = {
+            margin: 10,
+            filename: `${reportTitle}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        
+        const pdfBlob = await html2pdf().set(opt).from(container).outputPdf('blob');
+        
+        document.body.removeChild(container);
+        
+        console.log(`✅ PDF generated: ${reportTitle}`);
+        return pdfBlob;
+        
+    } catch (error) {
+        console.error('❌ Error generating PDF:', error);
+        throw error;
+    }
+};
+
+// ========== EMAIL TEMPLATE WITH 5 DRIVE LINKS ==========
+const getEmailTemplateWith5Links = (pirName, reportType, dateRange, driveLinks) => {
     return `
         <!DOCTYPE html>
         <html>
@@ -20329,27 +20492,23 @@ const getEmailTemplateWithLink = (pirName, reportTitle, reportType, dateRange, d
                                     <p style="margin: 0 0 20px 0; font-size: 16px; color: #333;">
                                         Hi ${pirName},
                                     </p>
-                                    <p style="margin: 0 0 20px 0; font-size: 14px; color: #666; line-height: 1.6;">
-                                        Your ${reportType} progress report for ${dateRange} is ready to download.
-                                    </p>
                                     <p style="margin: 0 0 30px 0; font-size: 14px; color: #666; line-height: 1.6;">
-                                        <strong>${reportTitle}</strong>
+                                        Your ${reportType} progress reports for ${dateRange} are ready! 📊
                                     </p>
                                     
-                                    <!-- DOWNLOAD BUTTON -->
-                                    <table cellpadding="0" cellspacing="0" style="margin: 0 auto;">
-                                        <tr>
-                                            <td align="center" style="border-radius: 6px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                                                <a href="${downloadUrl}" target="_blank" style="display: inline-block; padding: 16px 40px; font-size: 16px; color: #ffffff; text-decoration: none; font-weight: 600; border-radius: 6px;">
-                                                    📥 DOWNLOAD REPORT
-                                                </a>
-                                            </td>
-                                        </tr>
-                                    </table>
+                                    <h3 style="margin: 0 0 20px 0; font-size: 16px; color: #667eea;">📄 YOUR REPORTS:</h3>
                                     
-                                    <p style="margin: 30px 0 0 0; font-size: 13px; color: #999; text-align: center;">
-                                        If the button doesn't work, copy this link:<br>
-                                        <a href="${downloadUrl}" style="color: #667eea; word-break: break-all;">${downloadUrl}</a>
+                                    ${driveLinks.map(link => `
+                                        <div style="margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 6px; border-left: 4px solid #667eea;">
+                                            <div style="font-weight: 600; color: #333; margin-bottom: 8px;">${link.title}</div>
+                                            <a href="${link.url}" target="_blank" style="color: #667eea; text-decoration: none; font-size: 14px;">
+                                                📂 View in Google Drive →
+                                            </a>
+                                        </div>
+                                    `).join('')}
+                                    
+                                    <p style="margin: 30px 0 0 0; font-size: 13px; color: #999;">
+                                        Click any link to view, download, or print your reports.
                                     </p>
                                     
                                     <p style="margin: 30px 0 0 0; font-size: 14px; color: #666;">
@@ -20377,185 +20536,22 @@ const getEmailTemplateWithLink = (pirName, reportTitle, reportType, dateRange, d
     `;
 };
 
-// ========== CREATE FIRESTORE REPORT DOCUMENT FOR PDFPLUM ==========
-const createReportDocument = async (reportData, reportTitle, reportType, pirName, coachName, dateRange, chartURLs) => {
-    try {
-        console.log('📄 Creating Firestore report document...');
-
-        // Flatten the report data for Handlebars
-        const flattenedData = {
-            // Metadata
-            reportTitle: reportTitle,
-            reportType: reportType,
-            pirName: pirName,
-            coachName: coachName,
-            dateRange: dateRange,
-            generatedDate: new Date().toLocaleString('en-US'),
-            logoBase64: GLRS_LOGO_BASE64,
-
-            // Summary fields (flatten reportData.summary)
-            ...(reportData.summary || {}),
-
-            // Insights
-            insights: reportData.insights || [],
-
-            // Chart URLs (NOT base64 - just URLs now!)
-            ...chartURLs,
-
-            // Type-specific data
-            ...(reportData.sobrietyData && { sobrietyData: reportData.sobrietyData }),
-            ...(reportData.morningData && { morningData: reportData.morningData }),
-            ...(reportData.eveningData && { eveningData: reportData.eveningData }),
-            ...(reportData.engagementData && { engagementData: reportData.engagementData }),
-            ...(reportData.alerts && { alerts: reportData.alerts }),
-            ...(reportData.pirComms && { pirComms: reportData.pirComms }),
-            ...(reportData.riskData && { riskData: reportData.riskData }),
-            ...(reportData.achievements && { achievements: reportData.achievements }),
-            ...(reportData.pirInfo && { 
-                pirEmail: reportData.pirInfo.email,
-                sobrietyDate: reportData.pirInfo.sobrietyDate,
-                daysSober: reportData.pirInfo.daysSober
-            }),
-            ...(reportData.comparison && {
-                pirAvgMood: reportData.comparison.avgMood.pir,
-                programAvgMood: reportData.comparison.avgMood.program,
-                pirAvgCravings: reportData.comparison.avgCravings.pir,
-                programAvgCravings: reportData.comparison.avgCravings.program,
-                pirAvgAnxiety: reportData.comparison.avgAnxiety.pir,
-                programAvgAnxiety: reportData.comparison.avgAnxiety.program,
-                pirAvgSleep: reportData.comparison.avgSleep.pir,
-                programAvgSleep: reportData.comparison.avgSleep.program
-            })
-        };
-
-        // Create document in Firestore
-        const docRef = await db.collection('reports').add({
-            ...flattenedData,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            status: 'pending', // PDFPlum will update this
-            pdfUrl: null // PDFPlum will add this
-        });
-
-        console.log('✅ Report document created:', docRef.id);
-        return docRef;
-
-    } catch (error) {
-        console.error('❌ Error creating report document:', error);
-        throw error;
-    }
-};
-
-// ========== WAIT FOR PDF GENERATION AND GET URL FROM STORAGE ==========
-const waitForPDFGeneration = async (docRef, reportId, timeoutMs = 120000) => {
-    return new Promise((resolve, reject) => {
-        const startTime = Date.now();
-        let checkCount = 0;
-        
-        const checkPDF = async () => {
-            checkCount++;
-            
-            try {
-                // Get the report document data
-                const snapshot = await docRef.get();
-                const data = snapshot.data();
-                
-                // Method 1: Check if PDFPlum updated Firestore (ideal case)
-                if (data.pdfUrl) {
-                    console.log('✅ PDF URL found in Firestore:', data.pdfUrl);
-                    resolve(data.pdfUrl);
-                    return;
-                }
-                
-                if (data.status === 'error') {
-                    console.error('❌ PDF generation failed:', data.error);
-                    reject(new Error(data.error || 'PDF generation failed'));
-                    return;
-                }
-                
-                // Method 2: Check Storage directly for the PDF
-                console.log(`🔍 Checking Storage for PDF... (attempt ${checkCount})`);
-                
-                const storageRef = firebase.storage().ref('reports/');
-                const result = await storageRef.listAll();
-                
-                // Get the report creation time
-                const reportCreatedAt = data.createdAt ? data.createdAt.toDate() : new Date(startTime);
-                
-                // Look for PDF files - match by document ID
-for (const item of result.items) {
-    if (item.name.endsWith('.pdf')) {
-        // Check if filename matches the report document ID
-        const reportDocId = docRef.id;
-        
-        if (item.name.includes(reportDocId) || item.name === `${reportDocId}.pdf`) {
-            console.log(`📄 Found matching PDF: ${item.name}`);
-            
-            try {
-                const pdfUrl = await item.getDownloadURL();
-                console.log('✅ PDF URL retrieved from Storage:', pdfUrl);
-                
-                // Update Firestore with the PDF URL
-                await docRef.update({
-                    pdfUrl: pdfUrl,
-                    status: 'complete',
-                    completedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                
-                console.log('✅ Firestore document updated with PDF URL');
-                resolve(pdfUrl);
-                return;
-            } catch (urlError) {
-                console.error('❌ Error getting PDF URL:', urlError);
-            }
-        }
-    }
-}
-                
-                // Check if timeout exceeded
-                if (Date.now() - startTime > timeoutMs) {
-                    console.error('❌ PDF generation timeout after', checkCount, 'attempts');
-                    await docRef.update({
-                        status: 'error',
-                        error: 'PDF generation timeout'
-                    });
-                    reject(new Error('PDF generation timeout'));
-                    return;
-                }
-                
-                // Try again in 3 seconds
-                console.log(`⏳ PDF not ready yet, waiting... (${Math.floor((Date.now() - startTime) / 1000)}s elapsed)`);
-                setTimeout(checkPDF, 3000);
-                
-            } catch (error) {
-                console.error('❌ Error checking for PDF:', error);
-                
-                if (Date.now() - startTime > timeoutMs) {
-                    reject(error);
-                } else {
-                    // Retry on error
-                    setTimeout(checkPDF, 3000);
-                }
-            }
-        };
-        
-        // Start checking after 2 seconds (give PDFPlum time to start)
-        setTimeout(checkPDF, 2000);
-    });
-};
-
-// ========== SEND WEEKLY PROGRESS REPORTS (5 SEPARATE EMAILS WITH DOWNLOAD LINKS) ==========
+// ========== SEND WEEKLY PROGRESS REPORTS (1 EMAIL WITH 5 DRIVE LINKS) ==========
 const sendWeeklyProgressReport = async (pirId) => {
     try {
         console.log(`📧 Generating weekly reports for PIR: ${pirId}`);
         
-        // Get PIR data
+        // Check if user has Google connected
+        if (!user.googleConnected || !user.googleAccessToken) {
+            throw new Error('Google Drive not connected. Please connect Google in your Profile.');
+        }
+        
         const pirDoc = await db.collection('users').doc(pirId).get();
         if (!pirDoc.exists) {
             throw new Error('PIR not found');
         }
         const pirData = pirDoc.data();
         
-        // Get coach data
         let coachName = 'Your Recovery Coach';
         if (pirData.assignedCoach) {
             const coachDoc = await db.collection('users').doc(pirData.assignedCoach).get();
@@ -20564,14 +20560,13 @@ const sendWeeklyProgressReport = async (pirId) => {
             }
         }
         
-        // Calculate date range (last 7 days)
         const endDate = new Date();
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - 6);
         
         const dateRange = `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+        const dateStamp = endDate.toISOString().split('T')[0];
         
-        // Generate 5 reports with data
         console.log('📊 Generating report data...');
         const reportsData = await Promise.all([
             generateOverviewReport(startDate, endDate),
@@ -20583,105 +20578,94 @@ const sendWeeklyProgressReport = async (pirId) => {
         
         const reportTitles = [
             'Overview Report',
-            'Mood Analysis Report',
+            'Mood Analysis',
             'Engagement Report',
-            'Morning Check-ins Report',
-            'Evening Reflections Report'
+            'Morning Check-ins',
+            'Evening Reflections'
         ];
         
-        const reportTypes = [
-            'overview',
-            'moodAnalysis',
-            'engagement',
-            'morningCheckins',
-            'eveningReflections'
-        ];
+        console.log('📄 Creating PDFs and uploading to Google Drive...');
+        const driveLinks = [];
         
-       // Send 5 separate emails
-console.log('📄 Creating PDFs via PDFPlum and sending emails...');
-let successCount = 0;
-
-for (let i = 0; i < reportsData.length; i++) {
-    try {
-        console.log(`\n📧 Processing report ${i + 1}/5: ${reportTitles[i]}`);
+        for (let i = 0; i < reportsData.length; i++) {
+            try {
+                console.log(`\n📄 Processing ${i + 1}/5: ${reportTitles[i]}`);
+                
+                const pdfBlob = await generatePDFFromReport(
+                    reportsData[i],
+                    reportTitles[i],
+                    pirData.displayName || pirData.email,
+                    coachName,
+                    dateRange
+                );
+                
+                const fileName = `${pirData.displayName || pirData.email}_${reportTitles[i]}_${dateStamp}.pdf`;
+                
+                const driveFile = await uploadPDFToDrive(
+                    pdfBlob,
+                    fileName,
+                    pirData.displayName || pirData.email,
+                    'weekly',
+                    user.googleAccessToken
+                );
+                
+                driveLinks.push({
+                    title: reportTitles[i],
+                    url: driveFile.webViewLink
+                });
+                
+                console.log(`✅ Uploaded: ${reportTitles[i]}`);
+                
+            } catch (error) {
+                console.error(`❌ Failed ${reportTitles[i]}:`, error);
+            }
+        }
         
-        // Set the report data in state to render charts
-        setReportData(reportsData[i]);
+        if (driveLinks.length === 0) {
+            throw new Error('Failed to generate any reports');
+        }
         
-        // Wait for charts to render
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log(`📧 Sending email with ${driveLinks.length} Drive links...`);
         
-        // Create a unique report ID for this report
-        const reportId = `${reportTypes[i]}_${Date.now()}_${i}`;
-        
-        // Convert charts to base64 AND upload to Storage
-        const chartURLs = await convertAndUploadCharts(reportsData[i], reportId);
-        
-        // Create Firestore document for PDFPlum (with URLs, not base64)
-        const docRef = await createReportDocument(
-            reportsData[i],
-            reportTitles[i],
-            reportTypes[i],
+        const emailHtml = getEmailTemplateWith5Links(
             pirData.displayName || pirData.email,
-            coachName,
-            dateRange,
-            chartURLs
-        );
-        
-        console.log(`⏳ Waiting for PDFPlum to generate PDF for ${reportTitles[i]}...`);
-        
-        // Wait for PDF generation (max 120 seconds) - UPDATED CALL
-        const pdfUrl = await waitForPDFGeneration(docRef, reportId, 120000);
-        
-        console.log(`✅ PDF ready: ${reportTitles[i]}`);
-        
-        // Generate email HTML with download link
-        const emailHtml = getEmailTemplateWithLink(
-            pirData.displayName || pirData.email,
-            reportTitles[i],
             'weekly',
             dateRange,
-            pdfUrl
+            driveLinks
         );
         
-        // Send email with download link
         await db.collection('mail').add({
             to: [pirData.email],
             message: {
-                subject: `Weekly ${reportTitles[i]} - ${dateRange}`,
+                subject: `Weekly Progress Reports - ${dateRange}`,
                 html: emailHtml
             }
         });
         
-        console.log(`✅ Email sent: ${reportTitles[i]}`);
-        successCount++;
+        console.log(`✅ Weekly reports complete: ${driveLinks.length}/5 sent to ${pirData.email}`);
+        return { success: driveLinks.length === 5, pirEmail: pirData.email, sentCount: driveLinks.length };
         
-    } catch (error) {
-        console.error(`❌ Failed to send ${reportTitles[i]}:`, error);
-    }
-}
-
-console.log(`\n✅ Weekly reports complete: ${successCount}/5 emails sent to ${pirData.email}`);
-return { success: successCount === 5, pirEmail: pirData.email, sentCount: successCount };
     } catch (error) {
         console.error('❌ Error sending weekly reports:', error);
         throw error;
     }
 };
 
-// ========== SEND MONTHLY PROGRESS REPORTS (5 SEPARATE EMAILS WITH DOWNLOAD LINKS) ==========
+// ========== SEND MONTHLY PROGRESS REPORTS (1 EMAIL WITH 5 DRIVE LINKS) ==========
 const sendMonthlyProgressReport = async (pirId) => {
     try {
         console.log(`📧 Generating monthly reports for PIR: ${pirId}`);
         
-        // Get PIR data
+        if (!user.googleConnected || !user.googleAccessToken) {
+            throw new Error('Google Drive not connected. Please connect Google in your Profile.');
+        }
+        
         const pirDoc = await db.collection('users').doc(pirId).get();
         if (!pirDoc.exists) {
             throw new Error('PIR not found');
         }
         const pirData = pirDoc.data();
         
-        // Get coach data
         let coachName = 'Your Recovery Coach';
         if (pirData.assignedCoach) {
             const coachDoc = await db.collection('users').doc(pirData.assignedCoach).get();
@@ -20690,14 +20674,13 @@ const sendMonthlyProgressReport = async (pirId) => {
             }
         }
         
-        // Calculate date range (last 30 days)
         const endDate = new Date();
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - 29);
         
         const dateRange = startDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        const dateStamp = endDate.toISOString().split('T')[0];
         
-        // Generate 5 reports with data
         console.log('📊 Generating report data...');
         const reportsData = await Promise.all([
             generateOverviewReport(startDate, endDate),
@@ -20709,86 +20692,73 @@ const sendMonthlyProgressReport = async (pirId) => {
         
         const reportTitles = [
             'Overview Report',
-            'Sobriety Analysis Report',
-            'Mood Analysis Report',
+            'Sobriety Analysis',
+            'Mood Analysis',
             'Milestones Report',
-            'Evening Reflections Report'
+            'Evening Reflections'
         ];
         
-        const reportTypes = [
-            'overview',
-            'sobriety',
-            'moodAnalysis',
-            'milestones',
-            'eveningReflections'
-        ];
+        console.log('📄 Creating PDFs and uploading to Google Drive...');
+        const driveLinks = [];
         
-      // Send 5 separate emails
-console.log('📄 Creating PDFs via PDFPlum and sending emails...');
-let successCount = 0;
-
-for (let i = 0; i < reportsData.length; i++) {
-    try {
-        console.log(`\n📧 Processing report ${i + 1}/5: ${reportTitles[i]}`);
+        for (let i = 0; i < reportsData.length; i++) {
+            try {
+                console.log(`\n📄 Processing ${i + 1}/5: ${reportTitles[i]}`);
+                
+                const pdfBlob = await generatePDFFromReport(
+                    reportsData[i],
+                    reportTitles[i],
+                    pirData.displayName || pirData.email,
+                    coachName,
+                    dateRange
+                );
+                
+                const fileName = `${pirData.displayName || pirData.email}_${reportTitles[i]}_${dateStamp}.pdf`;
+                
+                const driveFile = await uploadPDFToDrive(
+                    pdfBlob,
+                    fileName,
+                    pirData.displayName || pirData.email,
+                    'monthly',
+                    user.googleAccessToken
+                );
+                
+                driveLinks.push({
+                    title: reportTitles[i],
+                    url: driveFile.webViewLink
+                });
+                
+                console.log(`✅ Uploaded: ${reportTitles[i]}`);
+                
+            } catch (error) {
+                console.error(`❌ Failed ${reportTitles[i]}:`, error);
+            }
+        }
         
-        // Set the report data in state to render charts
-        setReportData(reportsData[i]);
+        if (driveLinks.length === 0) {
+            throw new Error('Failed to generate any reports');
+        }
         
-        // Wait for charts to render
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log(`📧 Sending email with ${driveLinks.length} Drive links...`);
         
-        // Create a unique report ID for this report
-        const reportId = `${reportTypes[i]}_${Date.now()}_${i}`;
-        
-        // Convert charts to base64 AND upload to Storage
-        const chartURLs = await convertAndUploadCharts(reportsData[i], reportId);
-        
-        // Create Firestore document for PDFPlum (with URLs, not base64)
-        const docRef = await createReportDocument(
-            reportsData[i],
-            reportTitles[i],
-            reportTypes[i],
+        const emailHtml = getEmailTemplateWith5Links(
             pirData.displayName || pirData.email,
-            coachName,
-            dateRange,
-            chartURLs
-        );
-        
-        console.log(`⏳ Waiting for PDFPlum to generate PDF for ${reportTitles[i]}...`);
-        
-        // Wait for PDF generation (max 120 seconds) - UPDATED CALL
-        const pdfUrl = await waitForPDFGeneration(docRef, reportId, 120000);
-        
-        console.log(`✅ PDF ready: ${reportTitles[i]}`);
-        
-        // Generate email HTML with download link
-        const emailHtml = getEmailTemplateWithLink(
-            pirData.displayName || pirData.email,
-            reportTitles[i],
             'monthly',
             dateRange,
-            pdfUrl
+            driveLinks
         );
         
-        // Send email with download link
         await db.collection('mail').add({
             to: [pirData.email],
             message: {
-                subject: `Monthly ${reportTitles[i]} - ${dateRange}`,
+                subject: `Monthly Progress Reports - ${dateRange}`,
                 html: emailHtml
             }
         });
         
-        console.log(`✅ Email sent: ${reportTitles[i]}`);
-        successCount++;
+        console.log(`✅ Monthly reports complete: ${driveLinks.length}/5 sent to ${pirData.email}`);
+        return { success: driveLinks.length === 5, pirEmail: pirData.email, sentCount: driveLinks.length };
         
-    } catch (error) {
-        console.error(`❌ Failed to send ${reportTitles[i]}:`, error);
-    }
-}
-
-console.log(`\n✅ Monthly reports complete: ${successCount}/5 emails sent to ${pirData.email}`);
-return { success: successCount === 5, pirEmail: pirData.email, sentCount: successCount };
     } catch (error) {
         console.error('❌ Error sending monthly reports:', error);
         throw error;
@@ -20970,7 +20940,244 @@ const getOrCreateReportTypeFolder = async (pirFolderId, reportType, accessToken)
         throw error;
     }
 };
+// ==========================================
+// UPLOAD PDF TO GOOGLE DRIVE
+// ==========================================
 
+const uploadPDFToDrive = async (pdfBlob, fileName, pirName, reportType, accessToken) => {
+    try {
+        console.log(`📤 Uploading ${fileName} to Google Drive...`);
+        
+        // Get or create folder structure
+        const pirFolderId = await getOrCreatePIRFolder(pirName, accessToken);
+        const reportFolderId = await getOrCreateReportTypeFolder(pirFolderId, reportType, accessToken);
+        
+        // Create metadata
+        const metadata = {
+            name: fileName,
+            mimeType: 'application/pdf',
+            parents: [reportFolderId]
+        };
+        
+        // Create multipart upload
+        const form = new FormData();
+        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+        form.append('file', pdfBlob);
+        
+        // Upload file
+        const uploadResponse = await fetch(
+            'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
+                },
+                body: form
+            }
+        );
+        
+        if (!uploadResponse.ok) {
+            const errorText = await uploadResponse.text();
+            throw new Error(`Upload failed: ${errorText}`);
+        }
+        
+        const fileData = await uploadResponse.json();
+        console.log(`✅ Uploaded to Drive: ${fileData.id}`);
+        
+        // Make file shareable (anyone with link can view)
+        await fetch(
+            `https://www.googleapis.com/drive/v3/files/${fileData.id}/permissions`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    role: 'reader',
+                    type: 'anyone'
+                })
+            }
+        );
+        
+        console.log(`✅ Made shareable: ${fileData.webViewLink}`);
+        
+        return {
+            fileId: fileData.id,
+            webViewLink: fileData.webViewLink
+        };
+        
+    } catch (error) {
+        console.error('❌ Error uploading to Drive:', error);
+        throw error;
+    }
+};
+   // ==========================================
+// GENERATE PDF FROM REPORT DATA
+// ==========================================
+
+const generatePDFFromReport = async (reportData, reportTitle, pirName, coachName, dateRange) => {
+    try {
+        console.log(`📄 Generating PDF: ${reportTitle}...`);
+        
+        // Create temporary container
+        const container = document.createElement('div');
+        container.style.position = 'absolute';
+        container.style.left = '-9999px';
+        container.style.width = '800px';
+        document.body.appendChild(container);
+        
+        // Build HTML content
+        container.innerHTML = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body { 
+                        font-family: 'Segoe UI', Arial, sans-serif;
+                        color: #2c3e50;
+                        padding: 40px;
+                        line-height: 1.6;
+                    }
+                    .header {
+                        text-align: center;
+                        border-bottom: 3px solid #667eea;
+                        padding-bottom: 20px;
+                        margin-bottom: 30px;
+                    }
+                    .header h1 {
+                        color: #667eea;
+                        font-size: 28px;
+                        margin-bottom: 10px;
+                    }
+                    .header p {
+                        color: #666;
+                        font-size: 14px;
+                    }
+                    .summary-grid {
+                        display: grid;
+                        grid-template-columns: repeat(3, 1fr);
+                        gap: 15px;
+                        margin: 30px 0;
+                    }
+                    .summary-card {
+                        background: #f8f9fa;
+                        padding: 15px;
+                        border-left: 4px solid #667eea;
+                        border-radius: 6px;
+                    }
+                    .summary-card .label {
+                        font-size: 11px;
+                        color: #666;
+                        text-transform: uppercase;
+                        margin-bottom: 5px;
+                    }
+                    .summary-card .value {
+                        font-size: 24px;
+                        color: #667eea;
+                        font-weight: bold;
+                    }
+                    .section {
+                        margin: 25px 0;
+                        page-break-inside: avoid;
+                    }
+                    .section-title {
+                        color: #667eea;
+                        font-size: 18px;
+                        border-bottom: 2px solid #667eea;
+                        padding-bottom: 8px;
+                        margin-bottom: 15px;
+                    }
+                    .insights-list {
+                        list-style: none;
+                        margin: 15px 0;
+                    }
+                    .insights-list li {
+                        background: #e3f2fd;
+                        padding: 12px;
+                        margin: 8px 0;
+                        border-left: 4px solid #667eea;
+                        border-radius: 4px;
+                        font-size: 13px;
+                    }
+                    .footer {
+                        margin-top: 40px;
+                        padding-top: 20px;
+                        border-top: 2px solid #e0e0e0;
+                        text-align: center;
+                        font-size: 11px;
+                        color: #999;
+                    }
+                </style>
+            </head>
+            <body>
+                <!-- HEADER -->
+                <div class="header">
+                    <h1>${reportTitle}</h1>
+                    <p><strong>${pirName}</strong></p>
+                    <p>Coach: ${coachName}</p>
+                    <p>Period: ${dateRange}</p>
+                    <p>Generated: ${new Date().toLocaleDateString('en-US')}</p>
+                </div>
+
+                <!-- SUMMARY -->
+                ${reportData.summary ? `
+                    <div class="section">
+                        <h2 class="section-title">Summary</h2>
+                        <div class="summary-grid">
+                            ${Object.entries(reportData.summary).slice(0, 9).map(([key, value]) => `
+                                <div class="summary-card">
+                                    <div class="label">${key.replace(/([A-Z])/g, ' $1').trim()}</div>
+                                    <div class="value">${value}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+
+                <!-- INSIGHTS -->
+                ${reportData.insights && reportData.insights.length > 0 ? `
+                    <div class="section">
+                        <h2 class="section-title">Key Insights</h2>
+                        <ul class="insights-list">
+                            ${reportData.insights.map(insight => `<li>${insight}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+
+                <!-- FOOTER -->
+                <div class="footer">
+                    <p><strong>Guiding Light Recovery Services</strong></p>
+                    <p>Confidential Recovery Report - For Professional Use Only</p>
+                    <p>www.glrecoveryservices.com</p>
+                </div>
+            </body>
+            </html>
+        `;
+        
+        // Generate PDF using html2pdf
+        const opt = {
+            margin: 10,
+            filename: `${reportTitle}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        
+        const pdfBlob = await html2pdf().set(opt).from(container).outputPdf('blob');
+        
+        // Cleanup
+        document.body.removeChild(container);
+        
+        console.log(`✅ PDF generated: ${reportTitle}`);
+        return pdfBlob;
+        
+    } catch (error) {
+        console.error('❌ Error generating PDF:', error);
+        throw error;
+    }
+};
     // ========== UTILITY FUNCTIONS ==========
     const formatDate = (date) => {
         if (!date) return '-';
@@ -24238,164 +24445,225 @@ const generateReport = async () => {
                 </button>
             </div>
 
-            {/* NEW: Email Reports Action Buttons */}
-            <div style={{ 
-                background: 'white',
-                borderRadius: '15px',
-                padding: '25px',
-                marginBottom: '30px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
-            }}>
-                <h3 style={{ margin: '0 0 20px 0', color: '#333', fontSize: '20px' }}>
-                    📧 Automated Progress Reports
-                </h3>
-                <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
-                    <button
-                        onClick={handleSendWeeklyReports}
-                        disabled={sendingWeekly}
-                        style={{
-                            flex: '1',
-                            minWidth: '250px',
-                            padding: '20px',
-                            background: sendingWeekly ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '12px',
-                            fontSize: '16px',
-                            fontWeight: 'bold',
-                            cursor: sendingWeekly ? 'not-allowed' : 'pointer',
-                            transition: 'transform 0.2s',
-                            boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: '8px'
-                        }}
-                        onMouseOver={(e) => {
-                            if (!sendingWeekly) {
-                                e.target.style.transform = 'translateY(-2px)';
-                                e.target.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.5)';
-                            }
-                        }}
-                        onMouseOut={(e) => {
-                            e.target.style.transform = 'translateY(0)';
-                            e.target.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
-                        }}
-                    >
-                        <div style={{ fontSize: '24px' }}>📅</div>
-                        <div>{sendingWeekly ? 'Sending Weekly Reports...' : 'Send All Weekly Reports Now'}</div>
-                        <div style={{ fontSize: '12px', opacity: 0.9 }}>
-                            Last 7 days progress for all active PIRs
-                        </div>
-                    </button>
-
-                    <button
-                        onClick={handleSendMonthlyReports}
-                        disabled={sendingMonthly}
-                        style={{
-                            flex: '1',
-                            minWidth: '250px',
-                            padding: '20px',
-                            background: sendingMonthly ? '#ccc' : 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '12px',
-                            fontSize: '16px',
-                            fontWeight: 'bold',
-                            cursor: sendingMonthly ? 'not-allowed' : 'pointer',
-                            transition: 'transform 0.2s',
-                            boxShadow: '0 4px 12px rgba(76, 175, 80, 0.4)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: '8px'
-                        }}
-                        onMouseOver={(e) => {
-                            if (!sendingMonthly) {
-                                e.target.style.transform = 'translateY(-2px)';
-                                e.target.style.boxShadow = '0 6px 16px rgba(76, 175, 80, 0.5)';
-                            }
-                        }}
-                        onMouseOut={(e) => {
-                            e.target.style.transform = 'translateY(0)';
-                            e.target.style.boxShadow = '0 4px 12px rgba(76, 175, 80, 0.4)';
-                        }}
-                    >
-                        <div style={{ fontSize: '24px' }}>📆</div>
-                        <div>{sendingMonthly ? 'Sending Monthly Reports...' : 'Send All Monthly Reports Now'}</div>
-                        <div style={{ fontSize: '12px', opacity: 0.9 }}>
-                            Last 30 days progress for all active PIRs
-                        </div>
-                    </button>
-                </div>
-                <div style={{ 
-                    marginTop: '15px',
-                    padding: '12px',
-                    background: '#f0f7ff',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    color: '#0066cc'
-                }}>
-                    <strong>ℹ️ Note:</strong> Reports are automatically sent every Sunday at 11:59 PM (weekly) and on the 1st of each month at 12:01 AM (monthly). Use these buttons to send reports manually when needed.
-                </div>
+          {/* NEW: Email Reports Action Buttons */}
+<div style={{ 
+    background: 'white',
+    borderRadius: '15px',
+    padding: '25px',
+    marginBottom: '30px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+}}>
+    <h3 style={{ margin: '0 0 20px 0', color: '#333', fontSize: '20px' }}>
+        📧 Automated Progress Reports
+    </h3>
+    
+    {/* Google Drive Connection Warning */}
+    {!user.googleConnected && (
+        <div style={{
+            background: '#fff3cd',
+            border: '1px solid #ffc107',
+            borderRadius: '8px',
+            padding: '15px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+        }}>
+            <span style={{ fontSize: '24px' }}>⚠️</span>
+            <div>
+                <strong>Google Drive Not Connected</strong>
+                <p style={{ margin: '5px 0 0 0', fontSize: '14px', color: '#666' }}>
+                    Please connect Google Drive in your Profile to enable report generation.
+                </p>
             </div>
+        </div>
+    )}
+    
+    <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+        <button
+            onClick={async () => {
+                if (!user.googleConnected) {
+                    alert('⚠️ Please connect Google Drive in your Profile first!');
+                    return;
+                }
+                
+                if (!confirm('Send weekly reports to ALL active PIRs?\n\nThis will generate 5 PDFs per PIR and upload to Google Drive. This may take several minutes.')) {
+                    return;
+                }
+                
+                try {
+                    setSendingWeekly(true);
+                    await sendAllWeeklyReports();
+                } catch (error) {
+                    console.error('Error sending weekly reports:', error);
+                    alert(`❌ Error: ${error.message}`);
+                } finally {
+                    setSendingWeekly(false);
+                }
+            }}
+            disabled={sendingWeekly || !user.googleConnected}
+            style={{
+                flex: '1',
+                minWidth: '250px',
+                padding: '20px',
+                background: (sendingWeekly || !user.googleConnected) ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '12px',
+                fontSize: '16px',
+                fontWeight: 'bold',
+                cursor: (sendingWeekly || !user.googleConnected) ? 'not-allowed' : 'pointer',
+                transition: 'transform 0.2s',
+                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '8px'
+            }}
+            onMouseOver={(e) => {
+                if (!sendingWeekly && user.googleConnected) {
+                    e.target.style.transform = 'translateY(-2px)';
+                    e.target.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.5)';
+                }
+            }}
+            onMouseOut={(e) => {
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+            }}
+        >
+            <div style={{ fontSize: '24px' }}>📅</div>
+            <div>{sendingWeekly ? 'Sending Weekly Reports...' : 'Send All Weekly Reports Now'}</div>
+            <div style={{ fontSize: '12px', opacity: 0.9 }}>
+                Last 7 days progress • 5 PDFs per PIR • Google Drive
+            </div>
+        </button>
 
-            {/* Report Generation Section */}
-            <div style={{
-                background: 'white',
-                borderRadius: '20px',
-                padding: '35px',
-                marginBottom: '30px',
-                boxShadow: '0 2px 20px rgba(0,0,0,0.08)'
-            }}>
-                <h3 style={{ margin: '0 0 25px 0', fontSize: '24px', color: '#333' }}>
-                    Generate Report
-                </h3>
+        <button
+            onClick={async () => {
+                if (!user.googleConnected) {
+                    alert('⚠️ Please connect Google Drive in your Profile first!');
+                    return;
+                }
+                
+                if (!confirm('Send monthly reports to ALL active PIRs?\n\nThis will generate 5 PDFs per PIR and upload to Google Drive. This may take several minutes.')) {
+                    return;
+                }
+                
+                try {
+                    setSendingMonthly(true);
+                    await sendAllMonthlyReports();
+                } catch (error) {
+                    console.error('Error sending monthly reports:', error);
+                    alert(`❌ Error: ${error.message}`);
+                } finally {
+                    setSendingMonthly(false);
+                }
+            }}
+            disabled={sendingMonthly || !user.googleConnected}
+            style={{
+                flex: '1',
+                minWidth: '250px',
+                padding: '20px',
+                background: (sendingMonthly || !user.googleConnected) ? '#ccc' : 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '12px',
+                fontSize: '16px',
+                fontWeight: 'bold',
+                cursor: (sendingMonthly || !user.googleConnected) ? 'not-allowed' : 'pointer',
+                transition: 'transform 0.2s',
+                boxShadow: '0 4px 12px rgba(76, 175, 80, 0.4)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '8px'
+            }}
+            onMouseOver={(e) => {
+                if (!sendingMonthly && user.googleConnected) {
+                    e.target.style.transform = 'translateY(-2px)';
+                    e.target.style.boxShadow = '0 6px 16px rgba(76, 175, 80, 0.5)';
+                }
+            }}
+            onMouseOut={(e) => {
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 4px 12px rgba(76, 175, 80, 0.4)';
+            }}
+        >
+            <div style={{ fontSize: '24px' }}>📆</div>
+            <div>{sendingMonthly ? 'Sending Monthly Reports...' : 'Send All Monthly Reports Now'}</div>
+            <div style={{ fontSize: '12px', opacity: 0.9 }}>
+                Last 30 days progress • 5 PDFs per PIR • Google Drive
+            </div>
+        </button>
+    </div>
+    <div style={{ 
+        marginTop: '15px',
+        padding: '12px',
+        background: '#f0f7ff',
+        borderRadius: '8px',
+        fontSize: '13px',
+        color: '#0066cc'
+    }}>
+        <strong>ℹ️ Automation Schedule:</strong> Reports are automatically sent every <strong>Monday at 8:00 AM</strong> (weekly) and on the <strong>2nd of each month</strong> (monthly). Use these buttons to send reports manually when needed.
+    </div>
+</div>
 
-                {/* Date Range Selector */}
-                <div style={{ 
-                    display: 'grid', 
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                    gap: '20px',
-                    marginBottom: '30px'
-                }}>
-                    <div>
-                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#555', fontSize: '14px' }}>
-                            Start Date
-                        </label>
-                        <input
-                            type="date"
-                            value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
-                            style={{
-                                width: '100%',
-                                padding: '12px',
-                                border: '2px solid #e0e0e0',
-                                borderRadius: '10px',
-                                fontSize: '15px',
-                                boxSizing: 'border-box'
-                            }}
-                        />
-                    </div>
-                    <div>
-                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#555', fontSize: '14px' }}>
-                            End Date
-                        </label>
-                        <input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
-                            style={{
-                                width: '100%',
-                                padding: '12px',
-                                border: '2px solid #e0e0e0',
-                                borderRadius: '10px',
-                                fontSize: '15px',
-                                boxSizing: 'border-box'
-                            }}
-                        />
-                    </div>
-                </div>
+{/* Report Generation Section */}
+<div style={{
+    background: 'white',
+    borderRadius: '20px',
+    padding: '35px',
+    marginBottom: '30px',
+    boxShadow: '0 2px 20px rgba(0,0,0,0.08)'
+}}>
+    <h3 style={{ margin: '0 0 25px 0', fontSize: '24px', color: '#333' }}>
+        Generate Report
+    </h3>
+
+    {/* Date Range Selector */}
+    <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: '20px',
+        marginBottom: '30px'
+    }}>
+        <div>
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#555', fontSize: '14px' }}>
+                Start Date
+            </label>
+            <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                style={{
+                    width: '100%',
+                    padding: '12px',
+                    border: '2px solid #e0e0e0',
+                    borderRadius: '10px',
+                    fontSize: '15px',
+                    boxSizing: 'border-box'
+                }}
+            />
+        </div>
+        <div>
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#555', fontSize: '14px' }}>
+                End Date
+            </label>
+            <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                style={{
+                    width: '100%',
+                    padding: '12px',
+                    border: '2px solid #e0e0e0',
+                    borderRadius: '10px',
+                    fontSize: '15px',
+                    boxSizing: 'border-box'
+                }}
+            />
+        </div>
+    </div>
                 {/* Report Templates Grid */}
                 <div>
                     <h4 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#333' }}>
