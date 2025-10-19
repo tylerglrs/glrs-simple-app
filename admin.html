@@ -1164,33 +1164,94 @@
 
 
 // ==========================================
-// IMPROVED GOOGLE TOKEN REFRESH
+// WORKING GOOGLE TOKEN REFRESH
 // ==========================================
-const refreshGoogleToken = async (userId) => {
+const refreshGoogleToken = async () => {
+    return new Promise((resolve, reject) => {
+        try {
+            console.log('🔄 Attempting to refresh Google token...');
+            
+            // Check if Google Identity Services is loaded
+            if (typeof google === 'undefined' || !google.accounts) {
+                reject(new Error('Google Identity Services not loaded'));
+                return;
+            }
+            
+            // Use token client to get new token silently (same as connectGoogleServices)
+            const tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: '457406864879-k1sunucuqofe22m5rg93hvo6nngiqh0u.apps.googleusercontent.com',
+                scope: [
+                    'https://www.googleapis.com/auth/calendar.events',
+                    'https://www.googleapis.com/auth/drive.file'
+                ].join(' '),
+                callback: async (tokenResponse) => {
+                    try {
+                        if (tokenResponse.error) {
+                            reject(new Error(tokenResponse.error));
+                            return;
+                        }
+                        
+                        if (tokenResponse.access_token) {
+                            // Update Firebase with new token
+                            await db.collection('users').doc(user.uid).update({
+                                googleAccessToken: tokenResponse.access_token,
+                                googleTokenExpiry: Date.now() + (tokenResponse.expires_in * 1000),
+                                googleTokenRefreshedAt: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                            
+                            // Update local user object
+                            user.googleAccessToken = tokenResponse.access_token;
+                            user.googleTokenExpiry = Date.now() + (tokenResponse.expires_in * 1000);
+                            
+                            console.log('✅ Token refreshed successfully');
+                            resolve(tokenResponse.access_token);
+                        } else {
+                            reject(new Error('No access token received'));
+                        }
+                    } catch (error) {
+                        reject(error);
+                    }
+                },
+            });
+            
+            // Request new token silently (no popup unless necessary)
+            tokenClient.requestAccessToken({ prompt: '' });
+            
+        } catch (error) {
+            console.error('❌ Failed to refresh token:', error);
+            reject(error);
+        }
+    });
+};
+
+// ==========================================
+// CHECK & AUTO-REFRESH GOOGLE TOKEN
+// ==========================================
+const checkAndRefreshGoogleToken = async () => {
     try {
-        console.log('🔄 Attempting to refresh Google token for user:', userId);
-        
-        const userDoc = await db.collection('users').doc(userId).get();
-        const userData = userDoc.data();
-        
-        if (!userData.googleRefreshToken) {
-            console.error('❌ No refresh token found - user needs to reconnect Google');
-            return false;
+        // Check if user has Google connected
+        if (!user.googleConnected || !user.googleAccessToken) {
+            throw new Error('Google Services not connected. Please connect Google in your Profile settings.');
         }
         
-        // Note: Google OAuth refresh requires client_secret which should be stored securely
-        // For now, we'll try to refresh but this may fail without proper backend setup
-        console.warn('⚠️ Token refresh requires backend implementation with client_secret');
-        console.log('💡 User should reconnect Google Services in Profile settings');
+        // Check if token is expired or about to expire
+        if (user.googleTokenExpiry) {
+            const now = Date.now();
+            const expiryTime = user.googleTokenExpiry;
+            const fiveMinutes = 5 * 60 * 1000;
+            
+            if (now >= expiryTime - fiveMinutes) {
+                console.log('⚠️ Token expired, refreshing...');
+                await refreshGoogleToken();
+            }
+        }
         
-        // For production: Implement a Cloud Function to handle token refresh securely
-        // The Cloud Function would have access to client_secret and can refresh tokens
-        
-        return false; // Return false to trigger reconnection flow
+        console.log('✅ Token validated');
+        return user.googleAccessToken;
         
     } catch (error) {
-        console.error('❌ Error refreshing Google token:', error);
-        return false;
+        console.error('❌ Token validation failed:', error);
+        throw new Error('Google token invalid. Please reconnect Google in Profile settings.');
     }
 };
       // ==========================================
@@ -20545,9 +20606,9 @@ const sendWeeklyProgressReport = async (pirId) => {
     try {
         console.log(`📧 Generating weekly reports for PIR: ${pirId}`);
         
-        if (!user.googleConnected || !user.googleAccessToken) {
-            throw new Error('Google Drive not connected. Please connect Google in your Profile.');
-        }
+        // ✅ Check & refresh token before using
+        await checkAndRefreshGoogleToken();
+        console.log('✅ Token validated, proceeding with weekly reports...');
         
         const pirDoc = await db.collection('users').doc(pirId).get();
         if (!pirDoc.exists) {
@@ -20659,9 +20720,9 @@ const sendMonthlyProgressReport = async (pirId) => {
     try {
         console.log(`📧 Generating monthly reports for PIR: ${pirId}`);
         
-        if (!user.googleConnected || !user.googleAccessToken) {
-            throw new Error('Google Drive not connected. Please connect Google in your Profile.');
-        }
+        // ✅ Check & refresh token before using
+        await checkAndRefreshGoogleToken();
+        console.log('✅ Token validated, proceeding with monthly reports...');
         
         const pirDoc = await db.collection('users').doc(pirId).get();
         if (!pirDoc.exists) {
