@@ -20387,128 +20387,340 @@ const generatePDFFromReport = async (reportData, reportTitle, pirName, coachName
         container.style.width = '800px';
         document.body.appendChild(container);
         
+        // ✅ FIXED: No full HTML document wrapper, just content
         container.innerHTML = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    * { margin: 0; padding: 0; box-sizing: border-box; }
-                    body { 
-                        font-family: 'Segoe UI', Arial, sans-serif;
-                        color: #2c3e50;
-                        padding: 40px;
-                        line-height: 1.6;
-                    }
-                    .header {
-                        text-align: center;
-                        border-bottom: 3px solid #667eea;
-                        padding-bottom: 20px;
-                        margin-bottom: 30px;
-                    }
-                    .header h1 {
-                        color: #667eea;
-                        font-size: 28px;
-                        margin-bottom: 10px;
-                    }
-                    .header p {
-                        color: #666;
-                        font-size: 14px;
-                    }
-                    .summary-grid {
-                        display: grid;
-                        grid-template-columns: repeat(3, 1fr);
-                        gap: 15px;
-                        margin: 30px 0;
-                    }
-                    .summary-card {
-                        background: #f8f9fa;
-                        padding: 15px;
-                        border-left: 4px solid #667eea;
-                        border-radius: 6px;
-                    }
-                    .summary-card .label {
-                        font-size: 11px;
-                        color: #666;
-                        text-transform: uppercase;
-                        margin-bottom: 5px;
-                    }
-                    .summary-card .value {
-                        font-size: 24px;
-                        color: #667eea;
-                        font-weight: bold;
-                    }
-                    .section {
-                        margin: 25px 0;
-                        page-break-inside: avoid;
-                    }
-                    .section-title {
-                        color: #667eea;
-                        font-size: 18px;
-                        border-bottom: 2px solid #667eea;
-                        padding-bottom: 8px;
-                        margin-bottom: 15px;
-                    }
-                    .insights-list {
-                        list-style: none;
-                        margin: 15px 0;
-                    }
-                    .insights-list li {
-                        background: #e3f2fd;
-                        padding: 12px;
-                        margin: 8px 0;
-                        border-left: 4px solid #667eea;
-                        border-radius: 4px;
-                        font-size: 13px;
-                    }
-                    .footer {
-                        margin-top: 40px;
-                        padding-top: 20px;
-                        border-top: 2px solid #e0e0e0;
-                        text-align: center;
-                        font-size: 11px;
-                        color: #999;
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="header">
-                    <h1>${reportTitle}</h1>
-                    <p><strong>${pirName}</strong></p>
-                    <p>Coach: ${coachName}</p>
-                    <p>Period: ${dateRange}</p>
-                    <p>Generated: ${new Date().toLocaleDateString('en-US')}</p>
-                </div>
+            <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body { 
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                    color: #2c3e50;
+                    padding: 40px;
+                    line-height: 1.6;
+                }
+                .header {
+                    text-align: center;
+                    border-bottom: 3px solid #667eea;
+                    padding-bottom: 20px;
+                    margin-bottom: 30px;
+                }
+                .header h1 {
+                    color: #667eea;
+                    font-size: 28px;
+                    margin-bottom: 10px;
+                }
+                .header p {
+                    color: #666;
+                    font-size: 14px;
+                    margin: 5px 0;
+                }
+                .summary-grid {
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 15px;
+                    margin: 30px 0;
+                }
+                .summary-card {
+                    background: #f8f9fa;
+                    padding: 15px;
+                    border-left: 4px solid #667eea;
+                    border-radius: 6px;
+                }
+                .summary-card .label {
+                    font-size: 11px;
+                    color: #666;
+                    text-transform: uppercase;
+                    margin-bottom: 5px;
+                }
+                .summary-card .value {
+                    font-size: 24px;
+                    color: #667eea;
+                    font-weight: bold;
+                }
+                .section {
+                    margin: 25px 0;
+                    page-break-inside: avoid;
+                }
+                .section-title {
+                    color: #667eea;
+                    font-size: 18px;
+                    border-bottom: 2px solid #667eea;
+                    padding-bottom: 8px;
+                    margin-bottom: 15px;
+                }
+                .insights-list {
+                    list-style: none;
+                    margin: 15px 0;
+                }
+                .insights-list li {
+                    background: #e3f2fd;
+                    padding: 12px;
+                    margin: 8px 0;
+                    border-left: 4px solid #667eea;
+                    border-radius: 4px;
+                    font-size: 13px;
+                }
+                .data-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 20px 0;
+                    font-size: 12px;
+                }
+                .data-table th {
+                    background: #667eea;
+                    color: white;
+                    padding: 10px;
+                    text-align: left;
+                    font-weight: 600;
+                }
+                .data-table td {
+                    padding: 8px 10px;
+                    border-bottom: 1px solid #e0e0e0;
+                }
+                .data-table tr:nth-child(even) {
+                    background: #f8f9fa;
+                }
+                .pattern-box {
+                    background: #fff3cd;
+                    border-left: 4px solid #ffc107;
+                    padding: 12px;
+                    margin: 10px 0;
+                    border-radius: 4px;
+                    font-size: 13px;
+                }
+                .footer {
+                    margin-top: 40px;
+                    padding-top: 20px;
+                    border-top: 2px solid #e0e0e0;
+                    text-align: center;
+                    font-size: 11px;
+                    color: #999;
+                }
+            </style>
 
-                ${reportData.summary ? `
-                    <div class="section">
-                        <h2 class="section-title">Summary</h2>
-                        <div class="summary-grid">
-                            ${Object.entries(reportData.summary).slice(0, 9).map(([key, value]) => `
-                                <div class="summary-card">
-                                    <div class="label">${key.replace(/([A-Z])/g, ' $1').trim()}</div>
-                                    <div class="value">${value}</div>
-                                </div>
-                            `).join('')}
+            <div class="header">
+                <h1>${reportTitle}</h1>
+                <p><strong>${pirName}</strong></p>
+                <p>Coach: ${coachName}</p>
+                <p>Period: ${dateRange}</p>
+                <p>Generated: ${new Date().toLocaleDateString('en-US')}</p>
+            </div>
+
+            ${reportData.summary ? `
+                <div class="section">
+                    <h2 class="section-title">Summary Statistics</h2>
+                    <div class="summary-grid">
+                        ${Object.entries(reportData.summary).slice(0, 9).map(([key, value]) => `
+                            <div class="summary-card">
+                                <div class="label">${key.replace(/([A-Z])/g, ' $1').trim()}</div>
+                                <div class="value">${value}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : ''}
+
+            ${reportData.insights && reportData.insights.length > 0 ? `
+                <div class="section">
+                    <h2 class="section-title">Key Insights</h2>
+                    <ul class="insights-list">
+                        ${reportData.insights.map(insight => `<li>${insight}</li>`).join('')}
+                    </ul>
+                </div>
+            ` : ''}
+
+            ${reportData.patterns && reportData.patterns.length > 0 ? `
+                <div class="section">
+                    <h2 class="section-title">Detected Patterns</h2>
+                    ${reportData.patterns.map(pattern => `
+                        <div class="pattern-box">
+                            ${pattern.message || pattern}
                         </div>
-                    </div>
-                ` : ''}
-
-                ${reportData.insights && reportData.insights.length > 0 ? `
-                    <div class="section">
-                        <h2 class="section-title">Key Insights</h2>
-                        <ul class="insights-list">
-                            ${reportData.insights.map(insight => `<li>${insight}</li>`).join('')}
-                        </ul>
-                    </div>
-                ` : ''}
-
-                <div class="footer">
-                    <p><strong>Guiding Light Recovery Services</strong></p>
-                    <p>Confidential Recovery Report - For Professional Use Only</p>
-                    <p>www.glrecoveryservices.com</p>
+                    `).join('')}
                 </div>
-            </body>
-            </html>
+            ` : ''}
+
+            ${reportData.morningData && reportData.morningData.length > 0 ? `
+                <div class="section">
+                    <h2 class="section-title">Morning Check-in Details</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Mood</th>
+                                <th>Craving</th>
+                                <th>Anxiety</th>
+                                <th>Sleep</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${reportData.morningData.slice(0, 20).map(m => {
+                                const date = m.date?.toDate ? m.date.toDate() : new Date(m.date);
+                                return `
+                                    <tr>
+                                        <td>${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+                                        <td>${m.mood || 'N/A'}/10</td>
+                                        <td>${m.craving || 'N/A'}/10</td>
+                                        <td>${m.anxiety || 'N/A'}/10</td>
+                                        <td>${m.sleep || 'N/A'}/10</td>
+                                        <td>${(m.notes || '').substring(0, 30)}${m.notes && m.notes.length > 30 ? '...' : ''}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : ''}
+
+            ${reportData.eveningData && reportData.eveningData.length > 0 ? `
+                <div class="section">
+                    <h2 class="section-title">Evening Reflection Details</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Overall Day</th>
+                                <th>Gratitude</th>
+                                <th>Challenges</th>
+                                <th>Tomorrow Goal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${reportData.eveningData.slice(0, 20).map(e => {
+                                const date = e.date?.toDate ? e.date.toDate() : new Date(e.date);
+                                return `
+                                    <tr>
+                                        <td>${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+                                        <td>${e.overallDay || 'N/A'}/10</td>
+                                        <td>${(e.gratitude || '').substring(0, 30)}${e.gratitude && e.gratitude.length > 30 ? '...' : ''}</td>
+                                        <td>${(e.challenges || '').substring(0, 30)}${e.challenges && e.challenges.length > 30 ? '...' : ''}</td>
+                                        <td>${(e.tomorrowGoal || '').substring(0, 30)}${e.tomorrowGoal && e.tomorrowGoal.length > 30 ? '...' : ''}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : ''}
+
+            ${reportData.sobrietyData && reportData.sobrietyData.length > 0 ? `
+                <div class="section">
+                    <h2 class="section-title">Sobriety Analysis</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>PIR Name</th>
+                                <th>Days Sober</th>
+                                <th>Avg Mood</th>
+                                <th>Avg Cravings</th>
+                                <th>Risk Level</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${reportData.sobrietyData.slice(0, 20).map(s => `
+                                <tr>
+                                    <td>${s.pirName}</td>
+                                    <td>${s.daysSober} days</td>
+                                    <td>${s.avgMood}/10</td>
+                                    <td>${s.avgCravings}/10</td>
+                                    <td>${s.riskLevel}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : ''}
+
+            ${reportData.engagementData && reportData.engagementData.length > 0 ? `
+                <div class="section">
+                    <h2 class="section-title">Engagement Details</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>PIR Name</th>
+                                <th>Check-ins</th>
+                                <th>Streak</th>
+                                <th>Assignments</th>
+                                <th>Completion %</th>
+                                <th>Score</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${reportData.engagementData.slice(0, 20).map(e => `
+                                <tr>
+                                    <td>${e.pirName}</td>
+                                    <td>${e.checkInCount}</td>
+                                    <td>${e.checkInStreak} days</td>
+                                    <td>${e.assignmentCount}</td>
+                                    <td>${e.assignmentCompletion}%</td>
+                                    <td>${e.engagementScore}/100</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : ''}
+
+            ${reportData.achievements && reportData.achievements.length > 0 ? `
+                <div class="section">
+                    <h2 class="section-title">Achievements & Milestones</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>PIR Name</th>
+                                <th>Type</th>
+                                <th>Achievement</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${reportData.achievements.slice(0, 20).map(a => {
+                                const date = a.completedAt?.toDate ? a.completedAt.toDate() : new Date(a.completedAt);
+                                return `
+                                    <tr>
+                                        <td>${a.pirName}</td>
+                                        <td>${a.type}</td>
+                                        <td>${a.title}</td>
+                                        <td>${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : ''}
+
+            ${reportData.riskData && reportData.riskData.length > 0 ? `
+                <div class="section">
+                    <h2 class="section-title">Risk Assessment</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>PIR Name</th>
+                                <th>Risk Score</th>
+                                <th>Risk Level</th>
+                                <th>Detected Patterns</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${reportData.riskData.slice(0, 20).map(r => `
+                                <tr>
+                                    <td>${r.pirName}</td>
+                                    <td>${r.riskScore}/10</td>
+                                    <td>${r.riskLevel}</td>
+                                    <td>${r.patterns.join(', ')}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : ''}
+
+            <div class="footer">
+                <p><strong>Guiding Light Recovery Services</strong></p>
+                <p>Confidential Recovery Report - For Professional Use Only</p>
+                <p>www.glrecoveryservices.com</p>
+            </div>
         `;
         
         const opt = {
