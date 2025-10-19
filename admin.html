@@ -23540,9 +23540,52 @@ const exportReportToPDF = async (data, reportTitle) => {
 
     doc.save(`${reportTitle.replace(/\s+/g, '_')}_${startDate}_to_${endDate}.pdf`);
 };
-   // ========== EXPORT REPORT TO PDF (RETURN BLOB INSTEAD OF DOWNLOADING) ==========
+  // ========== EXPORT REPORT TO PDF WITH CHARTS (RETURN BLOB) ==========
 const exportReportToPDFBlob = async (data, reportTitle) => {
     await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // ✅ HELPER: Strip emojis from text
+    const stripEmojis = (text) => {
+        return text.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim();
+    };
+    
+    // ✅ HELPER: Render chart to canvas and return base64
+    const renderChartToImage = async (chartData, chartType, title) => {
+        return new Promise((resolve) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 800;
+            canvas.height = 400;
+            document.body.appendChild(canvas);
+            
+            const ctx = canvas.getContext('2d');
+            const chart = new Chart(ctx, {
+                type: chartType,
+                data: chartData,
+                options: {
+                    responsive: false,
+                    animation: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: title,
+                            font: { size: 16, weight: 'bold' }
+                        },
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    }
+                }
+            });
+            
+            setTimeout(() => {
+                const imageData = canvas.toDataURL('image/png');
+                chart.destroy();
+                document.body.removeChild(canvas);
+                resolve(imageData);
+            }, 500);
+        });
+    };
     
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
@@ -23600,9 +23643,10 @@ const exportReportToPDFBlob = async (data, reportTitle) => {
         
         doc.setFontSize(10);
         data.insights.forEach(insight => {
-            const lines = doc.splitTextToSize(insight, 170);
+            const cleanInsight = stripEmojis(insight);
+            const lines = doc.splitTextToSize(cleanInsight, 170);
             lines.forEach(line => {
-                doc.text(`• ${line}`, 30, yPos);
+                doc.text(`- ${line}`, 30, yPos);
                 yPos += 6;
                 if (yPos > 270) {
                     doc.addPage();
@@ -23627,9 +23671,10 @@ const exportReportToPDFBlob = async (data, reportTitle) => {
         doc.setFontSize(10);
         data.patterns.forEach(pattern => {
             const message = pattern.message || pattern;
-            const lines = doc.splitTextToSize(message, 170);
+            const cleanMessage = stripEmojis(message);
+            const lines = doc.splitTextToSize(cleanMessage, 170);
             lines.forEach(line => {
-                doc.text(`• ${line}`, 30, yPos);
+                doc.text(`- ${line}`, 30, yPos);
                 yPos += 6;
                 if (yPos > 270) {
                     doc.addPage();
@@ -23640,10 +23685,129 @@ const exportReportToPDFBlob = async (data, reportTitle) => {
         yPos += 10;
     }
 
+    // ✅ CHARTS SECTION - MOOD & CRAVINGS TREND
+    if (data.charts?.trends) {
+        if (yPos > 200) {
+            doc.addPage();
+            yPos = 20;
+        }
+        
+        doc.setFontSize(12);
+        doc.text('Mood & Cravings Trend', 20, yPos);
+        yPos += 5;
+
+        const chartImage = await renderChartToImage(
+            {
+                labels: data.charts.trends.dates,
+                datasets: [
+                    {
+                        label: 'Mood',
+                        data: data.charts.trends.moods,
+                        borderColor: '#4CAF50',
+                        backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Cravings',
+                        data: data.charts.trends.cravings,
+                        borderColor: '#f44336',
+                        backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4
+                    }
+                ]
+            },
+            'line',
+            'Mood & Cravings Over Time'
+        );
+        
+        doc.addImage(chartImage, 'PNG', 20, yPos, 170, 80);
+        yPos += 90;
+    }
+
+    // ✅ ANXIETY & SLEEP TREND CHART
+    if (data.charts?.trends?.anxiety && data.charts?.trends?.sleep) {
+        if (yPos > 200) {
+            doc.addPage();
+            yPos = 20;
+        }
+        
+        doc.setFontSize(12);
+        doc.text('Anxiety & Sleep Quality Trend', 20, yPos);
+        yPos += 5;
+
+        const chartImage = await renderChartToImage(
+            {
+                labels: data.charts.trends.dates,
+                datasets: [
+                    {
+                        label: 'Anxiety',
+                        data: data.charts.trends.anxiety,
+                        borderColor: '#FF9800',
+                        backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Sleep Quality',
+                        data: data.charts.trends.sleep,
+                        borderColor: '#9C27B0',
+                        backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4
+                    }
+                ]
+            },
+            'line',
+            'Anxiety & Sleep Over Time'
+        );
+        
+        doc.addImage(chartImage, 'PNG', 20, yPos, 170, 80);
+        yPos += 90;
+    }
+
+    // ✅ MOOD DISTRIBUTION CHART
+    if (data.charts?.distribution) {
+        if (yPos > 200) {
+            doc.addPage();
+            yPos = 20;
+        }
+        
+        doc.setFontSize(12);
+        doc.text('Mood Distribution', 20, yPos);
+        yPos += 5;
+
+        const chartImage = await renderChartToImage(
+            {
+                labels: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
+                datasets: [{
+                    label: 'Days at this mood level',
+                    data: data.charts.distribution,
+                    backgroundColor: [
+                        '#f44336', '#f44336', '#f44336',
+                        '#FF9800', '#FF9800', '#FF9800',
+                        '#4CAF50', '#4CAF50', '#4CAF50', '#4CAF50'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            'bar',
+            'Where You Spend Your Time'
+        );
+        
+        doc.addImage(chartImage, 'PNG', 20, yPos, 170, 80);
+        yPos += 90;
+    }
+
     // Data Tables - Morning Check-ins
     if (data.morningData && data.morningData.length > 0) {
         doc.addPage();
         yPos = 20;
+
+        doc.setFontSize(14);
+        doc.text('Morning Check-in Details', 20, yPos);
+        yPos += 10;
 
         doc.autoTable({
             startY: yPos,
@@ -23668,6 +23832,10 @@ const exportReportToPDFBlob = async (data, reportTitle) => {
         doc.addPage();
         yPos = 20;
 
+        doc.setFontSize(14);
+        doc.text('Evening Reflection Details', 20, yPos);
+        yPos += 10;
+
         doc.autoTable({
             startY: yPos,
             head: [['Date', 'Overall Day', 'Gratitude', 'Challenges']],
@@ -23690,6 +23858,10 @@ const exportReportToPDFBlob = async (data, reportTitle) => {
         doc.addPage();
         yPos = 20;
 
+        doc.setFontSize(14);
+        doc.text('Sobriety Analysis', 20, yPos);
+        yPos += 10;
+
         doc.autoTable({
             startY: yPos,
             head: [['PIR', 'Days Sober', 'Avg Mood', 'Avg Cravings', 'Risk Level']],
@@ -23710,6 +23882,10 @@ const exportReportToPDFBlob = async (data, reportTitle) => {
         doc.addPage();
         yPos = 20;
 
+        doc.setFontSize(14);
+        doc.text('Engagement Details', 20, yPos);
+        yPos += 10;
+
         doc.autoTable({
             startY: yPos,
             head: [['PIR', 'Check-ins', 'Streak', 'Assignments', 'Score']],
@@ -23729,6 +23905,10 @@ const exportReportToPDFBlob = async (data, reportTitle) => {
     if (data.achievements && data.achievements.length > 0) {
         doc.addPage();
         yPos = 20;
+
+        doc.setFontSize(14);
+        doc.text('Achievements & Milestones', 20, yPos);
+        yPos += 10;
 
         doc.autoTable({
             startY: yPos,
@@ -23752,6 +23932,10 @@ const exportReportToPDFBlob = async (data, reportTitle) => {
         doc.addPage();
         yPos = 20;
 
+        doc.setFontSize(14);
+        doc.text('Risk Assessment', 20, yPos);
+        yPos += 10;
+
         doc.autoTable({
             startY: yPos,
             head: [['PIR', 'Risk Score', 'Level', 'Patterns']],
@@ -23766,7 +23950,7 @@ const exportReportToPDFBlob = async (data, reportTitle) => {
         });
     }
 
-    // ✅ RETURN BLOB INSTEAD OF DOWNLOADING
+    // ✅ RETURN BLOB
     return doc.output('blob');
 };
 
