@@ -20861,13 +20861,8 @@ const sendWeeklyProgressReport = async (pirId) => {
             try {
                 console.log(`\n📄 Processing ${i + 1}/5: ${reportTitles[i]}`);
                 
-                const pdfBlob = await generatePDFFromReport(
-                    reportsData[i],
-                    reportTitles[i],
-                    pirData.displayName || pirData.email,
-                    coachName,
-                    dateRange
-                );
+                // ✅ USE THE EXISTING WORKING PDF EXPORT FUNCTION
+                const pdfBlob = await exportReportToPDFBlob(reportsData[i], reportTitles[i]);
                 
                 const fileName = `${pirData.displayName || pirData.email}_${reportTitles[i]}_${dateStamp}.pdf`;
                 
@@ -20975,13 +20970,8 @@ const sendMonthlyProgressReport = async (pirId) => {
             try {
                 console.log(`\n📄 Processing ${i + 1}/5: ${reportTitles[i]}`);
                 
-                const pdfBlob = await generatePDFFromReport(
-                    reportsData[i],
-                    reportTitles[i],
-                    pirData.displayName || pirData.email,
-                    coachName,
-                    dateRange
-                );
+                // ✅ USE THE EXISTING WORKING PDF EXPORT FUNCTION
+                const pdfBlob = await exportReportToPDFBlob(reportsData[i], reportTitles[i]);
                 
                 const fileName = `${pirData.displayName || pirData.email}_${reportTitles[i]}_${dateStamp}.pdf`;
                 
@@ -23549,6 +23539,235 @@ const exportReportToPDF = async (data, reportTitle) => {
     }
 
     doc.save(`${reportTitle.replace(/\s+/g, '_')}_${startDate}_to_${endDate}.pdf`);
+};
+   // ========== EXPORT REPORT TO PDF (RETURN BLOB INSTEAD OF DOWNLOADING) ==========
+const exportReportToPDFBlob = async (data, reportTitle) => {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    
+    let yPos = 20;
+
+    // Title
+    doc.setFontSize(20);
+    doc.setTextColor(102, 126, 234);
+    doc.text(reportTitle, 20, yPos);
+    yPos += 10;
+
+    // Metadata
+    doc.setFontSize(10);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 20, yPos);
+    yPos += 5;
+    if (data.metadata?.period) {
+        doc.text(`Period: ${data.metadata.period}`, 20, yPos);
+        yPos += 15;
+    } else {
+        yPos += 10;
+    }
+
+    // Summary
+    if (data.summary) {
+        doc.setFontSize(14);
+        doc.setTextColor(0, 0, 0);
+        doc.text('Summary Statistics', 20, yPos);
+        yPos += 8;
+
+        doc.setFontSize(10);
+        Object.entries(data.summary).forEach(([key, value]) => {
+            const label = key.replace(/([A-Z])/g, ' $1').trim();
+            doc.text(`${label}: ${value}`, 30, yPos);
+            yPos += 6;
+            if (yPos > 270) {
+                doc.addPage();
+                yPos = 20;
+            }
+        });
+        yPos += 10;
+    }
+
+    // Insights
+    if (data.insights && data.insights.length > 0) {
+        if (yPos > 250) {
+            doc.addPage();
+            yPos = 20;
+        }
+        
+        doc.setFontSize(14);
+        doc.text('Key Insights', 20, yPos);
+        yPos += 8;
+        
+        doc.setFontSize(10);
+        data.insights.forEach(insight => {
+            const lines = doc.splitTextToSize(insight, 170);
+            lines.forEach(line => {
+                doc.text(`• ${line}`, 30, yPos);
+                yPos += 6;
+                if (yPos > 270) {
+                    doc.addPage();
+                    yPos = 20;
+                }
+            });
+        });
+        yPos += 10;
+    }
+
+    // Patterns
+    if (data.patterns && data.patterns.length > 0) {
+        if (yPos > 250) {
+            doc.addPage();
+            yPos = 20;
+        }
+        
+        doc.setFontSize(14);
+        doc.text('Detected Patterns', 20, yPos);
+        yPos += 8;
+        
+        doc.setFontSize(10);
+        data.patterns.forEach(pattern => {
+            const message = pattern.message || pattern;
+            const lines = doc.splitTextToSize(message, 170);
+            lines.forEach(line => {
+                doc.text(`• ${line}`, 30, yPos);
+                yPos += 6;
+                if (yPos > 270) {
+                    doc.addPage();
+                    yPos = 20;
+                }
+            });
+        });
+        yPos += 10;
+    }
+
+    // Data Tables - Morning Check-ins
+    if (data.morningData && data.morningData.length > 0) {
+        doc.addPage();
+        yPos = 20;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['Date', 'Mood', 'Craving', 'Anxiety', 'Sleep']],
+            body: data.morningData.slice(0, 30).map(m => {
+                const date = m.date?.toDate ? m.date.toDate() : new Date(m.date);
+                return [
+                    date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                    m.mood || 'N/A',
+                    m.craving || 'N/A',
+                    m.anxiety || 'N/A',
+                    m.sleep || 'N/A'
+                ];
+            }),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    // Data Tables - Evening Reflections
+    if (data.eveningData && data.eveningData.length > 0) {
+        doc.addPage();
+        yPos = 20;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['Date', 'Overall Day', 'Gratitude', 'Challenges']],
+            body: data.eveningData.slice(0, 30).map(e => {
+                const date = e.date?.toDate ? e.date.toDate() : new Date(e.date);
+                return [
+                    date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                    (e.overallDay || 'N/A') + '/10',
+                    (e.gratitude || '').substring(0, 30) + '...',
+                    (e.challenges || '').substring(0, 30) + '...'
+                ];
+            }),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    // Data Tables - Sobriety
+    if (data.sobrietyData && data.sobrietyData.length > 0) {
+        doc.addPage();
+        yPos = 20;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Days Sober', 'Avg Mood', 'Avg Cravings', 'Risk Level']],
+            body: data.sobrietyData.slice(0, 30).map(s => [
+                s.pirName,
+                s.daysSober,
+                s.avgMood,
+                s.avgCravings,
+                s.riskLevel
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    // Data Tables - Engagement
+    if (data.engagementData && data.engagementData.length > 0) {
+        doc.addPage();
+        yPos = 20;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Check-ins', 'Streak', 'Assignments', 'Score']],
+            body: data.engagementData.slice(0, 30).map(e => [
+                e.pirName,
+                e.checkInCount,
+                e.checkInStreak + ' days',
+                e.assignmentCompletion + '%',
+                e.engagementScore
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    // Data Tables - Achievements
+    if (data.achievements && data.achievements.length > 0) {
+        doc.addPage();
+        yPos = 20;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Type', 'Achievement', 'Date']],
+            body: data.achievements.slice(0, 30).map(a => {
+                const date = a.completedAt?.toDate ? a.completedAt.toDate() : new Date(a.completedAt);
+                return [
+                    a.pirName,
+                    a.type,
+                    a.title,
+                    date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                ];
+            }),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    // Data Tables - Risk
+    if (data.riskData && data.riskData.length > 0) {
+        doc.addPage();
+        yPos = 20;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Risk Score', 'Level', 'Patterns']],
+            body: data.riskData.slice(0, 30).map(r => [
+                r.pirName,
+                r.riskScore + '/10',
+                r.riskLevel,
+                r.patterns.join(', ').substring(0, 40) + '...'
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    // ✅ RETURN BLOB INSTEAD OF DOWNLOADING
+    return doc.output('blob');
 };
 
 // ========== SEND WEEKLY REPORTS HANDLER ==========
