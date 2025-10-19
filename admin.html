@@ -19939,8 +19939,40 @@ function ReportsView({ user }) {
     const [selectedPIRForReport, setSelectedPIRForReport] = useState(null);
     const [allPIRs, setAllPIRs] = useState([]);
     const [allCheckIns, setAllCheckIns] = useState([]);
-    const [sendingWeekly, setSendingWeekly] = useState(false);
+   const [sendingWeekly, setSendingWeekly] = useState(false);
     const [sendingMonthly, setSendingMonthly] = useState(false);
+    
+    // ========== NEW: AUTOMATION CONFIGURATION STATE ==========
+    const [selectedReports, setSelectedReports] = useState({
+        morningCheckins: true,
+        eveningReflections: true,
+        moodAnalysis: true,
+        overview: false,
+        sobriety: false,
+        engagement: false,
+        milestones: false,
+        crisis: false,
+        communication: false,
+        predictive: false
+    });
+    
+    const [automationEnabled, setAutomationEnabled] = useState(true);
+    
+    const [scheduleConfig, setScheduleConfig] = useState({
+        weekly: {
+            day: 1, // Monday = 1
+            time: '08:00'
+        },
+        monthly: {
+            day: 2, // 2nd of month
+            time: '08:00'
+        }
+    });
+    
+    const [lastRunStatus, setLastRunStatus] = useState({
+        weekly: null,
+        monthly: null
+    });
     
     const [customConfig, setCustomConfig] = useState({
         selectedPIRs: [],
@@ -20061,7 +20093,7 @@ const chartInstances = useRef({});
     };
 
     // ========== INITIALIZATION ==========
-    useEffect(() => {
+   useEffect(() => {
         loadPIRsList();
         loadAllCheckIns();
         return () => {
@@ -20070,6 +20102,12 @@ const chartInstances = useRef({});
             });
         };
     }, []);
+
+    // ========== NEW: LOAD AUTOMATION CONFIG ON MOUNT ==========
+    useEffect(() => {
+        loadAutomationConfig();
+    }, []);
+   
 
     useEffect(() => {
         if (reportData && reportData.charts) {
@@ -20216,11 +20254,186 @@ const checkAndRefreshGoogleToken = async () => {
         throw new Error('Google token invalid. Please reconnect Google in Profile settings.');
     }
 };
+   // ==========================================
+// AUTOMATION CONFIGURATION MANAGEMENT
+// ==========================================
+
+// ========== SAVE AUTOMATION CONFIG TO FIREBASE ==========
+const saveAutomationConfig = async () => {
+    try {
+        console.log('💾 Saving automation configuration...');
+        
+        await db.collection('automationConfig').doc(user.uid).set({
+            userId: user.uid,
+            enabled: automationEnabled,
+            selectedReports,
+            schedule: scheduleConfig,
+            lastRunStatus,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        console.log('✅ Automation configuration saved');
+        alert('✅ Configuration saved successfully!');
+        
+    } catch (error) {
+        console.error('❌ Error saving automation config:', error);
+        alert('❌ Failed to save configuration. Check console for details.');
+    }
+};
+
+// ========== LOAD AUTOMATION CONFIG FROM FIREBASE ==========
+const loadAutomationConfig = async () => {
+    try {
+        console.log('📥 Loading automation configuration...');
+        
+        const configDoc = await db.collection('automationConfig').doc(user.uid).get();
+        
+        if (configDoc.exists) {
+            const config = configDoc.data();
+            
+            setAutomationEnabled(config.enabled ?? true);
+            setSelectedReports(config.selectedReports ?? {
+                morningCheckins: true,
+                eveningReflections: true,
+                moodAnalysis: true,
+                overview: false,
+                sobriety: false,
+                engagement: false,
+                milestones: false,
+                crisis: false,
+                communication: false,
+                predictive: false
+            });
+            setScheduleConfig(config.schedule ?? {
+                weekly: { day: 1, time: '08:00' },
+                monthly: { day: 2, time: '08:00' }
+            });
+            setLastRunStatus(config.lastRunStatus ?? {
+                weekly: null,
+                monthly: null
+            });
+            
+            console.log('✅ Automation configuration loaded');
+        } else {
+            console.log('ℹ️ No saved configuration found, using defaults');
+        }
+        
+    } catch (error) {
+        console.error('❌ Error loading automation config:', error);
+    }
+};
+
+// ========== TEST WEEKLY REPORTS (SEND TO ALL PIRS) ==========
+const testWeeklyReports = async () => {
+    if (!confirm('🧪 TEST MODE: Send weekly reports to ALL active PIRs right now?\n\nThis uses the currently selected reports.')) {
+        return;
+    }
+    
+    try {
+        setSendingWeekly(true);
+        await sendAllWeeklyReports();
+    } catch (error) {
+        console.error('❌ Error testing weekly reports:', error);
+        alert(`❌ Error: ${error.message}`);
+    } finally {
+        setSendingWeekly(false);
+    }
+};
+
+// ========== TEST MONTHLY REPORTS (SEND TO ALL PIRS) ==========
+const testMonthlyReports = async () => {
+    if (!confirm('🧪 TEST MODE: Send monthly reports to ALL active PIRs right now?\n\nThis uses the currently selected reports.')) {
+        return;
+    }
+    
+    try {
+        setSendingMonthly(true);
+        await sendAllMonthlyReports();
+    } catch (error) {
+        console.error('❌ Error testing monthly reports:', error);
+        alert(`❌ Error: ${error.message}`);
+    } finally {
+        setSendingMonthly(false);
+    }
+};
 
 // ========== CONSTANTS ==========
 const GLRS_MAIN_FOLDER_ID = '1Nuem8Nw8a3LxkVya0U3GcV6nwmdp3VCw';
-const GLRS_LOGO_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEAmpwYAAAEu0lEQVR4nO2ZW2wUVRzGv5mdmd3Z7rbbXbe7pbQtpRRKS0sRKBcRUB4UH4zRxBuJMSZqfPBBTXzwwQcTE40vvhhj4oMxMcYHE2OMiTHGGBNjjIkxxhgTY4yJMcYYY2L8zjkz252d2Z3tbktL0ZN8yc7MmXP+3/87l9kBHnjggQceeOD/Dco0KKVUSimlUkqplFIqpZRKKaVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqn/r1JKqZRSKqWUSilVSimVUkqllFIppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppZRSKqWUSv2/lVJKpZRSKaVUSqmUUiqllFIppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoplVJKpZRSKaVUSqmUUiqllEoppVRKKZVS/2+llFIppVRKKZVSSqWUUimllFJKpZRSKaVUSqmUUiqllEoppVRKKZVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7fSimlUkqplFIqpZRKKaVSSqmUUiqllEoplVJKpZRKKaVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7fSimlUkqplFIqpZRKKaVSSqmUUiqllEoplVJKpZRKKaVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7fSimlUkqplFIqpZRKKaVSSqmUUiqllEoplVJKpZRKKaVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7fSimlUkqplFIqpZRKKaVSSqmUUiqllEoplVJKpZRKKaVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7/6k+xKg0Q8QAAAABJRU5ErkJggg==";
+const GLRS_LOGO_BASE64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEAmpwYAAAEu0lEQVR4nO2ZW2wUVRzGv5mdmd3Z7rbbXbe7pbQtpRRKS0sRKBcRUB4UH4zRxBuJMSZqfPBBTXzwwQcTE40vvhhj4oMxMcYHE2OMiTHGGBNjjIkxxhgTY4yJMcYYY2L8zjkz252d2Z3tbktL0ZN8yc7MmXP+3/87l9kBHnjggQceeOD/Dco0KKVUSimlUkqplFIqpZRKKaVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqn/r1JKqZRSKqWUSilVSimVUkqllFIppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoppZRSKqWUSv2/lVJKpZRSKaVUSqmUUiqllFIppVRKKZVSSqmUUiqllEoppVRKKZVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7fSimlUkqplFIqpZRKKaVSSqmUUiqllEoplVJKpZRKKaVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7fSimlUkqplFIqpZRKKaVSSqmUUiqllEoplVJKpZRKKaVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7fSimlUkqplFIqpZRKKaVSSqmUUiqllEoplVJKpZRKKaVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7fSimlUkqplFIqpZRKKaVSSqmUUiqllEoplVJKpZRKKaVSSqmUUiqllEoplVJKpZRSKaVUSqmUUkqllFIppVRKqZRSKqWUSqmUUiqllFIppf7/6k+xKg0Q8QAAAABJRU5ErkJggg==";
 
+// ========== AVAILABLE REPORTS CONFIGURATION ==========
+const AVAILABLE_REPORTS = {
+    morningCheckins: {
+        name: 'Morning Check-ins',
+        generator: null, // Will be set to function reference
+        key: 'morningCheckins',
+        icon: '🌅',
+        description: 'Daily morning mood, cravings, anxiety, and sleep quality'
+    },
+    eveningReflections: {
+        name: 'Evening Reflections',
+        generator: null,
+        key: 'eveningReflections',
+        icon: '🌙',
+        description: 'Daily reflections, gratitude, and challenges'
+    },
+    moodAnalysis: {
+        name: 'Mood Analysis',
+        generator: null,
+        key: 'moodAnalysis',
+        icon: '😊',
+        description: 'Detailed mood patterns and distribution'
+    },
+    overview: {
+        name: 'Overview Report',
+        generator: null,
+        key: 'overview',
+        icon: '📊',
+        description: 'Comprehensive progress statistics'
+    },
+    sobriety: {
+        name: 'Sobriety Analysis',
+        generator: null,
+        key: 'sobriety',
+        icon: '🎯',
+        description: 'Sobriety tracking and risk assessment'
+    },
+    engagement: {
+        name: 'Engagement Report',
+        generator: null,
+        key: 'engagement',
+        icon: '📈',
+        description: 'Participation and activity metrics'
+    },
+    milestones: {
+        name: 'Milestones & Achievements',
+        generator: null,
+        key: 'milestones',
+        icon: '🏆',
+        description: 'Goals completed and milestones reached'
+    },
+    crisis: {
+        name: 'Crisis & Interventions',
+        generator: null,
+        key: 'crisis',
+        icon: '🚨',
+        description: 'SOS alerts and emergency responses'
+    },
+    communication: {
+        name: 'Communication Activity',
+        generator: null,
+        key: 'communication',
+        icon: '💬',
+        description: 'Message activity and engagement'
+    },
+    predictive: {
+        name: 'Predictive Risk',
+        generator: null,
+        key: 'predictive',
+        icon: '⚠️',
+        description: 'Risk prediction and early warnings'
+    }
+};
 // ========== GOOGLE DRIVE FOLDER MANAGEMENT ==========
 const getOrCreatePIRFolder = async (pirName, accessToken) => {
     try {
@@ -20744,8 +20957,8 @@ const generatePDFFromReport = async (reportData, reportTitle, pirName, coachName
     }
 };
 
-// ========== EMAIL TEMPLATE WITH 5 DRIVE LINKS ==========
-const getEmailTemplateWith5Links = (pirName, reportType, dateRange, driveLinks) => {
+// ========== EMAIL TEMPLATE WITH DYNAMIC DRIVE LINKS ==========
+const getEmailTemplateWithDynamicLinks = (pirName, reportType, dateRange, driveLinks) => {
     return `
         <!DOCTYPE html>
         <html>
@@ -20806,8 +21019,7 @@ const getEmailTemplateWith5Links = (pirName, reportType, dateRange, driveLinks) 
         </html>
     `;
 };
-
-// ========== SEND WEEKLY PROGRESS REPORTS (1 EMAIL WITH 5 DRIVE LINKS) ==========
+// ========== SEND WEEKLY PROGRESS REPORTS (DYNAMIC BASED ON SELECTED REPORTS) ==========
 const sendWeeklyProgressReport = async (pirId) => {
     try {
         console.log(`📧 Generating weekly reports for PIR: ${pirId}`);
@@ -20837,31 +21049,45 @@ const sendWeeklyProgressReport = async (pirId) => {
         const dateRange = `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
         const dateStamp = endDate.toISOString().split('T')[0];
         
-        console.log('📊 Generating report data...');
-        const reportsData = await Promise.all([
-            generateOverviewReport(startDate, endDate),
-            generateMoodAnalysisReport(startDate, endDate),
-            generateEngagementReport(startDate, endDate),
-            generateMorningCheckinsReport(startDate, endDate),
-            generateEveningReflectionsReport(startDate, endDate)
-        ]);
+        // ✅ DYNAMICALLY BUILD REPORT LIST BASED ON SELECTED REPORTS
+        const reportsToGenerate = [];
+        const reportTitles = [];
         
-        const reportTitles = [
-            'Overview Report',
-            'Mood Analysis',
-            'Engagement Report',
-            'Morning Check-ins',
-            'Evening Reflections'
-        ];
+        // Set generator functions (they're defined later in the code)
+        AVAILABLE_REPORTS.morningCheckins.generator = generateMorningCheckinsReport;
+        AVAILABLE_REPORTS.eveningReflections.generator = generateEveningReflectionsReport;
+        AVAILABLE_REPORTS.moodAnalysis.generator = generateMoodAnalysisReport;
+        AVAILABLE_REPORTS.overview.generator = generateOverviewReport;
+        AVAILABLE_REPORTS.sobriety.generator = generateSobrietyReport;
+        AVAILABLE_REPORTS.engagement.generator = generateEngagementReport;
+        AVAILABLE_REPORTS.milestones.generator = generateMilestonesReport;
+        AVAILABLE_REPORTS.crisis.generator = generateCrisisReport;
+        AVAILABLE_REPORTS.communication.generator = generateCommunicationReport;
+        AVAILABLE_REPORTS.predictive.generator = generatePredictiveReport;
+        
+        Object.entries(selectedReports).forEach(([key, isSelected]) => {
+            if (isSelected && AVAILABLE_REPORTS[key]) {
+                reportsToGenerate.push(
+                    AVAILABLE_REPORTS[key].generator(startDate, endDate, pirId)
+                );
+                reportTitles.push(AVAILABLE_REPORTS[key].name);
+            }
+        });
+        
+        if (reportsToGenerate.length === 0) {
+            throw new Error('No reports selected for weekly emails');
+        }
+        
+        console.log(`📊 Generating ${reportsToGenerate.length} reports...`);
+        const reportsData = await Promise.all(reportsToGenerate);
         
         console.log('📄 Creating PDFs and uploading to Google Drive...');
         const driveLinks = [];
         
         for (let i = 0; i < reportsData.length; i++) {
             try {
-                console.log(`\n📄 Processing ${i + 1}/5: ${reportTitles[i]}`);
+                console.log(`\n📄 Processing ${i + 1}/${reportsData.length}: ${reportTitles[i]}`);
                 
-                // ✅ USE THE EXISTING WORKING PDF EXPORT FUNCTION
                 const pdfBlob = await exportReportToPDFBlob(reportsData[i], reportTitles[i]);
                 
                 const fileName = `${pirData.displayName || pirData.email}_${reportTitles[i]}_${dateStamp}.pdf`;
@@ -20892,7 +21118,7 @@ const sendWeeklyProgressReport = async (pirId) => {
         
         console.log(`📧 Sending email with ${driveLinks.length} Drive links...`);
         
-        const emailHtml = getEmailTemplateWith5Links(
+        const emailHtml = getEmailTemplateWithDynamicLinks(
             pirData.displayName || pirData.email,
             'weekly',
             dateRange,
@@ -20907,8 +21133,13 @@ const sendWeeklyProgressReport = async (pirId) => {
             }
         });
         
-        console.log(`✅ Weekly reports complete: ${driveLinks.length}/5 sent to ${pirData.email}`);
-        return { success: driveLinks.length === 5, pirEmail: pirData.email, sentCount: driveLinks.length };
+        console.log(`✅ Weekly reports complete: ${driveLinks.length}/${reportsToGenerate.length} sent to ${pirData.email}`);
+        return { 
+            success: driveLinks.length === reportsToGenerate.length, 
+            pirEmail: pirData.email, 
+            sentCount: driveLinks.length,
+            expectedCount: reportsToGenerate.length
+        };
         
     } catch (error) {
         console.error('❌ Error sending weekly reports:', error);
@@ -20916,7 +21147,7 @@ const sendWeeklyProgressReport = async (pirId) => {
     }
 };
 
-// ========== SEND MONTHLY PROGRESS REPORTS (1 EMAIL WITH 5 DRIVE LINKS) ==========
+// ========== SEND MONTHLY PROGRESS REPORTS (DYNAMIC BASED ON SELECTED REPORTS) ==========
 const sendMonthlyProgressReport = async (pirId) => {
     try {
         console.log(`📧 Generating monthly reports for PIR: ${pirId}`);
@@ -20946,31 +21177,45 @@ const sendMonthlyProgressReport = async (pirId) => {
         const dateRange = startDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
         const dateStamp = endDate.toISOString().split('T')[0];
         
-        console.log('📊 Generating report data...');
-        const reportsData = await Promise.all([
-            generateOverviewReport(startDate, endDate),
-            generateSobrietyReport(startDate, endDate),
-            generateMoodAnalysisReport(startDate, endDate),
-            generateMilestonesReport(startDate, endDate),
-            generateEveningReflectionsReport(startDate, endDate)
-        ]);
+        // ✅ DYNAMICALLY BUILD REPORT LIST BASED ON SELECTED REPORTS
+        const reportsToGenerate = [];
+        const reportTitles = [];
         
-        const reportTitles = [
-            'Overview Report',
-            'Sobriety Analysis',
-            'Mood Analysis',
-            'Milestones Report',
-            'Evening Reflections'
-        ];
+        // Set generator functions (they're defined later in the code)
+        AVAILABLE_REPORTS.morningCheckins.generator = generateMorningCheckinsReport;
+        AVAILABLE_REPORTS.eveningReflections.generator = generateEveningReflectionsReport;
+        AVAILABLE_REPORTS.moodAnalysis.generator = generateMoodAnalysisReport;
+        AVAILABLE_REPORTS.overview.generator = generateOverviewReport;
+        AVAILABLE_REPORTS.sobriety.generator = generateSobrietyReport;
+        AVAILABLE_REPORTS.engagement.generator = generateEngagementReport;
+        AVAILABLE_REPORTS.milestones.generator = generateMilestonesReport;
+        AVAILABLE_REPORTS.crisis.generator = generateCrisisReport;
+        AVAILABLE_REPORTS.communication.generator = generateCommunicationReport;
+        AVAILABLE_REPORTS.predictive.generator = generatePredictiveReport;
+        
+        Object.entries(selectedReports).forEach(([key, isSelected]) => {
+            if (isSelected && AVAILABLE_REPORTS[key]) {
+                reportsToGenerate.push(
+                    AVAILABLE_REPORTS[key].generator(startDate, endDate, pirId)
+                );
+                reportTitles.push(AVAILABLE_REPORTS[key].name);
+            }
+        });
+        
+        if (reportsToGenerate.length === 0) {
+            throw new Error('No reports selected for monthly emails');
+        }
+        
+        console.log(`📊 Generating ${reportsToGenerate.length} reports...`);
+        const reportsData = await Promise.all(reportsToGenerate);
         
         console.log('📄 Creating PDFs and uploading to Google Drive...');
         const driveLinks = [];
         
         for (let i = 0; i < reportsData.length; i++) {
             try {
-                console.log(`\n📄 Processing ${i + 1}/5: ${reportTitles[i]}`);
+                console.log(`\n📄 Processing ${i + 1}/${reportsData.length}: ${reportTitles[i]}`);
                 
-                // ✅ USE THE EXISTING WORKING PDF EXPORT FUNCTION
                 const pdfBlob = await exportReportToPDFBlob(reportsData[i], reportTitles[i]);
                 
                 const fileName = `${pirData.displayName || pirData.email}_${reportTitles[i]}_${dateStamp}.pdf`;
@@ -21001,7 +21246,7 @@ const sendMonthlyProgressReport = async (pirId) => {
         
         console.log(`📧 Sending email with ${driveLinks.length} Drive links...`);
         
-        const emailHtml = getEmailTemplateWith5Links(
+        const emailHtml = getEmailTemplateWithDynamicLinks(
             pirData.displayName || pirData.email,
             'monthly',
             dateRange,
@@ -21016,18 +21261,29 @@ const sendMonthlyProgressReport = async (pirId) => {
             }
         });
         
-        console.log(`✅ Monthly reports complete: ${driveLinks.length}/5 sent to ${pirData.email}`);
-        return { success: driveLinks.length === 5, pirEmail: pirData.email, sentCount: driveLinks.length };
+        console.log(`✅ Monthly reports complete: ${driveLinks.length}/${reportsToGenerate.length} sent to ${pirData.email}`);
+        return { 
+            success: driveLinks.length === reportsToGenerate.length, 
+            pirEmail: pirData.email, 
+            sentCount: driveLinks.length,
+            expectedCount: reportsToGenerate.length
+        };
         
     } catch (error) {
         console.error('❌ Error sending monthly reports:', error);
         throw error;
     }
 };
-
 // ========== SEND ALL WEEKLY REPORTS ==========
 const sendAllWeeklyReports = async () => {
     try {
+        // ✅ CHECK IF AUTOMATION IS ENABLED
+        if (!automationEnabled) {
+            console.log('⚠️ Automation is disabled. Skipping weekly reports.');
+            alert('⚠️ Automation is currently disabled. Enable it in the configuration to send reports.');
+            return [];
+        }
+        
         console.log('📧 Sending weekly reports to all PIRs...');
         
         const pirsSnapshot = await db.collection('users')
@@ -21050,7 +21306,28 @@ const sendAllWeeklyReports = async () => {
         const successCount = results.filter(r => r.success).length;
         console.log(`✅ Weekly reports sent: ${successCount}/${results.length}`);
         
-        alert(`Weekly reports sent to ${successCount} out of ${results.length} PIRs`);
+        // Update last run status
+        setLastRunStatus(prev => ({
+            ...prev,
+            weekly: {
+                timestamp: new Date().toISOString(),
+                pirCount: results.length,
+                successCount,
+                success: successCount === results.length
+            }
+        }));
+        
+        // Save to Firebase
+        await db.collection('automationConfig').doc(user.uid).update({
+            'lastRunStatus.weekly': {
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                pirCount: results.length,
+                successCount,
+                success: successCount === results.length
+            }
+        });
+        
+        alert(`✅ Weekly reports sent to ${successCount} out of ${results.length} PIRs`);
         return results;
         
     } catch (error) {
@@ -21059,10 +21336,16 @@ const sendAllWeeklyReports = async () => {
         throw error;
     }
 };
-
 // ========== SEND ALL MONTHLY REPORTS ==========
 const sendAllMonthlyReports = async () => {
     try {
+        // ✅ CHECK IF AUTOMATION IS ENABLED
+        if (!automationEnabled) {
+            console.log('⚠️ Automation is disabled. Skipping monthly reports.');
+            alert('⚠️ Automation is currently disabled. Enable it in the configuration to send reports.');
+            return [];
+        }
+        
         console.log('📧 Sending monthly reports to all PIRs...');
         
         const pirsSnapshot = await db.collection('users')
@@ -21085,7 +21368,28 @@ const sendAllMonthlyReports = async () => {
         const successCount = results.filter(r => r.success).length;
         console.log(`✅ Monthly reports sent: ${successCount}/${results.length}`);
         
-        alert(`Monthly reports sent to ${successCount} out of ${results.length} PIRs`);
+        // Update last run status
+        setLastRunStatus(prev => ({
+            ...prev,
+            monthly: {
+                timestamp: new Date().toISOString(),
+                pirCount: results.length,
+                successCount,
+                success: successCount === results.length
+            }
+        }));
+        
+        // Save to Firebase
+        await db.collection('automationConfig').doc(user.uid).update({
+            'lastRunStatus.monthly': {
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                pirCount: results.length,
+                successCount,
+                success: successCount === results.length
+            }
+        });
+        
+        alert(`✅ Monthly reports sent to ${successCount} out of ${results.length} PIRs`);
         return results;
         
     } catch (error) {
@@ -21341,25 +21645,37 @@ const sendAllMonthlyReports = async () => {
 // ==========================================
 
 // ========== REPORT GENERATOR 1: OVERVIEW ==========
-const generateOverviewReport = async (start, end) => {
+const generateOverviewReport = async (start, end, pirId = null) => {
     try {
+        // ✅ Build queries with optional PIR filter
+        let checkInsQuery = db.collection('checkIns')
+            .where('createdAt', '>=', start)
+            .where('createdAt', '<=', end);
+        
+        let assignmentsQuery = db.collection('assignments')
+            .where('createdAt', '>=', start)
+            .where('createdAt', '<=', end);
+        
+        let alertsQuery = db.collection('alerts')
+            .where('createdAt', '>=', start)
+            .where('createdAt', '<=', end);
+        
+        let goalsQuery = db.collection('goals');
+        
+        if (pirId) {
+            checkInsQuery = checkInsQuery.where('userId', '==', pirId);
+            assignmentsQuery = assignmentsQuery.where('userId', '==', pirId);
+            alertsQuery = alertsQuery.where('userId', '==', pirId);
+            goalsQuery = goalsQuery.where('userId', '==', pirId);
+        }
+        
         const [usersSnap, checkInsSnap, assignmentsSnap, alertsSnap, goalsSnap] = await Promise.all([
             db.collection('users').get(),
-            db.collection('checkIns')
-                .where('createdAt', '>=', start)
-                .where('createdAt', '<=', end)
-                .get(),
-            db.collection('assignments')
-                .where('createdAt', '>=', start)
-                .where('createdAt', '<=', end)
-                .get(),
-            db.collection('alerts')
-                .where('createdAt', '>=', start)
-                .where('createdAt', '<=', end)
-                .get(),
-            db.collection('goals').get()
+            checkInsQuery.get(),
+            assignmentsQuery.get(),
+            alertsQuery.get(),
+            goalsQuery.get()
         ]);
-
         const pirs = usersSnap.docs.filter(doc => doc.data().role === 'pir');
         const checkIns = checkInsSnap.docs.map(doc => doc.data());
 
@@ -21473,10 +21789,15 @@ const generateOverviewReport = async (start, end) => {
 };
 
 // ========== REPORT GENERATOR 2: SOBRIETY ==========
-const generateSobrietyReport = async (start, end) => {
-    const pirsSnap = await db.collection('users')
-        .where('role', '==', 'pir')
-        .get();
+const generateSobrietyReport = async (start, end, pirId = null) => {
+    // ✅ Build PIR query with optional filter
+    let pirsQuery = db.collection('users').where('role', '==', 'pir');
+    
+    if (pirId) {
+        pirsQuery = pirsQuery.where(firebase.firestore.FieldPath.documentId(), '==', pirId);
+    }
+    
+    const pirsSnap = await pirsQuery.get();
 
     const sobrietyData = [];
     
@@ -21492,7 +21813,7 @@ const generateSobrietyReport = async (start, end) => {
             .where('createdAt', '>=', start)
             .where('createdAt', '<=', end)
             .get();
-
+       
         const checkIns = checkInsSnap.docs.map(doc => doc.data());
         const avgCravings = checkIns.length > 0 
             ? (checkIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / checkIns.length).toFixed(1)
@@ -21552,12 +21873,18 @@ const generateSobrietyReport = async (start, end) => {
 };
 
 // ========== REPORT GENERATOR 3: MORNING CHECK-INS ==========
-const generateMorningCheckinsReport = async (start, end) => {
+const generateMorningCheckinsReport = async (start, end, pirId = null) => {
     try {
-        const checkInsSnap = await db.collection('checkIns')
+        // ✅ Build query with optional PIR filter
+        let checkInsQuery = db.collection('checkIns')
             .where('createdAt', '>=', start)
-            .where('createdAt', '<=', end)
-            .get();
+            .where('createdAt', '<=', end);
+        
+        if (pirId) {
+            checkInsQuery = checkInsQuery.where('userId', '==', pirId);
+        }
+        
+        const checkInsSnap = await checkInsQuery.get();
 
         const morningData = [];
         const checkIns = checkInsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -21654,12 +21981,18 @@ const generateMorningCheckinsReport = async (start, end) => {
 };
 
 // ========== REPORT GENERATOR 4: EVENING REFLECTIONS ==========
-const generateEveningReflectionsReport = async (start, end) => {
+const generateEveningReflectionsReport = async (start, end, pirId = null) => {
     try {
-        const checkInsSnap = await db.collection('checkIns')
+        // ✅ Build query with optional PIR filter
+        let checkInsQuery = db.collection('checkIns')
             .where('createdAt', '>=', start)
-            .where('createdAt', '<=', end)
-            .get();
+            .where('createdAt', '<=', end);
+        
+        if (pirId) {
+            checkInsQuery = checkInsQuery.where('userId', '==', pirId);
+        }
+        
+        const checkInsSnap = await checkInsQuery.get();
         
         const eveningData = [];
         const checkIns = checkInsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -21859,13 +22192,18 @@ const generateFullPIRReport = async (start, end) => {
 };
 
 // ========== REPORT GENERATOR 6: MOOD ANALYSIS ==========
-const generateMoodAnalysisReport = async (start, end) => {
+const generateMoodAnalysisReport = async (start, end, pirId = null) => {
     try {
-        const checkInsSnap = await db.collection('checkIns')
+        // ✅ Build query with optional PIR filter
+        let checkInsQuery = db.collection('checkIns')
             .where('createdAt', '>=', start)
-            .where('createdAt', '<=', end)
-            .get();
-
+            .where('createdAt', '<=', end);
+        
+        if (pirId) {
+            checkInsQuery = checkInsQuery.where('userId', '==', pirId);
+        }
+        
+        const checkInsSnap = await checkInsQuery.get();
         const checkIns = checkInsSnap.docs.map(doc => doc.data());
         
         const moodDistribution = Array(10).fill(0);
@@ -21954,12 +22292,17 @@ const generateMoodAnalysisReport = async (start, end) => {
 };
 
 // ========== REPORT GENERATOR 7: CRISIS ==========
-const generateCrisisReport = async (start, end) => {
-    const alertsSnap = await db.collection('alerts')
+const generateCrisisReport = async (start, end, pirId = null) => {
+    // ✅ Build query with optional PIR filter
+    let alertsQuery = db.collection('alerts')
         .where('createdAt', '>=', start)
-        .where('createdAt', '<=', end)
-        .get();
-
+        .where('createdAt', '<=', end);
+    
+    if (pirId) {
+        alertsQuery = alertsQuery.where('userId', '==', pirId);
+    }
+    
+    const alertsSnap = await alertsQuery.get();
     const alerts = [];
     for (const doc of alertsSnap.docs) {
         const alert = doc.data();
@@ -21994,24 +22337,29 @@ const generateCrisisReport = async (start, end) => {
 };
 
 // ========== REPORT GENERATOR 8: ENGAGEMENT ==========
-const generateEngagementReport = async (start, end) => {
+const generateEngagementReport = async (start, end, pirId = null) => {
     try {
-        const pirsSnap = await db.collection('users')
-            .where('role', '==', 'pir')
-            .get();
+        // ✅ Build PIR query with optional filter
+        let pirsQuery = db.collection('users').where('role', '==', 'pir');
+        
+        if (pirId) {
+            pirsQuery = pirsQuery.where(firebase.firestore.FieldPath.documentId(), '==', pirId);
+        }
+        
+        const pirsSnap = await pirsQuery.get();
         
         const engagementData = [];
         
         for (const pirDoc of pirsSnap.docs) {
-            const pirId = pirDoc.id;
+            const currentPirId = pirDoc.id;
             const pirData = pirDoc.data();
             
             const [checkInsSnap, assignmentsSnap, messagesSnap] = await Promise.all([
-                db.collection('checkIns').where('userId', '==', pirId)
+                db.collection('checkIns').where('userId', '==', currentPirId)
                     .where('createdAt', '>=', start).where('createdAt', '<=', end).get(),
-                db.collection('assignments').where('userId', '==', pirId)
+                db.collection('assignments').where('userId', '==', currentPirId)
                     .where('createdAt', '>=', start).where('createdAt', '<=', end).get(),
-                db.collection('messages').where('senderId', '==', pirId)
+                db.collection('messages').where('senderId', '==', currentPirId)
                     .where('createdAt', '>=', start).where('createdAt', '<=', end).get()
             ]);
             
@@ -22137,15 +22485,20 @@ const generateComparativeReport = async (start, end) => {
 };
 
 // ========== REPORT GENERATOR 10: MILESTONES ==========
-const generateMilestonesReport = async (start, end) => {
+const generateMilestonesReport = async (start, end, pirId = null) => {
     try {
+        // ✅ Build queries with optional PIR filter
+        let goalsQuery = db.collection('goals').where('status', '==', 'completed');
+        let milestonesQuery = db.collection('milestones').where('achieved', '==', true);
+        
+        if (pirId) {
+            goalsQuery = goalsQuery.where('userId', '==', pirId);
+            milestonesQuery = milestonesQuery.where('userId', '==', pirId);
+        }
+        
         const [goalsSnap, milestonesSnap] = await Promise.all([
-            db.collection('goals')
-                .where('status', '==', 'completed')
-                .get(),
-            db.collection('milestones')
-                .where('achieved', '==', true)
-                .get()
+            goalsQuery.get(),
+            milestonesQuery.get()
         ]);
         
         const completedGoals = goalsSnap.docs
@@ -22249,11 +22602,17 @@ const generateMilestonesReport = async (start, end) => {
 };
 
 // ========== REPORT GENERATOR 11: COMMUNICATION ==========
-const generateCommunicationReport = async (start, end) => {
-    const messagesSnap = await db.collection('messages')
+const generateCommunicationReport = async (start, end, pirId = null) => {
+    // ✅ Build query with optional PIR filter
+    let messagesQuery = db.collection('messages')
         .where('createdAt', '>=', start)
-        .where('createdAt', '<=', end)
-        .get();
+        .where('createdAt', '<=', end);
+    
+    if (pirId) {
+        messagesQuery = messagesQuery.where('senderId', '==', pirId);
+    }
+    
+    const messagesSnap = await messagesQuery.get();
 
     const pirMessages = {};
     const messages = messagesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -22309,23 +22668,27 @@ const generateCommunicationReport = async (start, end) => {
 };
 
 // ========== REPORT GENERATOR 12: PREDICTIVE RISK ==========
-const generatePredictiveReport = async (start, end) => {
-    const pirsSnap = await db.collection('users')
-        .where('role', '==', 'pir')
-        .get();
+const generatePredictiveReport = async (start, end, pirId = null) => {
+    // ✅ Build PIR query with optional filter
+    let pirsQuery = db.collection('users').where('role', '==', 'pir');
+    
+    if (pirId) {
+        pirsQuery = pirsQuery.where(firebase.firestore.FieldPath.documentId(), '==', pirId);
+    }
+    
+    const pirsSnap = await pirsQuery.get();
 
     const riskData = [];
 
     for (const pirDoc of pirsSnap.docs) {
-        const pirId = pirDoc.id;
+        const currentPirId = pirDoc.id;
         const pirData = pirDoc.data();
 
         const checkInsSnap = await db.collection('checkIns')
-            .where('userId', '==', pirId)
+            .where('userId', '==', currentPirId)
             .orderBy('createdAt', 'desc')
             .limit(7)
             .get();
-
         const recentCheckIns = checkInsSnap.docs.map(d => d.data());
         const patterns = detectPatternsForPIR(recentCheckIns);
         const riskScore = calculatePredictiveRisk(recentCheckIns, patterns, pirData);
@@ -24774,7 +25137,7 @@ const generateReport = async () => {
                 </button>
             </div>
 
-          {/* NEW: Email Reports Action Buttons */}
+        {/* ========== AUTOMATED PROGRESS REPORTS SECTION ========== */}
 <div style={{ 
     background: 'white',
     borderRadius: '15px',
@@ -24808,132 +25171,325 @@ const generateReport = async () => {
         </div>
     )}
     
-    <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+    {/* ========== AUTOMATION TOGGLE ========== */}
+    <div style={{
+        background: '#f8f9fa',
+        borderRadius: '10px',
+        padding: '20px',
+        marginBottom: '25px',
+        border: `2px solid ${automationEnabled ? '#4CAF50' : '#999'}`
+    }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+                <h4 style={{ margin: '0 0 5px 0', fontSize: '16px', color: '#333' }}>
+                    🔧 Automation Status
+                </h4>
+                <p style={{ margin: 0, fontSize: '13px', color: '#666' }}>
+                    {automationEnabled 
+                        ? '✅ Automated reports are ENABLED and will be sent on schedule'
+                        : '⚠️ Automated reports are DISABLED - reports will not be sent automatically'
+                    }
+                </p>
+            </div>
+            <button
+                onClick={() => setAutomationEnabled(!automationEnabled)}
+                style={{
+                    padding: '10px 20px',
+                    background: automationEnabled ? '#4CAF50' : '#999',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s'
+                }}
+                onMouseOver={(e) => e.target.style.opacity = '0.8'}
+                onMouseOut={(e) => e.target.style.opacity = '1'}
+            >
+                {automationEnabled ? '✓ ENABLED' : '✗ DISABLED'}
+            </button>
+        </div>
+    </div>
+    
+    {/* ========== REPORT SELECTION ========== */}
+    <div style={{
+        background: '#f8f9fa',
+        borderRadius: '10px',
+        padding: '20px',
+        marginBottom: '25px'
+    }}>
+        <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#333' }}>
+            ⚙️ Select Reports to Include in Automated Emails
+        </h4>
+        <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: '12px',
+            marginBottom: '15px'
+        }}>
+            {Object.entries(AVAILABLE_REPORTS).map(([key, report]) => (
+                <label 
+                    key={key}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '12px',
+                        padding: '12px',
+                        background: selectedReports[key] ? '#e3f2fd' : 'white',
+                        border: `2px solid ${selectedReports[key] ? '#2196F3' : '#e0e0e0'}`,
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                    onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <input
+                        type="checkbox"
+                        checked={selectedReports[key]}
+                        onChange={(e) => setSelectedReports({
+                            ...selectedReports,
+                            [key]: e.target.checked
+                        })}
+                        style={{
+                            width: '18px',
+                            height: '18px',
+                            marginTop: '2px',
+                            cursor: 'pointer'
+                        }}
+                    />
+                    <div style={{ flex: 1 }}>
+                        <div style={{ 
+                            fontSize: '14px', 
+                            fontWeight: '600', 
+                            color: '#333',
+                            marginBottom: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}>
+                            <span>{report.icon}</span>
+                            <span>{report.name}</span>
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#666', lineHeight: '1.4' }}>
+                            {report.description}
+                        </div>
+                    </div>
+                </label>
+            ))}
+        </div>
         <button
-            onClick={async () => {
-                if (!user.googleConnected) {
-                    alert('⚠️ Please connect Google Drive in your Profile first!');
-                    return;
-                }
-                
-                if (!confirm('Send weekly reports to ALL active PIRs?\n\nThis will generate 5 PDFs per PIR and upload to Google Drive. This may take several minutes.')) {
-                    return;
-                }
-                
-                try {
-                    setSendingWeekly(true);
-                    await sendAllWeeklyReports();
-                } catch (error) {
-                    console.error('Error sending weekly reports:', error);
-                    alert(`❌ Error: ${error.message}`);
-                } finally {
-                    setSendingWeekly(false);
-                }
-            }}
-            disabled={sendingWeekly || !user.googleConnected}
+            onClick={saveAutomationConfig}
             style={{
-                flex: '1',
-                minWidth: '250px',
-                padding: '20px',
-                background: (sendingWeekly || !user.googleConnected) ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                width: '100%',
+                padding: '12px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                 color: 'white',
                 border: 'none',
-                borderRadius: '12px',
-                fontSize: '16px',
+                borderRadius: '8px',
+                fontSize: '14px',
                 fontWeight: 'bold',
-                cursor: (sendingWeekly || !user.googleConnected) ? 'not-allowed' : 'pointer',
-                transition: 'transform 0.2s',
-                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '8px'
+                cursor: 'pointer',
+                transition: 'all 0.3s'
             }}
-            onMouseOver={(e) => {
-                if (!sendingWeekly && user.googleConnected) {
-                    e.target.style.transform = 'translateY(-2px)';
-                    e.target.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.5)';
-                }
-            }}
-            onMouseOut={(e) => {
-                e.target.style.transform = 'translateY(0)';
-                e.target.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
-            }}
+            onMouseOver={(e) => e.target.style.transform = 'translateY(-2px)'}
+            onMouseOut={(e) => e.target.style.transform = 'translateY(0)'}
         >
-            <div style={{ fontSize: '24px' }}>📅</div>
-            <div>{sendingWeekly ? 'Sending Weekly Reports...' : 'Send All Weekly Reports Now'}</div>
-            <div style={{ fontSize: '12px', opacity: 0.9 }}>
-                Last 7 days progress • 5 PDFs per PIR • Google Drive
-            </div>
-        </button>
-
-        <button
-            onClick={async () => {
-                if (!user.googleConnected) {
-                    alert('⚠️ Please connect Google Drive in your Profile first!');
-                    return;
-                }
-                
-                if (!confirm('Send monthly reports to ALL active PIRs?\n\nThis will generate 5 PDFs per PIR and upload to Google Drive. This may take several minutes.')) {
-                    return;
-                }
-                
-                try {
-                    setSendingMonthly(true);
-                    await sendAllMonthlyReports();
-                } catch (error) {
-                    console.error('Error sending monthly reports:', error);
-                    alert(`❌ Error: ${error.message}`);
-                } finally {
-                    setSendingMonthly(false);
-                }
-            }}
-            disabled={sendingMonthly || !user.googleConnected}
-            style={{
-                flex: '1',
-                minWidth: '250px',
-                padding: '20px',
-                background: (sendingMonthly || !user.googleConnected) ? '#ccc' : 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '12px',
-                fontSize: '16px',
-                fontWeight: 'bold',
-                cursor: (sendingMonthly || !user.googleConnected) ? 'not-allowed' : 'pointer',
-                transition: 'transform 0.2s',
-                boxShadow: '0 4px 12px rgba(76, 175, 80, 0.4)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '8px'
-            }}
-            onMouseOver={(e) => {
-                if (!sendingMonthly && user.googleConnected) {
-                    e.target.style.transform = 'translateY(-2px)';
-                    e.target.style.boxShadow = '0 6px 16px rgba(76, 175, 80, 0.5)';
-                }
-            }}
-            onMouseOut={(e) => {
-                e.target.style.transform = 'translateY(0)';
-                e.target.style.boxShadow = '0 4px 12px rgba(76, 175, 80, 0.4)';
-            }}
-        >
-            <div style={{ fontSize: '24px' }}>📆</div>
-            <div>{sendingMonthly ? 'Sending Monthly Reports...' : 'Send All Monthly Reports Now'}</div>
-            <div style={{ fontSize: '12px', opacity: 0.9 }}>
-                Last 30 days progress • 5 PDFs per PIR • Google Drive
-            </div>
+            💾 Save Configuration
         </button>
     </div>
+    
+    {/* ========== SCHEDULE CONFIGURATION ========== */}
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '25px' }}>
+        {/* Weekly Schedule */}
+        <div style={{
+            background: '#f8f9fa',
+            borderRadius: '10px',
+            padding: '20px'
+        }}>
+            <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#333' }}>
+                📅 Weekly Reports Schedule
+            </h4>
+            <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600', color: '#555' }}>
+                    Day of Week
+                </label>
+                <select
+                    value={scheduleConfig.weekly.day}
+                    onChange={(e) => setScheduleConfig({
+                        ...scheduleConfig,
+                        weekly: { ...scheduleConfig.weekly, day: parseInt(e.target.value) }
+                    })}
+                    style={{
+                        width: '100%',
+                        padding: '10px',
+                        border: '2px solid #e0e0e0',
+                        borderRadius: '6px',
+                        fontSize: '14px'
+                    }}
+                >
+                    <option value="1">Monday</option>
+                    <option value="2">Tuesday</option>
+                    <option value="3">Wednesday</option>
+                    <option value="4">Thursday</option>
+                    <option value="5">Friday</option>
+                    <option value="6">Saturday</option>
+                    <option value="0">Sunday</option>
+                </select>
+            </div>
+            <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600', color: '#555' }}>
+                    Time
+                </label>
+                <input
+                    type="time"
+                    value={scheduleConfig.weekly.time}
+                    onChange={(e) => setScheduleConfig({
+                        ...scheduleConfig,
+                        weekly: { ...scheduleConfig.weekly, time: e.target.value }
+                    })}
+                    style={{
+                        width: '100%',
+                        padding: '10px',
+                        border: '2px solid #e0e0e0',
+                        borderRadius: '6px',
+                        fontSize: '14px'
+                    }}
+                />
+            </div>
+            <button
+                onClick={testWeeklyReports}
+                disabled={sendingWeekly || !user.googleConnected}
+                style={{
+                    width: '100%',
+                    padding: '12px',
+                    background: (sendingWeekly || !user.googleConnected) ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    cursor: (sendingWeekly || !user.googleConnected) ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.3s'
+                }}
+            >
+                {sendingWeekly ? '📤 Sending...' : '🧪 Test Weekly Reports Now'}
+            </button>
+            {lastRunStatus.weekly && (
+                <div style={{
+                    marginTop: '12px',
+                    padding: '10px',
+                    background: lastRunStatus.weekly.success ? '#e8f5e9' : '#ffebee',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    color: '#666'
+                }}>
+                    <strong>Last Run:</strong><br/>
+                    {new Date(lastRunStatus.weekly.timestamp).toLocaleString()}<br/>
+                    {lastRunStatus.weekly.successCount}/{lastRunStatus.weekly.pirCount} PIRs
+                </div>
+            )}
+        </div>
+        
+        {/* Monthly Schedule */}
+        <div style={{
+            background: '#f8f9fa',
+            borderRadius: '10px',
+            padding: '20px'
+        }}>
+            <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#333' }}>
+                📆 Monthly Reports Schedule
+            </h4>
+            <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600', color: '#555' }}>
+                    Day of Month
+                </label>
+                <select
+                    value={scheduleConfig.monthly.day}
+                    onChange={(e) => setScheduleConfig({
+                        ...scheduleConfig,
+                        monthly: { ...scheduleConfig.monthly, day: parseInt(e.target.value) }
+                    })}
+                    style={{
+                        width: '100%',
+                        padding: '10px',
+                        border: '2px solid #e0e0e0',
+                        borderRadius: '6px',
+                        fontSize: '14px'
+                    }}
+                >
+                    {[...Array(28)].map((_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                            {i + 1}{i === 0 ? 'st' : i === 1 ? 'nd' : i === 2 ? 'rd' : 'th'}
+                        </option>
+                    ))}
+                </select>
+            </div>
+            <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600', color: '#555' }}>
+                    Time
+                </label>
+                <input
+                    type="time"
+                    value={scheduleConfig.monthly.time}
+                    onChange={(e) => setScheduleConfig({
+                        ...scheduleConfig,
+                        monthly: { ...scheduleConfig.monthly, time: e.target.value }
+                    })}
+                    style={{
+                        width: '100%',
+                        padding: '10px',
+                        border: '2px solid #e0e0e0',
+                        borderRadius: '6px',
+                        fontSize: '14px'
+                    }}
+                />
+            </div>
+            <button
+                onClick={testMonthlyReports}
+                disabled={sendingMonthly || !user.googleConnected}
+                style={{
+                    width: '100%',
+                    padding: '12px',
+                    background: (sendingMonthly || !user.googleConnected) ? '#ccc' : 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    cursor: (sendingMonthly || !user.googleConnected) ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.3s'
+                }}
+            >
+                {sendingMonthly ? '📤 Sending...' : '🧪 Test Monthly Reports Now'}
+            </button>
+            {lastRunStatus.monthly && (
+                <div style={{
+                    marginTop: '12px',
+                    padding: '10px',
+                    background: lastRunStatus.monthly.success ? '#e8f5e9' : '#ffebee',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    color: '#666'
+                }}>
+                    <strong>Last Run:</strong><br/>
+                    {new Date(lastRunStatus.monthly.timestamp).toLocaleString()}<br/>
+                    {lastRunStatus.monthly.successCount}/{lastRunStatus.monthly.pirCount} PIRs
+                </div>
+            )}
+        </div>
+    </div>
+    
+    {/* Info Note */}
     <div style={{ 
-        marginTop: '15px',
         padding: '12px',
         background: '#f0f7ff',
         borderRadius: '8px',
         fontSize: '13px',
         color: '#0066cc'
     }}>
-        <strong>ℹ️ Automation Schedule:</strong> Reports are automatically sent every <strong>Monday at 8:00 AM</strong> (weekly) and on the <strong>2nd of each month</strong> (monthly). Use these buttons to send reports manually when needed.
+        <strong>ℹ️ Note:</strong> Changes to schedule take effect immediately. Use the test buttons to send reports manually to all PIRs right now. Remember to click "Save Configuration" after changing report selections.
     </div>
 </div>
 
