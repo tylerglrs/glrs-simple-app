@@ -4660,44 +4660,47 @@ return (
             </div>
         </div>
         
-        {showModal && (
-            <ModalContainer 
-                type={showModal}
-                onClose={() => setShowModal(null)}
-                data={{
-                    notifications,
-                    userData,
-                    user,
-                    resources,
-                    activeTopicRoom,
-                    topicRoomMessages,
-                    coachInfo
-                }}
-                handlers={{
-                    markNotificationAsRead,
-                    markAllNotificationsAsRead,
-                    handleMorningCheckIn,
-                    handleEveningReflection,
-                    sendTopicMessage: async (message, image) => {
-                        if (activeTopicRoom) {
-                            await sendTopicRoomMessage(activeTopicRoom.id, message, image);
-                        }
-                    },
-                    exportDataAsJSON,
-                    exportDataAsPDF
-                }}
-            />
-        )}
-        
-        {modalImage && (
-            <ImageModal 
-                imageUrl={modalImage} 
-                onClose={() => setModalImage(null)} 
-            />
-        )}
-    </div>
-);
-}
+       {showModal && (
+    <ModalContainer 
+        type={showModal}
+        onClose={() => setShowModal(null)}
+        data={{
+            notifications,
+            userData,
+            user,
+            resources,
+            activeTopicRoom,
+            topicRoomMessages,
+            coachInfo,
+            googleConnected,
+            googleToken,
+            googleTokenExpiry,
+            syncingGoogle,
+            connectGoogleCalendar,
+            disconnectGoogleCalendar
+        }}
+        handlers={{
+            markNotificationAsRead,
+            markAllNotificationsAsRead,
+            handleMorningCheckIn,
+            handleEveningReflection,
+            sendTopicMessage: async (message, image) => {
+                if (activeTopicRoom) {
+                    await sendTopicRoomMessage(activeTopicRoom.id, message, image);
+                }
+            },
+            exportDataAsJSON,
+            exportDataAsPDF
+        }}
+    />
+)}
+
+{modalImage && (
+    <ImageModal 
+        imageUrl={modalImage} 
+        onClose={() => setModalImage(null)} 
+    />
+)}
     // Recovery Resources View Component - No Favorites
 function ResourcesView({ user, userData, onBack }) {
     const [selectedCategory, setSelectedCategory] = useState(null);
@@ -7278,14 +7281,14 @@ function CommunityChat({ messages, onSendMessage, currentUserId, uploadChatImage
     );
 }
         
-       // Modal Container Component with ALL modals working
+      // Modal Container Component with ALL modals working
 function ModalContainer({ type, onClose, data, handlers }) {
     const [formData, setFormData] = useState({});
     const [morningData, setMorningData] = useState({
-        mood: 5,        // Changed from 3 to 5 (middle of 0-10)
-        craving: 0,     // Changed from 1 to 0 (start at no cravings)
-        sleepQuality: 5,  // Changed from 3 to 5 (middle of 0-10)
-        anxietyLevel: 0,  // Changed from 2 to 0 (start at no anxiety)
+        mood: 5,
+        craving: 0,
+        sleepQuality: 5,
+        anxietyLevel: 0,
         notes: ''
     });
     const [eveningData, setEveningData] = useState({
@@ -8469,7 +8472,7 @@ case 'recoveryInfo':
                 </div>
             );
             
-        // GOOGLE CALENDAR MODAL
+     // GOOGLE CALENDAR MODAL
 case 'googleCalendar':
     return (
         <div>
@@ -8477,10 +8480,10 @@ case 'googleCalendar':
             
             {/* Connection Status Card */}
             <div style={{
-                background: googleConnected ? 
+                background: data.googleConnected ? 
                     'rgba(76, 175, 80, 0.1)' : 
                     'rgba(255, 152, 0, 0.1)',
-                border: `1px solid ${googleConnected ? 
+                border: `1px solid ${data.googleConnected ? 
                     'rgba(76, 175, 80, 0.3)' : 
                     'rgba(255, 152, 0, 0.3)'}`,
                 borderRadius: '10px',
@@ -8489,17 +8492,17 @@ case 'googleCalendar':
                 textAlign: 'center'
             }}>
                 <div style={{fontSize: '48px', marginBottom: '10px'}}>
-                    {googleConnected ? '✅' : '📅'}
+                    {data.googleConnected ? '✅' : '📅'}
                 </div>
                 <div style={{
                     fontSize: '18px',
                     fontWeight: 'bold',
                     marginBottom: '5px',
-                    color: googleConnected ? '#4CAF50' : '#FF9800'
+                    color: data.googleConnected ? '#4CAF50' : '#FF9800'
                 }}>
-                    {googleConnected ? 'Connected' : 'Not Connected'}
+                    {data.googleConnected ? 'Connected' : 'Not Connected'}
                 </div>
-                {googleConnected && (
+                {data.googleConnected && (
                     <div style={{fontSize: '14px', opacity: 0.8, marginTop: '10px'}}>
                         Your recovery milestones can be synced to your personal calendar
                     </div>
@@ -8507,7 +8510,7 @@ case 'googleCalendar':
             </div>
             
             {/* What Gets Synced Info */}
-            {!googleConnected && (
+            {!data.googleConnected && (
                 <div style={{
                     background: 'rgba(33, 150, 243, 0.1)',
                     border: '1px solid rgba(33, 150, 243, 0.3)',
@@ -8547,7 +8550,7 @@ case 'googleCalendar':
             )}
             
             {/* Connection Status Details (when connected) */}
-            {googleConnected && (
+            {data.googleConnected && (
                 <div style={{
                     background: 'rgba(255, 255, 255, 0.05)',
                     borderRadius: '10px',
@@ -8580,8 +8583,8 @@ case 'googleCalendar':
                             Token Expires
                         </span>
                         <span style={{fontSize: '14px'}}>
-                            {googleTokenExpiry ? 
-                                new Date(googleTokenExpiry).toLocaleDateString() : 
+                            {data.googleTokenExpiry ? 
+                                new Date(data.googleTokenExpiry).toLocaleDateString() : 
                                 'Unknown'}
                         </span>
                     </div>
@@ -8603,14 +8606,14 @@ case 'googleCalendar':
             </div>
             
             {/* Action Buttons */}
-            {!googleConnected ? (
+            {!data.googleConnected ? (
                 <button 
                     className="btn-primary"
-                    onClick={connectGoogleCalendar}
-                    disabled={syncingGoogle}
-                    style={{opacity: syncingGoogle ? 0.6 : 1}}
+                    onClick={data.connectGoogleCalendar}
+                    disabled={data.syncingGoogle}
+                    style={{opacity: data.syncingGoogle ? 0.6 : 1}}
                 >
-                    {syncingGoogle ? 'Connecting...' : '🔗 Connect Google Calendar'}
+                    {data.syncingGoogle ? 'Connecting...' : '🔗 Connect Google Calendar'}
                 </button>
             ) : (
                 <>
@@ -8623,11 +8626,11 @@ case 'googleCalendar':
                     </button>
                     <button 
                         className="btn-danger"
-                        onClick={disconnectGoogleCalendar}
-                        disabled={syncingGoogle}
-                        style={{opacity: syncingGoogle ? 0.6 : 1}}
+                        onClick={data.disconnectGoogleCalendar}
+                        disabled={data.syncingGoogle}
+                        style={{opacity: data.syncingGoogle ? 0.6 : 1}}
                     >
-                        {syncingGoogle ? 'Disconnecting...' : 'Disconnect Calendar'}
+                        {data.syncingGoogle ? 'Disconnecting...' : 'Disconnect Calendar'}
                     </button>
                 </>
             )}
