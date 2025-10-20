@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+d<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1195,6 +1195,249 @@ const { useState, useEffect, useRef } = React;
                 </svg>
             );
         }
+        // ==========================================
+// GOOGLE CALENDAR INTEGRATION - PIR SIDE
+// ==========================================
+
+// Simple encryption/decryption for token storage
+const encryptToken = (token) => {
+    try {
+        // Base64 encode with user-specific salt
+        const salt = user.uid.substring(0, 8);
+        const combined = salt + token + salt;
+        return btoa(combined);
+    } catch (error) {
+        console.error('Encryption error:', error);
+        return token; // Fallback to plain if encryption fails
+    }
+};
+
+const decryptToken = (encryptedToken) => {
+    try {
+        const salt = user.uid.substring(0, 8);
+        const decoded = atob(encryptedToken);
+        // Remove salt from both ends
+        return decoded.substring(salt.length, decoded.length - salt.length);
+    } catch (error) {
+        console.error('Decryption error:', error);
+        return encryptedToken; // Fallback if decryption fails
+    }
+};
+
+// Load Google connection status on mount
+const loadGoogleConnection = async () => {
+    try {
+        const userDoc = await db.collection('users').doc(user.uid).get();
+        const data = userDoc.data();
+        
+        if (data?.googleConnected && data?.googleAccessToken) {
+            setGoogleConnected(true);
+            
+            // Decrypt token
+            const decrypted = decryptToken(data.googleAccessToken);
+            setGoogleToken(decrypted);
+            setGoogleTokenExpiry(data.googleTokenExpiry);
+            
+            // Check if token is expired
+            if (data.googleTokenExpiry && Date.now() > data.googleTokenExpiry) {
+                console.log('Token expired, will need refresh on next use');
+            }
+        } else {
+            setGoogleConnected(false);
+            setGoogleToken(null);
+        }
+    } catch (error) {
+        console.error('Error loading Google connection:', error);
+        setGoogleConnected(false);
+    }
+};
+
+// Check and auto-refresh Google token if needed
+const checkGoogleToken = async () => {
+    try {
+        if (!googleConnected || !googleToken) {
+            return { 
+                valid: false, 
+                error: 'Google Calendar not connected. Please connect in Settings.' 
+            };
+        }
+        
+        // Check if token is expired or will expire in next 5 minutes
+        const expiryBuffer = 5 * 60 * 1000; // 5 minutes
+        const isExpired = googleTokenExpiry && (Date.now() + expiryBuffer) > googleTokenExpiry;
+        
+        if (isExpired) {
+            console.log('Token expired or expiring soon, attempting refresh...');
+            
+            // Show user-friendly message
+            showNotification('Refreshing Google Calendar connection...', 'info');
+            
+            // Attempt to refresh token
+            const refreshed = await refreshGoogleToken();
+            
+            if (!refreshed) {
+                // Show error banner
+                showNotification(
+                    'Google Calendar connection expired. Please reconnect in Settings.', 
+                    'error'
+                );
+                return { 
+                    valid: false, 
+                    error: 'Token refresh failed. Please reconnect Google Calendar.' 
+                };
+            }
+            
+            return { valid: true, token: googleToken };
+        }
+        
+        return { valid: true, token: googleToken };
+        
+    } catch (error) {
+        console.error('Error checking token:', error);
+        showNotification('Error validating Google Calendar connection', 'error');
+        return { 
+            valid: false, 
+            error: 'Failed to validate token: ' + error.message 
+        };
+    }
+};
+
+// Refresh Google token
+const refreshGoogleToken = async () => {
+    try {
+        // For OAuth tokens, we need to re-authenticate
+        // Google doesn't provide refresh tokens for browser-based OAuth
+        console.log('Token refresh requires re-authentication');
+        
+        // Attempt silent refresh if possible
+        if (typeof google !== 'undefined' && google.accounts) {
+            // This won't work automatically - user must re-consent
+            console.log('Automatic refresh not available, user must reconnect');
+            return false;
+        }
+        
+        return false;
+    } catch (error) {
+        console.error('Token refresh error:', error);
+        return false;
+    }
+};
+
+// Connect Google Calendar
+const connectGoogleCalendar = async () => {
+    setSyncingGoogle(true);
+    try {
+        console.log('Starting Google Calendar OAuth...');
+        
+        // Check if Google Identity Services loaded
+        if (typeof google === 'undefined' || !google.accounts) {
+            throw new Error('Google Identity Services not loaded. Please refresh the page.');
+        }
+        
+        // Initialize token client with CALENDAR ONLY scope
+        const tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: '457406864879-k1sunucuqofe22m5rg93hvo6nngiqh0u.apps.googleusercontent.com',
+            scope: 'https://www.googleapis.com/auth/calendar.events',
+            callback: async (tokenResponse) => {
+                try {
+                    console.log('Token received');
+                    
+                    if (tokenResponse.error) {
+                        throw new Error(tokenResponse.error);
+                    }
+                    
+                    if (!tokenResponse.access_token) {
+                        throw new Error('No access token received');
+                    }
+                    
+                    // Encrypt token before storing
+                    const encryptedToken = encryptToken(tokenResponse.access_token);
+                    
+                    console.log('Saving encrypted token to Firebase...');
+                    
+                    // Save to Firebase
+                    await db.collection('users').doc(user.uid).update({
+                        googleConnected: true,
+                        googleAccessToken: encryptedToken,
+                        googleTokenExpiry: Date.now() + (tokenResponse.expires_in * 1000),
+                        googleConnectedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        calendarSyncEnabled: false // Default to off, user must enable
+                    });
+                    
+                    // Update local state
+                    setGoogleConnected(true);
+                    setGoogleToken(tokenResponse.access_token);
+                    setGoogleTokenExpiry(Date.now() + (tokenResponse.expires_in * 1000));
+                    
+                    console.log('✅ Google Calendar connected successfully!');
+                    showNotification('✅ Google Calendar Connected!', 'success');
+                    
+                    // Close modal and reload
+                    setShowModal(null);
+                    setTimeout(() => loadGoogleConnection(), 500);
+                    
+                } catch (error) {
+                    console.error('Error saving token:', error);
+                    showNotification('Failed to save connection: ' + error.message, 'error');
+                } finally {
+                    setSyncingGoogle(false);
+                }
+            },
+        });
+        
+        // Request access token
+        console.log('Requesting token...');
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+        
+    } catch (error) {
+        console.error('Error connecting Google Calendar:', error);
+        showNotification('Failed to connect: ' + error.message, 'error');
+        setSyncingGoogle(false);
+    }
+};
+
+// Disconnect Google Calendar
+const disconnectGoogleCalendar = async () => {
+    if (!confirm('Disconnect Google Calendar?\n\nThis will remove:\n• Calendar sync\n• All synced milestones\n\nYou can reconnect anytime.')) {
+        return;
+    }
+    
+    setSyncingGoogle(true);
+    try {
+        console.log('Disconnecting Google Calendar...');
+        
+        // Revoke token if available
+        if (googleToken && typeof google !== 'undefined' && google.accounts) {
+            google.accounts.oauth2.revoke(googleToken, () => {
+                console.log('✓ Token revoked');
+            });
+        }
+        
+        // Remove from Firebase
+        await db.collection('users').doc(user.uid).update({
+            googleConnected: false,
+            googleAccessToken: firebase.firestore.FieldValue.delete(),
+            googleTokenExpiry: firebase.firestore.FieldValue.delete(),
+            calendarSyncEnabled: false,
+            milestoneCalendarEvents: firebase.firestore.FieldValue.delete(),
+            googleDisconnectedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Update local state
+        setGoogleConnected(false);
+        setGoogleToken(null);
+        setGoogleTokenExpiry(null);
+        
+        showNotification('Google Calendar disconnected', 'success');
+        setShowModal(null);
+        
+    } catch (error) {
+        console.error('Error disconnecting:', error);
+        showNotification('Failed to disconnect: ' + error.message, 'error');
+    } finally {
+        setSyncingGoogle(false);
+    }
+};
 
        // Main App Component
 function App() {
@@ -1420,6 +1663,11 @@ function PIRApp({ user }) {
     const [checkInStreak, setCheckInStreak] = useState(0);
     const [complianceRate, setComplianceRate] = useState({ checkIn: 0, assignment: 0 });
     const [totalCheckIns, setTotalCheckIns] = useState(0);
+    const [googleConnected, setGoogleConnected] = useState(false);
+const [googleToken, setGoogleToken] = useState(null);
+const [googleTokenExpiry, setGoogleTokenExpiry] = useState(null);
+const [syncingGoogle, setSyncingGoogle] = useState(false);
+    
     
     // Progress States
     const [checkIns, setCheckIns] = useState([]);
@@ -1463,12 +1711,14 @@ const sleepChartRef = useRef(null);
     // Real-time listeners references
     const listenersRef = useRef([]);
 
-    // Load all data on mount
     useEffect(() => {
-        if (user) {
-            loadAllData();
-            setupRealtimeListeners();
-        }
+    if (user) {
+        loadAllData();
+        setupRealtimeListeners();
+        loadGoogleConnection(); // ← ADD THIS LINE
+    }
+    // ... cleanup
+}, [user]);
 
         return () => {
             // Cleanup listeners
@@ -4419,19 +4669,20 @@ return (
                 </div>
             )}
             
-            {currentView === 'profile' && (
-                <ProfileView 
-                    user={user}
-                    userData={userData}
-                    profileImage={profileImage}
-                    resources={resources}
-                    onShowModal={setShowModal}
-                    onLogout={handleLogout}
-                    onImageUpload={handleProfileImageUpload}
-                    fileInputRef={fileInputRef}
-                    coachInfo={coachInfo}
-                />
-            )}
+           {currentView === 'profile' && (
+    <ProfileView 
+        user={user}
+        userData={userData}
+        profileImage={profileImage}
+        resources={resources}
+        onShowModal={setShowModal}
+        onLogout={handleLogout}
+        onImageUpload={handleProfileImageUpload}
+        fileInputRef={fileInputRef}
+        coachInfo={coachInfo}
+        googleConnected={googleConnected}
+    />
+)}
 
             {currentView === 'resources' && (
                 <ResourcesView 
@@ -6466,7 +6717,7 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
 }
         
        // Enhanced ProfileView Component with all missing features
-function ProfileView({ user, userData, profileImage, resources, onShowModal, onLogout, onImageUpload, fileInputRef, coachInfo }) {
+function ProfileView({ user, userData, profileImage, resources, onShowModal, onLogout, onImageUpload, fileInputRef, coachInfo, googleConnected }) {
     const [profileStats, setProfileStats] = useState({
         checkInRate: 0,
         assignmentRate: 0,
@@ -6844,22 +7095,35 @@ return (
                         <span className="menu-arrow">›</span>
                     </button>
                     <button className="menu-item" onClick={() => onShowModal('notifications')}>
-                        <div className="menu-item-left">
-                            <span className="menu-icon">🔔</span>
-                            <span>Notification Settings</span>
-                        </div>
-                        <span className="menu-arrow">›</span>
-                    </button>
-                    <button className="menu-item" onClick={() => onShowModal('emergency')}>
-                        <div className="menu-item-left">
-                            <span className="menu-icon">🆘</span>
-                            <span>Emergency Contacts</span>
-                        </div>
-                        <span className="menu-arrow">›</span>
-                    </button>
-                    
-                </div>
-                
+    <div className="menu-item-left">
+        <span className="menu-icon">🔔</span>
+        <span>Notification Settings</span>
+    </div>
+    <span className="menu-arrow">›</span>
+</button>
+
+{/* NEW: Google Calendar Integration */}
+<button className="menu-item" onClick={() => onShowModal('googleCalendar')}>
+    <div className="menu-item-left">
+        <span className="menu-icon">📅</span>
+        <span>Google Calendar</span>
+    </div>
+    <span className="menu-arrow" style={{
+        color: googleConnected ? '#4CAF50' : 'rgba(255,255,255,0.5)',
+        fontWeight: googleConnected ? 'bold' : 'normal'
+    }}>
+        {googleConnected ? '✓ Connected' : 'Not Connected'}
+    </span>
+</button>
+
+<button className="menu-item" onClick={() => onShowModal('emergency')}>
+    <div className="menu-item-left">
+        <span className="menu-icon">🆘</span>
+        <span>Emergency Contacts</span>
+    </div>
+    <span className="menu-arrow">›</span>
+</button>
+                    </div>
                 {/* Support & Resources */}
                 <div className="menu-section">
                     <div className="menu-title">Support</div>
@@ -8276,7 +8540,170 @@ case 'recoveryInfo':
                 </div>
             );
             
-        
+        // GOOGLE CALENDAR MODAL
+case 'googleCalendar':
+    return (
+        <div>
+            <h3 style={{marginBottom: '20px'}}>Google Calendar Integration</h3>
+            
+            {/* Connection Status Card */}
+            <div style={{
+                background: googleConnected ? 
+                    'rgba(76, 175, 80, 0.1)' : 
+                    'rgba(255, 152, 0, 0.1)',
+                border: `1px solid ${googleConnected ? 
+                    'rgba(76, 175, 80, 0.3)' : 
+                    'rgba(255, 152, 0, 0.3)'}`,
+                borderRadius: '10px',
+                padding: '20px',
+                marginBottom: '20px',
+                textAlign: 'center'
+            }}>
+                <div style={{fontSize: '48px', marginBottom: '10px'}}>
+                    {googleConnected ? '✅' : '📅'}
+                </div>
+                <div style={{
+                    fontSize: '18px',
+                    fontWeight: 'bold',
+                    marginBottom: '5px',
+                    color: googleConnected ? '#4CAF50' : '#FF9800'
+                }}>
+                    {googleConnected ? 'Connected' : 'Not Connected'}
+                </div>
+                {googleConnected && (
+                    <div style={{fontSize: '14px', opacity: 0.8, marginTop: '10px'}}>
+                        Your recovery milestones can be synced to your personal calendar
+                    </div>
+                )}
+            </div>
+            
+            {/* What Gets Synced Info */}
+            {!googleConnected && (
+                <div style={{
+                    background: 'rgba(33, 150, 243, 0.1)',
+                    border: '1px solid rgba(33, 150, 243, 0.3)',
+                    borderRadius: '10px',
+                    padding: '15px',
+                    marginBottom: '20px'
+                }}>
+                    <h4 style={{color: '#2196F3', marginBottom: '10px', fontSize: '16px'}}>
+                        📅 What Gets Synced
+                    </h4>
+                    <ul style={{
+                        fontSize: '14px',
+                        opacity: 0.9,
+                        paddingLeft: '20px',
+                        margin: '10px 0'
+                    }}>
+                        <li style={{marginBottom: '8px'}}>
+                            Recovery milestones (24 hours, 1 week, 1 month, etc.)
+                        </li>
+                        <li style={{marginBottom: '8px'}}>
+                            Scheduled meetings with your coach
+                        </li>
+                        <li style={{marginBottom: '8px'}}>
+                            Support group sessions
+                        </li>
+                    </ul>
+                    <div style={{
+                        fontSize: '12px',
+                        opacity: 0.7,
+                        marginTop: '15px',
+                        paddingTop: '15px',
+                        borderTop: '1px solid rgba(255,255,255,0.1)'
+                    }}>
+                        🔒 Secure: Only calendar access requested. We never access your emails or other data.
+                    </div>
+                </div>
+            )}
+            
+            {/* Connection Status Details (when connected) */}
+            {googleConnected && (
+                <div style={{
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    borderRadius: '10px',
+                    padding: '15px',
+                    marginBottom: '20px'
+                }}>
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '10px'
+                    }}>
+                        <span style={{fontSize: '14px', opacity: 0.8}}>
+                            Calendar Access
+                        </span>
+                        <span style={{
+                            color: '#4CAF50',
+                            fontSize: '14px',
+                            fontWeight: 'bold'
+                        }}>
+                            Active
+                        </span>
+                    </div>
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                    }}>
+                        <span style={{fontSize: '14px', opacity: 0.8}}>
+                            Token Expires
+                        </span>
+                        <span style={{fontSize: '14px'}}>
+                            {googleTokenExpiry ? 
+                                new Date(googleTokenExpiry).toLocaleDateString() : 
+                                'Unknown'}
+                        </span>
+                    </div>
+                </div>
+            )}
+            
+            {/* Privacy Notice */}
+            <div style={{
+                fontSize: '12px',
+                opacity: 0.7,
+                padding: '15px',
+                background: 'rgba(255, 255, 255, 0.05)',
+                borderRadius: '10px',
+                marginBottom: '20px'
+            }}>
+                <strong>Privacy:</strong> Your calendar data stays private. We only add events 
+                you choose to sync. You can disconnect anytime and all synced events will remain 
+                in your calendar for your records.
+            </div>
+            
+            {/* Action Buttons */}
+            {!googleConnected ? (
+                <button 
+                    className="btn-primary"
+                    onClick={connectGoogleCalendar}
+                    disabled={syncingGoogle}
+                    style={{opacity: syncingGoogle ? 0.6 : 1}}
+                >
+                    {syncingGoogle ? 'Connecting...' : '🔗 Connect Google Calendar'}
+                </button>
+            ) : (
+                <>
+                    <button 
+                        className="btn-primary"
+                        onClick={onClose}
+                        style={{marginBottom: '10px'}}
+                    >
+                        ✓ Done
+                    </button>
+                    <button 
+                        className="btn-danger"
+                        onClick={disconnectGoogleCalendar}
+                        disabled={syncingGoogle}
+                        style={{opacity: syncingGoogle ? 0.6 : 1}}
+                    >
+                        {syncingGoogle ? 'Disconnecting...' : 'Disconnect Calendar'}
+                    </button>
+                </>
+            )}
+        </div>
+    );
             
         // HELP & SUPPORT MODAL
         case 'help':
