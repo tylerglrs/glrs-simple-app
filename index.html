@@ -1174,250 +1174,7 @@ window.getSobrietyDays = (sobrietyDate) => {
 };
 
 const { useState, useEffect, useRef } = React;
-            // ==========================================
-// GOOGLE CALENDAR INTEGRATION - PIR SIDE
-// ==========================================
-
-// Simple encryption/decryption for token storage
-const encryptToken = (token) => {
-    try {
-        // Base64 encode with user-specific salt
-        const salt = user.uid.substring(0, 8);
-        const combined = salt + token + salt;
-        return btoa(combined);
-    } catch (error) {
-        console.error('Encryption error:', error);
-        return token; // Fallback to plain if encryption fails
-    }
-};
-
-const decryptToken = (encryptedToken) => {
-    try {
-        const salt = user.uid.substring(0, 8);
-        const decoded = atob(encryptedToken);
-        // Remove salt from both ends
-        return decoded.substring(salt.length, decoded.length - salt.length);
-    } catch (error) {
-        console.error('Decryption error:', error);
-        return encryptedToken; // Fallback if decryption fails
-    }
-};
-
-// Load Google connection status on mount
-const loadGoogleConnection = async () => {
-    try {
-        const userDoc = await db.collection('users').doc(user.uid).get();
-        const data = userDoc.data();
-        
-        if (data?.googleConnected && data?.googleAccessToken) {
-            setGoogleConnected(true);
-            
-            // Decrypt token
-            const decrypted = decryptToken(data.googleAccessToken);
-            setGoogleToken(decrypted);
-            setGoogleTokenExpiry(data.googleTokenExpiry);
-            
-            // Check if token is expired
-            if (data.googleTokenExpiry && Date.now() > data.googleTokenExpiry) {
-                console.log('Token expired, will need refresh on next use');
-            }
-        } else {
-            setGoogleConnected(false);
-            setGoogleToken(null);
-        }
-    } catch (error) {
-        console.error('Error loading Google connection:', error);
-        setGoogleConnected(false);
-    }
-};
-
-// Check and auto-refresh Google token if needed
-const checkGoogleToken = async () => {
-    try {
-        if (!googleConnected || !googleToken) {
-            return { 
-                valid: false, 
-                error: 'Google Calendar not connected. Please connect in Settings.' 
-            };
-        }
-        
-        // Check if token is expired or will expire in next 5 minutes
-        const expiryBuffer = 5 * 60 * 1000; // 5 minutes
-        const isExpired = googleTokenExpiry && (Date.now() + expiryBuffer) > googleTokenExpiry;
-        
-        if (isExpired) {
-            console.log('Token expired or expiring soon, attempting refresh...');
-            
-            // Show user-friendly message
-            showNotification('Refreshing Google Calendar connection...', 'info');
-            
-            // Attempt to refresh token
-            const refreshed = await refreshGoogleToken();
-            
-            if (!refreshed) {
-                // Show error banner
-                showNotification(
-                    'Google Calendar connection expired. Please reconnect in Settings.', 
-                    'error'
-                );
-                return { 
-                    valid: false, 
-                    error: 'Token refresh failed. Please reconnect Google Calendar.' 
-                };
-            }
-            
-            return { valid: true, token: googleToken };
-        }
-        
-        return { valid: true, token: googleToken };
-        
-    } catch (error) {
-        console.error('Error checking token:', error);
-        showNotification('Error validating Google Calendar connection', 'error');
-        return { 
-            valid: false, 
-            error: 'Failed to validate token: ' + error.message 
-        };
-    }
-};
-
-// Refresh Google token
-const refreshGoogleToken = async () => {
-    try {
-        // For OAuth tokens, we need to re-authenticate
-        // Google doesn't provide refresh tokens for browser-based OAuth
-        console.log('Token refresh requires re-authentication');
-        
-        // Attempt silent refresh if possible
-        if (typeof google !== 'undefined' && google.accounts) {
-            // This won't work automatically - user must re-consent
-            console.log('Automatic refresh not available, user must reconnect');
-            return false;
-        }
-        
-        return false;
-    } catch (error) {
-        console.error('Token refresh error:', error);
-        return false;
-    }
-};
-
-// Connect Google Calendar
-const connectGoogleCalendar = async () => {
-    setSyncingGoogle(true);
-    try {
-        console.log('Starting Google Calendar OAuth...');
-        
-        // Check if Google Identity Services loaded
-        if (typeof google === 'undefined' || !google.accounts) {
-            throw new Error('Google Identity Services not loaded. Please refresh the page.');
-        }
-        
-        // Initialize token client with CALENDAR ONLY scope
-        const tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: '457406864879-k1sunucuqofe22m5rg93hvo6nngiqh0u.apps.googleusercontent.com',
-            scope: 'https://www.googleapis.com/auth/calendar.events',
-            callback: async (tokenResponse) => {
-                try {
-                    console.log('Token received');
-                    
-                    if (tokenResponse.error) {
-                        throw new Error(tokenResponse.error);
-                    }
-                    
-                    if (!tokenResponse.access_token) {
-                        throw new Error('No access token received');
-                    }
-                    
-                    // Encrypt token before storing
-                    const encryptedToken = encryptToken(tokenResponse.access_token);
-                    
-                    console.log('Saving encrypted token to Firebase...');
-                    
-                    // Save to Firebase
-                    await db.collection('users').doc(user.uid).update({
-                        googleConnected: true,
-                        googleAccessToken: encryptedToken,
-                        googleTokenExpiry: Date.now() + (tokenResponse.expires_in * 1000),
-                        googleConnectedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        calendarSyncEnabled: false // Default to off, user must enable
-                    });
-                    
-                    // Update local state
-                    setGoogleConnected(true);
-                    setGoogleToken(tokenResponse.access_token);
-                    setGoogleTokenExpiry(Date.now() + (tokenResponse.expires_in * 1000));
-                    
-                    console.log('✅ Google Calendar connected successfully!');
-                    showNotification('✅ Google Calendar Connected!', 'success');
-                    
-                    // Close modal and reload
-                    setShowModal(null);
-                    setTimeout(() => loadGoogleConnection(), 500);
-                    
-                } catch (error) {
-                    console.error('Error saving token:', error);
-                    showNotification('Failed to save connection: ' + error.message, 'error');
-                } finally {
-                    setSyncingGoogle(false);
-                }
-            },
-        });
-        
-        // Request access token
-        console.log('Requesting token...');
-        tokenClient.requestAccessToken({ prompt: 'consent' });
-        
-    } catch (error) {
-        console.error('Error connecting Google Calendar:', error);
-        showNotification('Failed to connect: ' + error.message, 'error');
-        setSyncingGoogle(false);
-    }
-};
-
-// Disconnect Google Calendar
-const disconnectGoogleCalendar = async () => {
-    if (!confirm('Disconnect Google Calendar?\n\nThis will remove:\n• Calendar sync\n• All synced milestones\n\nYou can reconnect anytime.')) {
-        return;
-    }
-    
-    setSyncingGoogle(true);
-    try {
-        console.log('Disconnecting Google Calendar...');
-        
-        // Revoke token if available
-        if (googleToken && typeof google !== 'undefined' && google.accounts) {
-            google.accounts.oauth2.revoke(googleToken, () => {
-                console.log('✓ Token revoked');
-            });
-        }
-        
-        // Remove from Firebase
-        await db.collection('users').doc(user.uid).update({
-            googleConnected: false,
-            googleAccessToken: firebase.firestore.FieldValue.delete(),
-            googleTokenExpiry: firebase.firestore.FieldValue.delete(),
-            calendarSyncEnabled: false,
-            milestoneCalendarEvents: firebase.firestore.FieldValue.delete(),
-            googleDisconnectedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        // Update local state
-        setGoogleConnected(false);
-        setGoogleToken(null);
-        setGoogleTokenExpiry(null);
-        
-        showNotification('Google Calendar disconnected', 'success');
-        setShowModal(null);
-        
-    } catch (error) {
-        console.error('Error disconnecting:', error);
-        showNotification('Failed to disconnect: ' + error.message, 'error');
-    } finally {
-        setSyncingGoogle(false);
-    }
-};
-
+         
         // Lighthouse Logo Component
         function LighthouseLogo({ size = 100 }) {
             return (
@@ -1639,7 +1396,7 @@ function LoginScreen() {
         </div>
     );
 }
-       // Main PIR App Component
+   // Main PIR App Component
 function PIRApp({ user }) {
     // CORRECTED NAVIGATION ORDER: Tasks-Home-Progress-Connect-Profile
     const [currentView, setCurrentView] = useState('home');
@@ -1665,10 +1422,9 @@ function PIRApp({ user }) {
     const [complianceRate, setComplianceRate] = useState({ checkIn: 0, assignment: 0 });
     const [totalCheckIns, setTotalCheckIns] = useState(0);
     const [googleConnected, setGoogleConnected] = useState(false);
-const [googleToken, setGoogleToken] = useState(null);
-const [googleTokenExpiry, setGoogleTokenExpiry] = useState(null);
-const [syncingGoogle, setSyncingGoogle] = useState(false);
-    
+    const [googleToken, setGoogleToken] = useState(null);
+    const [googleTokenExpiry, setGoogleTokenExpiry] = useState(null);
+    const [syncingGoogle, setSyncingGoogle] = useState(false);
     
     // Progress States
     const [checkIns, setCheckIns] = useState([]);
@@ -1677,9 +1433,9 @@ const [syncingGoogle, setSyncingGoogle] = useState(false);
     const chartRef = useRef(null);
     const cravingChartRef = useRef(null);
     const [anxietyChartData, setAnxietyChartData] = useState(null);
-const anxietyChartRef = useRef(null);
+    const anxietyChartRef = useRef(null);
     const [sleepChartData, setSleepChartData] = useState(null);
-const sleepChartRef = useRef(null);
+    const sleepChartRef = useRef(null);
     
     // Tasks States
     const [goals, setGoals] = useState([]);
@@ -1703,112 +1459,285 @@ const sleepChartRef = useRef(null);
         worksheets: []
     });
     
-   // General States
-const [notifications, setNotifications] = useState([]);
-const [unreadCount, setUnreadCount] = useState(0);
-const [showModal, setShowModal] = useState(null);
-const fileInputRef = useRef(null);
+    // General States
+    const [notifications, setNotifications] = useState([]);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [showModal, setShowModal] = useState(null);
+    const fileInputRef = useRef(null);
 
-// Real-time listeners references
-const listenersRef = useRef([]);
+    // Real-time listeners references
+    const listenersRef = useRef([]);
 
-// Load all data on mount
-useEffect(() => {
-    if (user) {
-        loadAllData();
-        setupRealtimeListeners();
-        loadGoogleConnection();
-    }
+    // ==========================================
+    // GOOGLE CALENDAR INTEGRATION - PIR SIDE
+    // ==========================================
 
-    return () => {
-        // Cleanup listeners
-        listenersRef.current.forEach(unsubscribe => unsubscribe());
+    // Simple encryption/decryption for token storage
+    const encryptToken = (token) => {
+        try {
+            // Base64 encode with user-specific salt
+            const salt = user.uid.substring(0, 8);
+            const combined = salt + token + salt;
+            return btoa(combined);
+        } catch (error) {
+            console.error('Encryption error:', error);
+            return token; // Fallback to plain if encryption fails
+        }
     };
-}, [user]);
 
-// Setup real-time listeners
-const setupRealtimeListeners = () => {
-    // Notifications listener
-    const notifListener = db.collection('notifications')
-        .where('userId', '==', user.uid)
-        .orderBy('createdAt', 'desc')
-        .limit(20)
-        .onSnapshot(snapshot => {
-            const notificationsList = [];
-            let unread = 0;
-            snapshot.forEach(doc => {
-                const notification = { id: doc.id, ...doc.data() };
-                notificationsList.push(notification);
-                if (!notification.read) unread++;
-            });
-            setNotifications(notificationsList);
-            setUnreadCount(unread);
-        });
-    listenersRef.current.push(notifListener);
-        // Community messages listener
-        const messagesListener = db.collection('messages')
-            .where('roomId', '==', 'main')
-            .orderBy('createdAt', 'desc')
-            .limit(50)
-            .onSnapshot(snapshot => {
-                const messages = [];
-                snapshot.forEach(doc => {
-                    messages.push({ id: doc.id, ...doc.data() });
-                });
-                setCommunityMessages(messages.reverse());
-            });
-        listenersRef.current.push(messagesListener);
+    const decryptToken = (encryptedToken) => {
+        try {
+            const salt = user.uid.substring(0, 8);
+            const decoded = atob(encryptedToken);
+            // Remove salt from both ends
+            return decoded.substring(salt.length, decoded.length - salt.length);
+        } catch (error) {
+            console.error('Decryption error:', error);
+            return encryptedToken; // Fallback if decryption fails
+        }
+    };
 
-        // Goals listener
-        const goalsListener = db.collection('goals')
-            .where('userId', '==', user.uid)
-            .where('status', '==', 'active')
-            .onSnapshot(snapshot => {
-                loadGoals();
-            });
-        listenersRef.current.push(goalsListener);
-
-        // Assignments listener
-        const assignmentsListener = db.collection('assignments')
-            .where('userId', '==', user.uid)
-            .onSnapshot(snapshot => {
-                loadAssignments();
-            });
-        listenersRef.current.push(assignmentsListener);
-
-        // Broadcasts listener
-        const broadcastsListener = db.collection('broadcasts')
-            .where('active', '==', true)
-            .orderBy('createdAt', 'desc')
-            .limit(1)
-            .onSnapshot(snapshot => {
-                if (!snapshot.empty && !broadcastDismissed) {
-                    const broadcast = snapshot.docs[0].data();
-                    setActiveBroadcast(broadcast);
+    // Load Google connection status on mount
+    const loadGoogleConnection = async () => {
+        try {
+            const userDoc = await db.collection('users').doc(user.uid).get();
+            const data = userDoc.data();
+            
+            if (data?.googleConnected && data?.googleAccessToken) {
+                setGoogleConnected(true);
+                
+                // Decrypt token
+                const decrypted = decryptToken(data.googleAccessToken);
+                setGoogleToken(decrypted);
+                setGoogleTokenExpiry(data.googleTokenExpiry);
+                
+                // Check if token is expired
+                if (data.googleTokenExpiry && Date.now() > data.googleTokenExpiry) {
+                    console.log('Token expired, will need refresh on next use');
                 }
+            } else {
+                setGoogleConnected(false);
+                setGoogleToken(null);
+            }
+        } catch (error) {
+            console.error('Error loading Google connection:', error);
+            setGoogleConnected(false);
+        }
+    };
+
+    // Check and auto-refresh Google token if needed
+    const checkGoogleToken = async () => {
+        try {
+            if (!googleConnected || !googleToken) {
+                return { 
+                    valid: false, 
+                    error: 'Google Calendar not connected. Please connect in Settings.' 
+                };
+            }
+            
+            // Check if token is expired or will expire in next 5 minutes
+            const expiryBuffer = 5 * 60 * 1000; // 5 minutes
+            const isExpired = googleTokenExpiry && (Date.now() + expiryBuffer) > googleTokenExpiry;
+            
+            if (isExpired) {
+                console.log('Token expired or expiring soon, attempting refresh...');
+                
+                // Show user-friendly message
+                showNotification('Refreshing Google Calendar connection...', 'info');
+                
+                // Attempt to refresh token
+                const refreshed = await refreshGoogleToken();
+                
+                if (!refreshed) {
+                    // Show error banner
+                    showNotification(
+                        'Google Calendar connection expired. Please reconnect in Settings.', 
+                        'error'
+                    );
+                    return { 
+                        valid: false, 
+                        error: 'Token refresh failed. Please reconnect Google Calendar.' 
+                    };
+                }
+                
+                return { valid: true, token: googleToken };
+            }
+            
+            return { valid: true, token: googleToken };
+            
+        } catch (error) {
+            console.error('Error checking token:', error);
+            showNotification('Error validating Google Calendar connection', 'error');
+            return { 
+                valid: false, 
+                error: 'Failed to validate token: ' + error.message 
+            };
+        }
+    };
+
+    // Refresh Google token
+    const refreshGoogleToken = async () => {
+        try {
+            // For OAuth tokens, we need to re-authenticate
+            // Google doesn't provide refresh tokens for browser-based OAuth
+            console.log('Token refresh requires re-authentication');
+            
+            // Attempt silent refresh if possible
+            if (typeof google !== 'undefined' && google.accounts) {
+                // This won't work automatically - user must re-consent
+                console.log('Automatic refresh not available, user must reconnect');
+                return false;
+            }
+            
+            return false;
+        } catch (error) {
+            console.error('Token refresh error:', error);
+            return false;
+        }
+    };
+
+    // Connect Google Calendar
+    const connectGoogleCalendar = async () => {
+        setSyncingGoogle(true);
+        try {
+            console.log('Starting Google Calendar OAuth...');
+            
+            // Check if Google Identity Services loaded
+            if (typeof google === 'undefined' || !google.accounts) {
+                throw new Error('Google Identity Services not loaded. Please refresh the page.');
+            }
+            
+            // Initialize token client with CALENDAR ONLY scope
+            const tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: '457406864879-k1sunucuqofe22m5rg93hvo6nngiqh0u.apps.googleusercontent.com',
+                scope: 'https://www.googleapis.com/auth/calendar.events',
+                callback: async (tokenResponse) => {
+                    try {
+                        console.log('Token received');
+                        
+                        if (tokenResponse.error) {
+                            throw new Error(tokenResponse.error);
+                        }
+                        
+                        if (!tokenResponse.access_token) {
+                            throw new Error('No access token received');
+                        }
+                        
+                        // Encrypt token before storing
+                        const encryptedToken = encryptToken(tokenResponse.access_token);
+                        
+                        console.log('Saving encrypted token to Firebase...');
+                        
+                        // Save to Firebase
+                        await db.collection('users').doc(user.uid).update({
+                            googleConnected: true,
+                            googleAccessToken: encryptedToken,
+                            googleTokenExpiry: Date.now() + (tokenResponse.expires_in * 1000),
+                            googleConnectedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            calendarSyncEnabled: false // Default to off, user must enable
+                        });
+                        
+                        // Update local state
+                        setGoogleConnected(true);
+                        setGoogleToken(tokenResponse.access_token);
+                        setGoogleTokenExpiry(Date.now() + (tokenResponse.expires_in * 1000));
+                        
+                        console.log('✅ Google Calendar connected successfully!');
+                        showNotification('✅ Google Calendar Connected!', 'success');
+                        
+                        // Close modal and reload
+                        setShowModal(null);
+                        setTimeout(() => loadGoogleConnection(), 500);
+                        
+                    } catch (error) {
+                        console.error('Error saving token:', error);
+                        showNotification('Failed to save connection: ' + error.message, 'error');
+                    } finally {
+                        setSyncingGoogle(false);
+                    }
+                },
             });
-        listenersRef.current.push(broadcastsListener);
+            
+            // Request access token
+            console.log('Requesting token...');
+            tokenClient.requestAccessToken({ prompt: 'consent' });
+            
+        } catch (error) {
+            console.error('Error connecting Google Calendar:', error);
+            showNotification('Failed to connect: ' + error.message, 'error');
+            setSyncingGoogle(false);
+        }
+    };
+
+    // Disconnect Google Calendar
+    const disconnectGoogleCalendar = async () => {
+        if (!confirm('Disconnect Google Calendar?\n\nThis will remove:\n• Calendar sync\n• All synced milestones\n\nYou can reconnect anytime.')) {
+            return;
+        }
+        
+        setSyncingGoogle(true);
+        try {
+            console.log('Disconnecting Google Calendar...');
+            
+            // Revoke token if available
+            if (googleToken && typeof google !== 'undefined' && google.accounts) {
+                google.accounts.oauth2.revoke(googleToken, () => {
+                    console.log('✓ Token revoked');
+                });
+            }
+            
+            // Remove from Firebase
+            await db.collection('users').doc(user.uid).update({
+                googleConnected: false,
+                googleAccessToken: firebase.firestore.FieldValue.delete(),
+                googleTokenExpiry: firebase.firestore.FieldValue.delete(),
+                calendarSyncEnabled: false,
+                milestoneCalendarEvents: firebase.firestore.FieldValue.delete(),
+                googleDisconnectedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Update local state
+            setGoogleConnected(false);
+            setGoogleToken(null);
+            setGoogleTokenExpiry(null);
+            
+            showNotification('Google Calendar disconnected', 'success');
+            setShowModal(null);
+            
+        } catch (error) {
+            console.error('Error disconnecting:', error);
+            showNotification('Failed to disconnect: ' + error.message, 'error');
+        } finally {
+            setSyncingGoogle(false);
+        }
+    };
+
+    // ==========================================
+    // END GOOGLE CALENDAR INTEGRATION
+    // ==========================================
+
+    // Load all data on mount
+    useEffect(() => {
+        if (user) {
+            loadAllData();
+            setupRealtimeListeners();
+            loadGoogleConnection();
+        }
+
+        return () => {
+            // Cleanup listeners
+            listenersRef.current.forEach(unsubscribe => unsubscribe());
+        };
+    }, [user]);
+
+    // Setup real-time listeners
+    const setupRealtimeListeners = () => {
+        // ... rest of your existing setupRealtimeListeners code
     };
 
     // FIXED: Correct sobriety days calculation function
     const calculateSobrietyDays = (sobrietyDate) => {
-        if (!sobrietyDate) return 0;
-        
-        const sobrietyDateObj = new Date(sobrietyDate);
-        const today = new Date();
-        
-        // Reset time to start of day for accurate day counting
-        sobrietyDateObj.setHours(0, 0, 0, 0);
-        today.setHours(0, 0, 0, 0);
-        
-        // Calculate difference in milliseconds
-        const diffTime = today - sobrietyDateObj;
-        
-        // Convert to days and add 1 (because day 1 is the sobriety date itself)
-        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
-        
-        // Return at least 1 if sobriety date is today or in the past
-        return Math.max(1, diffDays);
+        // ... rest of your existing code
     };
 
     // FIXED: Updated useEffect for PIRApp component
@@ -1829,6 +1758,8 @@ const setupRealtimeListeners = () => {
         }
     }, [userData]);
 
+    // ... rest of PIRApp component
+}
     // Initialize charts when data changes
     useEffect(() => {
         if (currentView === 'progress' && moodChartData && cravingChartData) {
