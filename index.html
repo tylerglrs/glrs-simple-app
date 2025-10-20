@@ -1703,50 +1703,48 @@ const sleepChartRef = useRef(null);
         worksheets: []
     });
     
-    // General States
-    const [notifications, setNotifications] = useState([]);
-    const [unreadCount, setUnreadCount] = useState(0);
-    const [showModal, setShowModal] = useState(null);
-    const fileInputRef = useRef(null);
+   // General States
+const [notifications, setNotifications] = useState([]);
+const [unreadCount, setUnreadCount] = useState(0);
+const [showModal, setShowModal] = useState(null);
+const fileInputRef = useRef(null);
 
-    // Real-time listeners references
-    const listenersRef = useRef([]);
+// Real-time listeners references
+const listenersRef = useRef([]);
 
-    useEffect(() => {
+// Load all data on mount
+useEffect(() => {
     if (user) {
         loadAllData();
         setupRealtimeListeners();
-        loadGoogleConnection(); // ← ADD THIS LINE
+        loadGoogleConnection();
     }
-    // ... cleanup
+
+    return () => {
+        // Cleanup listeners
+        listenersRef.current.forEach(unsubscribe => unsubscribe());
+    };
 }, [user]);
 
-        return () => {
-            // Cleanup listeners
-            listenersRef.current.forEach(unsubscribe => unsubscribe());
-        };
-    }, [user]);
-
-    // Setup real-time listeners
-    const setupRealtimeListeners = () => {
-        // Notifications listener
-        const notifListener = db.collection('notifications')
-            .where('userId', '==', user.uid)
-            .orderBy('createdAt', 'desc')
-            .limit(20)
-            .onSnapshot(snapshot => {
-                const notificationsList = [];
-                let unread = 0;
-                snapshot.forEach(doc => {
-                    const notification = { id: doc.id, ...doc.data() };
-                    notificationsList.push(notification);
-                    if (!notification.read) unread++;
-                });
-                setNotifications(notificationsList);
-                setUnreadCount(unread);
+// Setup real-time listeners
+const setupRealtimeListeners = () => {
+    // Notifications listener
+    const notifListener = db.collection('notifications')
+        .where('userId', '==', user.uid)
+        .orderBy('createdAt', 'desc')
+        .limit(20)
+        .onSnapshot(snapshot => {
+            const notificationsList = [];
+            let unread = 0;
+            snapshot.forEach(doc => {
+                const notification = { id: doc.id, ...doc.data() };
+                notificationsList.push(notification);
+                if (!notification.read) unread++;
             });
-        listenersRef.current.push(notifListener);
-
+            setNotifications(notificationsList);
+            setUnreadCount(unread);
+        });
+    listenersRef.current.push(notifListener);
         // Community messages listener
         const messagesListener = db.collection('messages')
             .where('roomId', '==', 'main')
