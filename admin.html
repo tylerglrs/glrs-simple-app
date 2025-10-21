@@ -29327,7 +29327,7 @@ function CreateAssignmentModal({ onClose, onSuccess, users, createdBy }) {
             );
         }
 
-// Complete Enhanced PIR Detail View Component - All Fixes Applied
+// ========== COMPLETE ENHANCED PIR DETAIL MODAL - FULLY REFACTORED ==========
 function UserDetailModal({ user, onClose, onUpdate }) {
     // Extract ID from user object
     const pirId = user?.id;
@@ -29339,7 +29339,7 @@ function UserDetailModal({ user, onClose, onUpdate }) {
     
     // Data States
     const [activities, setActivities] = useState([]);
-            const [availableCoaches, setAvailableCoaches] = useState([]);
+    const [availableCoaches, setAvailableCoaches] = useState([]);
     const [checkIns, setCheckIns] = useState([]);
     const [assignments, setAssignments] = useState([]);
     const [goals, setGoals] = useState([]);
@@ -29371,12 +29371,9 @@ function UserDetailModal({ user, onClose, onUpdate }) {
     const [selectedObjectiveId, setSelectedObjectiveId] = useState(null);
     const [showAssignResource, setShowAssignResource] = useState(false);
     const [showCreateResource, setShowCreateResource] = useState(false);
-
-     // Golden Thread specific states - ADD THESE THREE
     const [showGoldenThread, setShowGoldenThread] = useState(false);
     const [selectedGoalForObjective, setSelectedGoalForObjective] = useState(null);
     const [selectedObjectiveForAssignment, setSelectedObjectiveForAssignment] = useState(null);
-    
     
     // Chart refs
     const moodChartRef = useRef(null);
@@ -29384,135 +29381,118 @@ function UserDetailModal({ user, onClose, onUpdate }) {
     const anxietyChartRef = useRef(null);
     const sleepChartRef = useRef(null);
 
-  useEffect(() => {
-    if (pirId) {
-        loadCompletePIRData();
-    }
-}, [pirId]);
+    // ========== LOAD DATA ON MOUNT ==========
+    useEffect(() => {
+        if (pirId) {
+            loadCompletePIRData();
+        }
+    }, [pirId]);
 
-const loadCompletePIRData = async () => {
-    try {
-        setLoading(true);
+    const loadCompletePIRData = async () => {
+        try {
+            setLoading(true);
+            
+            const userDoc = await db.collection('users').doc(pirId).get();
+            if (!userDoc.exists) {
+                alert('PIR not found');
+                onClose();
+                return;
+            }
+            
+            const userData = { id: userDoc.id, ...userDoc.data() };
+            
+            // Fix timezone issues for dates
+            userData.sobrietyDays = calculateSobrietyDaysFixed(userData.sobrietyDate);
+            userData.accountAge = daysSince(userData.createdAt);
+            userData.lastLoginFormatted = await getLastLoginFormatted(pirId, userData);
+            userData.firstLoginFormatted = formatFirstLogin(userData.createdAt);
+            userData.moneySaved = userData.sobrietyDays * (userData.dailyCost || 20);
+            
+            setPirData(userData);
+            setEditData(userData);
+            
+            // Load all related data in parallel
+            await Promise.all([
+                loadActivitiesData(),
+                loadCheckInsData(),
+                loadAssignmentsData(),
+                loadGoalsData(),
+                loadObjectivesData(),
+                loadAlertsData(),
+                loadMeetingsData(),
+                loadResourcesData(),
+                loadMilestonesData(),
+                loadMessagesData(),
+                loadAllUserMessages(),
+                loadSupportGroupsData(),
+                loadPledgesData(),
+                loadNotificationsData(),
+                loadTopicRoomsData(),
+                loadResourceProgressData(),
+                loadStreakData(),
+                loadComplianceDataFixed(userData.createdAt),
+                loadProgressChartData(),
+                loadAvailableCoaches()
+            ]);
+            
+        } catch (error) {
+            console.error('Error loading PIR data:', error);
+            alert('Failed to load PIR data: ' + error.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // ========== CALCULATION FUNCTIONS ==========
+    const calculateSobrietyDaysFixed = (sobrietyDate) => {
+        if (!sobrietyDate) return 0;
         
-        // Load main user data
-        const userDoc = await db.collection('users').doc(pirId).get();
-        if (!userDoc.exists) {
-            alert('PIR not found');
-            onClose();
-            return;
+        let year, month, day;
+        
+        if (typeof sobrietyDate === 'string' && sobrietyDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            [year, month, day] = sobrietyDate.split('-').map(Number);
+        } else if (sobrietyDate.toDate) {
+            const date = sobrietyDate.toDate();
+            year = date.getFullYear();
+            month = date.getMonth() + 1;
+            day = date.getDate();
+        } else if (sobrietyDate.seconds) {
+            const date = new Date(sobrietyDate.seconds * 1000);
+            year = date.getFullYear();
+            month = date.getMonth() + 1;
+            day = date.getDate();
+        } else {
+            const date = new Date(sobrietyDate);
+            year = date.getFullYear();
+            month = date.getMonth() + 1;
+            day = date.getDate();
         }
         
-        const userData = { id: userDoc.id, ...userDoc.data() };
+        const today = new Date();
+        const todayYear = today.getFullYear();
+        const todayMonth = today.getMonth() + 1;
+        const todayDay = today.getDate();
         
-        // Fix timezone issues for dates
-        userData.sobrietyDays = calculateSobrietyDaysFixed(userData.sobrietyDate);
-        userData.accountAge = daysSince(userData.createdAt);
+        const startDate = new Date(year, month - 1, day, 0, 0, 0, 0);
+        const endDate = new Date(todayYear, todayMonth - 1, todayDay, 0, 0, 0, 0);
         
-        // Get last login from auth or user doc
-        userData.lastLoginFormatted = await getLastLoginFormatted(pirId, userData);
-        userData.firstLoginFormatted = formatFirstLogin(userData.createdAt);
-        userData.moneySaved = userData.sobrietyDays * (userData.dailyCost || 20);
+        const millisecondsDiff = endDate.getTime() - startDate.getTime();
+        const complete24HourPeriods = Math.floor(millisecondsDiff / (1000 * 60 * 60 * 24));
+        const totalDays = complete24HourPeriods + 2;
         
-        setPirData(userData);
-        setEditData(userData);
-        
-        // Load all related data in parallel
-        await Promise.all([
-            loadActivitiesData(),
-            loadCheckInsData(),
-            loadAssignmentsData(),
-            loadGoalsData(),
-            loadObjectivesData(),
-            loadAlertsData(),
-            loadMeetingsData(),
-            loadResourcesData(),
-            loadMilestonesData(),
-            loadMessagesData(),
-            loadAllUserMessages(),
-            loadSupportGroupsData(),
-            loadPledgesData(),
-            loadNotificationsData(),
-            loadTopicRoomsData(),
-            loadResourceProgressData(),
-            loadStreakData(),
-            loadComplianceDataFixed(userData.createdAt),
-            loadProgressChartData(),
-            loadAvailableCoaches() // ✅ ADDED: Load coaches for assignment dropdown
-        ]);
-        
-    } catch (error) {
-        console.error('Error loading PIR data:', error);
-        alert('Failed to load PIR data: ' + error.message);
-    } finally {
-        setLoading(false);
-    }
-};
- const calculateSobrietyDaysFixed = (sobrietyDate) => {
-    if (!sobrietyDate) return 0;
-    
-    // Parse sobriety date components
-    let year, month, day;
-    
-    if (typeof sobrietyDate === 'string' && sobrietyDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        // YYYY-MM-DD format
-        [year, month, day] = sobrietyDate.split('-').map(Number);
-    } else if (sobrietyDate.toDate) {
-        // Firestore Timestamp
-        const date = sobrietyDate.toDate();
-        year = date.getFullYear();
-        month = date.getMonth() + 1;
-        day = date.getDate();
-    } else if (sobrietyDate.seconds) {
-        // Firestore timestamp object
-        const date = new Date(sobrietyDate.seconds * 1000);
-        year = date.getFullYear();
-        month = date.getMonth() + 1;
-        day = date.getDate();
-    } else {
-        // Assume Date object
-        const date = new Date(sobrietyDate);
-        year = date.getFullYear();
-        month = date.getMonth() + 1;
-        day = date.getDate();
-    }
-    
-    // Get today's date components
-    const today = new Date();
-    const todayYear = today.getFullYear();
-    const todayMonth = today.getMonth() + 1;
-    const todayDay = today.getDate();
-    
-    // Create dates at midnight (LOCAL timezone, no conversion)
-    const startDate = new Date(year, month - 1, day, 0, 0, 0, 0);
-    const endDate = new Date(todayYear, todayMonth - 1, todayDay, 0, 0, 0, 0);
-    
-    // Calculate complete 24-hour periods
-    const millisecondsDiff = endDate.getTime() - startDate.getTime();
-    const complete24HourPeriods = Math.floor(millisecondsDiff / (1000 * 60 * 60 * 24));
-    
-    // Add 2 to include starting day (matching milestone calculation logic)
-    const totalDays = complete24HourPeriods + 2; // ✅ CHANGED FROM +1 TO +2
-    
-    // Return at least 1 if date is valid
-    return Math.max(1, totalDays);
-};
+        return Math.max(1, totalDays);
+    };
 
     const getLastLoginFormatted = async (userId, userData) => {
         try {
-            // Try to get from user document first
             if (userData.lastLogin) {
                 const lastLogin = userData.lastLogin.toDate ? userData.lastLogin.toDate() : new Date(userData.lastLogin);
                 return lastLogin.toLocaleString('en-US', { 
-                    month: 'short', 
-                    day: 'numeric', 
-                    year: 'numeric',
-                    hour: 'numeric', 
-                    minute: '2-digit', 
-                    hour12: true 
+                    month: 'short', day: 'numeric', year: 'numeric',
+                    hour: 'numeric', minute: '2-digit', hour12: true 
                 });
             }
             
-            // Check activities for last login
             const loginActivity = await db.collection('activities')
                 .where('userId', '==', userId)
                 .where('type', '==', 'login')
@@ -29523,12 +29503,8 @@ const loadCompletePIRData = async () => {
             if (!loginActivity.empty) {
                 const lastLogin = loginActivity.docs[0].data().createdAt.toDate();
                 return lastLogin.toLocaleString('en-US', { 
-                    month: 'short', 
-                    day: 'numeric', 
-                    year: 'numeric',
-                    hour: 'numeric', 
-                    minute: '2-digit', 
-                    hour12: true 
+                    month: 'short', day: 'numeric', year: 'numeric',
+                    hour: 'numeric', minute: '2-digit', hour12: true 
                 });
             }
             
@@ -29539,154 +29515,175 @@ const loadCompletePIRData = async () => {
         }
     };
 
-
     const formatFirstLogin = (createdAt) => {
         if (!createdAt) return 'Unknown';
         const date = createdAt.toDate ? createdAt.toDate() : new Date(createdAt);
         return date.toLocaleString('en-US', { 
-            month: 'short', 
-            day: 'numeric', 
-            year: 'numeric'
+            month: 'short', day: 'numeric', year: 'numeric'
         });
     };
 
-    // Fixed compliance calculation function
-const loadComplianceDataFixed = async (accountCreatedAt) => {
-    try {
-        // Calculate days since account creation
-        const accountDate = accountCreatedAt?.toDate ? accountCreatedAt.toDate() : new Date(accountCreatedAt);
+    const daysSince = (date) => {
+        if (!date) return 0;
+        const start = date?.toDate ? date.toDate() : new Date(date);
         const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        accountDate.setHours(0, 0, 0, 0);
+        const diffTime = Math.abs(today - start);
+        return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    };
+
+    const formatDate = (date) => {
+        if (!date) return 'N/A';
         
-        const daysSinceCreation = Math.floor((today - accountDate) / (1000 * 60 * 60 * 24));
-        const daysToCheck = Math.min(daysSinceCreation, 30); // Max 30 days
-        
-        if (daysToCheck <= 0) {
-            setComplianceData({
-                morningRate: 0,
-                eveningRate: 0,
-                assignmentRate: 0,
-                totalCheckIns: 0,
-                daysTracked: 0,
-                recentCheckIns: []
-            });
-            return;
+        let d;
+        if (date?.toDate) {
+            d = date.toDate();
+        } else if (date?.seconds) {
+            d = new Date(date.seconds * 1000);
+        } else if (typeof date === 'string') {
+            if (!date.includes('T')) {
+                d = new Date(date + 'T00:00:00');
+            } else {
+                d = new Date(date);
+            }
+        } else {
+            d = new Date(date);
         }
         
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - daysToCheck);
-        startDate.setHours(0, 0, 0, 0);
-        
-        // Get ALL check-ins for display
-        const allCheckInsSnap = await db.collection('checkIns')
-            .where('userId', '==', pirId)
-            .orderBy('createdAt', 'desc')
-            .get();
-        
-        // Get check-ins for compliance calculation (last 30 days max)
-        const complianceCheckInsSnap = await db.collection('checkIns')
-            .where('userId', '==', pirId)
-            .where('createdAt', '>=', startDate)
-            .get();
-        
-        // Process all check-ins for display
-        const allCheckInsData = [];
-        allCheckInsSnap.forEach(doc => {
-            const data = doc.data();
-            allCheckInsData.push({
-                id: doc.id,
-                ...data,
-                date: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt)
-            });
+        return d.toLocaleDateString('en-US', {
+            year: 'numeric', month: 'long', day: 'numeric'
         });
-        
-        // Calculate compliance metrics
-        let morningCount = 0;
-        let eveningCount = 0;
-        const dateMap = new Map();
-        
-        complianceCheckInsSnap.forEach(doc => {
-            const data = doc.data();
-            const checkInDate = data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
-            const dateKey = checkInDate.toDateString();
-            
-            if (!dateMap.has(dateKey)) {
-                dateMap.set(dateKey, { morning: false, evening: false });
-            }
-            
-            if (data.morningData && !dateMap.get(dateKey).morning) {
-                morningCount++;
-                dateMap.get(dateKey).morning = true;
-            }
-            if (data.eveningData && !dateMap.get(dateKey).evening) {
-                eveningCount++;
-                dateMap.get(dateKey).evening = true;
-            }
-        });
-        
-        // Calculate assignment compliance
-        const completedAssignments = assignments.filter(a => a.status === 'completed').length;
-        const totalAssignments = assignments.length;
-        
-        // Cap percentages at 100%
-        const morningRate = Math.min(100, Math.round((morningCount / daysToCheck) * 100));
-        const eveningRate = Math.min(100, Math.round((eveningCount / daysToCheck) * 100));
-        const assignmentRate = totalAssignments > 0 ? 
-            Math.min(100, Math.round((completedAssignments / totalAssignments) * 100)) : 0;
-        
-        setComplianceData({
-            morningRate,
-            eveningRate,
-            assignmentRate,
-            totalCheckIns: morningCount + eveningCount,
-            daysTracked: daysToCheck,
-            recentCheckIns: allCheckInsData // Store all check-ins for display
-        });
-        
-        // Also update the checkIns state for the table
-        setCheckIns(allCheckInsData);
-        
-    } catch (error) {
-        console.error('Error calculating compliance:', error);
-        setComplianceData({
-            morningRate: 0,
-            eveningRate: 0,
-            assignmentRate: 0,
-            totalCheckIns: 0,
-            daysTracked: 0,
-            recentCheckIns: []
-        });
-    }
-};
-            const loadAvailableCoaches = async () => {
-    try {
-        const coachesSnap = await db.collection('users')
-            .where('role', 'in', ['admin', 'coach'])
-            .get();
-        
-        const coachesList = [];
-        coachesSnap.forEach(doc => {
-            coachesList.push({ 
-                id: doc.id, 
-                ...doc.data() 
-            });
-        });
-        setAvailableCoaches(coachesList);
-    } catch (error) {
-        console.error('Error loading coaches:', error);
-        setAvailableCoaches([]);
-    }
-};
+    };
 
-    
+    const formatDateTime = (date) => {
+        if (!date) return 'N/A';
+        const d = date?.toDate ? date.toDate() : new Date(date);
+        return d.toLocaleString();
+    };
 
-    // Fixed milestones loading
+    const formatTimeAgo = (date) => {
+        if (!date) return 'Never';
+        const d = date?.toDate ? date.toDate() : new Date(date);
+        const now = new Date();
+        const diff = Math.floor((now - d) / 1000);
+        
+        if (diff < 60) return 'Just now';
+        if (diff < 3600) return Math.floor(diff / 60) + ' minutes ago';
+        if (diff < 86400) return Math.floor(diff / 3600) + ' hours ago';
+        if (diff < 604800) return Math.floor(diff / 86400) + ' days ago';
+        return d.toLocaleDateString();
+    };
+
+    // ========== DATA LOADING FUNCTIONS ==========
+    const loadAvailableCoaches = async () => {
+        try {
+            const coachesSnap = await db.collection('users')
+                .where('role', 'in', ['admin', 'coach'])
+                .get();
+            
+            const coachesList = [];
+            coachesSnap.forEach(doc => {
+                coachesList.push({ id: doc.id, ...doc.data() });
+            });
+            setAvailableCoaches(coachesList);
+        } catch (error) {
+            console.error('Error loading coaches:', error);
+            setAvailableCoaches([]);
+        }
+    };
+
+    const loadComplianceDataFixed = async (accountCreatedAt) => {
+        try {
+            const accountDate = accountCreatedAt?.toDate ? accountCreatedAt.toDate() : new Date(accountCreatedAt);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            accountDate.setHours(0, 0, 0, 0);
+            
+            const daysSinceCreation = Math.floor((today - accountDate) / (1000 * 60 * 60 * 24));
+            const daysToCheck = Math.min(daysSinceCreation, 30);
+            
+            if (daysToCheck <= 0) {
+                setComplianceData({
+                    morningRate: 0, eveningRate: 0, assignmentRate: 0,
+                    totalCheckIns: 0, daysTracked: 0, recentCheckIns: []
+                });
+                return;
+            }
+            
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - daysToCheck);
+            startDate.setHours(0, 0, 0, 0);
+            
+            const allCheckInsSnap = await db.collection('checkIns')
+                .where('userId', '==', pirId)
+                .orderBy('createdAt', 'desc')
+                .get();
+            
+            const complianceCheckInsSnap = await db.collection('checkIns')
+                .where('userId', '==', pirId)
+                .where('createdAt', '>=', startDate)
+                .get();
+            
+            const allCheckInsData = [];
+            allCheckInsSnap.forEach(doc => {
+                const data = doc.data();
+                allCheckInsData.push({
+                    id: doc.id, ...data,
+                    date: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt)
+                });
+            });
+            
+            let morningCount = 0, eveningCount = 0;
+            const dateMap = new Map();
+            
+            complianceCheckInsSnap.forEach(doc => {
+                const data = doc.data();
+                const checkInDate = data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+                const dateKey = checkInDate.toDateString();
+                
+                if (!dateMap.has(dateKey)) {
+                    dateMap.set(dateKey, { morning: false, evening: false });
+                }
+                
+                if (data.morningData && !dateMap.get(dateKey).morning) {
+                    morningCount++;
+                    dateMap.get(dateKey).morning = true;
+                }
+                if (data.eveningData && !dateMap.get(dateKey).evening) {
+                    eveningCount++;
+                    dateMap.get(dateKey).evening = true;
+                }
+            });
+            
+            const completedAssignments = assignments.filter(a => a.status === 'completed').length;
+            const totalAssignments = assignments.length;
+            
+            const morningRate = Math.min(100, Math.round((morningCount / daysToCheck) * 100));
+            const eveningRate = Math.min(100, Math.round((eveningCount / daysToCheck) * 100));
+            const assignmentRate = totalAssignments > 0 ? 
+                Math.min(100, Math.round((completedAssignments / totalAssignments) * 100)) : 0;
+            
+            setComplianceData({
+                morningRate, eveningRate, assignmentRate,
+                totalCheckIns: morningCount + eveningCount,
+                daysTracked: daysToCheck,
+                recentCheckIns: allCheckInsData
+            });
+            
+            setCheckIns(allCheckInsData);
+            
+        } catch (error) {
+            console.error('Error calculating compliance:', error);
+            setComplianceData({
+                morningRate: 0, eveningRate: 0, assignmentRate: 0,
+                totalCheckIns: 0, daysTracked: 0, recentCheckIns: []
+            });
+        }
+    };
+
     const loadMilestonesData = async () => {
         try {
             const milestonesList = [];
             
-            // Try to load custom milestones
             try {
                 const milestonesSnap = await db.collection('milestones')
                     .where('userId', '==', pirId)
@@ -29699,7 +29696,6 @@ const loadComplianceDataFixed = async (accountCreatedAt) => {
                 console.error('Error loading custom milestones:', error);
             }
             
-            // Add standard recovery milestones based on sobriety date
             if (pirData?.sobrietyDate) {
                 const standardMilestones = getStandardMilestones(pirData.sobrietyDate);
                 milestonesList.push(...standardMilestones);
@@ -29734,9 +29730,7 @@ const loadComplianceDataFixed = async (accountCreatedAt) => {
             const daysUntil = Math.ceil((targetDate - today) / (1000 * 60 * 60 * 24));
             
             return {
-                ...m,
-                targetDate,
-                achieved,
+                ...m, targetDate, achieved,
                 daysUntil: achieved ? 0 : daysUntil,
                 type: 'standard',
                 id: `standard-${m.days}`
@@ -29744,49 +29738,6 @@ const loadComplianceDataFixed = async (accountCreatedAt) => {
         });
     };
 
-    // Add Goal function
-    const handleAddGoal = async (goalData) => {
-        try {
-            await db.collection('goals').add({
-                ...goalData,
-                userId: pirId,
-                createdBy: user.uid,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            await loadGoalsData();
-            setShowAddGoal(false);
-            alert('Goal added successfully');
-        } catch (error) {
-            console.error('Error adding goal:', error);
-            alert('Failed to add goal');
-        }
-    };
-
-    // Assign Resource function
-    const handleAssignResource = async (resourceId) => {
-        try {
-            const resourceDoc = await db.collection('resources').doc(resourceId).get();
-            const resourceData = resourceDoc.data();
-            
-            const currentAssigned = resourceData.assignedTo || [];
-            if (!currentAssigned.includes(pirId)) {
-                await db.collection('resources').doc(resourceId).update({
-                    assignedTo: firebase.firestore.FieldValue.arrayUnion(pirId)
-                });
-                
-                await loadResourcesData();
-                alert('Resource assigned successfully');
-            } else {
-                alert('Resource already assigned to this PIR');
-            }
-        } catch (error) {
-            console.error('Error assigning resource:', error);
-            alert('Failed to assign resource');
-        }
-    };
-
-    // All other data loading functions remain the same...
     const loadActivitiesData = async () => {
         try {
             const activitiesSnap = await db.collection('activities')
@@ -29919,10 +29870,8 @@ const loadComplianceDataFixed = async (accountCreatedAt) => {
 
     const loadResourcesData = async () => {
         try {
-            // Try multiple approaches to load resources
             const resourcesList = [];
             
-            // Try loading with array-contains
             try {
                 const assignedResources = await db.collection('resources')
                     .where('assignedTo', 'array-contains', pirId)
@@ -29935,7 +29884,6 @@ const loadComplianceDataFixed = async (accountCreatedAt) => {
                 console.log('Array-contains query failed, trying alternative');
             }
             
-            // Also load global resources
             try {
                 const globalResources = await db.collection('resources')
                     .where('isGlobal', '==', true)
@@ -29974,6 +29922,81 @@ const loadComplianceDataFixed = async (accountCreatedAt) => {
         } catch (error) {
             console.error('Error loading messages:', error);
             setMessages([]);
+        }
+    };
+
+    const loadAllUserMessages = async () => {
+        try {
+            const messagesData = [];
+            
+            try {
+                const directMessages = await db.collection('messages')
+                    .where('senderId', '==', pirId)
+                    .orderBy('createdAt', 'desc')
+                    .get();
+                
+                directMessages.forEach(doc => {
+                    messagesData.push({ id: doc.id, ...doc.data(), type: 'direct' });
+                });
+            } catch (error) {
+                console.log('Error loading direct messages:', error);
+            }
+            
+            try {
+                const receivedMessages = await db.collection('messages')
+                    .where('userId', '==', pirId)
+                    .orderBy('createdAt', 'desc')
+                    .get();
+                
+                receivedMessages.forEach(doc => {
+                    const data = doc.data();
+                    if (data.senderId === pirId) {
+                        messagesData.push({ id: doc.id, ...data, type: 'direct' });
+                    }
+                });
+            } catch (error) {
+                console.log('Error loading received messages:', error);
+            }
+            
+            try {
+                const communityMessages = await db.collection('glrsChat')
+                    .where('senderId', '==', pirId)
+                    .orderBy('createdAt', 'desc')
+                    .limit(50)
+                    .get();
+                
+                communityMessages.forEach(doc => {
+                    messagesData.push({ id: doc.id, ...doc.data(), type: 'community' });
+                });
+            } catch (error) {
+                console.log('Community chat collection may not exist:', error);
+            }
+            
+            try {
+                const topicMessages = await db.collection('topicRoomMessages')
+                    .where('senderId', '==', pirId)
+                    .orderBy('createdAt', 'desc')
+                    .limit(50)
+                    .get();
+                
+                topicMessages.forEach(doc => {
+                    messagesData.push({ id: doc.id, ...doc.data(), type: 'topic' });
+                });
+            } catch (error) {
+                console.log('Topic room messages may not exist:', error);
+            }
+            
+            messagesData.sort((a, b) => {
+                const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+                const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+                return dateB - dateA;
+            });
+            
+            setAllMessages(messagesData);
+            
+        } catch (error) {
+            console.error('Error loading user messages:', error);
+            setAllMessages([]);
         }
     };
 
@@ -30034,8 +30057,7 @@ const loadComplianceDataFixed = async (accountCreatedAt) => {
 
     const loadTopicRoomsData = async () => {
         try {
-            const topicRoomsSnap = await db.collection('topicRooms')
-                .get();
+            const topicRoomsSnap = await db.collection('topicRooms').get();
             
             const topicRoomsList = [];
             topicRoomsSnap.forEach(doc => {
@@ -30127,70 +30149,6 @@ const loadComplianceDataFixed = async (accountCreatedAt) => {
         }
     };
 
-    // Utility functions
-    const daysSince = (date) => {
-        if (!date) return 0;
-        const start = date?.toDate ? date.toDate() : new Date(date);
-        const today = new Date();
-        const diffTime = Math.abs(today - start);
-        return Math.floor(diffTime / (1000 * 60 * 60 * 24));
-    };
-
-    const formatTimeAgo = (date) => {
-        if (!date) return 'Never';
-        const d = date?.toDate ? date.toDate() : new Date(date);
-        const now = new Date();
-        const diff = Math.floor((now - d) / 1000);
-        
-        if (diff < 60) return 'Just now';
-        if (diff < 3600) return Math.floor(diff / 60) + ' minutes ago';
-        if (diff < 86400) return Math.floor(diff / 3600) + ' hours ago';
-        if (diff < 604800) return Math.floor(diff / 86400) + ' days ago';
-        return d.toLocaleDateString();
-    };
-
-    // Also fix the formatDate function to display dates correctly
-const formatDate = (date) => {
-    if (!date) return 'N/A';
-    
-    let d;
-    
-    // Handle Firestore Timestamp
-    if (date?.toDate) {
-        d = date.toDate();
-    }
-    // Handle timestamp object with seconds
-    else if (date?.seconds) {
-        d = new Date(date.seconds * 1000);
-    }
-    // Handle string
-    else if (typeof date === 'string') {
-        // Add timezone handling for date strings
-        if (!date.includes('T')) {
-            d = new Date(date + 'T00:00:00');
-        } else {
-            d = new Date(date);
-        }
-    }
-    // Handle Date object
-    else {
-        d = new Date(date);
-    }
-    
-    // Format as locale date string
-    return d.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    });
-};
-
-    const formatDateTime = (date) => {
-        if (!date) return 'N/A';
-        const d = date?.toDate ? date.toDate() : new Date(date);
-        return d.toLocaleString();
-    };
-
     const calculateGoalProgress = async (goalId) => {
         const goalAssignments = assignments.filter(a => a.goalId === goalId);
         const completed = goalAssignments.filter(a => a.status === 'completed').length;
@@ -30199,36 +30157,28 @@ const formatDate = (date) => {
 
     const getActivityIcon = (type) => {
         const icons = {
-            'check_in': '✅',
-            'assignment_completed': '📝',
-            'goal_completed': '🎯',
-            'objective_completed': '🎯',
-            'message_sent': '💬',
-            'sos_triggered': '🚨',
-            'login': '🔑',
-            'profile_updated': '👤',
-            'pledge_completed': '🤝',
-            'resource_viewed': '📚',
-            'milestone_achieved': '🏆',
-            'streak_update': '🔥'
+            'check_in': '✅', 'assignment_completed': '📝', 'goal_completed': '🎯',
+            'objective_completed': '🎯', 'message_sent': '💬', 'sos_triggered': '🚨',
+            'login': '🔑', 'profile_updated': '👤', 'pledge_completed': '🤝',
+            'resource_viewed': '📚', 'milestone_achieved': '🏆', 'streak_update': '🔥'
         };
         return icons[type] || '📌';
     };
 
     const getActivityColor = (type) => {
         const colors = {
-            'check_in': '#4CAF50',
-            'assignment_completed': '#2196F3',
-            'goal_completed': '#FF9800',
-            'message_sent': '#9C27B0',
-            'sos_triggered': '#F44336',
-            'login': '#607D8B',
-            'profile_updated': '#795548'
+            'check_in': 'var(--success-color)',
+            'assignment_completed': 'var(--primary-color)',
+            'goal_completed': 'var(--warning-color)',
+            'message_sent': 'var(--secondary-color)',
+            'sos_triggered': 'var(--danger-color)',
+            'login': 'var(--info-color)',
+            'profile_updated': 'var(--muted-color)'
         };
-        return colors[type] || '#9E9E9E';
+        return colors[type] || 'var(--text-muted)';
     };
 
-    // Chart rendering
+    // ========== CHART RENDERING ==========
     useEffect(() => {
         if (chartData && activeTab === 'progress') {
             setTimeout(() => {
@@ -30244,32 +30194,20 @@ const formatDate = (date) => {
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    y: {
-                        beginAtZero: true,
-                        max: 10,
-                        ticks: {
-                            stepSize: 1
-                        }
-                    }
+                    y: { beginAtZero: true, max: 10, ticks: { stepSize: 1 } }
                 },
                 plugins: {
-                    legend: {
-                        display: true
-                    },
-                    tooltip: {
-                        enabled: true
-                    }
+                    legend: { display: true },
+                    tooltip: { enabled: true }
                 }
             }
         };
 
-        // Destroy existing charts
         if (moodChartRef.current) moodChartRef.current.destroy();
         if (cravingChartRef.current) cravingChartRef.current.destroy();
         if (anxietyChartRef.current) anxietyChartRef.current.destroy();
         if (sleepChartRef.current) sleepChartRef.current.destroy();
 
-        // Create new charts
         const moodCanvas = document.getElementById(`mood-chart-${pirId}`);
         if (moodCanvas) {
             moodChartRef.current = new Chart(moodCanvas, {
@@ -30279,7 +30217,7 @@ const formatDate = (date) => {
                     datasets: [{
                         label: 'Mood',
                         data: chartData.mood,
-                        borderColor: '#4CAF50',
+                        borderColor: 'var(--success-color)',
                         backgroundColor: 'rgba(76, 175, 80, 0.1)',
                         tension: 0.4,
                         spanGaps: true
@@ -30297,7 +30235,7 @@ const formatDate = (date) => {
                     datasets: [{
                         label: 'Craving',
                         data: chartData.craving,
-                        borderColor: '#ff9800',
+                        borderColor: 'var(--warning-color)',
                         backgroundColor: 'rgba(255, 152, 0, 0.1)',
                         tension: 0.4,
                         spanGaps: true
@@ -30315,7 +30253,7 @@ const formatDate = (date) => {
                     datasets: [{
                         label: 'Anxiety',
                         data: chartData.anxiety,
-                        borderColor: '#f44336',
+                        borderColor: 'var(--danger-color)',
                         backgroundColor: 'rgba(244, 67, 54, 0.1)',
                         tension: 0.4,
                         spanGaps: true
@@ -30333,7 +30271,7 @@ const formatDate = (date) => {
                     datasets: [{
                         label: 'Sleep Quality',
                         data: chartData.sleep,
-                        borderColor: '#9c27b0',
+                        borderColor: 'var(--secondary-color)',
                         backgroundColor: 'rgba(156, 39, 176, 0.1)',
                         tension: 0.4,
                         spanGaps: true
@@ -30343,172 +30281,223 @@ const formatDate = (date) => {
         }
     };
 
-   const handleSaveProfile = async () => {
-    try {
-        const updates = {
-            ...editData,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-        
-        // Track coach assignment changes
-        if (editData.assignedCoach !== pirData.assignedCoach) {
-            const newCoach = availableCoaches.find(c => c.id === editData.assignedCoach);
-            const oldCoach = availableCoaches.find(c => c.id === pirData.assignedCoach);
-            
-            // Add to assignment history
-            const historyEntry = {
-                assignedAt: new Date().toISOString(),
-                assignedBy: user.uid,
-                coachId: editData.assignedCoach,
-                coachName: newCoach?.displayName || newCoach?.email || 'Unknown',
-                previousCoachId: pirData.assignedCoach || null,
-                previousCoachName: oldCoach?.displayName || oldCoach?.email || 'None'
+    // ========== ACTION HANDLERS ==========
+    const handleSaveProfile = async () => {
+        try {
+            const updates = {
+                ...editData,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
             
-            updates.coachAssignmentHistory = firebase.firestore.FieldValue.arrayUnion(historyEntry);
-            
-            // Create notification for new coach
-            if (editData.assignedCoach) {
+            if (editData.assignedCoach !== pirData.assignedCoach) {
+                const newCoach = availableCoaches.find(c => c.id === editData.assignedCoach);
+                const oldCoach = availableCoaches.find(c => c.id === pirData.assignedCoach);
+                
+                const historyEntry = {
+                    assignedAt: new Date().toISOString(),
+                    assignedBy: user.uid,
+                    coachId: editData.assignedCoach,
+                    coachName: newCoach?.displayName || newCoach?.email || 'Unknown',
+                    previousCoachId: pirData.assignedCoach || null,
+                    previousCoachName: oldCoach?.displayName || oldCoach?.email || 'None'
+                };
+                
+                updates.coachAssignmentHistory = firebase.firestore.FieldValue.arrayUnion(historyEntry);
+                
+                if (editData.assignedCoach) {
+                    await db.collection('notifications').add({
+                        recipientId: editData.assignedCoach,
+                        type: 'pir_assigned',
+                        message: `${pirData.displayName || pirData.email} has been assigned to you`,
+                        pirId: pirId,
+                        pirName: pirData.displayName || pirData.email,
+                        read: false,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+                
                 await db.collection('notifications').add({
-                    recipientId: editData.assignedCoach,
-                    type: 'pir_assigned',
-                    message: `${pirData.displayName || pirData.email} has been assigned to you`,
-                    pirId: pirId,
-                    pirName: pirData.displayName || pirData.email,
+                    recipientId: pirId,
+                    type: 'coach_changed',
+                    message: `Your coach has been updated to ${newCoach?.displayName || 'a new coach'}`,
                     read: false,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
             }
             
-            // Create notification for PIR
+            await db.collection('users').doc(pirId).update(updates);
+            
+            await db.collection('activities').add({
+                userId: pirId,
+                type: 'profile_updated',
+                description: 'Profile information updated' + 
+                    (editData.assignedCoach !== pirData.assignedCoach ? ' - Coach assignment changed' : ''),
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            setPirData(editData);
+            setEditing(false);
+            alert('Profile updated successfully' + 
+                (editData.assignedCoach !== pirData.assignedCoach ? '\n\nCoach assignment changed and notifications sent!' : ''));
+            if (onUpdate) onUpdate();
+        } catch (error) {
+            console.error('Error updating profile:', error);
+            alert('Failed to update profile: ' + error.message);
+        }
+    };
+
+    // ========== NEW: DELETE ACCOUNT (SOFT DELETE) ==========
+    const handleDeleteAccount = async () => {
+        const confirmDelete = confirm(
+            `⚠️ DELETE ACCOUNT WARNING\n\n` +
+            `Are you sure you want to delete ${pirData.displayName || pirData.email}'s account?\n\n` +
+            `This will:\n` +
+            `• Mark account as DELETED and INACTIVE\n` +
+            `• Prevent PIR from logging in\n` +
+            `• Preserve all data for compliance (7 years)\n` +
+            `• Record deletion in activity log\n\n` +
+            `Type "DELETE" in the next prompt to confirm.`
+        );
+        
+        if (!confirmDelete) return;
+        
+        const confirmText = prompt('Type DELETE to confirm account deletion:');
+        if (confirmText !== 'DELETE') {
+            alert('Deletion cancelled. Text did not match.');
+            return;
+        }
+        
+        try {
+            await db.collection('users').doc(pirId).update({
+                deleted: true,
+                active: false,
+                deletedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                deletedBy: user.uid,
+                deletedReason: 'Admin deleted account',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            await db.collection('activities').add({
+                userId: pirId,
+                type: 'account_deleted',
+                description: `Account deleted by ${user.displayName || user.email}`,
+                deletedBy: user.uid,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
             await db.collection('notifications').add({
                 recipientId: pirId,
-                type: 'coach_changed',
-                message: `Your coach has been updated to ${newCoach?.displayName || 'a new coach'}`,
+                type: 'account_deleted',
+                message: 'Your account has been deactivated. Please contact support if you believe this is an error.',
                 read: false,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-        }
-        
-        await db.collection('users').doc(pirId).update(updates);
-        
-        await db.collection('activities').add({
-            userId: pirId,
-            type: 'profile_updated',
-            description: 'Profile information updated' + 
-                (editData.assignedCoach !== pirData.assignedCoach ? ' - Coach assignment changed' : ''),
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        setPirData(editData);
-        setEditing(false);
-        alert('Profile updated successfully' + 
-            (editData.assignedCoach !== pirData.assignedCoach ? '\n\nCoach assignment changed and notifications sent!' : ''));
-        if (onUpdate) onUpdate();
-    } catch (error) {
-        console.error('Error updating profile:', error);
-        alert('Failed to update profile: ' + error.message);
-    }
-};
-     // Fixed loadAllUserMessages function - add this to your load functions
-const loadAllUserMessages = async () => {
-    try {
-        const messagesData = [];
-        
-        // Get direct messages where user is the sender
-        try {
-            const directMessages = await db.collection('messages')
-                .where('senderId', '==', pirId)
-                .orderBy('createdAt', 'desc')
-                .get();
             
-            directMessages.forEach(doc => {
-                messagesData.push({ 
-                    id: doc.id, 
-                    ...doc.data(), 
-                    type: 'direct' 
-                });
-            });
-        } catch (error) {
-            console.log('Error loading direct messages:', error);
-        }
-        
-        // Also get direct messages where user is the recipient
-        try {
-            const receivedMessages = await db.collection('messages')
-                .where('userId', '==', pirId)
-                .orderBy('createdAt', 'desc')
-                .get();
+            alert('✅ Account deleted successfully!\n\nThe PIR can no longer log in, but all data is preserved for compliance.');
             
-            receivedMessages.forEach(doc => {
-                const data = doc.data();
-                if (data.senderId === pirId) {  // Only include if they sent it
-                    messagesData.push({ 
-                        id: doc.id, 
-                        ...data, 
-                        type: 'direct' 
-                    });
-                }
-            });
-        } catch (error) {
-            console.log('Error loading received messages:', error);
-        }
-        
-        // Get community messages (if collection exists)
-        try {
-            const communityMessages = await db.collection('glrsChat')
-                .where('senderId', '==', pirId)
-                .orderBy('createdAt', 'desc')
-                .limit(50)
-                .get();
+            if (onUpdate) onUpdate();
+            onClose();
             
-            communityMessages.forEach(doc => {
-                messagesData.push({ 
-                    id: doc.id, 
-                    ...doc.data(), 
-                    type: 'community' 
-                });
-            });
         } catch (error) {
-            console.log('Community chat collection may not exist:', error);
+            console.error('Error deleting account:', error);
+            alert('❌ Failed to delete account: ' + error.message);
         }
-        
-        // Get topic room messages
-        try {
-            const topicMessages = await db.collection('topicRoomMessages')
-                .where('senderId', '==', pirId)
-                .orderBy('createdAt', 'desc')
-                .limit(50)
-                .get();
-            
-            topicMessages.forEach(doc => {
-                messagesData.push({ 
-                    id: doc.id, 
-                    ...doc.data(), 
-                    type: 'topic' 
-                });
-            });
-        } catch (error) {
-            console.log('Topic room messages may not exist:', error);
-        }
-        
-        // Sort all messages by date
-        messagesData.sort((a, b) => {
-            const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
-            const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
-            return dateB - dateA;
-        });
-        
-        setAllMessages(messagesData);
-        console.log(`Loaded ${messagesData.length} total messages for PIR`);
-        
-    } catch (error) {
-        console.error('Error loading user messages:', error);
-        setAllMessages([]);
-    }
-};
+    };
 
-    // Delete message function
+    // ========== NEW: TOGGLE ACTIVE STATUS ==========
+    const handleToggleActiveStatus = async () => {
+        const newActiveStatus = !pirData.active;
+        const action = newActiveStatus ? 'ACTIVATE' : 'DEACTIVATE';
+        
+        const confirm = window.confirm(
+            `${action} ACCOUNT\n\n` +
+            `Are you sure you want to ${action.toLowerCase()} ${pirData.displayName || pirData.email}'s account?\n\n` +
+            `${newActiveStatus ? 
+                '• PIR will be able to log in\n• All features will be accessible' : 
+                '• PIR will NOT be able to log in\n• Account will be locked'}`
+        );
+        
+        if (!confirm) return;
+        
+        try {
+            await db.collection('users').doc(pirId).update({
+                active: newActiveStatus,
+                activeStatusChangedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                activeStatusChangedBy: user.uid,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            await db.collection('activities').add({
+                userId: pirId,
+                type: newActiveStatus ? 'account_activated' : 'account_deactivated',
+                description: `Account ${newActiveStatus ? 'activated' : 'deactivated'} by ${user.displayName || user.email}`,
+                changedBy: user.uid,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            await db.collection('notifications').add({
+                recipientId: pirId,
+                type: newActiveStatus ? 'account_activated' : 'account_deactivated',
+                message: newActiveStatus ? 
+                    'Your account has been activated. You can now log in.' :
+                    'Your account has been deactivated. Please contact support.',
+                read: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            setPirData({...pirData, active: newActiveStatus});
+            setEditData({...editData, active: newActiveStatus});
+            
+            alert(`✅ Account ${newActiveStatus ? 'activated' : 'deactivated'} successfully!`);
+            
+            if (onUpdate) onUpdate();
+            
+        } catch (error) {
+            console.error('Error toggling active status:', error);
+            alert('❌ Failed to update status: ' + error.message);
+        }
+    };
+
+    const handleAddGoal = async (goalData) => {
+        try {
+            await db.collection('goals').add({
+                ...goalData,
+                userId: pirId,
+                createdBy: user.uid,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            await loadGoalsData();
+            setShowAddGoal(false);
+            alert('Goal added successfully');
+        } catch (error) {
+            console.error('Error adding goal:', error);
+            alert('Failed to add goal');
+        }
+    };
+
+    const handleAssignResource = async (resourceId) => {
+        try {
+            const resourceDoc = await db.collection('resources').doc(resourceId).get();
+            const resourceData = resourceDoc.data();
+            
+            const currentAssigned = resourceData.assignedTo || [];
+            if (!currentAssigned.includes(pirId)) {
+                await db.collection('resources').doc(resourceId).update({
+                    assignedTo: firebase.firestore.FieldValue.arrayUnion(pirId)
+                });
+                
+                await loadResourcesData();
+                alert('Resource assigned successfully');
+            } else {
+                alert('Resource already assigned to this PIR');
+            }
+        } catch (error) {
+            console.error('Error assigning resource:', error);
+            alert('Failed to assign resource');
+        }
+    };
+
     const handleDeleteMessage = async (messageId, messageType) => {
         if (!confirm('Are you sure you want to delete this message?')) return;
         
@@ -30519,7 +30508,6 @@ const loadAllUserMessages = async () => {
             
             await db.collection(collection).doc(messageId).delete();
             
-            // Flag content for moderation record
             await db.collection('flaggedContent').add({
                 originalCollection: collection,
                 originalId: messageId,
@@ -30537,402 +30525,827 @@ const loadAllUserMessages = async () => {
         }
     };
 
- const renderOverviewTab = () => (
-    <div style={{ padding: '20px' }}>
-        {/* Key Metrics Cards */}
-        <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-            gap: '20px',
-            marginBottom: '30px'
-        }}>
-            <div style={{
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                padding: '20px',
-                borderRadius: '15px',
-                color: 'white',
-                boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-            }}>
-                <div style={{ fontSize: '14px', opacity: 0.9 }}>Sobriety Days</div>
-                <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
-                    {pirData.sobrietyDays}
-                </div>
-                <div style={{ fontSize: '12px', opacity: 0.8 }}>
-                    Since {formatDate(pirData.sobrietyDate)}
-                </div>
-            </div>
-
-            <div style={{
-                background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-                padding: '20px',
-                borderRadius: '15px',
-                color: 'white',
-                boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-            }}>
-                <div style={{ fontSize: '14px', opacity: 0.9 }}>Current Streak</div>
-                <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
-                    {streakData.currentStreak || 0} 🔥
-                </div>
-                <div style={{ fontSize: '12px', opacity: 0.8 }}>
-                    Best: {streakData.longestStreak || 0} days
-                </div>
-            </div>
-
-            <div style={{
-                background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-                padding: '20px',
-                borderRadius: '15px',
-                color: 'white',
-                boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-            }}>
-                <div style={{ fontSize: '14px', opacity: 0.9 }}>Last Login</div>
-                <div style={{ fontSize: '16px', fontWeight: 'bold' }}>
-                    {pirData.lastLoginFormatted}
-                </div>
-                <div style={{ fontSize: '12px', opacity: 0.8 }}>
-                    Account age: {pirData.accountAge} days
-                </div>
-            </div>
-
-            <div style={{
-                background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-                padding: '20px',
-                borderRadius: '15px',
-                color: 'white',
-                boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-            }}>
-                <div style={{ fontSize: '14px', opacity: 0.9 }}>Money Saved</div>
-                <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
-                    ${pirData.moneySaved}
-                </div>
-                <div style={{ fontSize: '12px', opacity: 0.8 }}>
-                    ${pirData.dailyCost || 20}/day saved
-                </div>
-            </div>
-        </div>
-        
-        {/* Profile Information */}
-        <div style={{
-            background: 'white',
-            borderRadius: '15px',
-            padding: '25px',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-            marginBottom: '20px'
-        }}>
-            <div style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                marginBottom: '20px'
-            }}>
-                <h3 style={{ margin: 0, color: '#333' }}>Profile Information</h3>
-                {!editing ? (
-                    <button 
-                        className="btn btn-secondary"
-                        onClick={() => setEditing(true)}
-                    >
-                        Edit Profile
-                    </button>
-                ) : (
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                        <button 
-                            className="btn btn-primary"
-                            onClick={handleSaveProfile}
-                        >
-                            Save Changes
-                        </button>
-                        <button 
-                            className="btn btn-secondary"
-                            onClick={() => {
-                                setEditing(false);
-                                setEditData(pirData);
+    // ========== RENDER OVERVIEW TAB (UPDATED WITH CSS VARIABLES) ==========
+    const renderOverviewTab = () => (
+        <div style={{ padding: '20px' }}>
+            {/* Account Status Banner */}
+            {(!pirData.active || pirData.deleted) && (
+                <div style={{
+                    background: pirData.deleted ? 'var(--gradient-danger)' : 'var(--gradient-warning)',
+                    padding: '15px 20px',
+                    borderRadius: 'var(--radius-md)',
+                    color: 'var(--text-white)',
+                    marginBottom: '20px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontWeight: 'bold',
+                    boxShadow: 'var(--shadow-md)'
+                }}>
+                    <span>
+                        {pirData.deleted ? '🚫 ACCOUNT DELETED' : '⚠️ ACCOUNT INACTIVE'}
+                        {pirData.deleted && ' - PIR cannot log in. Data preserved for compliance.'}
+                        {!pirData.deleted && !pirData.active && ' - PIR cannot log in until activated.'}
+                    </span>
+                    {!pirData.deleted && (
+                        <button
+                            onClick={handleToggleActiveStatus}
+                            style={{
+                                background: 'var(--text-white)',
+                                color: pirData.active ? 'var(--warning-color)' : 'var(--success-color)',
+                                border: 'none',
+                                padding: '8px 16px',
+                                borderRadius: 'var(--radius-sm)',
+                                cursor: 'pointer',
+                                fontWeight: 'bold',
+                                fontSize: '14px',
+                                transition: 'var(--transition-fast)'
                             }}
                         >
-                            Cancel
+                            {pirData.active ? 'Deactivate' : 'Activate'}
                         </button>
+                    )}
+                </div>
+            )}
+
+            {/* Key Metrics Cards */}
+            <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                gap: '20px',
+                marginBottom: '30px'
+            }}>
+                <div style={{
+                    background: 'var(--gradient-primary)',
+                    padding: '20px',
+                    borderRadius: 'var(--radius-lg)',
+                    color: 'var(--text-white)',
+                    boxShadow: 'var(--shadow-primary)',
+                    transition: 'var(--transition-fast)',
+                    cursor: 'default'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Sobriety Days</div>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{pirData.sobrietyDays}</div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Since {formatDate(pirData.sobrietyDate)}</div>
+                </div>
+
+                <div style={{
+                    background: 'var(--gradient-primary)',
+                    padding: '20px',
+                    borderRadius: 'var(--radius-lg)',
+                    color: 'var(--text-white)',
+                    boxShadow: 'var(--shadow-md)',
+                    transition: 'var(--transition-fast)',
+                    cursor: 'default'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Current Streak</div>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{streakData.currentStreak || 0} 🔥</div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Best: {streakData.longestStreak || 0} days</div>
+                </div>
+
+                <div style={{
+                    background: 'var(--gradient-primary)',
+                    padding: '20px',
+                    borderRadius: 'var(--radius-lg)',
+                    color: 'var(--text-white)',
+                    boxShadow: 'var(--shadow-md)',
+                    transition: 'var(--transition-fast)',
+                    cursor: 'default'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Last Login</div>
+                    <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{pirData.lastLoginFormatted}</div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Account age: {pirData.accountAge} days</div>
+                </div>
+
+                <div style={{
+                    background: 'var(--gradient-primary)',
+                    padding: '20px',
+                    borderRadius: 'var(--radius-lg)',
+                    color: 'var(--text-white)',
+                    boxShadow: 'var(--shadow-md)',
+                    transition: 'var(--transition-fast)',
+                    cursor: 'default'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Money Saved</div>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>${pirData.moneySaved}</div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>${pirData.dailyCost || 20}/day saved</div>
+                </div>
+            </div>
+            
+            {/* Profile Information */}
+            <div style={{
+                background: 'var(--text-white)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '25px',
+                boxShadow: 'var(--shadow-sm)',
+                marginBottom: '20px'
+            }}>
+                <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    marginBottom: '20px'
+                }}>
+                    <h3 style={{ margin: 0, color: 'var(--text-primary)' }}>Profile Information</h3>
+                    {!editing ? (
+                        <button 
+                            className="btn btn-secondary"
+                            onClick={() => setEditing(true)}
+                            style={{
+                                background: 'var(--gradient-secondary)',
+                                color: 'var(--text-white)',
+                                border: 'none',
+                                padding: '10px 20px',
+                                borderRadius: 'var(--radius-sm)',
+                                cursor: 'pointer',
+                                fontWeight: '500',
+                                transition: 'var(--transition-fast)'
+                            }}
+                        >
+                            Edit Profile
+                        </button>
+                    ) : (
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button 
+                                className="btn btn-primary"
+                                onClick={handleSaveProfile}
+                                style={{
+                                    background: 'var(--gradient-primary)',
+                                    color: 'var(--text-white)',
+                                    border: 'none',
+                                    padding: '10px 20px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    cursor: 'pointer',
+                                    fontWeight: '500',
+                                    transition: 'var(--transition-fast)'
+                                }}
+                            >
+                                Save Changes
+                            </button>
+                            <button 
+                                className="btn btn-secondary"
+                                onClick={() => {
+                                    setEditing(false);
+                                    setEditData(pirData);
+                                }}
+                                style={{
+                                    background: 'var(--text-muted)',
+                                    color: 'var(--text-white)',
+                                    border: 'none',
+                                    padding: '10px 20px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    cursor: 'pointer',
+                                    fontWeight: '500',
+                                    transition: 'var(--transition-fast)'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary)' }}>Full Name</label>
+                        {editing ? (
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <input
+                                    type="text"
+                                    value={editData.firstName || ''}
+                                    onChange={(e) => setEditData({...editData, firstName: e.target.value})}
+                                    style={{ 
+                                        flex: 1, 
+                                        padding: '8px', 
+                                        borderRadius: 'var(--radius-sm)', 
+                                        border: '1px solid var(--border-color)' 
+                                    }}
+                                />
+                                <input
+                                    type="text"
+                                    value={editData.lastName || ''}
+                                    onChange={(e) => setEditData({...editData, lastName: e.target.value})}
+                                    style={{ 
+                                        flex: 1, 
+                                        padding: '8px', 
+                                        borderRadius: 'var(--radius-sm)', 
+                                        border: '1px solid var(--border-color)' 
+                                    }}
+                                />
+                            </div>
+                        ) : (
+                            <p style={{ color: 'var(--text-primary)' }}>{pirData.firstName} {pirData.lastName}</p>
+                        )}
+                    </div>
+
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary)' }}>Email</label>
+                        <p style={{ color: 'var(--text-primary)' }}>{pirData.email}</p>
+                    </div>
+
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary)' }}>Phone</label>
+                        {editing ? (
+                            <input
+                                type="tel"
+                                value={editData.phone || ''}
+                                onChange={(e) => setEditData({...editData, phone: e.target.value})}
+                                style={{ 
+                                    width: '100%', 
+                                    padding: '8px', 
+                                    borderRadius: 'var(--radius-sm)', 
+                                    border: '1px solid var(--border-color)' 
+                                }}
+                            />
+                        ) : (
+                            <p style={{ color: 'var(--text-primary)' }}>{pirData.phone || 'Not provided'}</p>
+                        )}
+                    </div>
+
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary)' }}>Date of Birth</label>
+                        {editing ? (
+                            <input
+                                type="date"
+                                value={editData.dateOfBirth || ''}
+                                onChange={(e) => setEditData({...editData, dateOfBirth: e.target.value})}
+                                style={{ 
+                                    width: '100%', 
+                                    padding: '8px', 
+                                    borderRadius: 'var(--radius-sm)', 
+                                    border: '1px solid var(--border-color)' 
+                                }}
+                            />
+                        ) : (
+                            <p style={{ color: 'var(--text-primary)' }}>{pirData.dateOfBirth || 'Not provided'}</p>
+                        )}
+                    </div>
+
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary)' }}>Sobriety Date</label>
+                        {editing ? (
+                            <input
+                                type="date"
+                                value={editData.sobrietyDate || ''}
+                                onChange={(e) => setEditData({...editData, sobrietyDate: e.target.value})}
+                                style={{ 
+                                    width: '100%', 
+                                    padding: '8px', 
+                                    borderRadius: 'var(--radius-sm)', 
+                                    border: '1px solid var(--border-color)' 
+                                }}
+                            />
+                        ) : (
+                            <p style={{ color: 'var(--text-primary)' }}>{formatDate(pirData.sobrietyDate)}</p>
+                        )}
+                    </div>
+
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary)' }}>Substance</label>
+                        <p style={{ color: 'var(--text-primary)' }}>{pirData.substance || 'Not specified'}</p>
+                    </div>
+
+                    <div style={{ gridColumn: 'span 2' }}>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary)' }}>Address</label>
+                        {editing ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '10px' }}>
+                                <input
+                                    type="text"
+                                    value={editData.address?.street || ''}
+                                    onChange={(e) => setEditData({
+                                        ...editData, 
+                                        address: {...editData.address, street: e.target.value}
+                                    })}
+                                    placeholder="Street Address"
+                                    style={{ 
+                                        padding: '8px', 
+                                        borderRadius: 'var(--radius-sm)', 
+                                        border: '1px solid var(--border-color)' 
+                                    }}
+                                />
+                                <input
+                                    type="text"
+                                    value={editData.address?.city || ''}
+                                    onChange={(e) => setEditData({
+                                        ...editData, 
+                                        address: {...editData.address, city: e.target.value}
+                                    })}
+                                    placeholder="City"
+                                    style={{ 
+                                        padding: '8px', 
+                                        borderRadius: 'var(--radius-sm)', 
+                                        border: '1px solid var(--border-color)' 
+                                    }}
+                                />
+                                <input
+                                    type="text"
+                                    value={editData.address?.state || ''}
+                                    onChange={(e) => setEditData({
+                                        ...editData, 
+                                        address: {...editData.address, state: e.target.value}
+                                    })}
+                                    placeholder="State"
+                                    style={{ 
+                                        padding: '8px', 
+                                        borderRadius: 'var(--radius-sm)', 
+                                        border: '1px solid var(--border-color)' 
+                                    }}
+                                />
+                                <input
+                                    type="text"
+                                    value={editData.address?.zip || ''}
+                                    onChange={(e) => setEditData({
+                                        ...editData, 
+                                        address: {...editData.address, zip: e.target.value}
+                                    })}
+                                    placeholder="ZIP"
+                                    style={{ 
+                                        padding: '8px', 
+                                        borderRadius: 'var(--radius-sm)', 
+                                        border: '1px solid var(--border-color)' 
+                                    }}
+                                />
+                            </div>
+                        ) : (
+                            <p style={{ color: 'var(--text-primary)' }}>
+                                {pirData.address ? 
+                                    `${pirData.address.street || ''} ${pirData.address.city || ''}, ${pirData.address.state || ''} ${pirData.address.zip || ''}`.trim() : 
+                                    'Not provided'}
+                            </p>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Assigned Coach Section */}
+            <div style={{
+                background: 'var(--text-white)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '25px',
+                boxShadow: 'var(--shadow-sm)',
+                marginBottom: '20px'
+            }}>
+                <h3 style={{ marginBottom: '20px', color: 'var(--text-primary)' }}>Assigned Coach</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary)' }}>Current Coach</label>
+                        {editing ? (
+                            <select
+                                value={editData.assignedCoach || ''}
+                                onChange={(e) => setEditData({...editData, assignedCoach: e.target.value})}
+                                style={{ 
+                                    width: '100%', 
+                                    padding: '8px', 
+                                    borderRadius: 'var(--radius-sm)', 
+                                    border: '1px solid var(--border-color)',
+                                    fontSize: '14px'
+                                }}
+                            >
+                                <option value="">-- No Coach Assigned --</option>
+                                {availableCoaches.map(coach => (
+                                    <option key={coach.id} value={coach.id}>
+                                        {coach.displayName || coach.email} ({coach.role})
+                                    </option>
+                                ))}
+                            </select>
+                        ) : (
+                            <p style={{ color: 'var(--text-primary)' }}>
+                                {availableCoaches.find(c => c.id === pirData.assignedCoach)?.displayName || 
+                                 availableCoaches.find(c => c.id === pirData.assignedCoach)?.email || 
+                                 'No coach assigned'}
+                            </p>
+                        )}
+                    </div>
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary)' }}>Coach Email</label>
+                        <p style={{ color: 'var(--text-primary)' }}>
+                            {availableCoaches.find(c => c.id === pirData.assignedCoach)?.email || 'N/A'}
+                        </p>
+                    </div>
+                </div>
+                
+                {pirData.coachAssignmentHistory && pirData.coachAssignmentHistory.length > 0 && (
+                    <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
+                        <h4 style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '10px' }}>Assignment History</h4>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                            {pirData.coachAssignmentHistory.slice(0, 3).map((history, index) => (
+                                <div key={index} style={{ padding: '5px 0' }}>
+                                    {formatDate(history.assignedAt)} - Assigned to {history.coachName || 'Unknown'}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div>
-                    <label style={{ fontWeight: 'bold', color: '#666' }}>Full Name</label>
-                    {editing ? (
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                            <input
-                                type="text"
-                                value={editData.firstName || ''}
-                                onChange={(e) => setEditData({...editData, firstName: e.target.value})}
-                                style={{ flex: 1, padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                            />
-                            <input
-                                type="text"
-                                value={editData.lastName || ''}
-                                onChange={(e) => setEditData({...editData, lastName: e.target.value})}
-                                style={{ flex: 1, padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                            />
-                        </div>
-                    ) : (
-                        <p style={{ color: '#333' }}>{pirData.firstName} {pirData.lastName}</p>
-                    )}
-                </div>
-
-                <div>
-                    <label style={{ fontWeight: 'bold', color: '#666' }}>Email</label>
-                    <p style={{ color: '#333' }}>{pirData.email}</p>
-                </div>
-
-                <div>
-                    <label style={{ fontWeight: 'bold', color: '#666' }}>Phone</label>
-                    {editing ? (
-                        <input
-                            type="tel"
-                            value={editData.phone || ''}
-                            onChange={(e) => setEditData({...editData, phone: e.target.value})}
-                            style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                        />
-                    ) : (
-                        <p style={{ color: '#333' }}>{pirData.phone || 'Not provided'}</p>
-                    )}
-                </div>
-
-                <div>
-                    <label style={{ fontWeight: 'bold', color: '#666' }}>Date of Birth</label>
-                    {editing ? (
-                        <input
-                            type="date"
-                            value={editData.dateOfBirth || ''}
-                            onChange={(e) => setEditData({...editData, dateOfBirth: e.target.value})}
-                            style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                        />
-                    ) : (
-                        <p style={{ color: '#333' }}>{pirData.dateOfBirth || 'Not provided'}</p>
-                    )}
-                </div>
-
-                <div>
-                    <label style={{ fontWeight: 'bold', color: '#666' }}>Sobriety Date</label>
-                    {editing ? (
-                        <input
-                            type="date"
-                            value={editData.sobrietyDate || ''}
-                            onChange={(e) => setEditData({...editData, sobrietyDate: e.target.value})}
-                            style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                        />
-                    ) : (
-                        <p style={{ color: '#333' }}>{formatDate(pirData.sobrietyDate)}</p>
-                    )}
-                </div>
-
-                <div>
-                    <label style={{ fontWeight: 'bold', color: '#666' }}>Substance</label>
-                    <p style={{ color: '#333' }}>{pirData.substance || 'Not specified'}</p>
-                </div>
-
-                <div style={{ gridColumn: 'span 2' }}>
-                    <label style={{ fontWeight: 'bold', color: '#666' }}>Address</label>
-                    {editing ? (
-                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '10px' }}>
-                            <input
-                                type="text"
-                                value={editData.address?.street || ''}
-                                onChange={(e) => setEditData({
-                                    ...editData, 
-                                    address: {...editData.address, street: e.target.value}
-                                })}
-                                placeholder="Street Address"
-                                style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                            />
-                            <input
-                                type="text"
-                                value={editData.address?.city || ''}
-                                onChange={(e) => setEditData({
-                                    ...editData, 
-                                    address: {...editData.address, city: e.target.value}
-                                })}
-                                placeholder="City"
-                                style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                            />
-                            <input
-                                type="text"
-                                value={editData.address?.state || ''}
-                                onChange={(e) => setEditData({
-                                    ...editData, 
-                                    address: {...editData.address, state: e.target.value}
-                                })}
-                                placeholder="State"
-                                style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                            />
-                            <input
-                                type="text"
-                                value={editData.address?.zip || ''}
-                                onChange={(e) => setEditData({
-                                    ...editData, 
-                                    address: {...editData.address, zip: e.target.value}
-                                })}
-                                placeholder="ZIP"
-                                style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                            />
-                        </div>
-                    ) : (
-                        <p style={{ color: '#333' }}>
-                            {pirData.address ? 
-                                `${pirData.address.street || ''} ${pirData.address.city || ''}, ${pirData.address.state || ''} ${pirData.address.zip || ''}`.trim() : 
-                                'Not provided'}
-                        </p>
-                    )}
-                </div>
-            </div>
-        </div>
-
-        {/* Assigned Coach Section - NEW */}
-        <div style={{
-            background: 'white',
-            borderRadius: '15px',
-            padding: '25px',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-            marginBottom: '20px'
-        }}>
-            <h3 style={{ marginBottom: '20px', color: '#333' }}>Assigned Coach</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div>
-                    <label style={{ fontWeight: 'bold', color: '#666' }}>Current Coach</label>
-                    {editing ? (
-                        <select
-                            value={editData.assignedCoach || ''}
-                            onChange={(e) => setEditData({...editData, assignedCoach: e.target.value})}
-                            style={{ 
-                                width: '100%', 
-                                padding: '8px', 
-                                borderRadius: '5px', 
-                                border: '1px solid #ddd',
-                                fontSize: '14px'
-                            }}
-                        >
-                            <option value="">-- No Coach Assigned --</option>
-                            {availableCoaches.map(coach => (
-                                <option key={coach.id} value={coach.id}>
-                                    {coach.displayName || coach.email} ({coach.role})
-                                </option>
-                            ))}
-                        </select>
-                    ) : (
-                        <p style={{ color: '#333' }}>
-                            {availableCoaches.find(c => c.id === pirData.assignedCoach)?.displayName || 
-                             availableCoaches.find(c => c.id === pirData.assignedCoach)?.email || 
-                             'No coach assigned'}
-                        </p>
-                    )}
-                </div>
-                <div>
-                    <label style={{ fontWeight: 'bold', color: '#666' }}>Coach Email</label>
-                    <p style={{ color: '#333' }}>
-                        {availableCoaches.find(c => c.id === pirData.assignedCoach)?.email || 'N/A'}
-                    </p>
-                </div>
-            </div>
-            
-            {/* Coach Assignment History */}
-            {pirData.coachAssignmentHistory && pirData.coachAssignmentHistory.length > 0 && (
-                <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #eee' }}>
-                    <h4 style={{ fontSize: '14px', color: '#666', marginBottom: '10px' }}>Assignment History</h4>
-                    <div style={{ fontSize: '12px', color: '#999' }}>
-                        {pirData.coachAssignmentHistory.slice(0, 3).map((history, index) => (
-                            <div key={index} style={{ padding: '5px 0' }}>
-                                {formatDate(history.assignedAt)} - Assigned to {history.coachName || 'Unknown'}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </div>
-
-        {/* Emergency Contacts */}
-        <div style={{
-            background: 'white',
-            borderRadius: '15px',
-            padding: '25px',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-            marginBottom: '20px'
-        }}>
-            <h3 style={{ marginBottom: '20px', color: '#333' }}>Emergency Contacts</h3>
-            {pirData.emergencyContacts && pirData.emergencyContacts.length > 0 ? (
+            {/* Account Management Section */}
+            <div style={{
+                background: 'var(--text-white)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '25px',
+                boxShadow: 'var(--shadow-sm)',
+                marginBottom: '20px',
+                border: '2px solid var(--border-color)'
+            }}>
+                <h3 style={{ marginBottom: '20px', color: 'var(--text-primary)' }}>⚠️ Account Management</h3>
+                
                 <div style={{ display: 'grid', gap: '15px' }}>
-                    {pirData.emergencyContacts.map((contact, index) => (
-                        <div key={index} style={{
+                    {/* Active Status Control */}
+                    <div style={{
+                        padding: '15px',
+                        background: pirData.active ? 'rgba(76, 175, 80, 0.1)' : 'rgba(255, 193, 7, 0.1)',
+                        borderRadius: 'var(--radius-md)',
+                        border: pirData.active ? '1px solid var(--success-color)' : '1px solid var(--warning-color)'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                                <div style={{ fontWeight: 'bold', marginBottom: '5px', color: 'var(--text-primary)' }}>
+                                    Account Status: {pirData.active ? '✅ Active' : '⚠️ Inactive'}
+                                </div>
+                                <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                    {pirData.active ? 
+                                        'PIR can log in and access all features' : 
+                                        'PIR cannot log in. Activate to restore access.'}
+                                </div>
+                            </div>
+                            {!pirData.deleted && (
+                                <button
+                                    onClick={handleToggleActiveStatus}
+                                    style={{
+                                        background: pirData.active ? 'var(--gradient-warning)' : 'var(--gradient-success)',
+                                        color: 'var(--text-white)',
+                                        border: 'none',
+                                        padding: '10px 20px',
+                                        borderRadius: 'var(--radius-sm)',
+                                        cursor: 'pointer',
+                                        fontWeight: 'bold',
+                                        fontSize: '14px',
+                                        transition: 'var(--transition-fast)'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                                >
+                                    {pirData.active ? 'Deactivate Account' : 'Activate Account'}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Delete Account Control */}
+                    {!pirData.deleted && (
+                        <div style={{
                             padding: '15px',
-                            background: contact.isPrimary ? '#f0f8ff' : '#f9f9f9',
-                            borderRadius: '10px',
-                            border: contact.isPrimary ? '2px solid #4CAF50' : '1px solid #ddd'
+                            background: 'rgba(244, 67, 54, 0.05)',
+                            borderRadius: 'var(--radius-md)',
+                            border: '2px solid var(--danger-color)'
                         }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
-                                    <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#333' }}>
-                                        {contact.name} 
-                                        {contact.isPrimary && (
-                                            <span style={{
-                                                marginLeft: '10px',
-                                                background: '#4CAF50',
-                                                color: 'white',
-                                                padding: '2px 8px',
-                                                borderRadius: '12px',
-                                                fontSize: '12px'
-                                            }}>PRIMARY</span>
-                                        )}
+                                    <div style={{ fontWeight: 'bold', marginBottom: '5px', color: 'var(--text-primary)' }}>
+                                        🚫 Danger Zone: Delete Account
                                     </div>
-                                    <div style={{ color: '#666', marginTop: '5px' }}>
-                                        {contact.relationship} • {contact.phone}
+                                    <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                        Permanently mark account as deleted. Data preserved for compliance.
                                     </div>
                                 </div>
+                                <button
+                                    onClick={handleDeleteAccount}
+                                    style={{
+                                        background: 'var(--gradient-danger)',
+                                        color: 'var(--text-white)',
+                                        border: 'none',
+                                        padding: '10px 20px',
+                                        borderRadius: 'var(--radius-sm)',
+                                        cursor: 'pointer',
+                                        fontWeight: 'bold',
+                                        fontSize: '14px',
+                                        transition: 'var(--transition-fast)'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                                >
+                                    Delete Account
+                                </button>
                             </div>
                         </div>
-                    ))}
-                </div>
-            ) : (
-                <p style={{ color: '#666' }}>No emergency contacts configured</p>
-            )}
-        </div>
-
-        {/* Sponsor Information */}
-        <div style={{
-            background: 'white',
-            borderRadius: '15px',
-            padding: '25px',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-        }}>
-            <h3 style={{ marginBottom: '20px', color: '#333' }}>Sponsor Information</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div>
-                    <label style={{ fontWeight: 'bold', color: '#666' }}>Sponsor Name</label>
-                    {editing ? (
-                        <input
-                            type="text"
-                            value={editData.sponsorName || ''}
-                            onChange={(e) => setEditData({...editData, sponsorName: e.target.value})}
-                            style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                        />
-                    ) : (
-                        <p style={{ color: '#333' }}>{pirData.sponsorName || 'Not assigned'}</p>
                     )}
-                </div>
-                <div>
-                    <label style={{ fontWeight: 'bold', color: '#666' }}>Sponsor Phone</label>
-                    {editing ? (
-                        <input
-                            type="tel"
-                            value={editData.sponsorPhone || ''}
-                            onChange={(e) => setEditData({...editData, sponsorPhone: e.target.value})}
-                            style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ddd' }}
-                        />
-                    ) : (
-                        <p style={{ color: '#333' }}>{pirData.sponsorPhone || 'Not provided'}</p>
+                    
+                    {/* Deleted Account Banner */}
+                    {pirData.deleted && (
+                        <div style={{
+                            padding: '15px',
+                            background: 'rgba(244, 67, 54, 0.1)',
+                            borderRadius: 'var(--radius-md)',
+                            border: '2px solid var(--danger-color)'
+                        }}>
+                            <div style={{ fontWeight: 'bold', marginBottom: '5px', color: 'var(--danger-color)' }}>
+                                🚫 ACCOUNT DELETED
+                            </div>
+                            <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                Deleted on: {pirData.deletedAt ? formatDateTime(pirData.deletedAt) : 'Unknown'}
+                                <br />
+                                PIR cannot log in. All data preserved for compliance.
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>
-        </div>
-    </div>
-);
 
+            {/* Emergency Contacts */}
+            <div style={{
+                background: 'var(--text-white)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '25px',
+                boxShadow: 'var(--shadow-sm)',
+                marginBottom: '20px'
+            }}>
+                <h3 style={{ marginBottom: '20px', color: 'var(--text-primary)' }}>Emergency Contacts</h3>
+                {pirData.emergencyContacts && pirData.emergencyContacts.length > 0 ? (
+                    <div style={{ display: 'grid', gap: '15px' }}>
+                        {pirData.emergencyContacts.map((contact, index) => (
+                            <div key={index} style={{
+                                padding: '15px',
+                                background: contact.isPrimary ? 'rgba(76, 175, 80, 0.1)' : 'var(--background-secondary)',
+                                borderRadius: 'var(--radius-md)',
+                                border: contact.isPrimary ? '2px solid var(--success-color)' : '1px solid var(--border-color)'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                        <div style={{ fontWeight: 'bold', fontSize: '16px', color: 'var(--text-primary)' }}>
+                                            {contact.name} 
+                                            {contact.isPrimary && (
+                                                <span style={{
+                                                    marginLeft: '10px',
+                                                    background: 'var(--success-color)',
+                                                    color: 'var(--text-white)',
+                                                    padding: '2px 8px',
+                                                    borderRadius: '12px',
+                                                    fontSize: '12px'
+                                                }}>PRIMARY</span>
+                                            )}
+                                        </div>
+                                        <div style={{ color: 'var(--text-secondary)', marginTop: '5px' }}>
+                                            {contact.relationship} • {contact.phone}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p style={{ color: 'var(--text-secondary)' }}>No emergency contacts configured</p>
+                )}
+            </div>
+
+            {/* Sponsor Information */}
+            <div style={{
+                background: 'var(--text-white)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '25px',
+                boxShadow: 'var(--shadow-sm)'
+            }}>
+                <h3 style={{ marginBottom: '20px', color: 'var(--text-primary)' }}>Sponsor Information</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary)' }}>Sponsor Name</label>
+                        {editing ? (
+                            <input
+                                type="text"
+                                value={editData.sponsorName || ''}
+                                onChange={(e) => setEditData({...editData, sponsorName: e.target.value})}
+                                style={{ 
+                                    width: '100%', 
+                                    padding: '8px', 
+                                    borderRadius: 'var(--radius-sm)', 
+                                    border: '1px solid var(--border-color)' 
+                                }}
+                            />
+                        ) : (
+                            <p style={{ color: 'var(--text-primary)' }}>{pirData.sponsorName || 'Not assigned'}</p>
+                        )}
+                    </div>
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary)' }}>Sponsor Phone</label>
+                        {editing ? (
+                            <input
+                                type="tel"
+                                value={editData.sponsorPhone || ''}
+                                onChange={(e) => setEditData({...editData, sponsorPhone: e.target.value})}
+                                style={{ 
+                                    width: '100%', 
+                                    padding: '8px', 
+                                    borderRadius: 'var(--radius-sm)', 
+                                    border: '1px solid var(--border-color)' 
+                                }}
+                            />
+                        ) : (
+                            <p style={{ color: 'var(--text-primary)' }}>{pirData.sponsorPhone || 'Not provided'}</p>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    // ========== MAIN MODAL RENDER ==========
+    if (loading) {
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(0,0,0,0.7)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 10000
+            }}>
+                <div style={{
+                    background: 'var(--text-white)',
+                    padding: '40px',
+                    borderRadius: 'var(--radius-lg)',
+                    textAlign: 'center'
+                }}>
+                    <div style={{ fontSize: '24px', marginBottom: '20px' }}>⏳</div>
+                    <div style={{ color: 'var(--text-primary)' }}>Loading PIR data...</div>
+                </div>
+            </div>
+        );
+    }
+
+    if (!pirData) return null;
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: '20px'
+        }}>
+            <div style={{
+                background: 'var(--background-primary)',
+                borderRadius: 'var(--radius-lg)',
+                maxWidth: '1400px',
+                width: '100%',
+                maxHeight: '95vh',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: 'var(--shadow-lg)'
+            }}>
+                {/* MODAL HEADER */}
+                <div style={{
+                    padding: '25px 30px',
+                    borderBottom: '2px solid var(--border-color)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: 'var(--gradient-primary)',
+                    borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                        <img 
+                            src={pirData.profileImageUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(pirData.firstName + ' ' + pirData.lastName)}&background=random`}
+                            style={{
+                                width: '60px',
+                                height: '60px',
+                                borderRadius: '50%',
+                                border: '3px solid var(--text-white)'
+                            }}
+                        />
+                        <div>
+                            <h2 style={{ margin: 0, color: 'var(--text-white)', fontSize: '24px' }}>
+                                {pirData.firstName} {pirData.lastName}
+                            </h2>
+                            <p style={{ margin: '5px 0 0 0', color: 'rgba(255,255,255,0.9)', fontSize: '14px' }}>
+                                {pirData.email} • {pirData.sobrietyDays} days sober
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            background: 'var(--text-white)',
+                            color: 'var(--primary-color)',
+                            border: 'none',
+                            width: '40px',
+                            height: '40px',
+                            borderRadius: '50%',
+                            fontSize: '24px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 'bold',
+                            transition: 'var(--transition-fast)'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'rotate(90deg)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'rotate(0deg)'}
+                    >
+                        ×
+                    </button>
+                </div>
+
+                {/* TAB NAVIGATION - FIXED & RAISED */}
+                <div style={{
+                    padding: '0',
+                    borderBottom: '2px solid var(--border-color)',
+                    background: 'var(--text-white)',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 100,
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                }}>
+                    <div style={{
+                        display: 'flex',
+                        gap: '0',
+                        overflowX: 'auto',
+                        padding: '15px 20px', // ✅ INCREASED PADDING
+                        minHeight: '65px' // ✅ INCREASED MIN HEIGHT
+                    }}>
+                        {[
+                            { id: 'overview', label: '📊 Overview', icon: '📊' },
+                            { id: 'progress', label: '📈 Progress', icon: '📈' },
+                            { id: 'goldenthread', label: '🧵 Golden Thread', icon: '🧵' },
+                            { id: 'milestones', label: '🏆 Milestones', icon: '🏆' },
+                            { id: 'resources', label: '📚 Resources', icon: '📚' },
+                            { id: 'checkins', label: '✅ Check-Ins', icon: '✅' },
+                            { id: 'alerts', label: '🚨 Alerts', icon: '🚨' },
+                            { id: 'meetings', label: '📅 Meetings', icon: '📅' },
+                            { id: 'messages', label: '💬 Messages', icon: '💬' },
+                            { id: 'activity', label: '📊 Activity', icon: '📊' }
+                        ].map(tab => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                style={{
+                                    padding: '12px 20px', // ✅ INCREASED PADDING
+                                    fontSize: '15px', // ✅ INCREASED FONT SIZE
+                                    fontWeight: activeTab === tab.id ? 'bold' : '500',
+                                    background: activeTab === tab.id ? 'var(--gradient-primary)' : 'transparent',
+                                    color: activeTab === tab.id ? 'var(--text-white)' : 'var(--text-secondary)',
+                                    border: 'none',
+                                    borderRadius: 'var(--radius-sm)',
+                                    cursor: 'pointer',
+                                    transition: 'var(--transition-fast)',
+                                    whiteSpace: 'nowrap',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                }}
+                                onMouseEnter={(e) => {
+                                    if (activeTab !== tab.id) {
+                                        e.currentTarget.style.background = 'var(--background-secondary)';
+                                    }
+                                }}
+                                onMouseLeave={(e) => {
+                                    if (activeTab !== tab.id) {
+                                        e.currentTarget.style.background = 'transparent';
+                                    }
+                                }}
+                            >
+                                <span style={{ fontSize: '18px' }}>{tab.icon}</span>
+                                {tab.label.split(' ')[1]}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* MODAL CONTENT - SCROLLABLE */}
+                <div style={{
+                    flex: 1,
+                    overflowY: 'auto',
+                    background: 'var(--background-secondary)'
+                }}>
+                    {activeTab === 'overview' && renderOverviewTab()}
+                    {activeTab === 'progress' && <div style={{ padding: '20px', color: 'var(--text-primary)' }}>Progress tab - Coming next...</div>}
+                    {activeTab === 'goldenthread' && <div style={{ padding: '20px', color: 'var(--text-primary)' }}>Golden Thread tab - Coming next...</div>}
+                    {activeTab === 'milestones' && <div style={{ padding: '20px', color: 'var(--text-primary)' }}>Milestones tab - Coming next...</div>}
+                    {activeTab === 'resources' && <div style={{ padding: '20px', color: 'var(--text-primary)' }}>Resources tab - Coming next...</div>}
+                    {activeTab === 'checkins' && <div style={{ padding: '20px', color: 'var(--text-primary)' }}>Check-ins tab - Coming next...</div>}
+                    {activeTab === 'alerts' && <div style={{ padding: '20px', color: 'var(--text-primary)' }}>Alerts tab - Coming next...</div>}
+                    {activeTab === 'meetings' && <div style={{ padding: '20px', color: 'var(--text-primary)' }}>Meetings tab - Coming next...</div>}
+                    {activeTab === 'messages' && <div style={{ padding: '20px', color: 'var(--text-primary)' }}>Messages tab - Coming next...</div>}
+                    {activeTab === 'activity' && <div style={{ padding: '20px', color: 'var(--text-primary)' }}>Activity tab - Coming next...</div>}
+                </div>
+            </div>
+        </div>
+    );
+}
   const renderGoldenThreadTab = () => {
     // Handler functions for creating items
     const handleCreateGoldenThread = async (threadData) => {
