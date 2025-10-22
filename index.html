@@ -1418,7 +1418,7 @@ function LoginScreen() {
         </div>
     );
 }
-   // Main PIR App Component
+// Main PIR App Component
 function PIRApp({ user }) {
     // CORRECTED NAVIGATION ORDER: Tasks-Home-Progress-Connect-Profile
     const [currentView, setCurrentView] = useState('home');
@@ -1754,65 +1754,114 @@ function PIRApp({ user }) {
 
     // Setup real-time listeners
     const setupRealtimeListeners = () => {
-        // ... rest of your existing setupRealtimeListeners code
+        // Notifications listener
+        const notifListener = db.collection('notifications')
+            .where('userId', '==', user.uid)
+            .orderBy('createdAt', 'desc')
+            .limit(20)
+            .onSnapshot(snapshot => {
+                const notificationsList = [];
+                let unread = 0;
+                snapshot.forEach(doc => {
+                    const notification = { id: doc.id, ...doc.data() };
+                    notificationsList.push(notification);
+                    if (!notification.read) unread++;
+                });
+                setNotifications(notificationsList);
+                setUnreadCount(unread);
+            });
+        listenersRef.current.push(notifListener);
+
+        // Community messages listener
+        const messagesListener = db.collection('messages')
+            .where('roomId', '==', 'main')
+            .orderBy('createdAt', 'desc')
+            .limit(50)
+            .onSnapshot(snapshot => {
+                const messages = [];
+                snapshot.forEach(doc => {
+                    messages.push({ id: doc.id, ...doc.data() });
+                });
+                setCommunityMessages(messages.reverse());
+            });
+        listenersRef.current.push(messagesListener);
+
+        // Goals listener
+        const goalsListener = db.collection('goals')
+            .where('userId', '==', user.uid)
+            .where('status', '==', 'active')
+            .onSnapshot(snapshot => {
+                loadGoals();
+            });
+        listenersRef.current.push(goalsListener);
+
+        // Assignments listener
+        const assignmentsListener = db.collection('assignments')
+            .where('userId', '==', user.uid)
+            .onSnapshot(snapshot => {
+                loadAssignments();
+            });
+        listenersRef.current.push(assignmentsListener);
+
+        // Broadcasts listener
+        const broadcastsListener = db.collection('broadcasts')
+            .where('active', '==', true)
+            .orderBy('createdAt', 'desc')
+            .limit(1)
+            .onSnapshot(snapshot => {
+                if (!snapshot.empty && !broadcastDismissed) {
+                    const broadcast = snapshot.docs[0].data();
+                    setActiveBroadcast(broadcast);
+                }
+            });
+        listenersRef.current.push(broadcastsListener);
     };
 
-    // FIXED: Correct sobriety days calculation function
+    // FIXED: Complete sobriety days calculation function
     const calculateSobrietyDays = (sobrietyDate) => {
-        // ... rest of your existing code
+        if (!sobrietyDate) return 0;
+        
+        const sobrietyDateObj = new Date(sobrietyDate);
+        const today = new Date();
+        
+        // Reset time to start of day for accurate day counting
+        sobrietyDateObj.setHours(0, 0, 0, 0);
+        today.setHours(0, 0, 0, 0);
+        
+        // Calculate difference in milliseconds
+        const diffTime = today - sobrietyDateObj;
+        
+        // Convert to days and add 1 (because day 1 is the sobriety date itself)
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+        
+        // Return at least 1 if sobriety date is today or in the past
+        return Math.max(1, diffDays);
     };
 
-    // FIXED: Updated useEffect for PIRApp component with DEBUG
-useEffect(() => {
-    console.log('🔍 [SOBRIETY CALC] useEffect triggered');
-    console.log('🔍 [SOBRIETY CALC] userData:', userData);
-    console.log('🔍 [SOBRIETY CALC] sobrietyDate:', userData?.sobrietyDate);
-    
-    if (userData?.sobrietyDate) {
-        console.log('✅ [SOBRIETY CALC] sobrietyDate exists, calculating...');
-        
-        const calculateStats = () => {
-            console.log('🔍 [SOBRIETY CALC] Running calculateStats()');
-            const days = calculateSobrietyDays(userData.sobrietyDate);
-            console.log('🔍 [SOBRIETY CALC] Days calculated:', days);
-            console.log('🔍 [SOBRIETY CALC] Type of days:', typeof days);
-            console.log('🔍 [SOBRIETY CALC] Is NaN?', isNaN(days));
+    // FIXED: Updated useEffect for sobriety calculation
+    useEffect(() => {
+        if (userData?.sobrietyDate) {
+            const calculateStats = () => {
+                const days = calculateSobrietyDays(userData.sobrietyDate);
+                setSobrietyDays(days);
+                
+                // Use the user's custom daily cost, default to 20 if not set
+                const dailyCost = userData.dailyCost || 20;
+                setMoneySaved(days * dailyCost);
+            };
             
-            setSobrietyDays(days);
-            console.log('✅ [SOBRIETY CALC] setSobrietyDays called with:', days);
-            
-            // Use the user's custom daily cost, default to 20 if not set
-            const dailyCost = userData.dailyCost || 20;
-            const savedAmount = days * dailyCost;
-            console.log('🔍 [SOBRIETY CALC] Daily cost:', dailyCost);
-            console.log('🔍 [SOBRIETY CALC] Money saved calculation:', days, 'x', dailyCost, '=', savedAmount);
-            console.log('🔍 [SOBRIETY CALC] Type of savedAmount:', typeof savedAmount);
-            console.log('🔍 [SOBRIETY CALC] Is NaN?', isNaN(savedAmount));
-            
-            setMoneySaved(savedAmount);
-            console.log('✅ [SOBRIETY CALC] setMoneySaved called with:', savedAmount);
-        };
-        
-        calculateStats();
-        const interval = setInterval(calculateStats, 60000);
-        return () => {
-            console.log('🧹 [SOBRIETY CALC] Cleaning up interval');
-            clearInterval(interval);
-        };
-    } else {
-        console.log('❌ [SOBRIETY CALC] No sobrietyDate found in userData');
-        console.log('   userData exists?', !!userData);
-        console.log('   userData.sobrietyDate:', userData?.sobrietyDate);
-    }
-}, [userData, userData?.sobrietyDate]); // ✅ Watch BOTH userData AND sobrietyDate specifically
+            calculateStats();
+            const interval = setInterval(calculateStats, 60000);
+            return () => clearInterval(interval);
+        }
+    }, [userData]);
 
-   
     // Initialize charts when data changes
     useEffect(() => {
         if (currentView === 'progress' && moodChartData && cravingChartData) {
             setTimeout(() => {
                 const moodCanvas = document.getElementById('moodChart');
-                const cravingCanvas = document.getElementById('cravingChart');
+                const cravingCanvas = document.getElementById('cravingCanvas');
                 
                 // Destroy existing charts
                 if (chartRef.current) {
@@ -1945,6 +1994,31 @@ useEffect(() => {
             console.error('Error loading data:', error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    // Load user data and coach info
+    const loadUserData = async () => {
+        try {
+            const userDoc = await db.collection('users').doc(user.uid).get();
+            if (userDoc.exists) {
+                const data = userDoc.data();
+                setUserData(data);
+                
+                if (data.profileImageUrl) {
+                    setProfileImage(data.profileImageUrl);
+                }
+                
+                // Load coach info
+                if (data.assignedCoach) {
+                    const coachDoc = await db.collection('users').doc(data.assignedCoach).get();
+                    if (coachDoc.exists) {
+                        setCoachInfo(coachDoc.data());
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error loading user data:', error);
         }
     };
 
