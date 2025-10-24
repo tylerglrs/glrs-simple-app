@@ -34592,67 +34592,332 @@ const renderCommunityTab = () => (
 );
 }; // This closes the UserDetailModal function
     
-      // Enhanced Coach Detail Modal with Tabs for admin viewing coaches
+     // ========== COACH DETAIL MODAL - COMPLETE WITH TRAINING & CREDENTIALS ==========
 function CoachDetailModal({ coach, onClose, onUpdate, currentUserId }) {
-    // Core states
+    // ========== CORE STATES ==========
     const [activeTab, setActiveTab] = useState('overview');
     const [loading, setLoading] = useState(true);
-
-    // Data states (separate instead of one giant object)
+    const [currentUser, setCurrentUser] = useState(null);
+    
+    // ========== DATA STATES (15+ separate states) ==========
+    const [coachProfile, setCoachProfile] = useState(null);
     const [assignedPIRs, setAssignedPIRs] = useState([]);
     const [activities, setActivities] = useState([]);
     const [assignments, setAssignments] = useState([]);
     const [checkInsReviewed, setCheckInsReviewed] = useState([]);
     const [alerts, setAlerts] = useState([]);
-    const [feedbackScores, setFeedbackScores] = useState([]);
+    const [sessions, setSessions] = useState([]);
+    const [upcomingSessions, setUpcomingSessions] = useState([]);
+    const [certifications, setCertifications] = useState([]);
+    const [specializations, setSpecializations] = useState([]);
+    const [trainings, setTrainings] = useState([]);
+    const [languages, setLanguages] = useState([]);
+    
     const [stats, setStats] = useState({
         totalPIRs: 0,
-        avgResponseTime: 0,
         checkInComplianceRate: 0,
         assignmentCompletionRate: 0,
         alertsHandled: 0,
         avgCaseloadDays: 0,
         lastActive: null,
-        satisfactionScore: 0
+        totalSessions: 0,
+        upcomingSessions: 0,
+        yearsExperience: 0
     });
-
-    // UI states for modals and interactions
+    
+    // ========== UI STATES (10+ states) ==========
+    const [editing, setEditing] = useState(false);
+    const [editData, setEditData] = useState({});
     const [showAssignPIRModal, setShowAssignPIRModal] = useState(false);
     const [showRemovePIRModal, setShowRemovePIRModal] = useState(false);
+    const [showPIRDetailModal, setShowPIRDetailModal] = useState(false);
+    const [selectedPIRId, setSelectedPIRId] = useState(null);
     const [selectedPIRForRemoval, setSelectedPIRForRemoval] = useState(null);
     const [expandedPIRs, setExpandedPIRs] = useState({});
+    const [showAddCertModal, setShowAddCertModal] = useState(false);
+    const [showAddTrainingModal, setShowAddTrainingModal] = useState(false);
+    const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
     const [showExportModal, setShowExportModal] = useState(false);
-
-    // Form states
+    
+    // ========== FORM STATES ==========
     const [assignPIRForm, setAssignPIRForm] = useState({ email: '', searchResults: [] });
+    const [newCertification, setNewCertification] = useState({
+        name: '',
+        organization: '',
+        dateObtained: '',
+        expirationDate: '',
+        status: 'active'
+    });
+    const [newTraining, setNewTraining] = useState({
+        name: '',
+        organization: '',
+        dateCompleted: '',
+        hours: 0,
+        type: 'course'
+    });
     const [assignPIRError, setAssignPIRError] = useState('');
+    const [certError, setCertError] = useState('');
     const [assigning, setAssigning] = useState(false);
     const [removing, setRemoving] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
-
-    // Filter and sort states
+    
+    // ========== FILTER/SORT STATES ==========
     const [pirSearchQuery, setPirSearchQuery] = useState('');
     const [pirStatusFilter, setPirStatusFilter] = useState('all');
+    const [certStatusFilter, setCertStatusFilter] = useState('all');
     const [sortBy, setSortBy] = useState('name');
-
-    // Chart refs
-    const performanceChartRef = useRef(null);
+    
+    // ========== CHART REFS ==========
     const workloadChartRef = useRef(null);
     const complianceChartRef = useRef(null);
     const chartInstances = useRef({});
-
+    
+    // ========== LOAD DATA ON MOUNT - PROMISE.ALL PATTERN ==========
     useEffect(() => {
-        if (coach.role === 'coach' || coach.role === 'admin') {
-            loadCoachData();
-        } else {
-            setLoading(false);
-        }
-    }, [coach]);
-
-    // Cleanup chart instances on unmount
+        const loadAllData = async () => {
+            if (!coach.id || (coach.role !== 'coach' && coach.role !== 'admin')) {
+                setLoading(false);
+                return;
+            }
+            
+            try {
+                setLoading(true);
+                
+                const thirtyDaysAgo = new Date();
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                
+                // ✅ ONE PROMISE.ALL FOR ALL QUERIES - PARALLEL LOADING
+                const [
+                    coachDoc,
+                    currentUserDoc,
+                    pirsSnap,
+                    assignmentsSnap,
+                    activitiesSnap,
+                    sessionsSnap,
+                    upcomingSessionsSnap,
+                    certificationsSnap,
+                    specializationsSnap,
+                    trainingsSnap
+                ] = await Promise.all([
+                    db.collection('users').doc(coach.id).get(),
+                    db.collection('users').doc(currentUserId).get(),
+                    db.collection('users')
+                        .where('assignedCoach', '==', coach.id)
+                        .where('role', '==', 'pir')
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .get(),
+                    db.collection('assignments')
+                        .where('createdBy', '==', coach.id)
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .orderBy('createdAt', 'desc')
+                        .limit(50)
+                        .get(),
+                    db.collection('activities')
+                        .where('userId', '==', coach.id)
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .orderBy('timestamp', 'desc')
+                        .limit(50)
+                        .get(),
+                    db.collection('sessions')
+                        .where('coachId', '==', coach.id)
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .where('date', '>=', thirtyDaysAgo)
+                        .orderBy('date', 'desc')
+                        .get(),
+                    db.collection('sessions')
+                        .where('coachId', '==', coach.id)
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .where('date', '>=', new Date())
+                        .orderBy('date', 'asc')
+                        .limit(10)
+                        .get(),
+                    db.collection('certifications')
+                        .where('userId', '==', coach.id)
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .orderBy('dateObtained', 'desc')
+                        .get(),
+                    db.collection('specializations')
+                        .where('userId', '==', coach.id)
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .get(),
+                    db.collection('trainings')
+                        .where('userId', '==', coach.id)
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .orderBy('dateCompleted', 'desc')
+                        .get()
+                ]);
+                
+                // Process coach profile
+                const coachData = { id: coachDoc.id, ...coachDoc.data() };
+                setCoachProfile(coachData);
+                setEditData(coachData);
+                
+                // Process current user
+                setCurrentUser({ id: currentUserDoc.id, ...currentUserDoc.data() });
+                
+                // Process PIRs
+                const pirsData = [];
+                const pirIds = [];
+                pirsSnap.forEach(doc => {
+                    const pirData = { id: doc.id, ...doc.data() };
+                    pirsData.push(pirData);
+                    pirIds.push(doc.id);
+                });
+                setAssignedPIRs(pirsData);
+                
+                // Process assignments
+                const assignmentsData = [];
+                let completedAssignments = 0;
+                assignmentsSnap.forEach(doc => {
+                    const data = { id: doc.id, ...doc.data() };
+                    assignmentsData.push(data);
+                    if (data.status === 'completed') completedAssignments++;
+                });
+                setAssignments(assignmentsData);
+                
+                // Process activities
+                const activitiesData = [];
+                activitiesSnap.forEach(doc => {
+                    activitiesData.push({ id: doc.id, ...doc.data() });
+                });
+                setActivities(activitiesData);
+                
+                // Process sessions
+                const sessionsData = [];
+                sessionsSnap.forEach(doc => {
+                    sessionsData.push({ id: doc.id, ...doc.data() });
+                });
+                setSessions(sessionsData);
+                
+                const upcomingSessionsData = [];
+                upcomingSessionsSnap.forEach(doc => {
+                    upcomingSessionsData.push({ id: doc.id, ...doc.data() });
+                });
+                setUpcomingSessions(upcomingSessionsData);
+                
+                // Process certifications
+                const certificationsData = [];
+                certificationsSnap.forEach(doc => {
+                    certificationsData.push({ id: doc.id, ...doc.data() });
+                });
+                setCertifications(certificationsData);
+                
+                // Process specializations
+                const specializationsData = [];
+                specializationsSnap.forEach(doc => {
+                    specializationsData.push({ id: doc.id, ...doc.data() });
+                });
+                setSpecializations(specializationsData);
+                
+                // Process trainings
+                const trainingsData = [];
+                let totalTrainingHours = 0;
+                trainingsSnap.forEach(doc => {
+                    const data = { id: doc.id, ...doc.data() };
+                    trainingsData.push(data);
+                    totalTrainingHours += data.hours || 0;
+                });
+                setTrainings(trainingsData);
+                
+                // If coach has PIRs, load additional PIR-specific data
+                if (pirIds.length > 0) {
+                    const checkInsPromises = pirIds.map(pirId =>
+                        db.collection('checkIns')
+                            .where('userId', '==', pirId)
+                            .where('tenantId', '==', CURRENT_TENANT)
+                            .where('createdAt', '>=', thirtyDaysAgo)
+                            .get()
+                    );
+                    
+                    const alertsPromises = pirIds.map(pirId =>
+                        db.collection('alerts')
+                            .where('userId', '==', pirId)
+                            .where('tenantId', '==', CURRENT_TENANT)
+                            .limit(10)
+                            .get()
+                    );
+                    
+                    const [checkInsSnapshots, alertsSnapshots] = await Promise.all([
+                        Promise.all(checkInsPromises),
+                        Promise.all(alertsPromises)
+                    ]);
+                    
+                    // Process check-ins
+                    const allCheckIns = [];
+                    checkInsSnapshots.forEach(snapshot => {
+                        snapshot.forEach(doc => {
+                            allCheckIns.push({ id: doc.id, ...doc.data() });
+                        });
+                    });
+                    setCheckInsReviewed(allCheckIns);
+                    
+                    // Process alerts
+                    const allAlerts = [];
+                    alertsSnapshots.forEach(snapshot => {
+                        snapshot.forEach(doc => {
+                            allAlerts.push({ id: doc.id, ...doc.data() });
+                        });
+                    });
+                    setAlerts(allAlerts);
+                    
+                    // Calculate stats
+                    const completedCheckIns = allCheckIns.filter(c => c.status === 'completed').length;
+                    const expectedCheckIns = pirIds.length * 30; // Assuming daily check-ins
+                    const complianceRate = expectedCheckIns > 0 ? (completedCheckIns / expectedCheckIns) * 100 : 0;
+                    
+                    const completionRate = assignmentsData.length > 0 
+                        ? (completedAssignments / assignmentsData.length) * 100 
+                        : 0;
+                    
+                    const totalDays = pirsData.reduce((sum, pir) => {
+                        if (pir.assignedDate) {
+                            const days = Math.floor((new Date() - pir.assignedDate.toDate()) / (1000 * 60 * 60 * 24));
+                            return sum + days;
+                        }
+                        return sum;
+                    }, 0);
+                    const avgDays = pirsData.length > 0 ? Math.floor(totalDays / pirsData.length) : 0;
+                    
+                    setStats({
+                        totalPIRs: pirsData.length,
+                        checkInComplianceRate: Math.round(complianceRate),
+                        assignmentCompletionRate: Math.round(completionRate),
+                        alertsHandled: allAlerts.filter(a => a.status === 'resolved').length,
+                        avgCaseloadDays: avgDays,
+                        lastActive: coachData.lastActive || null,
+                        totalSessions: sessionsData.length,
+                        upcomingSessions: upcomingSessionsData.length,
+                        yearsExperience: coachData.yearsExperience || 0
+                    });
+                } else {
+                    // No PIRs assigned
+                    setStats({
+                        totalPIRs: 0,
+                        checkInComplianceRate: 0,
+                        assignmentCompletionRate: 0,
+                        alertsHandled: 0,
+                        avgCaseloadDays: 0,
+                        lastActive: coachData.lastActive || null,
+                        totalSessions: sessionsData.length,
+                        upcomingSessions: upcomingSessionsData.length,
+                        yearsExperience: coachData.yearsExperience || 0
+                    });
+                }
+                
+            } catch (error) {
+                console.error('Error loading coach data:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        
+        loadAllData();
+    }, [coach.id, currentUserId]);
+    
+    // ========== CLEANUP CHART INSTANCES ON UNMOUNT ==========
     useEffect(() => {
         return () => {
-            // Destroy all chart instances to prevent memory leaks
             Object.values(chartInstances.current).forEach(chart => {
                 if (chart && typeof chart.destroy === 'function') {
                     chart.destroy();
@@ -34660,227 +34925,198 @@ function CoachDetailModal({ coach, onClose, onUpdate, currentUserId }) {
             });
         };
     }, []);
-
-    const loadCoachData = async () => {
+    
+    // ========== AUTO-DISMISS SUCCESS MESSAGE ==========
+    useEffect(() => {
+        if (successMessage) {
+            const timer = setTimeout(() => {
+                setSuccessMessage('');
+            }, 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [successMessage]);
+    
+    // ========== HELPER FUNCTIONS ==========
+    const formatDate = (timestamp) => {
+        if (!timestamp) return 'N/A';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    };
+    
+    const formatDateTime = (timestamp) => {
+        if (!timestamp) return 'N/A';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        return date.toLocaleString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        });
+    };
+    
+    const formatRole = (role) => {
+        const roleMap = {
+            'coach': '🎯 Coach',
+            'admin': '🛡️ Administrator',
+            'superadmin': '👑 Super Admin',
+            'pir': '👤 PIR'
+        };
+        return roleMap[role] || role;
+    };
+    
+    const formatPermissionLevel = (level) => {
+        const levelMap = {
+            'superadmin': '👑 Super Admin',
+            'admin': '🛡️ Full Admin',
+            'supervisor': '👨‍💼 Supervisor',
+            'coach': '🎯 Coach'
+        };
+        return levelMap[level] || level;
+    };
+    
+    const getPermissionLevelBadge = (level) => {
+        const badgeMap = {
+            'superadmin': 'danger',
+            'admin': 'warning',
+            'supervisor': 'info',
+            'coach': 'success'
+        };
+        return badgeMap[level] || 'secondary';
+    };
+    
+    // ========== HANDLER: SAVE PROFILE ==========
+    const handleSaveProfile = async () => {
+        setSaving(true);
         try {
-            setLoading(true);
-
-            // ONE Promise.all for ALL queries - parallel loading
-            const thirtyDaysAgo = new Date();
-            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-            const [pirsSnap, assignmentsSnap] = await Promise.all([
-                db.collection('users')
-                    .where('assignedCoach', '==', coach.id)
-                    .where('role', '==', 'pir')
-                    .get(),
-                db.collection('assignments')
-                    .where('createdBy', '==', coach.id)
-                    .limit(50)
-                    .get()
-            ]);
-
-            // Process PIRs
-            const pirsData = [];
-            const pirIds = [];
-            pirsSnap.forEach(doc => {
-                const pirData = { id: doc.id, ...doc.data() };
-                pirsData.push(pirData);
-                pirIds.push(doc.id);
+            await db.collection('users').doc(coach.id).update({
+                displayName: editData.displayName,
+                email: editData.email,
+                bio: editData.bio,
+                phone: editData.phone,
+                yearsExperience: editData.yearsExperience,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedBy: currentUserId
             });
-
-            // Process assignments
-            const assignmentsData = [];
-            let completedAssignments = 0;
-            assignmentsSnap.forEach(doc => {
-                const data = { id: doc.id, ...doc.data() };
-                assignmentsData.push(data);
-                if (data.status === 'completed') completedAssignments++;
-            });
-
-            // Sort assignments
-            assignmentsData.sort((a, b) => {
-                const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
-                const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
-                return dateB - dateA;
-            });
-
-            // If coach has no PIRs, set empty data and exit early
-            if (pirIds.length === 0) {
-                setAssignedPIRs([]);
-                setActivities([]);
-                setAssignments(assignmentsData);
-                setCheckInsReviewed([]);
-                setAlerts([]);
-                setFeedbackScores([]);
-                setStats({
-                    totalPIRs: 0,
-                    avgResponseTime: 0,
-                    checkInComplianceRate: 0,
-                    assignmentCompletionRate: 0,
-                    alertsHandled: 0,
-                    avgCaseloadDays: 0,
-                    lastActive: coach.lastActive || null,
-                    satisfactionScore: 0
-                });
-                setLoading(false);
-                return;
-            }
-
-            // Batch queries for check-ins, alerts, and feedback
-            const checkInsPromises = pirIds.map(pirId =>
-                db.collection('checkIns')
-                    .where('userId', '==', pirId)
-                    .where('createdAt', '>=', thirtyDaysAgo)
-                    .get()
-            );
-
-            const alertsPromises = pirIds.map(pirId =>
-                db.collection('alerts')
-                    .where('userId', '==', pirId)
-                    .limit(10)
-                    .get()
-            );
-
-            const feedbackPromises = pirIds.map(pirId =>
-                db.collection('feedback')
-                    .where('userId', '==', pirId)
-                    .where('type', '==', 'coach_rating')
-                    .get()
-            );
-
-            // Execute all batch queries in parallel
-            const [checkInsSnapshots, alertsSnapshots, feedbackSnapshots] = await Promise.all([
-                Promise.all(checkInsPromises),
-                Promise.all(alertsPromises),
-                Promise.all(feedbackPromises)
-            ]);
-
-            // Process check-ins
-            const allCheckIns = [];
-            checkInsSnapshots.forEach(snapshot => {
-                snapshot.forEach(doc => {
-                    allCheckIns.push({ id: doc.id, ...doc.data() });
-                });
-            });
-
-            // Process alerts
-            const alertsData = [];
-            alertsSnapshots.forEach(snapshot => {
-                snapshot.forEach(doc => {
-                    alertsData.push({ id: doc.id, ...doc.data() });
-                });
-            });
-
-            // Sort alerts
-            alertsData.sort((a, b) => {
-                const dateA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
-                const dateB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
-                return dateB - dateA;
-            });
-
-            // Process feedback scores
-            const feedbackData = [];
-            let totalRating = 0;
-            let ratingCount = 0;
-            feedbackSnapshots.forEach(snapshot => {
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    feedbackData.push({ id: doc.id, ...data });
-                    if (data.rating) {
-                        totalRating += data.rating;
-                        ratingCount++;
-                    }
-                });
-            });
-
-            // Calculate statistics
-            const now = new Date();
-            const checkInComplianceRate = pirsData.length > 0 ?
-                Math.round((allCheckIns.length / (pirsData.length * 30)) * 100) : 0;
-
-            const assignmentCompletionRate = assignmentsData.length > 0 ?
-                Math.round((completedAssignments / assignmentsData.length) * 100) : 0;
-
-            let totalDays = 0;
-            pirsData.forEach(pir => {
-                if (pir.assignedDate) {
-                    const assignedDate = pir.assignedDate.toDate ? pir.assignedDate.toDate() : new Date(pir.assignedDate);
-                    totalDays += Math.floor((now - assignedDate) / (1000 * 60 * 60 * 24));
-                }
-            });
-            const avgCaseloadDays = pirsData.length > 0 ? Math.round(totalDays / pirsData.length) : 0;
-
-            const satisfactionScore = ratingCount > 0 ? (totalRating / ratingCount).toFixed(1) : 0;
-
-            // Set all separate states
-            setAssignedPIRs(pirsData);
-            setActivities([]); // Would need activity logging to populate
-            setAssignments(assignmentsData);
-            setCheckInsReviewed(allCheckIns);
-            setAlerts(alertsData);
-            setFeedbackScores(feedbackData);
-            setStats({
-                totalPIRs: pirsData.length,
-                avgResponseTime: 0, // Would need response tracking
-                checkInComplianceRate,
-                assignmentCompletionRate,
-                alertsHandled: alertsData.filter(a => a.status === 'resolved').length,
-                avgCaseloadDays,
-                lastActive: coach.lastActive || null,
-                satisfactionScore
-            });
-
+            
+            setCoachProfile({...coachProfile, ...editData});
+            setEditing(false);
+            setSuccessMessage('✓ Profile updated successfully!');
+            
+            if (onUpdate) onUpdate();
         } catch (error) {
-            console.error('Error loading coach data:', error);
+            console.error('Error updating profile:', error);
+            alert('Error updating profile: ' + error.message);
         } finally {
-            setLoading(false);
+            setSaving(false);
         }
     };
-
-    // Search PIRs as user types
+    
+    // ========== HANDLER: TOGGLE ACTIVE STATUS ==========
+    const handleToggleActiveStatus = async () => {
+        const newStatus = !coachProfile.active;
+        const confirmMsg = newStatus 
+            ? 'Activate this coach account? They will be able to log in.' 
+            : 'Deactivate this coach account? They will not be able to log in.';
+        
+        if (!window.confirm(confirmMsg)) return;
+        
+        setSaving(true);
+        try {
+            await db.collection('users').doc(coach.id).update({
+                active: newStatus,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedBy: currentUserId
+            });
+            
+            setCoachProfile({...coachProfile, active: newStatus});
+            setSuccessMessage(newStatus ? '✓ Coach activated!' : '✓ Coach deactivated!');
+            
+            if (onUpdate) onUpdate();
+        } catch (error) {
+            console.error('Error toggling status:', error);
+            alert('Error updating status: ' + error.message);
+        } finally {
+            setSaving(false);
+        }
+    };
+    
+    // ========== HANDLER: SEARCH PIR FOR ASSIGNMENT ==========
     const handleSearchPIR = async (email) => {
         setAssignPIRForm({...assignPIRForm, email});
-
+        setAssignPIRError('');
+        
         if (email.length < 3) {
             setAssignPIRForm({...assignPIRForm, email, searchResults: []});
             return;
         }
-
+        
         try {
             const pirsSnap = await db.collection('users')
-                .where('email', '>=', email)
-                .where('email', '<=', email + '\uf8ff')
                 .where('role', '==', 'pir')
                 .where('tenantId', '==', CURRENT_TENANT)
-                .limit(5)
+                .where('email', '>=', email)
+                .where('email', '<=', email + '\uf8ff')
+                .limit(10)
                 .get();
-
-            const results = pirsSnap.docs.map(doc => ({id: doc.id, ...doc.data()}))
-                .filter(pir => !pir.assignedCoach); // Only unassigned PIRs
-
+            
+            const results = [];
+            pirsSnap.forEach(doc => {
+                const data = { id: doc.id, ...doc.data() };
+                // Only show unassigned PIRs
+                if (!data.assignedCoach) {
+                    results.push(data);
+                }
+            });
+            
             setAssignPIRForm({...assignPIRForm, email, searchResults: results});
         } catch (error) {
             console.error('Error searching PIRs:', error);
+            setAssignPIRError('Error searching PIRs: ' + error.message);
         }
     };
-
-    // Assign PIR to coach
+    
+    // ========== HANDLER: ASSIGN PIR ==========
     const handleAssignPIR = async (pirId, pirName) => {
         setAssigning(true);
         setAssignPIRError('');
-
+        
         try {
             await db.collection('users').doc(pirId).update({
                 assignedCoach: coach.id,
-                assignedDate: firebase.firestore.FieldValue.serverTimestamp()
+                assignedDate: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedBy: currentUserId
             });
-
+            
+            // Create notification
+            await db.collection('notifications').add({
+                tenantId: CURRENT_TENANT,
+                recipientId: coach.id,
+                type: 'pir_assigned',
+                title: 'New PIR Assigned',
+                message: `${pirName} has been assigned to you`,
+                read: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Log activity
+            await logAudit({
+                userId: currentUserId,
+                tenantId: CURRENT_TENANT,
+                action: 'pir-assigned',
+                resourceType: 'user',
+                resourceId: pirId,
+                details: { coachId: coach.id, coachName: coachProfile.displayName }
+            });
+            
+            setSuccessMessage(`✓ ${pirName} assigned successfully!`);
             setShowAssignPIRModal(false);
             setAssignPIRForm({ email: '', searchResults: [] });
-            setSuccessMessage(`${pirName} assigned successfully!`);
-            setTimeout(() => setSuccessMessage(''), 3000);
-            loadCoachData();
+            
+            // Reload data
+            window.location.reload();
         } catch (error) {
             console.error('Error assigning PIR:', error);
             setAssignPIRError('Failed to assign PIR: ' + error.message);
@@ -34888,541 +35124,1683 @@ function CoachDetailModal({ coach, onClose, onUpdate, currentUserId }) {
             setAssigning(false);
         }
     };
-
-    // Remove PIR from coach
+    
+    // ========== HANDLER: REMOVE PIR ==========
     const handleRemovePIR = async () => {
-        if (!selectedPIRForRemoval) return;
-
         setRemoving(true);
-
+        
         try {
             await db.collection('users').doc(selectedPIRForRemoval.id).update({
-                assignedCoach: null,
-                assignedDate: null
+                assignedCoach: firebase.firestore.FieldValue.delete(),
+                assignedDate: firebase.firestore.FieldValue.delete(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedBy: currentUserId
             });
-
+            
+            // Create notification
+            await db.collection('notifications').add({
+                tenantId: CURRENT_TENANT,
+                recipientId: coach.id,
+                type: 'pir_removed',
+                title: 'PIR Removed from Caseload',
+                message: `${selectedPIRForRemoval.name} has been removed from your caseload`,
+                read: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Log activity
+            await logAudit({
+                userId: currentUserId,
+                tenantId: CURRENT_TENANT,
+                action: 'pir-removed',
+                resourceType: 'user',
+                resourceId: selectedPIRForRemoval.id,
+                details: { coachId: coach.id, coachName: coachProfile.displayName }
+            });
+            
+            setSuccessMessage(`✓ ${selectedPIRForRemoval.name} removed from caseload!`);
             setShowRemovePIRModal(false);
             setSelectedPIRForRemoval(null);
-            setSuccessMessage(`${selectedPIRForRemoval.name} removed from coach`);
-            setTimeout(() => setSuccessMessage(''), 3000);
-            loadCoachData();
+            
+            // Reload data
+            window.location.reload();
         } catch (error) {
             console.error('Error removing PIR:', error);
-            alert('Failed to remove PIR: ' + error.message);
+            alert('Error removing PIR: ' + error.message);
         } finally {
             setRemoving(false);
         }
     };
-
-    const handleExportReport = () => {
-        const report = {
-            coach: {
-                name: coach.displayName || coach.email,
-                email: coach.email,
-                role: coach.role,
-                lastActive: coach.lastActive
-            },
-            stats: stats,
-            assignedPIRs: assignedPIRs.map(pir => ({
-                name: pir.displayName || pir.email,
-                email: pir.email,
-                daysWithCoach: pir.assignedDate ?
-                    Math.floor((new Date() - new Date(pir.assignedDate)) / (1000 * 60 * 60 * 24)) : 0,
-                lastCheckIn: pir.lastCheckIn
-            })),
-            recentAssignments: assignments.slice(0, 20).map(a => ({
-                title: a.title,
-                status: a.status,
-                createdAt: formatDate(a.createdAt)
-            }))
-        };
-
-        const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `coach-report-${coach.email}-${new Date().toISOString().split('T')[0]}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
+    
+    // ========== HANDLER: VIEW PIR (Open UserDetailModal) ==========
+    const handleViewPIR = (pirId) => {
+        setSelectedPIRId(pirId);
+        setShowPIRDetailModal(true);
     };
-
+    
+    // ========== HANDLER: ADD CERTIFICATION ==========
+    const handleAddCertification = async () => {
+        setCertError('');
+        
+        // Validation
+        if (!newCertification.name || !newCertification.organization || !newCertification.dateObtained) {
+            setCertError('Please fill in all required fields (Name, Organization, Date Obtained)');
+            return;
+        }
+        
+        setSaving(true);
+        try {
+            await db.collection('certifications').add({
+                userId: coach.id,
+                tenantId: CURRENT_TENANT,
+                ...newCertification,
+                dateObtained: firebase.firestore.Timestamp.fromDate(new Date(newCertification.dateObtained)),
+                expirationDate: newCertification.expirationDate 
+                    ? firebase.firestore.Timestamp.fromDate(new Date(newCertification.expirationDate))
+                    : null,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: currentUserId
+            });
+            
+            setSuccessMessage('✓ Certification added successfully!');
+            setShowAddCertModal(false);
+            setNewCertification({
+                name: '',
+                organization: '',
+                dateObtained: '',
+                expirationDate: '',
+                status: 'active'
+            });
+            
+            // Reload data
+            window.location.reload();
+        } catch (error) {
+            console.error('Error adding certification:', error);
+            setCertError('Error adding certification: ' + error.message);
+        } finally {
+            setSaving(false);
+        }
+    };
+    
+    // ========== HANDLER: ADD TRAINING ==========
+    const handleAddTraining = async () => {
+        setCertError('');
+        
+        if (!newTraining.name || !newTraining.organization || !newTraining.dateCompleted) {
+            setCertError('Please fill in all required fields');
+            return;
+        }
+        
+        setSaving(true);
+        try {
+            await db.collection('trainings').add({
+                userId: coach.id,
+                tenantId: CURRENT_TENANT,
+                ...newTraining,
+                dateCompleted: firebase.firestore.Timestamp.fromDate(new Date(newTraining.dateCompleted)),
+                hours: parseFloat(newTraining.hours) || 0,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: currentUserId
+            });
+            
+            setSuccessMessage('✓ Training added successfully!');
+            setShowAddTrainingModal(false);
+            setNewTraining({
+                name: '',
+                organization: '',
+                dateCompleted: '',
+                hours: 0,
+                type: 'course'
+            });
+            
+            // Reload data
+            window.location.reload();
+        } catch (error) {
+            console.error('Error adding training:', error);
+            setCertError('Error adding training: ' + error.message);
+        } finally {
+            setSaving(false);
+        }
+    };
+    
+    // ========== HANDLER: DELETE COACH ==========
+    const handleDeleteCoach = async () => {
+        setSaving(true);
+        try {
+            // Soft delete - mark as deleted but keep data
+            await db.collection('users').doc(coach.id).update({
+                deleted: true,
+                active: false,
+                deletedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                deletedBy: currentUserId
+            });
+            
+            // Log activity
+            await logAudit({
+                userId: currentUserId,
+                tenantId: CURRENT_TENANT,
+                action: 'coach-deleted',
+                resourceType: 'user',
+                resourceId: coach.id,
+                details: { coachName: coachProfile.displayName }
+            });
+            
+            setSuccessMessage('✓ Coach account deleted!');
+            setTimeout(() => {
+                onClose();
+                if (onUpdate) onUpdate();
+            }, 1500);
+        } catch (error) {
+            console.error('Error deleting coach:', error);
+            alert('Error deleting coach: ' + error.message);
+        } finally {
+            setSaving(false);
+            setShowDeleteConfirmModal(false);
+        }
+    };
+    
+    // ========== RENDER: OVERVIEW TAB ==========
     const renderOverviewTab = () => (
-        <div className="tab-content">
-            {successMessage && (
+        <div style={{ padding: '20px' }}>
+            {/* Account Status Banner */}
+            {(!coachProfile?.active || coachProfile?.deleted) && (
                 <div style={{
-                    background: 'var(--success-color, #00A86B)',
-                    color: 'white',
-                    padding: '12px 20px',
-                    borderRadius: '8px',
+                    background: coachProfile.deleted 
+                        ? 'linear-gradient(135deg, var(--danger-color, #dc3545), var(--error-color, #c82333))' 
+                        : 'linear-gradient(135deg, var(--warning-color, #ffc107), var(--warning-dark, #e0a800))',
+                    padding: '15px 20px',
+                    borderRadius: 'var(--radius-md, 12px)',
+                    color: 'var(--text-white, white)',
                     marginBottom: '20px',
-                    fontWeight: '500'
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontWeight: 'bold',
+                    boxShadow: 'var(--shadow-md, 0 4px 6px rgba(0,0,0,0.1))'
                 }}>
-                    ✓ {successMessage}
+                    <span>
+                        {coachProfile.deleted ? '🚫 ACCOUNT DELETED' : '⚠️ ACCOUNT INACTIVE'}
+                        {coachProfile.deleted && ' - Coach cannot log in. Data preserved for compliance.'}
+                        {!coachProfile.deleted && !coachProfile.active && ' - Coach cannot log in until activated.'}
+                    </span>
+                    {!coachProfile.deleted && currentUser?.role === 'superadmin' && (
+                        <button
+                            onClick={handleToggleActiveStatus}
+                            style={{
+                                background: 'var(--text-white, white)',
+                                color: coachProfile.active ? 'var(--warning-color, #ffc107)' : 'var(--success-color, #28a745)',
+                                border: 'none',
+                                padding: '8px 16px',
+                                borderRadius: 'var(--radius-sm, 8px)',
+                                cursor: 'pointer',
+                                fontWeight: 'bold',
+                                fontSize: '14px',
+                                transition: 'var(--transition-fast, all 0.2s ease)'
+                            }}
+                        >
+                            {coachProfile.active ? 'Deactivate' : 'Activate'}
+                        </button>
+                    )}
                 </div>
             )}
-
-            <div className="stats-grid">
-                <div className="stat-card">
-                    <div className="stat-label">Total PIRs</div>
-                    <div className="stat-value" style={{fontSize: '2em'}}>
-                        {stats.totalPIRs}
-                    </div>
+            
+            {/* Key Metrics Cards */}
+            <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                gap: '20px',
+                marginBottom: '30px'
+            }}>
+                <div style={{
+                    background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--primary-dark, #005fa3))',
+                    padding: '20px',
+                    borderRadius: 'var(--radius-lg, 16px)',
+                    color: 'var(--text-white, white)',
+                    boxShadow: 'var(--shadow-primary, 0 8px 16px rgba(0,119,204,0.3))',
+                    transition: 'var(--transition-fast, all 0.2s ease)',
+                    cursor: 'default'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Total PIRs</div>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.totalPIRs}</div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Assigned to coach</div>
                 </div>
-
-                <div className="stat-card">
-                    <div className="stat-label">PIR Compliance Rate</div>
-                    <div className="stat-value" style={{fontSize: '2em',
-                        color: stats.checkInComplianceRate >= 70 ? 'var(--success-color)' : 'var(--warning-color)'}}>
-                        {stats.checkInComplianceRate}%
-                    </div>
-                    <div className="stat-sublabel">Check-ins last 30 days</div>
+                
+                <div style={{
+                    background: 'linear-gradient(135deg, var(--secondary-color, #008B8B), var(--secondary-dark, #006666))',
+                    padding: '20px',
+                    borderRadius: 'var(--radius-lg, 16px)',
+                    color: 'var(--text-white, white)',
+                    boxShadow: 'var(--shadow-md, 0 4px 6px rgba(0,0,0,0.1))',
+                    transition: 'var(--transition-fast, all 0.2s ease)',
+                    cursor: 'default'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Sessions</div>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.totalSessions}</div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Last 30 days</div>
                 </div>
-
-                <div className="stat-card">
-                    <div className="stat-label">Assignment Completion</div>
-                    <div className="stat-value" style={{fontSize: '2em'}}>
-                        {stats.assignmentCompletionRate}%
-                    </div>
+                
+                <div style={{
+                    background: 'linear-gradient(135deg, var(--success-color, #28a745), var(--success-dark, #1e7e34))',
+                    padding: '20px',
+                    borderRadius: 'var(--radius-lg, 16px)',
+                    color: 'var(--text-white, white)',
+                    boxShadow: 'var(--shadow-md, 0 4px 6px rgba(0,0,0,0.1))',
+                    transition: 'var(--transition-fast, all 0.2s ease)',
+                    cursor: 'default'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Upcoming Sessions</div>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.upcomingSessions}</div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Next 30 days</div>
                 </div>
-
-                <div className="stat-card">
-                    <div className="stat-label">Satisfaction Score</div>
-                    <div className="stat-value" style={{fontSize: '2em'}}>
-                        {stats.satisfactionScore}/5
+                
+                <div style={{
+                    background: 'linear-gradient(135deg, var(--info-color, #17a2b8), var(--info-dark, #117a8b))',
+                    padding: '20px',
+                    borderRadius: 'var(--radius-lg, 16px)',
+                    color: 'var(--text-white, white)',
+                    boxShadow: 'var(--shadow-md, 0 4px 6px rgba(0,0,0,0.1))',
+                    transition: 'var(--transition-fast, all 0.2s ease)',
+                    cursor: 'default'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>Experience</div>
+                    <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.yearsExperience}</div>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>Years in field</div>
+                </div>
+            </div>
+            
+            {/* Profile Information */}
+            <div style={{
+                background: 'var(--text-white, white)',
+                borderRadius: 'var(--radius-lg, 16px)',
+                padding: '25px',
+                boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))',
+                marginBottom: '20px'
+            }}>
+                <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    marginBottom: '20px'
+                }}>
+                    <h3 style={{ margin: 0, color: 'var(--text-primary, #333)' }}>Profile Information</h3>
+                    {currentUser?.role === 'superadmin' && (
+                        !editing ? (
+                            <button 
+                                className="btn btn-secondary"
+                                onClick={() => setEditing(true)}
+                                style={{
+                                    background: 'linear-gradient(135deg, var(--secondary-color, #008B8B), var(--secondary-dark, #006666))',
+                                    color: 'var(--text-white, white)',
+                                    border: 'none',
+                                    padding: '10px 20px',
+                                    borderRadius: 'var(--radius-sm, 8px)',
+                                    cursor: 'pointer',
+                                    fontWeight: '500',
+                                    transition: 'var(--transition-fast, all 0.2s ease)'
+                                }}
+                            >
+                                Edit Profile
+                            </button>
+                        ) : (
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <button 
+                                    className="btn btn-primary"
+                                    onClick={handleSaveProfile}
+                                    disabled={saving}
+                                    style={{
+                                        background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--primary-dark, #005fa3))',
+                                        color: 'var(--text-white, white)',
+                                        border: 'none',
+                                        padding: '10px 20px',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        cursor: saving ? 'not-allowed' : 'pointer',
+                                        fontWeight: '500',
+                                        transition: 'var(--transition-fast, all 0.2s ease)'
+                                    }}
+                                >
+                                    {saving ? 'Saving...' : 'Save Changes'}
+                                </button>
+                                <button 
+                                    className="btn btn-secondary"
+                                    onClick={() => {
+                                        setEditing(false);
+                                        setEditData(coachProfile);
+                                    }}
+                                    style={{
+                                        background: 'var(--text-muted, #6c757d)',
+                                        color: 'var(--text-white, white)',
+                                        border: 'none',
+                                        padding: '10px 20px',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        cursor: 'pointer',
+                                        fontWeight: '500',
+                                        transition: 'var(--transition-fast, all 0.2s ease)'
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        )
+                    )}
+                </div>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>Full Name</label>
+                        {editing ? (
+                            <input
+                                type="text"
+                                className="form-control"
+                                value={editData.displayName || ''}
+                                onChange={(e) => setEditData({...editData, displayName: e.target.value})}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    border: '1px solid var(--border-color, #ddd)',
+                                    borderRadius: 'var(--radius-sm, 8px)',
+                                    fontSize: '14px'
+                                }}
+                            />
+                        ) : (
+                            <div style={{ fontSize: '16px', color: 'var(--text-primary, #333)' }}>
+                                {coachProfile?.displayName || 'N/A'}
+                            </div>
+                        )}
+                    </div>
+                    
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>Email</label>
+                        {editing ? (
+                            <input
+                                type="email"
+                                className="form-control"
+                                value={editData.email || ''}
+                                onChange={(e) => setEditData({...editData, email: e.target.value})}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    border: '1px solid var(--border-color, #ddd)',
+                                    borderRadius: 'var(--radius-sm, 8px)',
+                                    fontSize: '14px'
+                                }}
+                            />
+                        ) : (
+                            <div style={{ fontSize: '16px', color: 'var(--text-primary, #333)' }}>
+                                {coachProfile?.email || 'N/A'}
+                            </div>
+                        )}
+                    </div>
+                    
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>Phone</label>
+                        {editing ? (
+                            <input
+                                type="tel"
+                                className="form-control"
+                                value={editData.phone || ''}
+                                onChange={(e) => setEditData({...editData, phone: e.target.value})}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    border: '1px solid var(--border-color, #ddd)',
+                                    borderRadius: 'var(--radius-sm, 8px)',
+                                    fontSize: '14px'
+                                }}
+                            />
+                        ) : (
+                            <div style={{ fontSize: '16px', color: 'var(--text-primary, #333)' }}>
+                                {coachProfile?.phone || 'N/A'}
+                            </div>
+                        )}
+                    </div>
+                    
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>Years of Experience</label>
+                        {editing ? (
+                            <input
+                                type="number"
+                                className="form-control"
+                                value={editData.yearsExperience || 0}
+                                onChange={(e) => setEditData({...editData, yearsExperience: parseInt(e.target.value) || 0})}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    border: '1px solid var(--border-color, #ddd)',
+                                    borderRadius: 'var(--radius-sm, 8px)',
+                                    fontSize: '14px'
+                                }}
+                            />
+                        ) : (
+                            <div style={{ fontSize: '16px', color: 'var(--text-primary, #333)' }}>
+                                {coachProfile?.yearsExperience || 0} years
+                            </div>
+                        )}
+                    </div>
+                    
+                    <div style={{ gridColumn: '1 / -1' }}>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>Bio</label>
+                        {editing ? (
+                            <textarea
+                                className="form-control"
+                                value={editData.bio || ''}
+                                onChange={(e) => setEditData({...editData, bio: e.target.value})}
+                                rows={4}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    border: '1px solid var(--border-color, #ddd)',
+                                    borderRadius: 'var(--radius-sm, 8px)',
+                                    fontSize: '14px',
+                                    resize: 'vertical'
+                                }}
+                            />
+                        ) : (
+                            <div style={{ fontSize: '16px', color: 'var(--text-primary, #333)', whiteSpace: 'pre-wrap' }}>
+                                {coachProfile?.bio || 'No bio provided'}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
-
-            <div className="info-section">
-                <h4>Coach Information</h4>
-                <div className="info-grid">
-                    <div><strong>Email:</strong> {coach.email}</div>
-                    <div><strong>Name:</strong> {coach.displayName || 'N/A'}</div>
-                    <div><strong>Role:</strong> {coach.role}</div>
-                    <div><strong>Status:</strong>
-                        <span className={`badge ${coach.active !== false ? 'badge-success' : 'badge-danger'}`}>
-                            {coach.active !== false ? 'Active' : 'Inactive'}
+            
+            {/* Account Information */}
+            <div style={{
+                background: 'var(--text-white, white)',
+                borderRadius: 'var(--radius-lg, 16px)',
+                padding: '25px',
+                boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))'
+            }}>
+                <h3 style={{ margin: '0 0 20px 0', color: 'var(--text-primary, #333)' }}>Account Information</h3>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>Role</label>
+                        <div style={{ fontSize: '16px', color: 'var(--text-primary, #333)' }}>
+                            {formatRole(coachProfile?.role)}
+                        </div>
+                    </div>
+                    
+                    {coachProfile?.role === 'admin' && (
+                        <div>
+                            <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>Permission Level</label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span className={`badge badge-${getPermissionLevelBadge(coachProfile.permissionLevel || 'admin')}`}>
+                                    {formatPermissionLevel(coachProfile.permissionLevel || 'admin')}
+                                </span>
+                                {currentUser?.role === 'superadmin' && (
+                                    <button
+                                        onClick={() => setActiveTab('actions')}
+                                        style={{
+                                            fontSize: '12px',
+                                            color: 'var(--primary-color, #0077CC)',
+                                            background: 'none',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            textDecoration: 'underline',
+                                            padding: 0
+                                        }}
+                                    >
+                                        Edit Permissions
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>Status</label>
+                        <span className={`badge badge-${coachProfile?.active ? 'success' : 'danger'}`}>
+                            {coachProfile?.active ? 'Active' : 'Inactive'}
                         </span>
                     </div>
-                    <div><strong>Last Active:</strong> {coach.lastActive ? formatTimeAgo(coach.lastActive) : 'N/A'}</div>
-                    <div><strong>Joined:</strong> {formatDate(coach.createdAt)}</div>
+                    
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>Last Active</label>
+                        <div style={{ fontSize: '16px', color: 'var(--text-primary, #333)' }}>
+                            {formatDateTime(stats.lastActive)}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>Account Created</label>
+                        <div style={{ fontSize: '16px', color: 'var(--text-primary, #333)' }}>
+                            {formatDate(coachProfile?.createdAt)}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>Last Updated</label>
+                        <div style={{ fontSize: '16px', color: 'var(--text-primary, #333)' }}>
+                            {formatDateTime(coachProfile?.updatedAt)}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     );
-
+    
+    // ========== RENDER: CASELOAD TAB ==========
     const renderCaseloadTab = () => (
-        <div className="tab-content">
-            {successMessage && (
+        <div className="tab-content" style={{ padding: '20px' }}>
+            <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '20px'
+            }}>
+                <h3 style={{color: 'var(--text-primary, #333)'}}>
+                    Assigned PIRs ({assignedPIRs.length})
+                </h3>
+                
+                {currentUser?.role === 'superadmin' && (
+                    <button
+                        className="btn btn-primary"
+                        onClick={() => setShowAssignPIRModal(true)}
+                        style={{
+                            background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--primary-dark, #005fa3))',
+                            color: 'var(--text-white, white)',
+                            border: 'none',
+                            padding: '10px 20px',
+                            borderRadius: 'var(--radius-sm, 8px)',
+                            cursor: 'pointer',
+                            fontWeight: '500',
+                            transition: 'var(--transition-fast, all 0.2s ease)'
+                        }}
+                    >
+                        + Assign PIR
+                    </button>
+                )}
+            </div>
+            
+            {assignedPIRs.length > 0 ? (
                 <div style={{
-                    background: 'var(--success-color, #00A86B)',
-                    color: 'white',
-                    padding: '12px 20px',
-                    borderRadius: '8px',
-                    marginBottom: '20px',
-                    fontWeight: '500'
+                    background: 'var(--text-white, white)',
+                    borderRadius: 'var(--radius-lg, 16px)',
+                    boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))',
+                    overflow: 'hidden'
                 }}>
-                    ✓ {successMessage}
+                    <div className="table-container">
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                                <tr style={{
+                                    background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--secondary-color, #008B8B))',
+                                    color: 'var(--text-white, white)'
+                                }}>
+                                    <th style={{ padding: '15px', textAlign: 'left' }}>Name</th>
+                                    <th style={{ padding: '15px', textAlign: 'left' }}>Email</th>
+                                    <th style={{ padding: '15px', textAlign: 'center' }}>Sobriety Days</th>
+                                    <th style={{ padding: '15px', textAlign: 'center' }}>Last Check-in</th>
+                                    <th style={{ padding: '15px', textAlign: 'center' }}>Status</th>
+                                    <th style={{ padding: '15px', textAlign: 'center' }}>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {assignedPIRs.map(pir => (
+                                    <tr key={pir.id} style={{
+                                        borderBottom: '1px solid var(--border-color, #e0e0e0)',
+                                        transition: 'var(--transition-fast, all 0.2s ease)'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--background-hover, #f8f9fa)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                    >
+                                        <td style={{ padding: '15px' }}>{pir.displayName || 'N/A'}</td>
+                                        <td style={{ padding: '15px', color: 'var(--text-secondary, #666)' }}>{pir.email}</td>
+                                        <td style={{ padding: '15px', textAlign: 'center', fontWeight: 'bold' }}>
+                                            {pir.sobrietyDays || 0} days
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center', color: 'var(--text-secondary, #666)', fontSize: '14px' }}>
+                                            {pir.lastCheckIn ? formatDateTime(pir.lastCheckIn) : 'Never'}
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <span className={`badge badge-${pir.active ? 'success' : 'danger'}`}>
+                                                {pir.active ? 'Active' : 'Inactive'}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <button
+                                                className="btn btn-sm btn-secondary"
+                                                onClick={() => handleViewPIR(pir.id)}
+                                                style={{
+                                                    background: 'linear-gradient(135deg, var(--secondary-color, #008B8B), var(--secondary-dark, #006666))',
+                                                    color: 'var(--text-white, white)',
+                                                    border: 'none',
+                                                    padding: '6px 12px',
+                                                    borderRadius: 'var(--radius-sm, 8px)',
+                                                    marginRight: '8px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '13px',
+                                                    fontWeight: '500'
+                                                }}
+                                            >
+                                                👁️ View PIR
+                                            </button>
+                                            
+                                            {currentUser?.role === 'superadmin' && (
+                                                <button
+                                                    className="btn btn-sm btn-danger"
+                                                    onClick={() => {
+                                                        setSelectedPIRForRemoval({ id: pir.id, name: pir.displayName });
+                                                        setShowRemovePIRModal(true);
+                                                    }}
+                                                    style={{
+                                                        background: 'var(--danger-color, #dc3545)',
+                                                        color: 'var(--text-white, white)',
+                                                        border: 'none',
+                                                        padding: '6px 12px',
+                                                        borderRadius: 'var(--radius-sm, 8px)',
+                                                        cursor: 'pointer',
+                                                        fontSize: '13px',
+                                                        fontWeight: '500'
+                                                    }}
+                                                >
+                                                    Remove
+                                                </button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            ) : (
+                <div className="empty-state" style={{
+                    background: 'var(--text-white, white)',
+                    borderRadius: 'var(--radius-lg, 16px)',
+                    padding: '60px 40px',
+                    textAlign: 'center',
+                    boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))'
+                }}>
+                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>👥</div>
+                    <h4 style={{ margin: '0 0 10px 0', color: 'var(--text-primary, #333)' }}>No PIRs Assigned</h4>
+                    <p style={{ color: 'var(--text-secondary, #666)', marginBottom: '20px' }}>
+                        This coach doesn't have any PIRs assigned yet.
+                    </p>
+                    {currentUser?.role === 'superadmin' && (
+                        <button
+                            className="btn btn-primary"
+                            onClick={() => setShowAssignPIRModal(true)}
+                            style={{
+                                background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--primary-dark, #005fa3))',
+                                color: 'var(--text-white, white)',
+                                border: 'none',
+                                padding: '10px 24px',
+                                borderRadius: 'var(--radius-sm, 8px)',
+                                cursor: 'pointer',
+                                fontWeight: '500'
+                            }}
+                        >
+                            Assign First PIR
+                        </button>
+                    )}
                 </div>
             )}
-
-            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '20px'}}>
-                <h4>Assigned PIRs ({assignedPIRs.length})</h4>
-                <button className="btn btn-primary" onClick={() => setShowAssignPIRModal(true)}>
-                    + Assign PIR
-                </button>
-            </div>
-
-            <div className="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>PIR Name</th>
-                            <th>Email</th>
-                            <th>Days with Coach</th>
-                            <th>Last Check-in</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {assignedPIRs.map(pir => {
-                            const daysWithCoach = pir.assignedDate ?
-                                Math.floor((new Date() - new Date(pir.assignedDate)) / (1000 * 60 * 60 * 24)) : 0;
-
+        </div>
+    );
+    
+    // ========== RENDER: TRAINING & CREDENTIALS TAB ==========
+    const renderTrainingTab = () => (
+        <div className="tab-content" style={{ padding: '20px' }}>
+            {/* Certifications Section */}
+            <div style={{ marginBottom: '40px' }}>
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '20px'
+                }}>
+                    <h3 style={{color: 'var(--text-primary, #333)'}}>
+                        🎓 Certifications ({certifications.length})
+                    </h3>
+                    
+                    {currentUser?.role === 'superadmin' && (
+                        <button
+                            className="btn btn-primary"
+                            onClick={() => setShowAddCertModal(true)}
+                            style={{
+                                background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--primary-dark, #005fa3))',
+                                color: 'var(--text-white, white)',
+                                border: 'none',
+                                padding: '10px 20px',
+                                borderRadius: 'var(--radius-sm, 8px)',
+                                cursor: 'pointer',
+                                fontWeight: '500'
+                            }}
+                        >
+                            + Add Certification
+                        </button>
+                    )}
+                </div>
+                
+                {certifications.length > 0 ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '20px' }}>
+                        {certifications.map(cert => {
+                            const isExpired = cert.expirationDate && cert.expirationDate.toDate() < new Date();
+                            const isExpiringSoon = cert.expirationDate && 
+                                cert.expirationDate.toDate() > new Date() && 
+                                cert.expirationDate.toDate() < new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+                            
                             return (
-                                <tr key={pir.id}>
-                                    <td>{pir.displayName || 'N/A'}</td>
-                                    <td>{pir.email}</td>
-                                    <td>{daysWithCoach} days</td>
-                                    <td>{pir.lastCheckIn ? formatTimeAgo(pir.lastCheckIn) : 'Never'}</td>
-                                    <td>
-                                        <span className={`badge ${pir.active !== false ? 'badge-success' : 'badge-danger'}`}>
-                                            {pir.active !== false ? 'Active' : 'Inactive'}
+                                <div key={cert.id} style={{
+                                    background: 'var(--text-white, white)',
+                                    borderRadius: 'var(--radius-lg, 16px)',
+                                    padding: '20px',
+                                    boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))',
+                                    borderLeft: `4px solid ${isExpired ? 'var(--danger-color, #dc3545)' : isExpiringSoon ? 'var(--warning-color, #ffc107)' : 'var(--success-color, #28a745)'}`,
+                                    transition: 'var(--transition-fast, all 0.2s ease)'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-3px)'}
+                                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
+                                        <h4 style={{ margin: 0, color: 'var(--text-primary, #333)', fontSize: '18px' }}>
+                                            {cert.name}
+                                        </h4>
+                                        <span className={`badge badge-${isExpired ? 'danger' : isExpiringSoon ? 'warning' : 'success'}`}>
+                                            {isExpired ? 'Expired' : isExpiringSoon ? 'Expiring Soon' : 'Active'}
                                         </span>
-                                    </td>
-                                    <td>
-                                        <button
-                                            className="action-btn"
-                                            onClick={() => {
-                                                setSelectedPIRForRemoval({id: pir.id, name: pir.displayName || pir.email});
-                                                setShowRemovePIRModal(true);
-                                            }}
-                                        >
-                                            Remove
-                                        </button>
-                                    </td>
-                                </tr>
+                                    </div>
+                                    
+                                    <div style={{ color: 'var(--text-secondary, #666)', fontSize: '14px', marginBottom: '8px' }}>
+                                        <strong>Organization:</strong> {cert.organization}
+                                    </div>
+                                    
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '14px', color: 'var(--text-secondary, #666)' }}>
+                                        <div>
+                                            <strong>Obtained:</strong><br/>
+                                            {formatDate(cert.dateObtained)}
+                                        </div>
+                                        {cert.expirationDate && (
+                                            <div>
+                                                <strong>Expires:</strong><br/>
+                                                {formatDate(cert.expirationDate)}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             );
                         })}
-                    </tbody>
-                </table>
-                {assignedPIRs.length === 0 && (
-                    <div className="empty-state">No PIRs assigned to this coach</div>
+                    </div>
+                ) : (
+                    <div className="empty-state" style={{
+                        background: 'var(--text-white, white)',
+                        borderRadius: 'var(--radius-lg, 16px)',
+                        padding: '40px',
+                        textAlign: 'center'
+                    }}>
+                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎓</div>
+                        <p style={{ color: 'var(--text-secondary, #666)' }}>No certifications added yet</p>
+                    </div>
                 )}
             </div>
-        </div>
-    );
-
-    const renderActivityTab = () => (
-        <div className="tab-content">
-            <h4>Recent Activity</h4>
-
-            <div className="activity-section">
-                <h5>Recent Assignments Created ({assignments.length})</h5>
-                {assignments.slice(0, 10).map(assignment => (
-                    <div key={assignment.id} className="activity-item">
-                        <div className="activity-header">
-                            <span className="activity-title">{assignment.title}</span>
-                            <span className="activity-time">{formatTimeAgo(assignment.createdAt)}</span>
-                        </div>
-                        <div className="activity-meta">
-                            Status: <span className={`badge ${
-                                assignment.status === 'completed' ? 'badge-success' :
-                                assignment.status === 'in_progress' ? 'badge-warning' :
-                                'badge-secondary'
-                            }`}>{assignment.status}</span>
-                        </div>
-                    </div>
-                ))}
-                {assignments.length === 0 && (
-                    <div className="empty-state">No assignments created</div>
-                )}
-            </div>
-
-            <div className="activity-section">
-                <h5>Alerts from PIRs</h5>
-                {alerts.slice(0, 10).map(alert => (
-                    <div key={alert.id} className={`alert alert-${alert.type}`}>
-                        <div className="alert-header">
-                            <span className="alert-type">{alert.type.toUpperCase()}</span>
-                            <span className="alert-time">{formatTimeAgo(alert.timestamp)}</span>
-                        </div>
-                        <div className="alert-message">{alert.message}</div>
-                    </div>
-                ))}
-                {alerts.length === 0 && (
-                    <div className="empty-state">No alerts</div>
-                )}
-            </div>
-        </div>
-    );
-
-    const renderPerformanceTab = () => (
-        <div className="tab-content">
-            <h4>Performance Metrics</h4>
-
-            <div className="performance-grid">
-                <div className="metric-card">
-                    <h5>PIR Outcomes</h5>
-                    <div className="metric-item">
-                        <span>Average Days with Coach:</span>
-                        <strong>{stats.avgCaseloadDays} days</strong>
-                    </div>
-                    <div className="metric-item">
-                        <span>Alerts Handled:</span>
-                        <strong>{stats.alertsHandled}</strong>
-                    </div>
-                </div>
-
-                <div className="metric-card">
-                    <h5>Engagement</h5>
-                    <div className="metric-item">
-                        <span>Assignments Created:</span>
-                        <strong>{assignments.length}</strong>
-                    </div>
-                    <div className="metric-item">
-                        <span>Completion Rate:</span>
-                        <strong>{stats.assignmentCompletionRate}%</strong>
-                    </div>
-                </div>
-
-                <div className="metric-card">
-                    <h5>Quality Indicators</h5>
-                    <div className="metric-item">
-                        <span>PIR Satisfaction:</span>
-                        <strong>{stats.satisfactionScore}/5</strong>
-                    </div>
-                    <div className="metric-item">
-                        <span>Check-in Compliance:</span>
-                        <strong>{stats.checkInComplianceRate}%</strong>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-
-    const renderWorkloadTab = () => (
-        <div className="tab-content">
-            <h4>Workload Analysis</h4>
-
-            <div className="workload-section">
-                <div className="workload-card">
-                    <h5>Current Capacity</h5>
-                    <div className="capacity-meter">
-                        <div className="capacity-bar" style={{
-                            width: `${Math.min(stats.totalPIRs * 10, 100)}%`,
-                            backgroundColor: stats.totalPIRs > 10 ? 'var(--warning-color, #ff9800)' : 'var(--success-color, #00A86B)'
-                        }}></div>
-                    </div>
-                    <p>{stats.totalPIRs} PIRs assigned (Recommended max: 10)</p>
-                </div>
-
-                <div className="workload-card">
-                    <h5>PIR Distribution</h5>
-                    {assignedPIRs.map(pir => {
-                        const daysClean = pir.sobrietyDate ?
-                            Math.floor((new Date() - new Date(pir.sobrietyDate)) / (1000 * 60 * 60 * 24)) : 0;
-
-                        return (
-                            <div key={pir.id} className="pir-workload-item">
-                                <span>{pir.displayName || pir.email}</span>
-                                <span className="badge badge-info">{daysClean} days clean</span>
-                            </div>
-                        );
-                    })}
-                </div>
-
-                <div className="workload-recommendations">
-                    <h5>Recommendations</h5>
-                    {stats.totalPIRs > 10 && (
-                        <div className="recommendation-item">
-                            ⚠️ Consider redistributing caseload - coach has more than 10 PIRs
-                        </div>
-                    )}
-                    {stats.checkInComplianceRate < 50 && (
-                        <div className="recommendation-item">
-                            ⚠️ Low check-in compliance - coach may need support or training
-                        </div>
-                    )}
-                    {stats.totalPIRs === 0 && (
-                        <div className="recommendation-item">
-                            ℹ️ Coach has no assigned PIRs - ready for new assignments
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-
-    const renderActionsTab = () => (
-        <div className="tab-content">
-            <h4>Admin Actions</h4>
-
-            {successMessage && (
+            
+            {/* Specializations Section */}
+            <div style={{ marginBottom: '40px' }}>
+                <h3 style={{color: 'var(--text-primary, #333)', marginBottom: '20px'}}>
+                    ⭐ Specializations
+                </h3>
+                
                 <div style={{
-                    background: 'var(--success-color, #00A86B)',
-                    color: 'white',
-                    padding: '12px 20px',
-                    borderRadius: '8px',
-                    marginBottom: '20px',
-                    fontWeight: '500'
+                    background: 'var(--text-white, white)',
+                    borderRadius: 'var(--radius-lg, 16px)',
+                    padding: '25px',
+                    boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))'
                 }}>
-                    ✓ {successMessage}
+                    {specializations.length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                            {specializations.map(spec => (
+                                <span key={spec.id} style={{
+                                    background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--secondary-color, #008B8B))',
+                                    color: 'var(--text-white, white)',
+                                    padding: '8px 16px',
+                                    borderRadius: 'var(--radius-sm, 8px)',
+                                    fontSize: '14px',
+                                    fontWeight: '500'
+                                }}>
+                                    {spec.name}
+                                </span>
+                            ))}
+                        </div>
+                    ) : (
+                        <p style={{ color: 'var(--text-secondary, #666)', textAlign: 'center', margin: 0 }}>
+                            No specializations added yet
+                        </p>
+                    )}
+                </div>
+            </div>
+            
+            {/* Training History Section */}
+            <div>
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '20px'
+                }}>
+                    <h3 style={{color: 'var(--text-primary, #333)'}}>
+                        📚 Training History ({trainings.length})
+                    </h3>
+                    
+                    {currentUser?.role === 'superadmin' && (
+                        <button
+                            className="btn btn-primary"
+                            onClick={() => setShowAddTrainingModal(true)}
+                            style={{
+                                background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--primary-dark, #005fa3))',
+                                color: 'var(--text-white, white)',
+                                border: 'none',
+                                padding: '10px 20px',
+                                borderRadius: 'var(--radius-sm, 8px)',
+                                cursor: 'pointer',
+                                fontWeight: '500'
+                            }}
+                        >
+                            + Add Training
+                        </button>
+                    )}
+                </div>
+                
+                {trainings.length > 0 ? (
+                    <div style={{
+                        background: 'var(--text-white, white)',
+                        borderRadius: 'var(--radius-lg, 16px)',
+                        boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))',
+                        overflow: 'hidden'
+                    }}>
+                        <div className="table-container">
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{
+                                        background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--secondary-color, #008B8B))',
+                                        color: 'var(--text-white, white)'
+                                    }}>
+                                        <th style={{ padding: '15px', textAlign: 'left' }}>Training Name</th>
+                                        <th style={{ padding: '15px', textAlign: 'left' }}>Organization</th>
+                                        <th style={{ padding: '15px', textAlign: 'center' }}>Type</th>
+                                        <th style={{ padding: '15px', textAlign: 'center' }}>Hours</th>
+                                        <th style={{ padding: '15px', textAlign: 'center' }}>Date Completed</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {trainings.map(training => (
+                                        <tr key={training.id} style={{
+                                            borderBottom: '1px solid var(--border-color, #e0e0e0)'
+                                        }}>
+                                            <td style={{ padding: '15px' }}>{training.name}</td>
+                                            <td style={{ padding: '15px', color: 'var(--text-secondary, #666)' }}>{training.organization}</td>
+                                            <td style={{ padding: '15px', textAlign: 'center' }}>
+                                                <span className="badge badge-info">
+                                                    {training.type}
+                                                </span>
+                                            </td>
+                                            <td style={{ padding: '15px', textAlign: 'center', fontWeight: 'bold' }}>
+                                                {training.hours} hrs
+                                            </td>
+                                            <td style={{ padding: '15px', textAlign: 'center', color: 'var(--text-secondary, #666)', fontSize: '14px' }}>
+                                                {formatDate(training.dateCompleted)}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <div style={{
+                            padding: '20px',
+                            background: 'linear-gradient(135deg, var(--primary-color-light, rgba(0,119,204,0.1)), var(--secondary-color-light, rgba(0,139,139,0.1)))',
+                            borderTop: '1px solid var(--border-color, #e0e0e0)'
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <strong style={{ color: 'var(--text-primary, #333)' }}>Total Training Hours:</strong>
+                                </div>
+                                <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--primary-color, #0077CC)' }}>
+                                    {trainings.reduce((sum, t) => sum + (t.hours || 0), 0)} hours
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="empty-state" style={{
+                        background: 'var(--text-white, white)',
+                        borderRadius: 'var(--radius-lg, 16px)',
+                        padding: '40px',
+                        textAlign: 'center'
+                    }}>
+                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>📚</div>
+                        <p style={{ color: 'var(--text-secondary, #666)' }}>No training history added yet</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+    
+    // ========== RENDER: WORKLOAD TAB ==========
+    const renderWorkloadTab = () => {
+        const maxRecommendedCaseload = 15;
+        const capacityPercentage = (stats.totalPIRs / maxRecommendedCaseload) * 100;
+        const isOverCapacity = stats.totalPIRs > maxRecommendedCaseload;
+        
+        return (
+            <div className="tab-content" style={{ padding: '20px' }}>
+                {/* Capacity Meter */}
+                <div style={{
+                    background: 'var(--text-white, white)',
+                    borderRadius: 'var(--radius-lg, 16px)',
+                    padding: '30px',
+                    boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))',
+                    marginBottom: '30px'
+                }}>
+                    <h3 style={{ margin: '0 0 20px 0', color: 'var(--text-primary, #333)' }}>
+                        Current Capacity
+                    </h3>
+                    
+                    <div style={{ marginBottom: '20px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                            <span style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--text-primary, #333)' }}>
+                                {stats.totalPIRs} / {maxRecommendedCaseload} PIRs
+                            </span>
+                            <span style={{ 
+                                fontSize: '18px', 
+                                fontWeight: 'bold',
+                                color: isOverCapacity ? 'var(--danger-color, #dc3545)' : 'var(--success-color, #28a745)'
+                            }}>
+                                {Math.min(Math.round(capacityPercentage), 100)}%
+                            </span>
+                        </div>
+                        
+                        <div style={{
+                            width: '100%',
+                            height: '30px',
+                            background: 'var(--background-light, #f0f0f0)',
+                            borderRadius: 'var(--radius-sm, 8px)',
+                            overflow: 'hidden',
+                            position: 'relative'
+                        }}>
+                            <div style={{
+                                width: `${Math.min(capacityPercentage, 100)}%`,
+                                height: '100%',
+                                background: isOverCapacity 
+                                    ? 'linear-gradient(135deg, var(--danger-color, #dc3545), var(--error-color, #c82333))'
+                                    : capacityPercentage > 80
+                                    ? 'linear-gradient(135deg, var(--warning-color, #ffc107), var(--warning-dark, #e0a800))'
+                                    : 'linear-gradient(135deg, var(--success-color, #28a745), var(--success-dark, #1e7e34))',
+                                transition: 'width 0.5s ease',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'var(--text-white, white)',
+                                fontWeight: 'bold',
+                                fontSize: '14px'
+                            }}>
+                                {stats.totalPIRs > 0 && `${stats.totalPIRs} PIRs`}
+                            </div>
+                        </div>
+                        
+                        {isOverCapacity && (
+                            <div style={{
+                                marginTop: '15px',
+                                padding: '12px 16px',
+                                background: 'var(--danger-color-light, rgba(220,53,69,0.1))',
+                                border: '1px solid var(--danger-color, #dc3545)',
+                                borderRadius: 'var(--radius-sm, 8px)',
+                                color: 'var(--danger-color, #dc3545)',
+                                fontSize: '14px',
+                                fontWeight: '500'
+                            }}>
+                                ⚠️ Warning: Coach is over recommended capacity. Consider redistributing PIRs.
+                            </div>
+                        )}
+                    </div>
+                </div>
+                
+                {/* Caseload Distribution */}
+                <div style={{
+                    background: 'var(--text-white, white)',
+                    borderRadius: 'var(--radius-lg, 16px)',
+                    padding: '30px',
+                    boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))',
+                    marginBottom: '30px'
+                }}>
+                    <h3 style={{ margin: '0 0 20px 0', color: 'var(--text-primary, #333)' }}>
+                        Caseload Distribution
+                    </h3>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
+                        <div style={{
+                            padding: '20px',
+                            background: 'linear-gradient(135deg, var(--info-color, #17a2b8), var(--info-dark, #117a8b))',
+                            borderRadius: 'var(--radius-md, 12px)',
+                            color: 'var(--text-white, white)'
+                        }}>
+                            <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>New PIRs</div>
+                            <div style={{ fontSize: '32px', fontWeight: 'bold' }}>
+                                {assignedPIRs.filter(p => {
+                                    if (!p.assignedDate) return false;
+                                    const days = Math.floor((new Date() - p.assignedDate.toDate()) / (1000 * 60 * 60 * 24));
+                                    return days < 30;
+                                }).length}
+                            </div>
+                            <div style={{ fontSize: '12px', opacity: 0.8 }}>{'< 30 days'}</div>
+                        </div>
+                        
+                        <div style={{
+                            padding: '20px',
+                            background: 'linear-gradient(135deg, var(--success-color, #28a745), var(--success-dark, #1e7e34))',
+                            borderRadius: 'var(--radius-md, 12px)',
+                            color: 'var(--text-white, white)'
+                        }}>
+                            <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Stable PIRs</div>
+                            <div style={{ fontSize: '32px', fontWeight: 'bold' }}>
+                                {assignedPIRs.filter(p => {
+                                    if (!p.assignedDate) return false;
+                                    const days = Math.floor((new Date() - p.assignedDate.toDate()) / (1000 * 60 * 60 * 24));
+                                    return days >= 30 && days <= 90;
+                                }).length}
+                            </div>
+                            <div style={{ fontSize: '12px', opacity: 0.8 }}>30-90 days</div>
+                        </div>
+                        
+                        <div style={{
+                            padding: '20px',
+                            background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--primary-dark, #005fa3))',
+                            borderRadius: 'var(--radius-md, 12px)',
+                            color: 'var(--text-white, white)'
+                        }}>
+                            <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Long-term PIRs</div>
+                            <div style={{ fontSize: '32px', fontWeight: 'bold' }}>
+                                {assignedPIRs.filter(p => {
+                                    if (!p.assignedDate) return false;
+                                    const days = Math.floor((new Date() - p.assignedDate.toDate()) / (1000 * 60 * 60 * 24));
+                                    return days > 90;
+                                }).length}
+                            </div>
+                            <div style={{ fontSize: '12px', opacity: 0.8 }}> {'> 90 days'}</div>
+                        </div>
+                    </div>
+                </div>
+                
+                {/* Workload Summary */}
+                <div style={{
+                    background: 'var(--text-white, white)',
+                    borderRadius: 'var(--radius-lg, 16px)',
+                    padding: '30px',
+                    boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))'
+                }}>
+                    <h3 style={{ margin: '0 0 20px 0', color: 'var(--text-primary, #333)' }}>
+                        Workload Summary
+                    </h3>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                        <div>
+                            <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>
+                                Average Caseload Duration
+                            </label>
+                            <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--text-primary, #333)' }}>
+                                {stats.avgCaseloadDays} days
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>
+                                Check-in Compliance Rate
+                            </label>
+                            <div style={{ fontSize: '24px', fontWeight: 'bold', color: stats.checkInComplianceRate >= 70 ? 'var(--success-color, #28a745)' : 'var(--warning-color, #ffc107)' }}>
+                                {stats.checkInComplianceRate}%
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>
+                                Assignment Completion Rate
+                            </label>
+                            <div style={{ fontSize: '24px', fontWeight: 'bold', color: stats.assignmentCompletionRate >= 60 ? 'var(--success-color, #28a745)' : 'var(--warning-color, #ffc107)' }}>
+                                {stats.assignmentCompletionRate}%
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', fontSize: '14px', display: 'block', marginBottom: '8px' }}>
+                                Alerts Handled
+                            </label>
+                            <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--text-primary, #333)' }}>
+                                {stats.alertsHandled}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+    
+    // ========== RENDER: ACTIVITY TAB ==========
+    const renderActivityTab = () => (
+        <div className="tab-content" style={{ padding: '20px' }}>
+            <h3 style={{ margin: '0 0 20px 0', color: 'var(--text-primary, #333)' }}>
+                Recent Activity
+            </h3>
+            
+            {activities.length > 0 ? (
+                <div style={{
+                    background: 'var(--text-white, white)',
+                    borderRadius: 'var(--radius-lg, 16px)',
+                    boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))',
+                    overflow: 'hidden'
+                }}>
+                    {activities.map((activity, index) => (
+                        <div key={activity.id} style={{
+                            padding: '20px',
+                            borderBottom: index < activities.length - 1 ? '1px solid var(--border-color, #e0e0e0)' : 'none',
+                            display: 'flex',
+                            alignItems: 'start',
+                            gap: '15px',
+                            transition: 'var(--transition-fast, all 0.2s ease)'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--background-hover, #f8f9fa)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        >
+                            <div style={{
+                                width: '40px',
+                                height: '40px',
+                                borderRadius: '50%',
+                                background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--secondary-color, #008B8B))',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'var(--text-white, white)',
+                                fontWeight: 'bold',
+                                flexShrink: 0
+                            }}>
+                                {activity.type === 'assignment' ? '📝' : 
+                                 activity.type === 'session' ? '📅' :
+                                 activity.type === 'alert' ? '🚨' : '📌'}
+                            </div>
+                            
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 'bold', color: 'var(--text-primary, #333)', marginBottom: '4px' }}>
+                                    {activity.title || activity.description}
+                                </div>
+                                <div style={{ color: 'var(--text-secondary, #666)', fontSize: '14px' }}>
+                                    {formatDateTime(activity.timestamp)}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="empty-state" style={{
+                    background: 'var(--text-white, white)',
+                    borderRadius: 'var(--radius-lg, 16px)',
+                    padding: '60px 40px',
+                    textAlign: 'center'
+                }}>
+                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>📅</div>
+                    <h4 style={{ margin: '0 0 10px 0', color: 'var(--text-primary, #333)' }}>No Recent Activity</h4>
+                    <p style={{ color: 'var(--text-secondary, #666)' }}>
+                        No recent activity to display
+                    </p>
                 </div>
             )}
-
-            <div className="actions-grid">
-                <button className="action-card" onClick={() => setShowAssignPIRModal(true)}>
-                    <span className="action-icon">➕</span>
-                    <span>Assign PIR</span>
-                </button>
-
-                <button className="action-card" onClick={handleExportReport}>
-                    <span className="action-icon">📊</span>
-                    <span>Export Report</span>
-                </button>
-
-                <button className="action-card" onClick={() => {
-                    const newStatus = coach.active === false ? true : false;
-                    db.collection('users').doc(coach.id).update({ active: newStatus })
-                        .then(() => {
-                            setSuccessMessage(`Coach ${newStatus ? 'activated' : 'deactivated'}`);
-                            setTimeout(() => setSuccessMessage(''), 3000);
-                            onUpdate();
-                        });
-                }}>
-                    <span className="action-icon">{coach.active !== false ? '🚫' : '✅'}</span>
-                    <span>{coach.active !== false ? 'Deactivate' : 'Activate'}</span>
-                </button>
-
-                <button className="action-card" onClick={() => loadCoachData()}>
-                    <span className="action-icon">🔄</span>
-                    <span>Refresh Data</span>
-                </button>
-            </div>
         </div>
     );
-
-    return (
-        <div className="modal-overlay">
-            <div className="modal-content" style={{maxWidth: '900px', maxHeight: '80vh', overflowY: 'auto'}}>
-                <div className="modal-header">
-                    <h3>{coach.displayName || coach.email} - Coach View</h3>
-                    <button className="close-btn" onClick={onClose}>×</button>
+    
+    // ========== RENDER: ACTIONS TAB (ADMIN ONLY) ==========
+    const renderActionsTab = () => {
+        if (currentUser?.role !== 'superadmin') {
+            return (
+                <div className="tab-content" style={{ padding: '20px' }}>
+                    <div className="empty-state" style={{
+                        background: 'var(--text-white, white)',
+                        borderRadius: 'var(--radius-lg, 16px)',
+                        padding: '60px 40px',
+                        textAlign: 'center'
+                    }}>
+                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
+                        <h4 style={{ margin: '0 0 10px 0', color: 'var(--text-primary, #333)' }}>Access Restricted</h4>
+                        <p style={{ color: 'var(--text-secondary, #666)' }}>
+                            Only super admins can access this section
+                        </p>
+                    </div>
                 </div>
+            );
+        }
+        
+        return (
+            <div className="tab-content" style={{ padding: '20px' }}>
+                <h3 style={{ margin: '0 0 20px 0', color: 'var(--text-primary, #333)' }}>
+                    Administrative Actions
+                </h3>
+                
+                <div style={{ display: 'grid', gap: '20px' }}>
+                    {/* Activate/Deactivate Account */}
+                    <div style={{
+                        background: 'var(--text-white, white)',
+                        borderRadius: 'var(--radius-lg, 16px)',
+                        padding: '25px',
+                        boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))'
+                    }}>
+                        <h4 style={{ margin: '0 0 10px 0', color: 'var(--text-primary, #333)' }}>
+                            Account Status
+                        </h4>
+                        <p style={{ color: 'var(--text-secondary, #666)', marginBottom: '15px' }}>
+                            {coachProfile?.active 
+                                ? 'Deactivating will prevent this coach from logging in'
+                                : 'Activating will allow this coach to log in'}
+                        </p>
+                        <button
+                            onClick={handleToggleActiveStatus}
+                            disabled={saving}
+                            style={{
+                                background: coachProfile?.active 
+                                    ? 'linear-gradient(135deg, var(--warning-color, #ffc107), var(--warning-dark, #e0a800))'
+                                    : 'linear-gradient(135deg, var(--success-color, #28a745), var(--success-dark, #1e7e34))',
+                                color: 'var(--text-white, white)',
+                                border: 'none',
+                                padding: '12px 24px',
+                                borderRadius: 'var(--radius-sm, 8px)',
+                                cursor: saving ? 'not-allowed' : 'pointer',
+                                fontWeight: '500',
+                                fontSize: '15px'
+                            }}
+                        >
+                            {saving ? 'Processing...' : coachProfile?.active ? 'Deactivate Account' : 'Activate Account'}
+                        </button>
+                    </div>
+                    
+                    {/* Delete Account */}
+                    {!coachProfile?.deleted && (
+                        <div style={{
+                            background: 'var(--text-white, white)',
+                            borderRadius: 'var(--radius-lg, 16px)',
+                            padding: '25px',
+                            boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))',
+                            border: '2px solid var(--danger-color, #dc3545)'
+                        }}>
+                            <h4 style={{ margin: '0 0 10px 0', color: 'var(--danger-color, #dc3545)' }}>
+                                ⚠️ Danger Zone
+                            </h4>
+                            <p style={{ color: 'var(--text-secondary, #666)', marginBottom: '15px' }}>
+                                Deleting this coach will soft-delete the account. Data will be preserved for compliance but the account cannot be recovered.
+                            </p>
+                            <button
+                                onClick={() => setShowDeleteConfirmModal(true)}
+                                style={{
+                                    background: 'var(--danger-color, #dc3545)',
+                                    color: 'var(--text-white, white)',
+                                    border: 'none',
+                                    padding: '12px 24px',
+                                    borderRadius: 'var(--radius-sm, 8px)',
+                                    cursor: 'pointer',
+                                    fontWeight: '500',
+                                    fontSize: '15px'
+                                }}
+                            >
+                                Delete Coach Account
+                            </button>
+                        </div>
+                    )}
+                    
+                    {/* Permission Level (for admins) */}
+                    {coachProfile?.role === 'admin' && (
+                        <div style={{
+                            background: 'var(--text-white, white)',
+                            borderRadius: 'var(--radius-lg, 16px)',
+                            padding: '25px',
+                            boxShadow: 'var(--shadow-sm, 0 2px 4px rgba(0,0,0,0.05))'
+                        }}>
+                            <h4 style={{ margin: '0 0 10px 0', color: 'var(--text-primary, #333)' }}>
+                                Permission Level
+                            </h4>
+                            <p style={{ color: 'var(--text-secondary, #666)', marginBottom: '15px' }}>
+                                Current permission level: <strong>{formatPermissionLevel(coachProfile.permissionLevel || 'admin')}</strong>
+                            </p>
+                            <p style={{ color: 'var(--text-muted, #999)', fontSize: '14px', fontStyle: 'italic' }}>
+                                Permission level management will be available after settings integration is complete
+                            </p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+    
+    // ========== MAIN RENDER ==========
+    if (!coach || !coach.id) {
+        return null;
+    }
+    
+    return (
+        <div className="modal-overlay" onClick={onClose}>
+            <div className="modal-content" style={{ maxWidth: '1200px', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header" style={{
+                    background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--secondary-color, #008B8B))',
+                    color: 'var(--text-white, white)',
+                    padding: '20px 30px',
+                    borderRadius: '16px 16px 0 0'
+                }}>
+                    <div>
+                        <h2 style={{ margin: '0 0 5px 0' }}>
+                            {coachProfile?.displayName || coach.email}
+                        </h2>
+                        <p style={{ margin: 0, opacity: 0.9, fontSize: '14px' }}>
+                            {formatRole(coach.role)} • {coach.email}
+                        </p>
+                    </div>
+                    <button className="close-btn" onClick={onClose} style={{
+                        background: 'var(--text-white, white)',
+                        color: 'var(--primary-color, #0077CC)',
+                        border: 'none',
+                        fontSize: '24px',
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '50%',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 'bold'
+                    }}>×</button>
+                </div>
+                
+                {/* Success Message */}
+                {successMessage && (
+                    <div style={{
+                        position: 'fixed',
+                        top: '20px',
+                        right: '20px',
+                        background: 'linear-gradient(135deg, var(--success-color, #28a745), var(--success-dark, #1e7e34))',
+                        color: 'var(--text-white, white)',
+                        padding: '15px 25px',
+                        borderRadius: 'var(--radius-md, 12px)',
+                        boxShadow: 'var(--shadow-lg, 0 10px 25px rgba(0,0,0,0.2))',
+                        fontWeight: '500',
+                        zIndex: 10000,
+                        animation: 'slideIn 0.3s ease'
+                    }}>
+                        {successMessage}
+                    </div>
+                )}
                 
                 {coach.role === 'coach' || coach.role === 'admin' ? (
                     <>
-                        <div className="tab-nav">
+                        {/* Tabs */}
+                        <div style={{
+                            display: 'flex',
+                            gap: '5px',
+                            padding: '15px 20px 0',
+                            borderBottom: '2px solid var(--border-color, #e0e0e0)',
+                            overflowX: 'auto'
+                        }}>
                             <button 
                                 className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
                                 onClick={() => setActiveTab('overview')}
+                                style={{
+                                    background: activeTab === 'overview' 
+                                        ? 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--secondary-color, #008B8B))'
+                                        : 'transparent',
+                                    color: activeTab === 'overview' ? 'var(--text-white, white)' : 'var(--text-secondary, #666)',
+                                    border: 'none',
+                                    padding: '12px 24px',
+                                    borderRadius: 'var(--radius-sm, 8px) var(--radius-sm, 8px) 0 0',
+                                    cursor: 'pointer',
+                                    fontWeight: '500',
+                                    transition: 'var(--transition-fast, all 0.2s ease)',
+                                    whiteSpace: 'nowrap'
+                                }}
                             >
                                 Overview
                             </button>
                             <button 
                                 className={`tab-btn ${activeTab === 'caseload' ? 'active' : ''}`}
                                 onClick={() => setActiveTab('caseload')}
+                                style={{
+                                    background: activeTab === 'caseload' 
+                                        ? 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--secondary-color, #008B8B))'
+                                        : 'transparent',
+                                    color: activeTab === 'caseload' ? 'var(--text-white, white)' : 'var(--text-secondary, #666)',
+                                    border: 'none',
+                                    padding: '12px 24px',
+                                    borderRadius: 'var(--radius-sm, 8px) var(--radius-sm, 8px) 0 0',
+                                    cursor: 'pointer',
+                                    fontWeight: '500',
+                                    transition: 'var(--transition-fast, all 0.2s ease)',
+                                    whiteSpace: 'nowrap'
+                                }}
                             >
                                 Caseload
                             </button>
                             <button 
-                                className={`tab-btn ${activeTab === 'activity' ? 'active' : ''}`}
-                                onClick={() => setActiveTab('activity')}
+                                className={`tab-btn ${activeTab === 'training' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('training')}
+                                style={{
+                                    background: activeTab === 'training' 
+                                        ? 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--secondary-color, #008B8B))'
+                                        : 'transparent',
+                                    color: activeTab === 'training' ? 'var(--text-white, white)' : 'var(--text-secondary, #666)',
+                                    border: 'none',
+                                    padding: '12px 24px',
+                                    borderRadius: 'var(--radius-sm, 8px) var(--radius-sm, 8px) 0 0',
+                                    cursor: 'pointer',
+                                    fontWeight: '500',
+                                    transition: 'var(--transition-fast, all 0.2s ease)',
+                                    whiteSpace: 'nowrap'
+                                }}
                             >
-                                Activity
-                            </button>
-                            <button 
-                                className={`tab-btn ${activeTab === 'performance' ? 'active' : ''}`}
-                                onClick={() => setActiveTab('performance')}
-                            >
-                                Performance
+                                Training & Credentials
                             </button>
                             <button 
                                 className={`tab-btn ${activeTab === 'workload' ? 'active' : ''}`}
                                 onClick={() => setActiveTab('workload')}
+                                style={{
+                                    background: activeTab === 'workload' 
+                                        ? 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--secondary-color, #008B8B))'
+                                        : 'transparent',
+                                    color: activeTab === 'workload' ? 'var(--text-white, white)' : 'var(--text-secondary, #666)',
+                                    border: 'none',
+                                    padding: '12px 24px',
+                                    borderRadius: 'var(--radius-sm, 8px) var(--radius-sm, 8px) 0 0',
+                                    cursor: 'pointer',
+                                    fontWeight: '500',
+                                    transition: 'var(--transition-fast, all 0.2s ease)',
+                                    whiteSpace: 'nowrap'
+                                }}
                             >
                                 Workload
                             </button>
                             <button 
-                                className={`tab-btn ${activeTab === 'actions' ? 'active' : ''}`}
-                                onClick={() => setActiveTab('actions')}
+                                className={`tab-btn ${activeTab === 'activity' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('activity')}
+                                style={{
+                                    background: activeTab === 'activity' 
+                                        ? 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--secondary-color, #008B8B))'
+                                        : 'transparent',
+                                    color: activeTab === 'activity' ? 'var(--text-white, white)' : 'var(--text-secondary, #666)',
+                                    border: 'none',
+                                    padding: '12px 24px',
+                                    borderRadius: 'var(--radius-sm, 8px) var(--radius-sm, 8px) 0 0',
+                                    cursor: 'pointer',
+                                    fontWeight: '500',
+                                    transition: 'var(--transition-fast, all 0.2s ease)',
+                                    whiteSpace: 'nowrap'
+                                }}
                             >
-                                Actions
+                                Activity
                             </button>
+                            {currentUser?.role === 'superadmin' && (
+                                <button 
+                                    className={`tab-btn ${activeTab === 'actions' ? 'active' : ''}`}
+                                    onClick={() => setActiveTab('actions')}
+                                    style={{
+                                        background: activeTab === 'actions' 
+                                            ? 'linear-gradient(135deg, var(--danger-color, #dc3545), var(--error-color, #c82333))'
+                                            : 'transparent',
+                                        color: activeTab === 'actions' ? 'var(--text-white, white)' : 'var(--text-secondary, #666)',
+                                        border: 'none',
+                                        padding: '12px 24px',
+                                        borderRadius: 'var(--radius-sm, 8px) var(--radius-sm, 8px) 0 0',
+                                        cursor: 'pointer',
+                                        fontWeight: '500',
+                                        transition: 'var(--transition-fast, all 0.2s ease)',
+                                        whiteSpace: 'nowrap'
+                                    }}
+                                >
+                                    Actions
+                                </button>
+                            )}
                         </div>
                         
-                        {loading ? (
-                            <div className="loading-container">
-                                <div className="loading-spinner"></div>
-                            </div>
-                        ) : (
-                            <>
-                                {activeTab === 'overview' && renderOverviewTab()}
-                                {activeTab === 'caseload' && renderCaseloadTab()}
-                                {activeTab === 'activity' && renderActivityTab()}
-                                {activeTab === 'performance' && renderPerformanceTab()}
-                                {activeTab === 'workload' && renderWorkloadTab()}
-                                {activeTab === 'actions' && renderActionsTab()}
-                            </>
-                        )}
+                        {/* Tab Content */}
+                        <div className="modal-body" style={{ maxHeight: '600px', overflowY: 'auto' }}>
+                            {loading ? (
+                                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+                                    <div className="loading-spinner"></div>
+                                </div>
+                            ) : (
+                                <>
+                                    {activeTab === 'overview' && renderOverviewTab()}
+                                    {activeTab === 'caseload' && renderCaseloadTab()}
+                                    {activeTab === 'training' && renderTrainingTab()}
+                                    {activeTab === 'workload' && renderWorkloadTab()}
+                                    {activeTab === 'activity' && renderActivityTab()}
+                                    {activeTab === 'actions' && renderActionsTab()}
+                                </>
+                            )}
+                        </div>
                     </>
                 ) : (
-                    <div className="modal-body">
-                        <p>This user is not a coach.</p>
+                    <div className="modal-body" style={{ padding: '40px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>👤</div>
+                        <p style={{ color: 'var(--text-secondary, #666)' }}>
+                            This user is not a coach or admin.
+                        </p>
                     </div>
                 )}
             </div>
-
+            
             {/* Assign PIR Modal */}
             {showAssignPIRModal && (
                 <div className="modal-overlay" onClick={() => setShowAssignPIRModal(false)}>
-                    <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-                        <div className="modal-header">
-                            <h3>Assign PIR to Coach</h3>
-                            <button className="close-btn" onClick={() => setShowAssignPIRModal(false)}>×</button>
+                    <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+                        <div className="modal-header" style={{
+                            background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--secondary-color, #008B8B))',
+                            color: 'var(--text-white, white)'
+                        }}>
+                            <h3 style={{ margin: 0 }}>Assign PIR to Coach</h3>
+                            <button className="close-btn" onClick={() => setShowAssignPIRModal(false)} style={{
+                                background: 'var(--text-white, white)',
+                                color: 'var(--primary-color, #0077CC)',
+                                border: 'none',
+                                fontSize: '24px',
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                cursor: 'pointer'
+                            }}>×</button>
                         </div>
-                        <div className="modal-body">
-                            <div className="form-group">
-                                <label>Search PIR by Email</label>
+                        <div className="modal-body" style={{ padding: '25px' }}>
+                            <div className="form-group" style={{ marginBottom: '20px' }}>
+                                <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', display: 'block', marginBottom: '8px' }}>
+                                    Search PIR by Email
+                                </label>
                                 <input
                                     type="email"
                                     className="form-control"
                                     placeholder="Enter PIR email..."
                                     value={assignPIRForm.email}
                                     onChange={(e) => handleSearchPIR(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px',
+                                        border: '1px solid var(--border-color, #ddd)',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        fontSize: '14px'
+                                    }}
                                 />
-                                <small style={{color: 'var(--text-muted, #666)'}}>
+                                <small style={{color: 'var(--text-muted, #666)', fontSize: '13px', display: 'block', marginTop: '6px'}}>
                                     Type at least 3 characters to search for unassigned PIRs
                                 </small>
                             </div>
-
+                            
                             {assignPIRError && (
                                 <div style={{
                                     background: 'var(--error-color, #dc3545)',
-                                    color: 'white',
+                                    color: 'var(--text-white, white)',
                                     padding: '12px 20px',
-                                    borderRadius: '8px',
-                                    marginTop: '15px',
+                                    borderRadius: 'var(--radius-sm, 8px)',
+                                    marginBottom: '15px',
                                     fontWeight: '500'
                                 }}>
                                     ✗ {assignPIRError}
                                 </div>
                             )}
-
+                            
                             {assignPIRForm.searchResults.length > 0 && (
                                 <div style={{marginTop: '20px'}}>
-                                    <h5>Search Results</h5>
-                                    <div className="table-container">
-                                        <table>
-                                            <thead>
-                                                <tr>
-                                                    <th>Name</th>
-                                                    <th>Email</th>
-                                                    <th>Status</th>
-                                                    <th>Action</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {assignPIRForm.searchResults.map(pir => (
-                                                    <tr key={pir.id}>
-                                                        <td>{pir.displayName || 'N/A'}</td>
-                                                        <td>{pir.email}</td>
-                                                        <td>
-                                                            <span className={`badge ${pir.active !== false ? 'badge-success' : 'badge-danger'}`}>
-                                                                {pir.active !== false ? 'Active' : 'Inactive'}
-                                                            </span>
-                                                        </td>
-                                                        <td>
-                                                            <button
-                                                                className="btn btn-primary btn-sm"
-                                                                onClick={() => handleAssignPIR(pir.id, pir.displayName || pir.email)}
-                                                                disabled={assigning}
-                                                            >
-                                                                {assigning ? 'Assigning...' : 'Assign'}
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                                    <h5 style={{ marginBottom: '10px', color: 'var(--text-primary, #333)' }}>Search Results</h5>
+                                    <div style={{
+                                        border: '1px solid var(--border-color, #ddd)',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        overflow: 'hidden'
+                                    }}>
+                                        {assignPIRForm.searchResults.map(pir => (
+                                            <div key={pir.id} style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                padding: '12px 15px',
+                                                borderBottom: '1px solid var(--border-color, #e0e0e0)'
+                                            }}>
+                                                <div>
+                                                    <div style={{ fontWeight: 'bold', color: 'var(--text-primary, #333)' }}>
+                                                        {pir.displayName || 'N/A'}
+                                                    </div>
+                                                    <div style={{ fontSize: '13px', color: 'var(--text-secondary, #666)' }}>
+                                                        {pir.email}
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    className="btn btn-primary btn-sm"
+                                                    onClick={() => handleAssignPIR(pir.id, pir.displayName || pir.email)}
+                                                    disabled={assigning}
+                                                    style={{
+                                                        background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--primary-dark, #005fa3))',
+                                                        color: 'var(--text-white, white)',
+                                                        border: 'none',
+                                                        padding: '6px 16px',
+                                                        borderRadius: 'var(--radius-sm, 8px)',
+                                                        cursor: assigning ? 'not-allowed' : 'pointer',
+                                                        fontWeight: '500',
+                                                        fontSize: '13px'
+                                                    }}
+                                                >
+                                                    {assigning ? 'Assigning...' : 'Assign'}
+                                                </button>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             )}
-
+                            
                             {assignPIRForm.email.length >= 3 && assignPIRForm.searchResults.length === 0 && (
-                                <div className="empty-state" style={{marginTop: '20px'}}>
+                                <div className="empty-state" style={{
+                                    padding: '30px',
+                                    textAlign: 'center',
+                                    background: 'var(--background-light, #f8f9fa)',
+                                    borderRadius: 'var(--radius-sm, 8px)',
+                                    marginTop: '20px'
+                                }}>
                                     No unassigned PIRs found matching "{assignPIRForm.email}"
                                 </div>
                             )}
@@ -35430,20 +36808,32 @@ function CoachDetailModal({ coach, onClose, onUpdate, currentUserId }) {
                     </div>
                 </div>
             )}
-
+            
             {/* Remove PIR Confirmation Modal */}
             {showRemovePIRModal && selectedPIRForRemoval && (
                 <div className="modal-overlay" onClick={() => setShowRemovePIRModal(false)}>
                     <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{maxWidth: '500px'}}>
-                        <div className="modal-header">
-                            <h3>Confirm Remove PIR</h3>
-                            <button className="close-btn" onClick={() => setShowRemovePIRModal(false)}>×</button>
+                        <div className="modal-header" style={{
+                            background: 'linear-gradient(135deg, var(--danger-color, #dc3545), var(--error-color, #c82333))',
+                            color: 'var(--text-white, white)'
+                        }}>
+                            <h3 style={{ margin: 0 }}>Confirm Remove PIR</h3>
+                            <button className="close-btn" onClick={() => setShowRemovePIRModal(false)} style={{
+                                background: 'var(--text-white, white)',
+                                color: 'var(--danger-color, #dc3545)',
+                                border: 'none',
+                                fontSize: '24px',
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                cursor: 'pointer'
+                            }}>×</button>
                         </div>
-                        <div className="modal-body">
-                            <p style={{marginBottom: '20px'}}>
+                        <div className="modal-body" style={{ padding: '25px' }}>
+                            <p style={{marginBottom: '20px', color: 'var(--text-primary, #333)'}}>
                                 Are you sure you want to remove <strong>{selectedPIRForRemoval.name}</strong> from this coach's caseload?
                             </p>
-                            <p style={{color: 'var(--text-muted, #666)', fontSize: '0.9em'}}>
+                            <p style={{color: 'var(--text-muted, #666)', fontSize: '14px'}}>
                                 The PIR will become unassigned and can be assigned to another coach.
                             </p>
                             <div style={{display: 'flex', gap: '10px', marginTop: '20px', justifyContent: 'flex-end'}}>
@@ -35454,6 +36844,15 @@ function CoachDetailModal({ coach, onClose, onUpdate, currentUserId }) {
                                         setSelectedPIRForRemoval(null);
                                     }}
                                     disabled={removing}
+                                    style={{
+                                        background: 'var(--text-muted, #6c757d)',
+                                        color: 'var(--text-white, white)',
+                                        border: 'none',
+                                        padding: '10px 20px',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        cursor: 'pointer',
+                                        fontWeight: '500'
+                                    }}
                                 >
                                     Cancel
                                 </button>
@@ -35461,6 +36860,15 @@ function CoachDetailModal({ coach, onClose, onUpdate, currentUserId }) {
                                     className="btn btn-danger"
                                     onClick={handleRemovePIR}
                                     disabled={removing}
+                                    style={{
+                                        background: 'var(--danger-color, #dc3545)',
+                                        color: 'var(--text-white, white)',
+                                        border: 'none',
+                                        padding: '10px 20px',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        cursor: removing ? 'not-allowed' : 'pointer',
+                                        fontWeight: '500'
+                                    }}
                                 >
                                     {removing ? 'Removing...' : 'Remove PIR'}
                                 </button>
@@ -35469,169 +36877,451 @@ function CoachDetailModal({ coach, onClose, onUpdate, currentUserId }) {
                     </div>
                 </div>
             )}
-        </div>
-    );
-}
-
-        function CreateGroupModal({ onClose, onSuccess, adminId }) {
-            const [formData, setFormData] = useState({
-                name: '',
-                description: '',
-                dayOfWeek: 'Monday',
-                time: '18:00',
-                recurring: true,
-                link: '',
-                members: []
-            });
-            const [loading, setLoading] = useState(false);
-
-            const handleSubmit = async (e) => {
-                e.preventDefault();
-                setLoading(true);
-                
-                try {
-                    await db.collection('groups').add({
-                        ...formData,
-                        coachId: adminId,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        nextMeeting: calculateNextMeeting(formData.dayOfWeek, formData.time),
-                        attendance: {}
-                    });
-                    
-                    alert('Group created successfully!');
-                    onSuccess();
-                } catch (error) {
-                    console.error('Error creating group:', error);
-                    alert('Failed to create group');
-                } finally {
-                    setLoading(false);
-                }
-            };
-
-            const calculateNextMeeting = (dayOfWeek, time) => {
-                const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-                const targetDay = days.indexOf(dayOfWeek);
-                const now = new Date();
-                const currentDay = now.getDay();
-                
-                let daysUntilTarget = targetDay - currentDay;
-                if (daysUntilTarget <= 0) {
-                    daysUntilTarget += 7;
-                }
-                
-                const nextMeeting = new Date();
-                nextMeeting.setDate(nextMeeting.getDate() + daysUntilTarget);
-                const [hours, minutes] = time.split(':');
-                nextMeeting.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-                
-                return nextMeeting;
-            };
-
-            return (
-                <div className="modal-overlay">
-                    <div className="modal">
-                        <div className="modal-header">
-                            <div className="modal-title">Create New Group</div>
-                            <button className="modal-close" onClick={onClose}>×</button>
+            
+            {/* Delete Coach Confirmation Modal */}
+            {showDeleteConfirmModal && (
+                <div className="modal-overlay" onClick={() => setShowDeleteConfirmModal(false)}>
+                    <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{maxWidth: '500px'}}>
+                        <div className="modal-header" style={{
+                            background: 'linear-gradient(135deg, var(--danger-color, #dc3545), var(--error-color, #c82333))',
+                            color: 'var(--text-white, white)'
+                        }}>
+                            <h3 style={{ margin: 0 }}>⚠️ Confirm Delete</h3>
+                            <button className="close-btn" onClick={() => setShowDeleteConfirmModal(false)} style={{
+                                background: 'var(--text-white, white)',
+                                color: 'var(--danger-color, #dc3545)',
+                                border: 'none',
+                                fontSize: '24px',
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                cursor: 'pointer'
+                            }}>×</button>
                         </div>
-                        
-                        <form onSubmit={handleSubmit}>
-                            <div className="form-group">
-                                <label className="form-label">Group Name *</label>
-                                <input
-                                    type="text"
-                                    className="form-input"
-                                    value={formData.name}
-                                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                                    required
-                                />
+                        <div className="modal-body" style={{ padding: '25px' }}>
+                            <p style={{marginBottom: '20px', color: 'var(--text-primary, #333)', fontWeight: 'bold'}}>
+                                Are you sure you want to delete <strong>{coachProfile?.displayName}</strong>'s account?
+                            </p>
+                            <div style={{
+                                background: 'var(--danger-color-light, rgba(220,53,69,0.1))',
+                                padding: '15px',
+                                borderRadius: 'var(--radius-sm, 8px)',
+                                marginBottom: '20px',
+                                border: '1px solid var(--danger-color, #dc3545)'
+                            }}>
+                                <p style={{margin: '0 0 10px 0', color: 'var(--danger-color, #dc3545)', fontWeight: 'bold'}}>
+                                    This action will:
+                                </p>
+                                <ul style={{margin: 0, paddingLeft: '20px', color: 'var(--text-primary, #333)'}}>
+                                    <li>Soft delete the account (data preserved)</li>
+                                    <li>Prevent login access</li>
+                                    <li>Unassign all PIRs</li>
+                                    <li>Cannot be undone</li>
+                                </ul>
                             </div>
-                            
-                            <div className="form-group">
-                                <label className="form-label">Description *</label>
-                                <textarea
-                                    className="form-input"
-                                    value={formData.description}
-                                    onChange={(e) => setFormData({...formData, description: e.target.value})}
-                                    required
-                                />
-                            </div>
-                            
-                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
-                                <div className="form-group">
-                                    <label className="form-label">Day of Week *</label>
-                                    <select 
-                                        className="form-input"
-                                        value={formData.dayOfWeek}
-                                        onChange={(e) => setFormData({...formData, dayOfWeek: e.target.value})}
-                                        required
-                                    >
-                                        <option value="Monday">Monday</option>
-                                        <option value="Tuesday">Tuesday</option>
-                                        <option value="Wednesday">Wednesday</option>
-                                        <option value="Thursday">Thursday</option>
-                                        <option value="Friday">Friday</option>
-                                        <option value="Saturday">Saturday</option>
-                                        <option value="Sunday">Sunday</option>
-                                    </select>
-                                </div>
-                                
-                                <div className="form-group">
-                                    <label className="form-label">Time *</label>
-                                    <input
-                                        type="time"
-                                        className="form-input"
-                                        value={formData.time}
-                                        onChange={(e) => setFormData({...formData, time: e.target.value})}
-                                        required
-                                    />
-                                </div>
-                            </div>
-                            
-                            <div className="form-group">
-                                <label className="form-label">Meeting Link (optional)</label>
-                                <input
-                                    type="url"
-                                    className="form-input"
-                                    placeholder="https://zoom.us/..."
-                                    value={formData.link}
-                                    onChange={(e) => setFormData({...formData, link: e.target.value})}
-                                />
-                            </div>
-                            
-                            <div className="form-group">
-                                <div className="checkbox-group">
-                                    <input
-                                        type="checkbox"
-                                        id="recurring"
-                                        checked={formData.recurring}
-                                        onChange={(e) => setFormData({...formData, recurring: e.target.checked})}
-                                    />
-                                    <label htmlFor="recurring">Recurring Weekly</label>
-                                </div>
-                            </div>
-                            
-                            <div style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
-                                <button 
-                                    type="submit"
-                                    className="btn btn-primary"
-                                    disabled={loading}
-                                >
-                                    {loading ? 'Creating...' : 'Create Group'}
-                                </button>
-                                <button 
-                                    type="button"
+                            <div style={{display: 'flex', gap: '10px', justifyContent: 'flex-end'}}>
+                                <button
                                     className="btn btn-secondary"
-                                    onClick={onClose}
+                                    onClick={() => setShowDeleteConfirmModal(false)}
+                                    disabled={saving}
+                                    style={{
+                                        background: 'var(--text-muted, #6c757d)',
+                                        color: 'var(--text-white, white)',
+                                        border: 'none',
+                                        padding: '10px 20px',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        cursor: 'pointer',
+                                        fontWeight: '500'
+                                    }}
                                 >
                                     Cancel
                                 </button>
+                                <button
+                                    className="btn btn-danger"
+                                    onClick={handleDeleteCoach}
+                                    disabled={saving}
+                                    style={{
+                                        background: 'var(--danger-color, #dc3545)',
+                                        color: 'var(--text-white, white)',
+                                        border: 'none',
+                                        padding: '10px 20px',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        cursor: saving ? 'not-allowed' : 'pointer',
+                                        fontWeight: '500'
+                                    }}
+                                >
+                                    {saving ? 'Deleting...' : 'Yes, Delete Account'}
+                                </button>
                             </div>
-                        </form>
+                        </div>
                     </div>
                 </div>
-            );
-        }
+            )}
+            
+            {/* Add Certification Modal */}
+            {showAddCertModal && (
+                <div className="modal-overlay" onClick={() => setShowAddCertModal(false)}>
+                    <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{maxWidth: '600px'}}>
+                        <div className="modal-header" style={{
+                            background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--secondary-color, #008B8B))',
+                            color: 'var(--text-white, white)'
+                        }}>
+                            <h3 style={{ margin: 0 }}>Add Certification</h3>
+                            <button className="close-btn" onClick={() => setShowAddCertModal(false)} style={{
+                                background: 'var(--text-white, white)',
+                                color: 'var(--primary-color, #0077CC)',
+                                border: 'none',
+                                fontSize: '24px',
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                cursor: 'pointer'
+                            }}>×</button>
+                        </div>
+                        <div className="modal-body" style={{ padding: '25px' }}>
+                            {certError && (
+                                <div style={{
+                                    background: 'var(--error-color, #dc3545)',
+                                    color: 'var(--text-white, white)',
+                                    padding: '12px 20px',
+                                    borderRadius: 'var(--radius-sm, 8px)',
+                                    marginBottom: '15px',
+                                    fontWeight: '500'
+                                }}>
+                                    ✗ {certError}
+                                </div>
+                            )}
+                            
+                            <div className="form-group" style={{ marginBottom: '20px' }}>
+                                <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', display: 'block', marginBottom: '8px' }}>
+                                    Certification Name *
+                                </label>
+                                <input
+                                    type="text"
+                                    className="form-control"
+                                    placeholder="e.g., CADC, LADC, NAADAC"
+                                    value={newCertification.name}
+                                    onChange={(e) => setNewCertification({...newCertification, name: e.target.value})}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px',
+                                        border: '1px solid var(--border-color, #ddd)',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        fontSize: '14px'
+                                    }}
+                                />
+                            </div>
+                            
+                            <div className="form-group" style={{ marginBottom: '20px' }}>
+                                <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', display: 'block', marginBottom: '8px' }}>
+                                    Issuing Organization *
+                                </label>
+                                <input
+                                    type="text"
+                                    className="form-control"
+                                    placeholder="e.g., NAADAC, State Board"
+                                    value={newCertification.organization}
+                                    onChange={(e) => setNewCertification({...newCertification, organization: e.target.value})}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px',
+                                        border: '1px solid var(--border-color, #ddd)',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        fontSize: '14px'
+                                    }}
+                                />
+                            </div>
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
+                                <div className="form-group">
+                                    <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', display: 'block', marginBottom: '8px' }}>
+                                        Date Obtained *
+                                    </label>
+                                    <input
+                                        type="date"
+                                        className="form-control"
+                                        value={newCertification.dateObtained}
+                                        onChange={(e) => setNewCertification({...newCertification, dateObtained: e.target.value})}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px',
+                                            border: '1px solid var(--border-color, #ddd)',
+                                            borderRadius: 'var(--radius-sm, 8px)',
+                                            fontSize: '14px'
+                                        }}
+                                    />
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', display: 'block', marginBottom: '8px' }}>
+                                        Expiration Date
+                                    </label>
+                                    <input
+                                        type="date"
+                                        className="form-control"
+                                        value={newCertification.expirationDate}
+                                        onChange={(e) => setNewCertification({...newCertification, expirationDate: e.target.value})}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px',
+                                            border: '1px solid var(--border-color, #ddd)',
+                                            borderRadius: 'var(--radius-sm, 8px)',
+                                            fontSize: '14px'
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                            
+                            <div style={{display: 'flex', gap: '10px', justifyContent: 'flex-end'}}>
+                                <button
+                                    className="btn btn-secondary"
+                                    onClick={() => {
+                                        setShowAddCertModal(false);
+                                        setNewCertification({
+                                            name: '',
+                                            organization: '',
+                                            dateObtained: '',
+                                            expirationDate: '',
+                                            status: 'active'
+                                        });
+                                        setCertError('');
+                                    }}
+                                    disabled={saving}
+                                    style={{
+                                        background: 'var(--text-muted, #6c757d)',
+                                        color: 'var(--text-white, white)',
+                                        border: 'none',
+                                        padding: '10px 20px',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        cursor: 'pointer',
+                                        fontWeight: '500'
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={handleAddCertification}
+                                    disabled={saving}
+                                    style={{
+                                        background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--primary-dark, #005fa3))',
+                                        color: 'var(--text-white, white)',
+                                        border: 'none',
+                                        padding: '10px 20px',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        cursor: saving ? 'not-allowed' : 'pointer',
+                                        fontWeight: '500'
+                                    }}
+                                >
+                                    {saving ? 'Adding...' : 'Add Certification'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {/* Add Training Modal */}
+            {showAddTrainingModal && (
+                <div className="modal-overlay" onClick={() => setShowAddTrainingModal(false)}>
+                    <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{maxWidth: '600px'}}>
+                        <div className="modal-header" style={{
+                            background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--secondary-color, #008B8B))',
+                            color: 'var(--text-white, white)'
+                        }}>
+                            <h3 style={{ margin: 0 }}>Add Training</h3>
+                            <button className="close-btn" onClick={() => setShowAddTrainingModal(false)} style={{
+                                background: 'var(--text-white, white)',
+                                color: 'var(--primary-color, #0077CC)',
+                                border: 'none',
+                                fontSize: '24px',
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                cursor: 'pointer'
+                            }}>×</button>
+                        </div>
+                        <div className="modal-body" style={{ padding: '25px' }}>
+                            {certError && (
+                                <div style={{
+                                    background: 'var(--error-color, #dc3545)',
+                                    color: 'var(--text-white, white)',
+                                    padding: '12px 20px',
+                                    borderRadius: 'var(--radius-sm, 8px)',
+                                    marginBottom: '15px',
+                                    fontWeight: '500'
+                                }}>
+                                    ✗ {certError}
+                                </div>
+                            )}
+                            
+                            <div className="form-group" style={{ marginBottom: '20px' }}>
+                                <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', display: 'block', marginBottom: '8px' }}>
+                                    Training Name *
+                                </label>
+                                <input
+                                    type="text"
+                                    className="form-control"
+                                    placeholder="e.g., Motivational Interviewing, CBT Workshop"
+                                    value={newTraining.name}
+                                    onChange={(e) => setNewTraining({...newTraining, name: e.target.value})}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px',
+                                        border: '1px solid var(--border-color, #ddd)',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        fontSize: '14px'
+                                    }}
+                                />
+                            </div>
+                            
+                            <div className="form-group" style={{ marginBottom: '20px' }}>
+                                <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', display: 'block', marginBottom: '8px' }}>
+                                    Organization *
+                                </label>
+                                <input
+                                    type="text"
+                                    className="form-control"
+                                    placeholder="e.g., NAADAC, University Name"
+                                    value={newTraining.organization}
+                                    onChange={(e) => setNewTraining({...newTraining, organization: e.target.value})}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px',
+                                        border: '1px solid var(--border-color, #ddd)',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        fontSize: '14px'
+                                    }}
+                                />
+                            </div>
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginBottom: '20px' }}>
+                                <div className="form-group">
+                                    <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', display: 'block', marginBottom: '8px' }}>
+                                        Date Completed *
+                                    </label>
+                                    <input
+                                        type="date"
+                                        className="form-control"
+                                        value={newTraining.dateCompleted}
+                                        onChange={(e) => setNewTraining({...newTraining, dateCompleted: e.target.value})}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px',
+                                            border: '1px solid var(--border-color, #ddd)',
+                                            borderRadius: 'var(--radius-sm, 8px)',
+                                            fontSize: '14px'
+                                        }}
+                                    />
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', display: 'block', marginBottom: '8px' }}>
+                                        Hours *
+                                    </label>
+                                    <input
+                                        type="number"
+                                        className="form-control"
+                                        placeholder="0"
+                                        value={newTraining.hours}
+                                        onChange={(e) => setNewTraining({...newTraining, hours: e.target.value})}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px',
+                                            border: '1px solid var(--border-color, #ddd)',
+                                            borderRadius: 'var(--radius-sm, 8px)',
+                                            fontSize: '14px'
+                                        }}
+                                    />
+                                </div>
+                                
+                                <div className="form-group">
+                                    <label style={{ fontWeight: 'bold', color: 'var(--text-secondary, #666)', display: 'block', marginBottom: '8px' }}>
+                                        Type
+                                    </label>
+                                    <select
+                                        className="form-control"
+                                        value={newTraining.type}
+                                        onChange={(e) => setNewTraining({...newTraining, type: e.target.value})}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px',
+                                            border: '1px solid var(--border-color, #ddd)',
+                                            borderRadius: 'var(--radius-sm, 8px)',
+                                            fontSize: '14px'
+                                        }}
+                                    >
+                                        <option value="course">Course</option>
+                                        <option value="workshop">Workshop</option>
+                                        <option value="conference">Conference</option>
+                                        <option value="webinar">Webinar</option>
+                                        <option value="certification">Certification</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div style={{display: 'flex', gap: '10px', justifyContent: 'flex-end'}}>
+                                <button
+                                    className="btn btn-secondary"
+                                    onClick={() => {
+                                        setShowAddTrainingModal(false);
+                                        setNewTraining({
+                                            name: '',
+                                            organization: '',
+                                            dateCompleted: '',
+                                            hours: 0,
+                                            type: 'course'
+                                        });
+                                        setCertError('');
+                                    }}
+                                    disabled={saving}
+                                    style={{
+                                        background: 'var(--text-muted, #6c757d)',
+                                        color: 'var(--text-white, white)',
+                                        border: 'none',
+                                        padding: '10px 20px',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        cursor: 'pointer',
+                                        fontWeight: '500'
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={handleAddTraining}
+                                    disabled={saving}
+                                    style={{
+                                        background: 'linear-gradient(135deg, var(--primary-color, #0077CC), var(--primary-dark, #005fa3))',
+                                        color: 'var(--text-white, white)',
+                                        border: 'none',
+                                        padding: '10px 20px',
+                                        borderRadius: 'var(--radius-sm, 8px)',
+                                        cursor: saving ? 'not-allowed' : 'pointer',
+                                        fontWeight: '500'
+                                    }}
+                                >
+                                    {saving ? 'Adding...' : 'Add Training'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {/* UserDetailModal for viewing PIR */}
+            {showPIRDetailModal && selectedPIRId && (
+                <UserDetailModal 
+                    pirId={selectedPIRId}
+                    onClose={() => {
+                        setShowPIRDetailModal(false);
+                        setSelectedPIRId(null);
+                    }}
+                />
+            )}
+        </div>
+    );
+}
  function GroupDetailModal({ group, onClose, onUpdate }) {
             const [addingMember, setAddingMember] = useState(false);
             const [newMemberEmail, setNewMemberEmail] = useState('');
