@@ -12553,7 +12553,1160 @@ function CreateGoalModal({ type, selectedPIR, selectedParent, currentUser, onSub
         </div>
     );
 }
-     
+       function ResourcesView({ user, searchQuery }) {
+    const [resources, setResources] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [showDetailModal, setShowDetailModal] = useState(false);
+    const [selectedResource, setSelectedResource] = useState(null);
+    const [stats, setStats] = useState({
+        total: 0,
+        active: 0,
+        byType: {},
+        byCategory: {}
+    });
+    const [filterType, setFilterType] = useState('all');
+    const [filterCategory, setFilterCategory] = useState('all');
+    const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
+
+    useEffect(() => {
+        loadResourcesData();
+    }, []);
+
+    const loadResourcesData = async () => {
+        try {
+            setLoading(true);
+            const resourcesRef = firebase.firestore()
+                .collection('tenants').doc(user.tenantId)
+                .collection('resources');
+            
+            const snapshot = await resourcesRef.get();
+            const resourcesData = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+
+            setResources(resourcesData);
+            calculateStats(resourcesData);
+        } catch (error) {
+            console.error('Error loading resources:', error);
+            alert('Failed to load resources');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const calculateStats = (resourcesData) => {
+        const stats = {
+            total: resourcesData.length,
+            active: resourcesData.filter(r => r.active !== false).length,
+            byType: {},
+            byCategory: {}
+        };
+
+        resourcesData.forEach(resource => {
+            // Count by type
+            const type = resource.type || 'Unknown';
+            stats.byType[type] = (stats.byType[type] || 0) + 1;
+
+            // Count by category
+            const category = resource.category || 'Uncategorized';
+            stats.byCategory[category] = (stats.byCategory[category] || 0) + 1;
+        });
+
+        setStats(stats);
+    };
+
+    const handleResourceClick = (resource) => {
+        setSelectedResource(resource);
+        setShowDetailModal(true);
+    };
+
+    const handleDeleteResource = async (resourceId) => {
+        if (!confirm('Are you sure you want to delete this resource?')) return;
+
+        try {
+            await firebase.firestore()
+                .collection('tenants').doc(user.tenantId)
+                .collection('resources')
+                .doc(resourceId)
+                .delete();
+            
+            await loadResourcesData();
+            alert('Resource deleted successfully');
+        } catch (error) {
+            console.error('Error deleting resource:', error);
+            alert('Failed to delete resource');
+        }
+    };
+
+    const toggleResourceStatus = async (resource) => {
+        try {
+            await firebase.firestore()
+                .collection('tenants').doc(user.tenantId)
+                .collection('resources')
+                .doc(resource.id)
+                .update({
+                    active: !resource.active
+                });
+            
+            await loadResourcesData();
+        } catch (error) {
+            console.error('Error updating resource status:', error);
+            alert('Failed to update resource status');
+        }
+    };
+
+    const filteredResources = resources.filter(resource => {
+        // Search query filter
+        if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            const matchesSearch = 
+                resource.title?.toLowerCase().includes(query) ||
+                resource.description?.toLowerCase().includes(query) ||
+                resource.category?.toLowerCase().includes(query);
+            if (!matchesSearch) return false;
+        }
+
+        // Type filter
+        if (filterType !== 'all' && resource.type !== filterType) {
+            return false;
+        }
+
+        // Category filter
+        if (filterCategory !== 'all' && resource.category !== filterCategory) {
+            return false;
+        }
+
+        return true;
+    });
+
+    if (loading) {
+        return (
+            <div style={{ padding: '40px', textAlign: 'center' }}>
+                <div style={{ fontSize: '18px', color: 'var(--text-secondary)' }}>
+                    Loading resources...
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div style={{ padding: '30px' }}>
+            {/* Header */}
+            <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                marginBottom: '30px'
+            }}>
+                <div>
+                    <h1 style={{ 
+                        margin: '0 0 8px 0',
+                        fontSize: '28px',
+                        color: 'var(--text-primary)'
+                    }}>
+                        📚 Resources
+                    </h1>
+                    <p style={{ 
+                        margin: 0,
+                        color: 'var(--text-secondary)',
+                        fontSize: '14px'
+                    }}>
+                        Manage recovery resources and educational materials
+                    </p>
+                </div>
+                <button
+                    onClick={() => setShowCreateModal(true)}
+                    style={{
+                        padding: '12px 24px',
+                        backgroundColor: 'var(--primary-color)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 'var(--border-radius)',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}
+                >
+                    <span style={{ fontSize: '16px' }}>+</span>
+                    Create Resource
+                </button>
+            </div>
+
+            {/* Stats Cards */}
+            <div style={{ 
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '20px',
+                marginBottom: '30px'
+            }}>
+                <div style={{
+                    padding: '20px',
+                    backgroundColor: 'var(--card-background)',
+                    borderRadius: 'var(--border-radius)',
+                    border: '1px solid var(--border-color)'
+                }}>
+                    <div style={{ 
+                        fontSize: '13px',
+                        color: 'var(--text-secondary)',
+                        marginBottom: '8px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                    }}>
+                        Total Resources
+                    </div>
+                    <div style={{ 
+                        fontSize: '32px',
+                        fontWeight: '700',
+                        color: 'var(--text-primary)'
+                    }}>
+                        {stats.total}
+                    </div>
+                </div>
+
+                <div style={{
+                    padding: '20px',
+                    backgroundColor: 'var(--card-background)',
+                    borderRadius: 'var(--border-radius)',
+                    border: '1px solid var(--border-color)'
+                }}>
+                    <div style={{ 
+                        fontSize: '13px',
+                        color: 'var(--text-secondary)',
+                        marginBottom: '8px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                    }}>
+                        Active Resources
+                    </div>
+                    <div style={{ 
+                        fontSize: '32px',
+                        fontWeight: '700',
+                        color: 'var(--success-color)'
+                    }}>
+                        {stats.active}
+                    </div>
+                </div>
+
+                <div style={{
+                    padding: '20px',
+                    backgroundColor: 'var(--card-background)',
+                    borderRadius: 'var(--border-radius)',
+                    border: '1px solid var(--border-color)'
+                }}>
+                    <div style={{ 
+                        fontSize: '13px',
+                        color: 'var(--text-secondary)',
+                        marginBottom: '8px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                    }}>
+                        Resource Types
+                    </div>
+                    <div style={{ 
+                        fontSize: '32px',
+                        fontWeight: '700',
+                        color: 'var(--text-primary)'
+                    }}>
+                        {Object.keys(stats.byType).length}
+                    </div>
+                </div>
+
+                <div style={{
+                    padding: '20px',
+                    backgroundColor: 'var(--card-background)',
+                    borderRadius: 'var(--border-radius)',
+                    border: '1px solid var(--border-color)'
+                }}>
+                    <div style={{ 
+                        fontSize: '13px',
+                        color: 'var(--text-secondary)',
+                        marginBottom: '8px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                    }}>
+                        Categories
+                    </div>
+                    <div style={{ 
+                        fontSize: '32px',
+                        fontWeight: '700',
+                        color: 'var(--text-primary)'
+                    }}>
+                        {Object.keys(stats.byCategory).length}
+                    </div>
+                </div>
+            </div>
+
+            {/* Filters and View Toggle */}
+            <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '20px',
+                gap: '15px',
+                flexWrap: 'wrap'
+            }}>
+                <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                    <select
+                        value={filterType}
+                        onChange={(e) => setFilterType(e.target.value)}
+                        style={{
+                            padding: '8px 12px',
+                            borderRadius: 'var(--border-radius)',
+                            border: '1px solid var(--border-color)',
+                            backgroundColor: 'var(--card-background)',
+                            color: 'var(--text-primary)',
+                            fontSize: '14px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <option value="all">All Types</option>
+                        <option value="Link">Links</option>
+                        <option value="Document">Documents</option>
+                        <option value="Video">Videos</option>
+                        <option value="Article">Articles</option>
+                        <option value="Worksheet">Worksheets</option>
+                    </select>
+
+                    <select
+                        value={filterCategory}
+                        onChange={(e) => setFilterCategory(e.target.value)}
+                        style={{
+                            padding: '8px 12px',
+                            borderRadius: 'var(--border-radius)',
+                            border: '1px solid var(--border-color)',
+                            backgroundColor: 'var(--card-background)',
+                            color: 'var(--text-primary)',
+                            fontSize: '14px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <option value="all">All Categories</option>
+                        {Object.keys(stats.byCategory).map(category => (
+                            <option key={category} value={category}>{category}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                        onClick={() => setViewMode('grid')}
+                        style={{
+                            padding: '8px 16px',
+                            backgroundColor: viewMode === 'grid' ? 'var(--primary-color)' : 'var(--card-background)',
+                            color: viewMode === 'grid' ? 'white' : 'var(--text-primary)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 'var(--border-radius)',
+                            cursor: 'pointer',
+                            fontSize: '14px'
+                        }}
+                    >
+                        Grid
+                    </button>
+                    <button
+                        onClick={() => setViewMode('list')}
+                        style={{
+                            padding: '8px 16px',
+                            backgroundColor: viewMode === 'list' ? 'var(--primary-color)' : 'var(--card-background)',
+                            color: viewMode === 'list' ? 'white' : 'var(--text-primary)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 'var(--border-radius)',
+                            cursor: 'pointer',
+                            fontSize: '14px'
+                        }}
+                    >
+                        List
+                    </button>
+                </div>
+            </div>
+
+            {/* Resources Display */}
+            {filteredResources.length === 0 ? (
+                <div style={{
+                    padding: '60px 20px',
+                    textAlign: 'center',
+                    backgroundColor: 'var(--card-background)',
+                    borderRadius: 'var(--border-radius)',
+                    border: '1px solid var(--border-color)'
+                }}>
+                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>📚</div>
+                    <div style={{ 
+                        fontSize: '18px',
+                        fontWeight: '600',
+                        color: 'var(--text-primary)',
+                        marginBottom: '8px'
+                    }}>
+                        No resources found
+                    </div>
+                    <div style={{ 
+                        fontSize: '14px',
+                        color: 'var(--text-secondary)'
+                    }}>
+                        {searchQuery || filterType !== 'all' || filterCategory !== 'all'
+                            ? 'Try adjusting your filters or search query'
+                            : 'Create your first resource to get started'
+                        }
+                    </div>
+                </div>
+            ) : viewMode === 'grid' ? (
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                    gap: '20px'
+                }}>
+                    {filteredResources.map(resource => (
+                        <div
+                            key={resource.id}
+                            onClick={() => handleResourceClick(resource)}
+                            style={{
+                                padding: '20px',
+                                backgroundColor: 'var(--card-background)',
+                                borderRadius: 'var(--border-radius)',
+                                border: '1px solid var(--border-color)',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                position: 'relative'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'translateY(0)';
+                                e.currentTarget.style.boxShadow = 'none';
+                            }}
+                        >
+                            {/* Status Badge */}
+                            <div style={{
+                                position: 'absolute',
+                                top: '12px',
+                                right: '12px',
+                                padding: '4px 8px',
+                                borderRadius: '12px',
+                                fontSize: '11px',
+                                fontWeight: '600',
+                                backgroundColor: resource.active !== false ? 'var(--success-light)' : 'var(--error-light)',
+                                color: resource.active !== false ? 'var(--success-color)' : 'var(--error-color)'
+                            }}>
+                                {resource.active !== false ? 'Active' : 'Inactive'}
+                            </div>
+
+                            {/* Type Icon */}
+                            <div style={{
+                                fontSize: '32px',
+                                marginBottom: '12px'
+                            }}>
+                                {resource.type === 'Link' && '🔗'}
+                                {resource.type === 'Document' && '📄'}
+                                {resource.type === 'Video' && '🎥'}
+                                {resource.type === 'Article' && '📰'}
+                                {resource.type === 'Worksheet' && '📝'}
+                                {!['Link', 'Document', 'Video', 'Article', 'Worksheet'].includes(resource.type) && '📚'}
+                            </div>
+
+                            {/* Title */}
+                            <h3 style={{
+                                margin: '0 0 8px 0',
+                                fontSize: '16px',
+                                fontWeight: '600',
+                                color: 'var(--text-primary)',
+                                lineHeight: '1.4'
+                            }}>
+                                {resource.title}
+                            </h3>
+
+                            {/* Description */}
+                            <p style={{
+                                margin: '0 0 12px 0',
+                                fontSize: '14px',
+                                color: 'var(--text-secondary)',
+                                lineHeight: '1.5',
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden'
+                            }}>
+                                {resource.description || 'No description provided'}
+                            </p>
+
+                            {/* Meta Info */}
+                            <div style={{
+                                display: 'flex',
+                                gap: '12px',
+                                fontSize: '12px',
+                                color: 'var(--text-secondary)',
+                                paddingTop: '12px',
+                                borderTop: '1px solid var(--border-color)'
+                            }}>
+                                <span>📁 {resource.category || 'Uncategorized'}</span>
+                                <span>📊 {resource.type || 'Unknown'}</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {filteredResources.map(resource => (
+                        <div
+                            key={resource.id}
+                            onClick={() => handleResourceClick(resource)}
+                            style={{
+                                padding: '20px',
+                                backgroundColor: 'var(--card-background)',
+                                borderRadius: 'var(--border-radius)',
+                                border: '1px solid var(--border-color)',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '20px',
+                                transition: 'all 0.2s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = 'var(--hover-background)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = 'var(--card-background)';
+                            }}
+                        >
+                            {/* Icon */}
+                            <div style={{ fontSize: '32px', flexShrink: 0 }}>
+                                {resource.type === 'Link' && '🔗'}
+                                {resource.type === 'Document' && '📄'}
+                                {resource.type === 'Video' && '🎥'}
+                                {resource.type === 'Article' && '📰'}
+                                {resource.type === 'Worksheet' && '📝'}
+                                {!['Link', 'Document', 'Video', 'Article', 'Worksheet'].includes(resource.type) && '📚'}
+                            </div>
+
+                            {/* Content */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
+                                    <h3 style={{
+                                        margin: 0,
+                                        fontSize: '16px',
+                                        fontWeight: '600',
+                                        color: 'var(--text-primary)'
+                                    }}>
+                                        {resource.title}
+                                    </h3>
+                                    <span style={{
+                                        padding: '4px 8px',
+                                        borderRadius: '12px',
+                                        fontSize: '11px',
+                                        fontWeight: '600',
+                                        backgroundColor: resource.active !== false ? 'var(--success-light)' : 'var(--error-light)',
+                                        color: resource.active !== false ? 'var(--success-color)' : 'var(--error-color)',
+                                        flexShrink: 0
+                                    }}>
+                                        {resource.active !== false ? 'Active' : 'Inactive'}
+                                    </span>
+                                </div>
+                                <p style={{
+                                    margin: '0 0 8px 0',
+                                    fontSize: '14px',
+                                    color: 'var(--text-secondary)',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap'
+                                }}>
+                                    {resource.description || 'No description provided'}
+                                </p>
+                                <div style={{
+                                    display: 'flex',
+                                    gap: '12px',
+                                    fontSize: '12px',
+                                    color: 'var(--text-secondary)'
+                                }}>
+                                    <span>📁 {resource.category || 'Uncategorized'}</span>
+                                    <span>📊 {resource.type || 'Unknown'}</span>
+                                </div>
+                            </div>
+
+                            {/* Arrow */}
+                            <div style={{
+                                fontSize: '20px',
+                                color: 'var(--text-secondary)',
+                                flexShrink: 0
+                            }}>
+                                →
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Modals */}
+            {showCreateModal && (
+                <ResourceCreateModal
+                    onClose={() => setShowCreateModal(false)}
+                    onSuccess={() => {
+                        setShowCreateModal(false);
+                        loadResourcesData();
+                    }}
+                    tenantId={user.tenantId}
+                    currentUserId={user.uid}
+                />
+            )}
+
+            {showDetailModal && selectedResource && (
+                <ResourceDetailModal
+                    resource={selectedResource}
+                    onClose={() => {
+                        setShowDetailModal(false);
+                        setSelectedResource(null);
+                    }}
+                    onUpdate={loadResourcesData}
+                    tenantId={user.tenantId}
+                    currentUserId={user.uid}
+                />
+            )}
+        </div>
+    );
+}
+     function ResourceCreateModal({ onClose, onSuccess, tenantId, currentUserId }) {
+    const [formData, setFormData] = useState({
+        title: '',
+        description: '',
+        type: 'Link',
+        url: '',
+        content: '',
+        category: 'General',
+        tags: [],
+        active: true
+    });
+    const [tagInput, setTagInput] = useState('');
+    const [uploading, setUploading] = useState(false);
+    const [uploadedFile, setUploadedFile] = useState(null);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+
+        if (!formData.title.trim()) {
+            alert('Please enter a title');
+            return;
+        }
+
+        if (formData.type === 'Link' && !formData.url.trim()) {
+            alert('Please enter a URL for link resources');
+            return;
+        }
+
+        try {
+            setUploading(true);
+
+            const resourceData = {
+                ...formData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: currentUserId,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                views: 0,
+                assignments: 0
+            };
+
+            // If file was uploaded, include file reference
+            if (uploadedFile) {
+                resourceData.fileUrl = uploadedFile.url;
+                resourceData.fileName = uploadedFile.name;
+                resourceData.fileSize = uploadedFile.size;
+            }
+
+            await firebase.firestore()
+                .collection('tenants').doc(tenantId)
+                .collection('resources')
+                .add(resourceData);
+
+            onSuccess();
+        } catch (error) {
+            console.error('Error creating resource:', error);
+            alert('Failed to create resource. Please try again.');
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const handleFileUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // Check file size (max 10MB)
+        if (file.size > 10 * 1024 * 1024) {
+            alert('File size must be less than 10MB');
+            return;
+        }
+
+        try {
+            setUploading(true);
+
+            const storageRef = firebase.storage().ref();
+            const fileRef = storageRef.child(`tenants/${tenantId}/resources/${Date.now()}_${file.name}`);
+            
+            await fileRef.put(file);
+            const downloadURL = await fileRef.getDownloadURL();
+
+            setUploadedFile({
+                name: file.name,
+                size: file.size,
+                url: downloadURL
+            });
+
+            // Auto-set type based on file
+            if (file.type.startsWith('video/')) {
+                setFormData(prev => ({ ...prev, type: 'Video' }));
+            } else if (file.type === 'application/pdf' || file.type.startsWith('application/vnd')) {
+                setFormData(prev => ({ ...prev, type: 'Document' }));
+            }
+
+        } catch (error) {
+            console.error('Error uploading file:', error);
+            alert('Failed to upload file');
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const addTag = () => {
+        if (tagInput.trim() && !formData.tags.includes(tagInput.trim())) {
+            setFormData(prev => ({
+                ...prev,
+                tags: [...prev.tags, tagInput.trim()]
+            }));
+            setTagInput('');
+        }
+    };
+
+    const removeTag = (tagToRemove) => {
+        setFormData(prev => ({
+            ...prev,
+            tags: prev.tags.filter(tag => tag !== tagToRemove)
+        }));
+    };
+
+    return (
+        <div 
+            className="modal-overlay"
+            onClick={onClose}
+            style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+                padding: '20px'
+            }}
+        >
+            <div 
+                className="modal"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                    backgroundColor: 'var(--card-background)',
+                    borderRadius: 'var(--border-radius)',
+                    width: '100%',
+                    maxWidth: '600px',
+                    maxHeight: '90vh',
+                    overflow: 'auto',
+                    boxShadow: '0 4px 24px rgba(0, 0, 0, 0.15)'
+                }}
+            >
+                {/* Header */}
+                <div style={{
+                    padding: '24px',
+                    borderBottom: '1px solid var(--border-color)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    position: 'sticky',
+                    top: 0,
+                    backgroundColor: 'var(--card-background)',
+                    zIndex: 1
+                }}>
+                    <h2 style={{
+                        margin: 0,
+                        fontSize: '20px',
+                        fontWeight: '600',
+                        color: 'var(--text-primary)'
+                    }}>
+                        Create New Resource
+                    </h2>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            fontSize: '24px',
+                            color: 'var(--text-secondary)',
+                            cursor: 'pointer',
+                            padding: '0',
+                            width: '32px',
+                            height: '32px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: '4px'
+                        }}
+                    >
+                        ×
+                    </button>
+                </div>
+
+                {/* Form */}
+                <form onSubmit={handleSubmit} style={{ padding: '24px' }}>
+                    {/* Title */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{
+                            display: 'block',
+                            marginBottom: '8px',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            color: 'var(--text-primary)'
+                        }}>
+                            Title *
+                        </label>
+                        <input
+                            type="text"
+                            value={formData.title}
+                            onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                            placeholder="Enter resource title"
+                            required
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                borderRadius: 'var(--border-radius)',
+                                border: '1px solid var(--border-color)',
+                                backgroundColor: 'var(--background-color)',
+                                color: 'var(--text-primary)',
+                                fontSize: '14px'
+                            }}
+                        />
+                    </div>
+
+                    {/* Type and Category Row */}
+                    <div style={{ 
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '15px',
+                        marginBottom: '20px'
+                    }}>
+                        <div>
+                            <label style={{
+                                display: 'block',
+                                marginBottom: '8px',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                color: 'var(--text-primary)'
+                            }}>
+                                Type *
+                            </label>
+                            <select
+                                value={formData.type}
+                                onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    borderRadius: 'var(--border-radius)',
+                                    border: '1px solid var(--border-color)',
+                                    backgroundColor: 'var(--background-color)',
+                                    color: 'var(--text-primary)',
+                                    fontSize: '14px'
+                                }}
+                            >
+                                <option value="Link">Link</option>
+                                <option value="Document">Document</option>
+                                <option value="Video">Video</option>
+                                <option value="Article">Article</option>
+                                <option value="Worksheet">Worksheet</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label style={{
+                                display: 'block',
+                                marginBottom: '8px',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                color: 'var(--text-primary)'
+                            }}>
+                                Category *
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.category}
+                                onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+                                placeholder="e.g., Coping Skills"
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    borderRadius: 'var(--border-radius)',
+                                    border: '1px solid var(--border-color)',
+                                    backgroundColor: 'var(--background-color)',
+                                    color: 'var(--text-primary)',
+                                    fontSize: '14px'
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* URL (conditional) */}
+                    {formData.type === 'Link' && (
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{
+                                display: 'block',
+                                marginBottom: '8px',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                color: 'var(--text-primary)'
+                            }}>
+                                URL *
+                            </label>
+                            <input
+                                type="url"
+                                value={formData.url}
+                                onChange={(e) => setFormData(prev => ({ ...prev, url: e.target.value }))}
+                                placeholder="https://example.com"
+                                required
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    borderRadius: 'var(--border-radius)',
+                                    border: '1px solid var(--border-color)',
+                                    backgroundColor: 'var(--background-color)',
+                                    color: 'var(--text-primary)',
+                                    fontSize: '14px'
+                                }}
+                            />
+                        </div>
+                    )}
+
+                    {/* File Upload */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{
+                            display: 'block',
+                            marginBottom: '8px',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            color: 'var(--text-primary)'
+                        }}>
+                            Upload File (optional)
+                        </label>
+                        <input
+                            type="file"
+                            onChange={handleFileUpload}
+                            accept=".pdf,.doc,.docx,.mp4,.mov,.avi"
+                            disabled={uploading}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                borderRadius: 'var(--border-radius)',
+                                border: '1px solid var(--border-color)',
+                                backgroundColor: 'var(--background-color)',
+                                color: 'var(--text-primary)',
+                                fontSize: '14px'
+                            }}
+                        />
+                        {uploadedFile && (
+                            <div style={{
+                                marginTop: '8px',
+                                padding: '8px 12px',
+                                backgroundColor: 'var(--success-light)',
+                                borderRadius: 'var(--border-radius)',
+                                fontSize: '13px',
+                                color: 'var(--success-color)'
+                            }}>
+                                ✓ {uploadedFile.name} uploaded
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Description */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{
+                            display: 'block',
+                            marginBottom: '8px',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            color: 'var(--text-primary)'
+                        }}>
+                            Description
+                        </label>
+                        <textarea
+                            value={formData.description}
+                            onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                            placeholder="Describe this resource..."
+                            rows={4}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                borderRadius: 'var(--border-radius)',
+                                border: '1px solid var(--border-color)',
+                                backgroundColor: 'var(--background-color)',
+                                color: 'var(--text-primary)',
+                                fontSize: '14px',
+                                fontFamily: 'inherit',
+                                resize: 'vertical'
+                            }}
+                        />
+                    </div>
+
+                    {/* Tags */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{
+                            display: 'block',
+                            marginBottom: '8px',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            color: 'var(--text-primary)'
+                        }}>
+                            Tags
+                        </label>
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                            <input
+                                type="text"
+                                value={tagInput}
+                                onChange={(e) => setTagInput(e.target.value)}
+                                onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                                placeholder="Add a tag..."
+                                style={{
+                                    flex: 1,
+                                    padding: '10px 12px',
+                                    borderRadius: 'var(--border-radius)',
+                                    border: '1px solid var(--border-color)',
+                                    backgroundColor: 'var(--background-color)',
+                                    color: 'var(--text-primary)',
+                                    fontSize: '14px'
+                                }}
+                            />
+                            <button
+                                type="button"
+                                onClick={addTag}
+                                style={{
+                                    padding: '10px 20px',
+                                    backgroundColor: 'var(--primary-color)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: 'var(--border-radius)',
+                                    fontSize: '14px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Add
+                            </button>
+                        </div>
+                        {formData.tags.length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                {formData.tags.map(tag => (
+                                    <span
+                                        key={tag}
+                                        style={{
+                                            padding: '6px 12px',
+                                            backgroundColor: 'var(--primary-light)',
+                                            color: 'var(--primary-color)',
+                                            borderRadius: '12px',
+                                            fontSize: '13px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px'
+                                        }}
+                                    >
+                                        {tag}
+                                        <button
+                                            type="button"
+                                            onClick={() => removeTag(tag)}
+                                            style={{
+                                                background: 'none',
+                                                border: 'none',
+                                                color: 'inherit',
+                                                cursor: 'pointer',
+                                                padding: '0',
+                                                fontSize: '16px'
+                                            }}
+                                        >
+                                            ×
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Active Status */}
+                    <div style={{ marginBottom: '24px' }}>
+                        <label style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            cursor: 'pointer'
+                        }}>
+                            <input
+                                type="checkbox"
+                                checked={formData.active}
+                                onChange={(e) => setFormData(prev => ({ ...prev, active: e.target.checked }))}
+                                style={{ cursor: 'pointer' }}
+                            />
+                            <span style={{
+                                fontSize: '14px',
+                                color: 'var(--text-primary)'
+                            }}>
+                                Make resource active immediately
+                            </span>
+                        </label>
+                    </div>
+
+                    {/* Actions */}
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        gap: '12px',
+                        paddingTop: '20px',
+                        borderTop: '1px solid var(--border-color)'
+                    }}>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            disabled={uploading}
+                            style={{
+                                padding: '10px 20px',
+                                backgroundColor: 'transparent',
+                                color: 'var(--text-primary)',
+                                border: '1px solid var(--border-color)',
+                                borderRadius: 'var(--border-radius)',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                cursor: uploading ? 'not-allowed' : 'pointer',
+                                opacity: uploading ? 0.5 : 1
+                            }}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={uploading}
+                            style={{
+                                padding: '10px 24px',
+                                backgroundColor: uploading ? 'var(--text-secondary)' : 'var(--primary-color)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: 'var(--border-radius)',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                cursor: uploading ? 'not-allowed' : 'pointer'
+                            }}
+                        >
+                            {uploading ? 'Creating...' : 'Create Resource'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
      function ResourceDetailModal({ resource, onClose, onUpdate, tenantId, currentUserId }) {
     const [activeTab, setActiveTab] = useState('overview');
     const [editMode, setEditMode] = useState(false);
