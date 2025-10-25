@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - GLRS Admin</title>
+
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+
+    <!-- Shared Styles -->
+    <link rel="stylesheet" href="/admin/shared/styles.css">
+
+    <!-- Firebase SDK (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+
+    <!-- React -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Shared Components -->
+    <script src="/admin/shared/firebase.js"></script>
+    <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/utils.js"></script>
+    <script src="/admin/shared/state.js"></script>
+    <script src="/admin/shared/navigation.js"></script>
+
+    <script type="text/babel">
+        // Wait for Firebase to initialize before running
+(function initPage() {
+    if (!window.FIREBASE_READY || !window.auth || !window.db) {
+        console.log('Waiting for Firebase to initialize...');
+        setTimeout(initPage, 50);
+        return;
+    }
+
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+    const { auth, db, storage, CURRENT_TENANT, logAudit } = window;
+
+        // ==========================================
+        // TODO: ADD USER DETAIL MODAL
+        // ==========================================
+        // UserDetailModal component (admin.html lines 32839-37711, ~4,872 lines)
+        // needs to be added here. This modal is used when clicking on PIRs
+        // in the Active PIRs section. For now, clicking will not open a modal.
+        //
+        // The modal is very large and contains comprehensive PIR management
+        // functionality including:
+        // - Profile editing
+        // - Progress tracking with charts
+        // - Goals and objectives
+        // - Resources and assignments
+        // - Messages and activity logs
+        // - Compliance metrics
+        // - Account management (activate/deactivate/delete)
+        //
+        // To complete this page, copy UserDetailModal function from
+        // admin.html lines 32839-37711 and paste it here before DashboardView.
+        // ==========================================
+
+        // Temporary stub - will be replaced with full UserDetailModal
+        function UserDetailModal({ user, onClose, onUpdate, currentUserId }) {
+            return (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000
+                }}>
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '12px',
+                        padding: '30px',
+                        maxWidth: '500px'
+                    }}>
+                        <h2>PIR Detail Modal</h2>
+                        <p>UserDetailModal component (~4,872 lines) needs to be added.</p>
+                        <p>PIR: {user.displayName || user.email}</p>
+                        <button
+                            onClick={onClose}
+                            style={{
+                                padding: '10px 20px',
+                                background: 'var(--primary-color)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                marginTop: '20px'
+                            }}
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        // ==========================================
+        // DASHBOARD VIEW
+        // ==========================================
+        function DashboardView({ user }) {
+            const [stats, setStats] = useState({
+                totalPirs: 0,
+                totalCoaches: 0,
+                alertsToday: 0,
+                avgCompliance: 0
+            });
+            const [chartData, setChartData] = useState({
+                mood: { labels: [], data: [], average: 0 },
+                craving: { labels: [], data: [], average: 0 },
+                anxiety: { labels: [], data: [], average: 0 },
+                sleep: { labels: [], data: [], average: 0 }
+            });
+            const [sobrietyData, setSobrietyData] = useState({ labels: [], data: [], average: 0 });
+            const [recentActivity, setRecentActivity] = useState([]);
+            const [activePIRs, setActivePIRs] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [selectedPIR, setSelectedPIR] = useState(null);
+
+            // Chart refs
+            const moodChartRef = useRef(null);
+            const cravingChartRef = useRef(null);
+            const anxietyChartRef = useRef(null);
+            const sleepChartRef = useRef(null);
+            const sobrietyChartRef = useRef(null);
+
+            // Chart instances
+            const chartInstances = useRef({});
+
+            useEffect(() => {
+                loadDashboardData();
+
+                return () => {
+                    // Cleanup all charts
+                    Object.values(chartInstances.current).forEach(chart => {
+                        if (chart) chart.destroy();
+                    });
+                };
+            }, []);
+
+            useEffect(() => {
+                if (!loading) {
+                    renderAllCharts();
+                }
+            }, [chartData, sobrietyData, loading]);
+
+            const loadDashboardData = async () => {
+                try {
+                    console.log('🔄 Loading dashboard data for tenant:', CURRENT_TENANT);
+
+                    // Load basic stats
+                    const usersSnap = await db.collection('users').where('tenantId', '==', CURRENT_TENANT).get();
+                    console.log('✓ Loaded users:', usersSnap.size);
+
+                    let totalPirs = 0;
+                    let totalCoaches = 0;
+                    const pirIds = [];
+                    const pirsData = [];
+
+                    usersSnap.forEach(doc => {
+                        const data = doc.data();
+                        if (data.role === 'pir') {
+                            totalPirs++;
+                            pirIds.push(doc.id);
+                            pirsData.push({ id: doc.id, ...data });
+                        }
+                        if (data.role === 'coach') totalCoaches++;
+                    });
+
+                    console.log(`✓ Found ${totalPirs} PIRs and ${totalCoaches} coaches`);
+
+                    // Process PIRs for Active PIRs section
+                    const processedPIRs = await Promise.all(pirsData.map(async (pir) => {
+                        // Calculate days sober
+                        let daysSober = 0;
+                        if (pir.sobrietyDate) {
+                            const sobrietyDate = typeof pir.sobrietyDate === 'string'
+                                ? new Date(pir.sobrietyDate)
+                                : pir.sobrietyDate.toDate ? pir.sobrietyDate.toDate() : new Date(pir.sobrietyDate);
+                            const today = new Date();
+                            daysSober = Math.floor((today - sobrietyDate) / (1000 * 60 * 60 * 24));
+                        }
+
+                        // Get coach name
+                        let coachName = 'Unassigned';
+                        if (pir.assignedCoach) {
+                            try {
+                                const coachDoc = await db.collection('users').doc(pir.assignedCoach).get();
+                                if (coachDoc.exists) {
+                                    const coachData = coachDoc.data();
+                                    coachName = coachData.displayName || coachData.firstName || 'Coach';
+                                }
+                            } catch (error) {
+                                console.error('Error fetching coach:', error);
+                            }
+                        }
+
+                        return {
+                            ...pir,
+                            daysSober,
+                            coachName
+                        };
+                    }));
+
+                    // Sort by first name
+                    processedPIRs.sort((a, b) => {
+                        const nameA = (a.firstName || a.displayName || '').toLowerCase();
+                        const nameB = (b.firstName || b.displayName || '').toLowerCase();
+                        return nameA.localeCompare(nameB);
+                    });
+
+                    setActivePIRs(processedPIRs);
+                    console.log('✓ Processed PIRs for Active PIRs widget:', processedPIRs.length);
+
+                    // Get today's alerts
+                    console.log('📊 Loading alerts...');
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const alertsSnap = await db.collection('alerts')
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .where('createdAt', '>=', today)
+                        .get();
+
+                    console.log('✓ Loaded alerts:', alertsSnap.size);
+
+                    // SET BASIC STATS EARLY - before chart data loading
+                    const sevenDaysAgo = new Date();
+                    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                    const recentCheckIns = await db.collection('checkIns')
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .where('createdAt', '>=', sevenDaysAgo)
+                        .get();
+
+                    const avgCompliance = totalPirs > 0
+                        ? Math.round((recentCheckIns.size / (totalPirs * 14)) * 100)
+                        : 0;
+
+                    // Set stats immediately so they display
+                    setStats({
+                        totalPirs,
+                        totalCoaches,
+                        alertsToday: alertsSnap.size,
+                        avgCompliance: Math.min(avgCompliance, 100)
+                    });
+
+                    console.log('✅ Stats set:', { totalPirs, totalCoaches, alertsToday: alertsSnap.size, avgCompliance });
+
+                    // Continue loading chart data
+                    const thirtyDaysAgo = new Date();
+                    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+                    const checkInsSnap = await db.collection('checkIns')
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .where('createdAt', '>=', thirtyDaysAgo)
+                        .get();
+
+                    // Process check-ins data
+                    const last30Days = [];
+                    const moodData = [];
+                    const cravingData = [];
+                    const anxietyData = [];
+                    const sleepData = [];
+
+                    // All-time data for averages
+                    const allCheckInsSnap = await db.collection('checkIns').where('tenantId', '==', CURRENT_TENANT).get();
+                    let allTimeMood = [];
+                    let allTimeCraving = [];
+                    let allTimeAnxiety = [];
+                    let allTimeSleep = [];
+
+                    allCheckInsSnap.forEach(doc => {
+                        const data = doc.data();
+                        if (data.morningData) {
+                            if (data.morningData.mood) allTimeMood.push(data.morningData.mood);
+                            if (data.morningData.craving) allTimeCraving.push(data.morningData.craving);
+                            if (data.morningData.anxietyLevel) allTimeAnxiety.push(data.morningData.anxietyLevel);
+                            if (data.morningData.sleepQuality) allTimeSleep.push(data.morningData.sleepQuality);
+                        }
+                        if (data.eveningData) {
+                            if (data.eveningData.mood) allTimeMood.push(data.eveningData.mood);
+                            if (data.eveningData.craving) allTimeCraving.push(data.eveningData.craving);
+                        }
+                    });
+
+                    // Calculate all-time averages
+                    const avgMood = allTimeMood.length > 0
+                        ? (allTimeMood.reduce((a, b) => a + b, 0) / allTimeMood.length).toFixed(1)
+                        : 0;
+                    const avgCraving = allTimeCraving.length > 0
+                        ? (allTimeCraving.reduce((a, b) => a + b, 0) / allTimeCraving.length).toFixed(1)
+                        : 0;
+                    const avgAnxiety = allTimeAnxiety.length > 0
+                        ? (allTimeAnxiety.reduce((a, b) => a + b, 0) / allTimeAnxiety.length).toFixed(1)
+                        : 0;
+                    const avgSleep = allTimeSleep.length > 0
+                        ? (allTimeSleep.reduce((a, b) => a + b, 0) / allTimeSleep.length).toFixed(1)
+                        : 0;
+
+                    // Build 30-day data
+                    for (let i = 29; i >= 0; i--) {
+                        const date = new Date();
+                        date.setDate(date.getDate() - i);
+                        last30Days.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+
+                        const dayCheckIns = [];
+                        checkInsSnap.forEach(doc => {
+                            const checkInDate = doc.data().createdAt?.toDate
+                                ? doc.data().createdAt.toDate()
+                                : new Date(doc.data().createdAt);
+                            if (checkInDate.toDateString() === date.toDateString()) {
+                                dayCheckIns.push(doc.data());
+                            }
+                        });
+
+                        // Calculate averages for the day
+                        const dayMoods = [];
+                        const dayCravings = [];
+                        const dayAnxiety = [];
+                        const daySleep = [];
+
+                        dayCheckIns.forEach(checkIn => {
+                            if (checkIn.morningData) {
+                                if (checkIn.morningData.mood) dayMoods.push(checkIn.morningData.mood);
+                                if (checkIn.morningData.craving) dayCravings.push(checkIn.morningData.craving);
+                                if (checkIn.morningData.anxietyLevel) dayAnxiety.push(checkIn.morningData.anxietyLevel);
+                                if (checkIn.morningData.sleepQuality) daySleep.push(checkIn.morningData.sleepQuality);
+                            }
+                            if (checkIn.eveningData) {
+                                if (checkIn.eveningData.mood) dayMoods.push(checkIn.eveningData.mood);
+                                if (checkIn.eveningData.craving) dayCravings.push(checkIn.eveningData.craving);
+                            }
+                        });
+
+                        moodData.push(dayMoods.length > 0 ? dayMoods.reduce((a, b) => a + b) / dayMoods.length : null);
+                        cravingData.push(dayCravings.length > 0 ? dayCravings.reduce((a, b) => a + b) / dayCravings.length : null);
+                        anxietyData.push(dayAnxiety.length > 0 ? dayAnxiety.reduce((a, b) => a + b) / dayAnxiety.length : null);
+                        sleepData.push(daySleep.length > 0 ? daySleep.reduce((a, b) => a + b) / daySleep.length : null);
+                    }
+
+                    setChartData({
+                        mood: { labels: last30Days, data: moodData, average: avgMood },
+                        craving: { labels: last30Days, data: cravingData, average: avgCraving },
+                        anxiety: { labels: last30Days, data: anxietyData, average: avgAnxiety },
+                        sleep: { labels: last30Days, data: sleepData, average: avgSleep }
+                    });
+
+                    // Load sobriety data
+                    const sobrietyLabels = [];
+                    const sobrietyDays = [];
+                    let totalSobrietyDays = 0;
+
+                    for (const pirId of pirIds.slice(0, 20)) {
+                        const pirDoc = await db.collection('users').doc(pirId).get();
+                        if (pirDoc.exists) {
+                            const pirData = pirDoc.data();
+                            if (pirData.sobrietyDate) {
+                                const sobrietyDate = pirData.sobrietyDate.toDate
+                                    ? pirData.sobrietyDate.toDate()
+                                    : new Date(pirData.sobrietyDate);
+                                const today = new Date();
+                                const days = Math.floor((today - sobrietyDate) / (1000 * 60 * 60 * 24));
+
+                                sobrietyLabels.push(pirData.displayName || pirData.email?.split('@')[0] || 'PIR');
+                                sobrietyDays.push(days);
+                                totalSobrietyDays += days;
+                            }
+                        }
+                    }
+
+                    const avgSobriety = sobrietyDays.length > 0
+                        ? Math.round(totalSobrietyDays / sobrietyDays.length)
+                        : 0;
+
+                    setSobrietyData({
+                        labels: sobrietyLabels,
+                        data: sobrietyDays,
+                        average: avgSobriety
+                    });
+
+                    // Load recent activity
+                    const activityData = [];
+
+                    const recentCheckInsSnap = await db.collection('checkIns')
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .orderBy('createdAt', 'desc')
+                        .limit(5)
+                        .get();
+
+                    recentCheckInsSnap.forEach(doc => {
+                        const data = doc.data();
+                        activityData.push({
+                            type: 'check-in',
+                            message: `${data.userName || 'PIR'} completed check-in`,
+                            time: data.createdAt
+                        });
+                    });
+
+                    const recentAlertsSnap = await db.collection('alerts')
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .orderBy('createdAt', 'desc')
+                        .limit(3)
+                        .get();
+
+                    recentAlertsSnap.forEach(doc => {
+                        const data = doc.data();
+                        activityData.push({
+                            type: 'alert',
+                            message: `Alert: ${data.message || 'New alert triggered'}`,
+                            time: data.createdAt
+                        });
+                    });
+
+                    activityData.sort((a, b) => {
+                        const timeA = a.time?.toDate ? a.time.toDate() : new Date(a.time);
+                        const timeB = b.time?.toDate ? b.time.toDate() : new Date(b.time);
+                        return timeB - timeA;
+                    });
+
+                    setRecentActivity(activityData.slice(0, 10));
+
+                } catch (error) {
+                    console.error('Error loading dashboard data:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const renderAllCharts = () => {
+                Object.values(chartInstances.current).forEach(chart => {
+                    if (chart) chart.destroy();
+                });
+
+                const chartConfig = {
+                    type: 'line',
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 10,
+                                ticks: { stepSize: 1 }
+                            }
+                        },
+                        plugins: {
+                            legend: { display: true }
+                        }
+                    }
+                };
+
+                if (moodChartRef.current) {
+                    chartInstances.current.mood = new Chart(moodChartRef.current, {
+                        ...chartConfig,
+                        data: {
+                            labels: chartData.mood.labels,
+                            datasets: [{
+                                label: 'Mood',
+                                data: chartData.mood.data,
+                                borderColor: 'var(--success-color)',
+                                backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                                tension: 0.4,
+                                spanGaps: true
+                            }]
+                        }
+                    });
+                }
+
+                if (cravingChartRef.current) {
+                    chartInstances.current.craving = new Chart(cravingChartRef.current, {
+                        ...chartConfig,
+                        data: {
+                            labels: chartData.craving.labels,
+                            datasets: [{
+                                label: 'Craving',
+                                data: chartData.craving.data,
+                                borderColor: 'var(--warning-color)',
+                                backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                                tension: 0.4,
+                                spanGaps: true
+                            }]
+                        }
+                    });
+                }
+
+                if (anxietyChartRef.current) {
+                    chartInstances.current.anxiety = new Chart(anxietyChartRef.current, {
+                        ...chartConfig,
+                        data: {
+                            labels: chartData.anxiety.labels,
+                            datasets: [{
+                                label: 'Anxiety',
+                                data: chartData.anxiety.data,
+                                borderColor: 'var(--danger-color)',
+                                backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                                tension: 0.4,
+                                spanGaps: true
+                            }]
+                        }
+                    });
+                }
+
+                if (sleepChartRef.current) {
+                    chartInstances.current.sleep = new Chart(sleepChartRef.current, {
+                        ...chartConfig,
+                        data: {
+                            labels: chartData.sleep.labels,
+                            datasets: [{
+                                label: 'Sleep Quality',
+                                data: chartData.sleep.data,
+                                borderColor: 'var(--primary-color)',
+                                backgroundColor: 'rgba(0, 119, 204, 0.1)',
+                                tension: 0.4,
+                                spanGaps: true
+                            }]
+                        }
+                    });
+                }
+
+                if (sobrietyChartRef.current) {
+                    chartInstances.current.sobriety = new Chart(sobrietyChartRef.current, {
+                        type: 'bar',
+                        data: {
+                            labels: sobrietyData.labels,
+                            datasets: [{
+                                label: 'Sobriety Days',
+                                data: sobrietyData.data,
+                                backgroundColor: 'var(--primary-color)',
+                                borderColor: 'var(--primary-color)',
+                                borderWidth: 2
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: { stepSize: 30 }
+                                },
+                                x: {
+                                    ticks: {
+                                        maxRotation: 45,
+                                        minRotation: 45
+                                    }
+                                }
+                            },
+                            plugins: {
+                                legend: { display: true }
+                            }
+                        }
+                    });
+                }
+            };
+
+            // Helper function to get initials
+            const getInitials = (pir) => {
+                const firstName = pir.firstName || '';
+                const lastName = pir.lastName || '';
+                return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || '?';
+            };
+
+            // Helper function to get color for initials
+            const getInitialsColor = (name) => {
+                const colors = [
+                    'var(--primary-color)',
+                    'var(--success-color)',
+                    '#4facfe',
+                    'var(--warning-color)'
+                ];
+                const index = (name || '').charCodeAt(0) % colors.length;
+                return colors[index];
+            };
+
+            if (loading) {
+                return (
+                    <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: '400px',
+                        gap: '20px'
+                    }}>
+                        <div style={{
+                            width: '60px',
+                            height: '60px',
+                            border: '4px solid #f3f3f3',
+                            borderTop: '4px solid var(--primary-color)',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite'
+                        }}></div>
+                        <p style={{ color: '#666' }}>Loading dashboard...</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div style={{ padding: '30px', animation: 'fadeIn 0.5s' }}>
+                    {/* Stats Cards */}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+                        gap: '20px',
+                        marginBottom: '40px'
+                    }}>
+                        <div style={{
+                            background: 'linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%)',
+                            borderRadius: '15px',
+                            padding: '25px',
+                            color: 'white',
+                            boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)',
+                            transition: 'transform 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            <div style={{ fontSize: '14px', opacity: 0.9 }}>Total PIRs</div>
+                            <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                                {stats.totalPirs}
+                            </div>
+                        </div>
+
+                        <div style={{
+                            background: 'linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%)',
+                            borderRadius: '15px',
+                            padding: '25px',
+                            color: 'white',
+                            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.2)',
+                            transition: 'transform 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            <div style={{ fontSize: '14px', opacity: 0.9 }}>Total Coaches</div>
+                            <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                                {stats.totalCoaches}
+                            </div>
+                        </div>
+
+                        <div style={{
+                            background: 'linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%)',
+                            borderRadius: '15px',
+                            padding: '25px',
+                            color: 'white',
+                            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.2)',
+                            transition: 'transform 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            <div style={{ fontSize: '14px', opacity: 0.9 }}>Alerts Today</div>
+                            <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                                {stats.alertsToday}
+                            </div>
+                        </div>
+
+                        <div style={{
+                            background: 'linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%)',
+                            borderRadius: '15px',
+                            padding: '25px',
+                            color: 'white',
+                            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.2)',
+                            transition: 'transform 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            <div style={{ fontSize: '14px', opacity: 0.9 }}>Avg Compliance</div>
+                            <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                                {stats.avgCompliance}%
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Active PIRs Section */}
+                    <div style={{ marginBottom: '40px' }}>
+                        <h2 style={{
+                            marginBottom: '20px',
+                            fontSize: '24px',
+                            color: '#333'
+                        }}>
+                            Active PIRs ({activePIRs.length})
+                        </h2>
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                            gap: '20px'
+                        }}>
+                            {activePIRs.map(pir => (
+                                <div
+                                    key={pir.id}
+                                    onClick={() => setSelectedPIR(pir)}
+                                    style={{
+                                        background: 'white',
+                                        borderRadius: '15px',
+                                        padding: '20px',
+                                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s',
+                                        display: 'flex',
+                                        gap: '15px',
+                                        alignItems: 'center'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.transform = 'translateY(-3px)';
+                                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                                    }}
+                                >
+                                    {/* Profile Photo or Initials */}
+                                    <div style={{
+                                        width: '80px',
+                                        height: '80px',
+                                        borderRadius: '50%',
+                                        flexShrink: 0,
+                                        overflow: 'hidden',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        background: pir.profileImageUrl ? 'transparent' : getInitialsColor(pir.firstName),
+                                        color: 'white',
+                                        fontSize: '28px',
+                                        fontWeight: 'bold'
+                                    }}>
+                                        {pir.profileImageUrl ? (
+                                            <img
+                                                src={pir.profileImageUrl}
+                                                alt={pir.displayName}
+                                                style={{
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    objectFit: 'cover'
+                                                }}
+                                                onError={(e) => {
+                                                    e.target.style.display = 'none';
+                                                    e.target.parentElement.textContent = getInitials(pir);
+                                                }}
+                                            />
+                                        ) : (
+                                            getInitials(pir)
+                                        )}
+                                    </div>
+
+                                    {/* PIR Info */}
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{
+                                            fontSize: '18px',
+                                            fontWeight: '600',
+                                            color: '#333',
+                                            marginBottom: '8px',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap'
+                                        }}>
+                                            {pir.displayName || pir.firstName || 'Unknown'}
+                                        </div>
+                                        <div style={{
+                                            fontSize: '14px',
+                                            color: '#666',
+                                            marginBottom: '4px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px'
+                                        }}>
+                                            <span>📅</span>
+                                            <span>{pir.daysSober} days sober</span>
+                                        </div>
+                                        <div style={{
+                                            fontSize: '14px',
+                                            color: '#666',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap'
+                                        }}>
+                                            <span>🎓</span>
+                                            <span>Coach: {pir.coachName}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Trend Charts */}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
+                        gap: '25px',
+                        marginBottom: '40px'
+                    }}>
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '15px',
+                            padding: '25px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                        }}>
+                            <h3 style={{ marginBottom: '15px', color: '#333' }}>30-Day Mood Trend</h3>
+                            <div style={{ height: '250px' }}>
+                                <canvas ref={moodChartRef}></canvas>
+                            </div>
+                            <div style={{
+                                marginTop: '15px',
+                                padding: '15px',
+                                background: '#f8f9fa',
+                                borderRadius: '8px',
+                                textAlign: 'center'
+                            }}>
+                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>
+                                    All-Time Average
+                                </div>
+                                <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--success-color)' }}>
+                                    {chartData.mood.average}/10
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '15px',
+                            padding: '25px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                        }}>
+                            <h3 style={{ marginBottom: '15px', color: '#333' }}>30-Day Craving Trend</h3>
+                            <div style={{ height: '250px' }}>
+                                <canvas ref={cravingChartRef}></canvas>
+                            </div>
+                            <div style={{
+                                marginTop: '15px',
+                                padding: '15px',
+                                background: '#f8f9fa',
+                                borderRadius: '8px',
+                                textAlign: 'center'
+                            }}>
+                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>
+                                    All-Time Average
+                                </div>
+                                <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--warning-color)' }}>
+                                    {chartData.craving.average}/10
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '15px',
+                            padding: '25px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                        }}>
+                            <h3 style={{ marginBottom: '15px', color: '#333' }}>30-Day Anxiety Trend</h3>
+                            <div style={{ height: '250px' }}>
+                                <canvas ref={anxietyChartRef}></canvas>
+                            </div>
+                            <div style={{
+                                marginTop: '15px',
+                                padding: '15px',
+                                background: '#f8f9fa',
+                                borderRadius: '8px',
+                                textAlign: 'center'
+                            }}>
+                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>
+                                    All-Time Average
+                                </div>
+                                <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--danger-color)' }}>
+                                    {chartData.anxiety.average}/10
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '15px',
+                            padding: '25px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                        }}>
+                            <h3 style={{ marginBottom: '15px', color: '#333' }}>30-Day Sleep Quality Trend</h3>
+                            <div style={{ height: '250px' }}>
+                                <canvas ref={sleepChartRef}></canvas>
+                            </div>
+                            <div style={{
+                                marginTop: '15px',
+                                padding: '15px',
+                                background: '#f8f9fa',
+                                borderRadius: '8px',
+                                textAlign: 'center'
+                            }}>
+                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>
+                                    All-Time Average
+                                </div>
+                                <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--primary-color)' }}>
+                                    {chartData.sleep.average}/10
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Sobriety Bar Chart */}
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '25px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                        marginBottom: '40px'
+                    }}>
+                        <h3 style={{ marginBottom: '15px', color: '#333' }}>PIR Sobriety Days</h3>
+                        <div style={{ height: '350px' }}>
+                            <canvas ref={sobrietyChartRef}></canvas>
+                        </div>
+                        <div style={{
+                            marginTop: '20px',
+                            padding: '20px',
+                            background: 'linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%)',
+                            borderRadius: '10px',
+                            textAlign: 'center',
+                            color: 'white'
+                        }}>
+                            <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '5px' }}>
+                                Average Sobriety Days (All PIRs)
+                            </div>
+                            <div style={{ fontSize: '36px', fontWeight: 'bold' }}>
+                                {sobrietyData.average} days
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Recent Activity */}
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '25px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                    }}>
+                        <h3 style={{ marginBottom: '20px', color: '#333' }}>Recent Activity</h3>
+                        {recentActivity.length === 0 ? (
+                            <div style={{
+                                padding: '40px',
+                                textAlign: 'center',
+                                color: '#999'
+                            }}>
+                                No recent activity
+                            </div>
+                        ) : (
+                            <div>
+                                {recentActivity.map((activity, index) => (
+                                    <div key={index} style={{
+                                        padding: '15px',
+                                        borderBottom: index < recentActivity.length - 1 ? '1px solid #f0f0f0' : 'none',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                            <div style={{
+                                                width: '40px',
+                                                height: '40px',
+                                                borderRadius: '50%',
+                                                background: activity.type === 'check-in'
+                                                    ? 'linear-gradient(135deg, var(--success-color) 0%, #008554 100%)'
+                                                    : 'linear-gradient(135deg, var(--danger-color) 0%, #c41230 100%)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                color: 'white',
+                                                fontSize: '18px'
+                                            }}>
+                                                {activity.type === 'check-in' ? '✓' : '⚠'}
+                                            </div>
+                                            <div>
+                                                <div style={{ fontWeight: '500', color: '#333' }}>
+                                                    {activity.message}
+                                                </div>
+                                                <div style={{ fontSize: '12px', color: '#999', marginTop: '4px' }}>
+                                                    {formatTimeAgo(activity.time)}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* PIR Detail Modal */}
+                    {selectedPIR && (
+                        <UserDetailModal
+                            user={selectedPIR}
+                            onClose={() => setSelectedPIR(null)}
+                            onUpdate={() => {
+                                setSelectedPIR(null);
+                                loadDashboardData();
+                            }}
+                            currentUserId={user.uid}
+                        />
+                    )}
+                </div>
+            );
+        }
+
+        // ==========================================
+        // ROOT APP COMPONENT
+        // ==========================================
+        function DashboardApp() {
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const unsubscribe = firebase.auth().onAuthStateChanged(async (firebaseUser) => {
+                    if (firebaseUser) {
+                        const userDoc = await firebase.firestore()
+                            .collection('users')
+                            .doc(firebaseUser.uid)
+                            .get();
+
+                        if (userDoc.exists) {
+                            const userData = userDoc.data();
+                            // Check if user has admin or superadmin role
+                            if (userData.role === 'admin' || userData.role === 'superadmin' || userData.role === 'coach') {
+                                setUser({ uid: firebaseUser.uid, ...userData });
+                            } else {
+                                alert('Access denied. Admin access required for Dashboard.');
+                                window.location.href = '/';
+                            }
+                        } else {
+                            window.location.href = '/';
+                        }
+                    } else {
+                        window.location.href = '/';
+                    }
+                    setLoading(false);
+                });
+
+                return () => unsubscribe();
+            }, []);
+
+            if (loading) {
+                return (
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: '100vh',
+                        background: '#f5f7fa'
+                    }}>
+                        <div style={{
+                            width: '60px',
+                            height: '60px',
+                            border: '4px solid #f3f3f3',
+                            borderTop: '4px solid var(--primary-color)',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite'
+                        }}></div>
+                    </div>
+                );
+            }
+
+            return (
+                <div style={{ display: 'flex', minHeight: '100vh', background: '#f5f7fa' }}>
+                    <Sidebar user={user} />
+                    <div style={{
+                        flex: 1,
+                        marginLeft: '280px',
+                        transition: 'margin-left 0.3s'
+                    }}>
+                        <DashboardView user={user} />
+                    </div>
+                </div>
+            );
+        }
+
+        // Render the app
+        ReactDOM.render(<DashboardApp />, document.getElementById('root'));
+
+})(); // End initPage
+    </script>
+</body>
+</html>

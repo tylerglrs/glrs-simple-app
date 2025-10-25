@@ -1,0 +1,2766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - GLRS Admin</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙️</text></svg>">
+    <link rel="stylesheet" href="/admin/shared/styles.css">
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    <script src="/admin/shared/firebase.js"></script>
+    <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/utils.js"></script>
+    <script src="/admin/shared/state.js"></script>
+    <script src="/admin/shared/navigation.js"></script>
+    <script type="text/babel">
+(function initPage() {
+    if (!window.FIREBASE_READY || !window.auth || !window.db) {
+        console.log('Waiting for Firebase to initialize...');
+        setTimeout(initPage, 50);
+        return;
+    }
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+    const { auth, db, storage, CURRENT_TENANT, logAudit } = window;
+
+                    yPos = 20;
+                }
+            });
+        });
+        yPos += 10;
+    }
+
+    // ✅ CHARTS SECTION - MOOD & CRAVINGS TREND
+    if (data.charts?.trends) {
+        if (yPos > 200) {
+            doc.addPage();
+            yPos = 20;
+        }
+        
+        doc.setFontSize(12);
+        doc.text('Mood & Cravings Trend', 20, yPos);
+        yPos += 5;
+
+        const chartImage = await renderChartToImage(
+            {
+                labels: data.charts.trends.dates,
+                datasets: [
+                    {
+                        label: 'Mood',
+                        data: data.charts.trends.moods,
+                        borderColor: '#00A86B',
+                        backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Cravings',
+                        data: data.charts.trends.cravings,
+                        borderColor: '#f44336',
+                        backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4
+                    }
+                ]
+            },
+            'line',
+            'Mood & Cravings Over Time'
+        );
+        
+        doc.addImage(chartImage, 'PNG', 20, yPos, 170, 80);
+        yPos += 90;
+    }
+
+    // ✅ ANXIETY & SLEEP TREND CHART
+    if (data.charts?.trends?.anxiety && data.charts?.trends?.sleep) {
+        if (yPos > 200) {
+            doc.addPage();
+            yPos = 20;
+        }
+        
+        doc.setFontSize(12);
+        doc.text('Anxiety & Sleep Quality Trend', 20, yPos);
+        yPos += 5;
+
+        const chartImage = await renderChartToImage(
+            {
+                labels: data.charts.trends.dates,
+                datasets: [
+                    {
+                        label: 'Anxiety',
+                        data: data.charts.trends.anxiety,
+                        borderColor: '#FF9800',
+                        backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Sleep Quality',
+                        data: data.charts.trends.sleep,
+                        borderColor: '#9C27B0',
+                        backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4
+                    }
+                ]
+            },
+            'line',
+            'Anxiety & Sleep Over Time'
+        );
+        
+        doc.addImage(chartImage, 'PNG', 20, yPos, 170, 80);
+        yPos += 90;
+    }
+
+    // ✅ MOOD DISTRIBUTION CHART
+    if (data.charts?.distribution) {
+        if (yPos > 200) {
+            doc.addPage();
+            yPos = 20;
+        }
+        
+        doc.setFontSize(12);
+        doc.text('Mood Distribution', 20, yPos);
+        yPos += 5;
+
+        const chartImage = await renderChartToImage(
+            {
+                labels: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
+                datasets: [{
+                    label: 'Days at this mood level',
+                    data: data.charts.distribution,
+                    backgroundColor: [
+                        '#f44336', '#f44336', '#f44336',
+                        '#FF9800', '#FF9800', '#FF9800',
+                        '#00A86B', '#00A86B', '#00A86B', '#00A86B'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            'bar',
+            'Where You Spend Your Time'
+        );
+        
+        doc.addImage(chartImage, 'PNG', 20, yPos, 170, 80);
+        yPos += 90;
+    }
+
+    // Data Tables - Morning Check-ins
+    if (data.morningData && data.morningData.length > 0) {
+        doc.addPage();
+        yPos = 20;
+
+        doc.setFontSize(14);
+        doc.text('Morning Check-in Details', 20, yPos);
+        yPos += 10;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['Date', 'Mood', 'Craving', 'Anxiety', 'Sleep']],
+            body: data.morningData.slice(0, 30).map(m => {
+                const date = m.date?.toDate ? m.date.toDate() : new Date(m.date);
+                return [
+                    date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                    m.mood || 'N/A',
+                    m.craving || 'N/A',
+                    m.anxiety || 'N/A',
+                    m.sleep || 'N/A'
+                ];
+            }),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    // Data Tables - Evening Reflections
+    if (data.eveningData && data.eveningData.length > 0) {
+        doc.addPage();
+        yPos = 20;
+
+        doc.setFontSize(14);
+        doc.text('Evening Reflection Details', 20, yPos);
+        yPos += 10;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['Date', 'Overall Day', 'Gratitude', 'Challenges']],
+            body: data.eveningData.slice(0, 30).map(e => {
+                const date = e.date?.toDate ? e.date.toDate() : new Date(e.date);
+                return [
+                    date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                    (e.overallDay || 'N/A') + '/10',
+                    (e.gratitude || '').substring(0, 30) + '...',
+                    (e.challenges || '').substring(0, 30) + '...'
+                ];
+            }),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    // Data Tables - Sobriety
+    if (data.sobrietyData && data.sobrietyData.length > 0) {
+        doc.addPage();
+        yPos = 20;
+
+        doc.setFontSize(14);
+        doc.text('Sobriety Analysis', 20, yPos);
+        yPos += 10;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Days Sober', 'Avg Mood', 'Avg Cravings', 'Risk Level']],
+            body: data.sobrietyData.slice(0, 30).map(s => [
+                s.pirName,
+                s.daysSober,
+                s.avgMood,
+                s.avgCravings,
+                s.riskLevel
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    // Data Tables - Engagement
+    if (data.engagementData && data.engagementData.length > 0) {
+        doc.addPage();
+        yPos = 20;
+
+        doc.setFontSize(14);
+        doc.text('Engagement Details', 20, yPos);
+        yPos += 10;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Check-ins', 'Streak', 'Assignments', 'Score']],
+            body: data.engagementData.slice(0, 30).map(e => [
+                e.pirName,
+                e.checkInCount,
+                e.checkInStreak + ' days',
+                e.assignmentCompletion + '%',
+                e.engagementScore
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    // Data Tables - Achievements
+    if (data.achievements && data.achievements.length > 0) {
+        doc.addPage();
+        yPos = 20;
+
+        doc.setFontSize(14);
+        doc.text('Achievements & Milestones', 20, yPos);
+        yPos += 10;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Type', 'Achievement', 'Date']],
+            body: data.achievements.slice(0, 30).map(a => {
+                const date = a.completedAt?.toDate ? a.completedAt.toDate() : new Date(a.completedAt);
+                return [
+                    a.pirName,
+                    a.type,
+                    a.title,
+                    date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                ];
+            }),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    // Data Tables - Risk
+    if (data.riskData && data.riskData.length > 0) {
+        doc.addPage();
+        yPos = 20;
+
+        doc.setFontSize(14);
+        doc.text('Risk Assessment', 20, yPos);
+        yPos += 10;
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Risk Score', 'Level', 'Patterns']],
+            body: data.riskData.slice(0, 30).map(r => [
+                r.pirName,
+                r.riskScore + '/10',
+                r.riskLevel,
+                r.patterns.join(', ').substring(0, 40) + '...'
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [102, 126, 234] }
+        });
+    }
+
+    // ✅ RETURN BLOB
+    return doc.output('blob');
+};
+
+// ========== SEND WEEKLY REPORTS HANDLER ==========
+const handleSendWeeklyReports = async () => {
+    if (!confirm('Send weekly progress reports to all active PIRs?')) {
+        return;
+    }
+    
+    setSendingWeekly(true);
+    try {
+        await sendAllWeeklyReports();
+    } catch (error) {
+        console.error('Error sending weekly reports:', error);
+    } finally {
+        setSendingWeekly(false);
+    }
+};
+
+// ========== SEND MONTHLY REPORTS HANDLER ==========
+const handleSendMonthlyReports = async () => {
+    if (!confirm('Send monthly progress reports to all active PIRs?')) {
+        return;
+    }
+    
+    setSendingMonthly(true);
+    try {
+        await sendAllMonthlyReports();
+    } catch (error) {
+        console.error('Error sending monthly reports:', error);
+    } finally {
+        setSendingMonthly(false);
+    }
+};
+
+// ========== MAIN GENERATE REPORT ==========
+const generateReport = async () => {
+    if (!startDate || !endDate) {
+        alert('Please select date range');
+        return;
+    }
+
+    setLoading(true);
+    try {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+
+        let data = {};
+
+        if (reportMode === 'templates') {
+            switch (selectedTemplate) {
+                case 'overview':
+                    data = await generateOverviewReport(start, end);
+                    break;
+                case 'sobriety':
+                    data = await generateSobrietyReport(start, end);
+                    break;
+                case 'morningCheckins':
+                    data = await generateMorningCheckinsReport(start, end);
+                    break;
+                case 'eveningReflections':
+                    data = await generateEveningReflectionsReport(start, end);
+                    break;
+                case 'fullPIR':
+                    data = await generateFullPIRReport(start, end);
+                    break;
+                case 'moodAnalysis':
+                    data = await generateMoodAnalysisReport(start, end);
+                    break;
+                case 'crisis':
+                    data = await generateCrisisReport(start, end);
+                    break;
+                case 'engagement':
+                    data = await generateEngagementReport(start, end);
+                    break;
+                case 'comparative':
+                    data = await generateComparativeReport(start, end);
+                    break;
+                case 'milestones':
+                    data = await generateMilestonesReport(start, end);
+                    break;
+                case 'communication':
+                    data = await generateCommunicationReport(start, end);
+                    break;
+                case 'predictive':
+                    data = await generatePredictiveReport(start, end);
+                    break;
+                default:
+                    data = await generateOverviewReport(start, end);
+            }
+        }
+
+        setReportData(data);
+    } catch (error) {
+        console.error('Error generating report:', error);
+        alert('Failed to generate report: ' + error.message);
+    } finally {
+        setLoading(false);
+    }
+};
+
+    // ========== ANALYTICS VIEW COMPONENT ==========
+    function AnalyticsView({ analyticsData, onClose, onSelectPIR }) {
+        const [selectedTab, setSelectedTab] = useState('aggregate');
+        const [sortBy, setSortBy] = useState('name');
+
+        if (!analyticsData) return null;
+
+        const { pirStats, allPIRsData } = analyticsData;
+
+        const sortedPIRs = Object.values(pirStats).sort((a, b) => {
+            if (sortBy === 'name') return a.userName.localeCompare(b.userName);
+            if (sortBy === 'avgMood') return parseFloat(b.avgMood) - parseFloat(a.avgMood);
+            if (sortBy === 'avgCraving') return parseFloat(a.avgCraving) - parseFloat(b.avgCraving);
+            if (sortBy === 'completion') return b.completionRate - a.completionRate;
+            return 0;
+        });
+
+        const exportAggregateAnalytics = () => {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF('landscape');
+            
+            let yPos = 20;
+            
+            doc.setFontSize(20);
+            doc.text('Analytics Report - All PIRs', 14, yPos);
+            yPos += 15;
+            
+            doc.setFontSize(10);
+            doc.text(`Generated: ${new Date().toLocaleString()}`, 14, yPos);
+            yPos += 15;
+
+            doc.setFontSize(16);
+            doc.text('Overall Program Statistics', 14, yPos);
+            yPos += 10;
+
+            const aggregateStats = [
+                ['Metric', 'Lifetime Average', 'Last 30 Days'],
+                ['Average Mood', allPIRsData.avgMood, allPIRsData.last30Days.avgMood],
+                ['Average Cravings', allPIRsData.avgCraving, allPIRsData.last30Days.avgCraving],
+                ['Average Anxiety', allPIRsData.avgAnxiety, allPIRsData.last30Days.avgAnxiety],
+                ['Average Sleep Quality', allPIRsData.avgSleep, allPIRsData.last30Days.avgSleep],
+                ['Completion Rate', `${allPIRsData.completionRate}%`, `${allPIRsData.last30Days.completionRate}%`],
+                ['Total Check-ins', allPIRsData.totalCheckIns, '-']
+            ];
+
+            doc.autoTable({
+                startY: yPos,
+                head: [aggregateStats[0]],
+                body: aggregateStats.slice(1),
+                theme: 'grid',
+                headStyles: { fillColor: [102, 126, 234] }
+            });
+
+            doc.addPage();
+            yPos = 20;
+            
+            doc.setFontSize(16);
+            doc.text('Individual PIR Statistics - Lifetime', 14, yPos);
+            yPos += 10;
+
+            const pirLifetimeData = sortedPIRs.map(pir => [
+                pir.userName,
+                pir.totalCheckIns,
+                pir.avgMood,
+                pir.avgCraving,
+                pir.avgAnxiety,
+                pir.avgSleep,
+                `${pir.completionRate}%`
+            ]);
+
+            doc.autoTable({
+                startY: yPos,
+                head: [['PIR', 'Check-ins', 'Avg Mood', 'Avg Craving', 'Avg Anxiety', 'Avg Sleep', 'Completion']],
+                body: pirLifetimeData,
+                theme: 'grid',
+                headStyles: { fillColor: [102, 126, 234] },
+                styles: { fontSize: 9 }
+            });
+
+            doc.save(`Analytics_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+        };
+
+        return (
+            <div style={{ padding: '20px', animation: 'fadeIn 0.5s' }}>
+                <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    marginBottom: '30px'
+                }}>
+                    <div>
+                        <h2 style={{ margin: '0 0 10px 0', fontSize: '28px', color: '#333' }}>
+                            Analytics & Reports
+                        </h2>
+                        <p style={{ margin: 0, color: '#666' }}>
+                            Comprehensive check-in statistics and trends
+                        </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <button
+                            onClick={exportAggregateAnalytics}
+                            style={{
+                                padding: '12px 24px',
+                                background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '600'
+                            }}
+                        >
+                            Export Analytics PDF
+                        </button>
+                        <button
+                            onClick={onClose}
+                            style={{
+                                padding: '12px 24px',
+                                background: '#6c757d',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '600'
+                            }}
+                        >
+                            Back to Reports
+                        </button>
+                    </div>
+                </div>
+
+                <div style={{
+                    display: 'flex',
+                    gap: '10px',
+                    marginBottom: '30px',
+                    borderBottom: '2px solid #f0f0f0'
+                }}>
+                    {[
+                        { id: 'aggregate', label: 'All PIRs Aggregate' },
+                        { id: 'individual', label: 'Individual PIR Stats' }
+                    ].map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setSelectedTab(tab.id)}
+                            style={{
+                                padding: '12px 24px',
+                                background: selectedTab === tab.id ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : 'transparent',
+                                color: selectedTab === tab.id ? 'white' : '#666',
+                                border: 'none',
+                                borderBottom: selectedTab === tab.id ? 'none' : '2px solid transparent',
+                                cursor: 'pointer',
+                                fontSize: '15px',
+                                fontWeight: '600',
+                                borderRadius: selectedTab === tab.id ? '10px 10px 0 0' : '0',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+
+                {selectedTab === 'aggregate' && (
+                    <div>
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '15px',
+                            padding: '30px',
+                            marginBottom: '30px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                        }}>
+                            <h3 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#333' }}>
+                                Overall Program Statistics
+                            </h3>
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
+                                <div style={{
+                                    background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                    padding: '20px',
+                                    borderRadius: '12px',
+                                    color: 'white'
+                                }}>
+                                    <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Total Check-ins</div>
+                                    <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.totalCheckIns}</div>
+                                </div>
+
+                                <div style={{
+                                    background: 'linear-gradient(135deg, #00A86B 0%, #008554 100%)',
+                                    padding: '20px',
+                                    borderRadius: '12px',
+                                    color: 'white'
+                                }}>
+                                    <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Completion Rate</div>
+                                    <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.completionRate}%</div>
+                                    <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                        30-day: {allPIRsData.last30Days.completionRate}%
+                                    </div>
+                                </div>
+
+                                <div style={{
+                                    background: 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)',
+                                    padding: '20px',
+                                    borderRadius: '12px',
+                                    color: 'white'
+                                }}>
+                                    <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Average Mood</div>
+                                    <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.avgMood}/10</div>
+                                    <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                        30-day: {allPIRsData.last30Days.avgMood}/10
+                                    </div>
+                                </div>
+
+                                <div style={{
+                                    background: 'linear-gradient(135deg, #f44336 0%, #B01030 100%)',
+                                    padding: '20px',
+                                    borderRadius: '12px',
+                                    color: 'white'
+                                }}>
+                                    <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Average Cravings</div>
+                                    <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.avgCraving}/10</div>
+                                    <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                        30-day: {allPIRsData.last30Days.avgCraving}/10
+                                    </div>
+                                </div>
+
+                                <div style={{
+                                    background: 'linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%)',
+                                    padding: '20px',
+                                    borderRadius: '12px',
+                                    color: 'white'
+                                }}>
+                                    <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Average Anxiety</div>
+                                    <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.avgAnxiety}/10</div>
+                                    <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                        30-day: {allPIRsData.last30Days.avgAnxiety}/10
+                                    </div>
+                                </div>
+
+                                <div style={{
+                                    background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                                    padding: '20px',
+                                    borderRadius: '12px',
+                                    color: 'white'
+                                }}>
+                                    <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Average Sleep Quality</div>
+                                    <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.avgSleep}/10</div>
+                                    <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                        30-day: {allPIRsData.last30Days.avgSleep}/10
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '15px',
+                            padding: '30px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                        }}>
+                            <h3 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#333' }}>
+                                30-Day Trend vs Lifetime Average
+                            </h3>
+                            
+                            <div style={{ display: 'grid', gap: '20px' }}>
+                                {[
+                                    { label: 'Mood', lifetime: allPIRsData.avgMood, recent: allPIRsData.last30Days.avgMood, color: '#0077CC' },
+                                    { label: 'Cravings', lifetime: allPIRsData.avgCraving, recent: allPIRsData.last30Days.avgCraving, color: '#DC143C', inverse: true },
+                                    { label: 'Anxiety', lifetime: allPIRsData.avgAnxiety, recent: allPIRsData.last30Days.avgAnxiety, color: '#FFA500', inverse: true },
+                                    { label: 'Sleep Quality', lifetime: allPIRsData.avgSleep, recent: allPIRsData.last30Days.avgSleep, color: '#4682B4' },
+                                    { label: 'Completion Rate', lifetime: `${allPIRsData.completionRate}`, recent: `${allPIRsData.last30Days.completionRate}`, color: '#00A86B', isPercent: true }
+                                ].map(metric => {
+                                    const lifetimeVal = parseFloat(metric.lifetime);
+                                    const recentVal = parseFloat(metric.recent);
+                                    const diff = recentVal - lifetimeVal;
+                                    const isImproving = metric.inverse ? diff < 0 : diff > 0;
+                                    
+                                    return (
+                                        <div key={metric.label} style={{
+                                            padding: '20px',
+                                            background: '#f8f9fa',
+                                            borderRadius: '10px'
+                                        }}>
+                                            <div style={{ 
+                                                display: 'flex', 
+                                                justifyContent: 'space-between', 
+                                                alignItems: 'center',
+                                                marginBottom: '15px'
+                                            }}>
+                                                <div style={{ fontSize: '16px', fontWeight: '600', color: '#333' }}>
+                                                    {metric.label}
+                                                </div>
+                                                <div style={{
+                                                    padding: '4px 12px',
+                                                    background: isImproving ? '#d4edda' : '#f8d7da',
+                                                    color: isImproving ? '#155724' : '#721c24',
+                                                    borderRadius: '20px',
+                                                    fontSize: '13px',
+                                                    fontWeight: '600'
+                                                }}>
+                                                    {diff > 0 ? '+' : ''}{diff.toFixed(1)}{metric.isPercent ? '%' : ''} {isImproving ? '↑' : '↓'}
+                                                </div>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>
+                                                        Lifetime: {metric.lifetime}{metric.isPercent ? '%' : '/10'}
+                                                    </div>
+                                                    <div style={{
+                                                        height: '10px',
+                                                        background: '#e0e0e0',
+                                                        borderRadius: '5px',
+                                                        overflow: 'hidden'
+                                                    }}>
+                                                        <div style={{
+                                                            height: '100%',
+                                                            width: `${metric.isPercent ? lifetimeVal : lifetimeVal * 10}%`,
+                                                            background: metric.color,
+                                                            opacity: 0.6
+                                                        }}></div>
+                                                    </div>
+                                                </div>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>
+                                                        Last 30 Days: {metric.recent}{metric.isPercent ? '%' : '/10'}
+                                                    </div>
+                                                    <div style={{
+                                                        height: '10px',
+                                                        background: '#e0e0e0',
+                                                        borderRadius: '5px',
+                                                        overflow: 'hidden'
+                                                    }}>
+                                                        <div style={{
+                                                            height: '100%',
+                                                            width: `${metric.isPercent ? recentVal : recentVal * 10}%`,
+                                                            background: metric.color
+                                                        }}></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {selectedTab === 'individual' && (
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '30px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                    }}>
+                        <div style={{ 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'center',
+                            marginBottom: '20px'
+                        }}>
+                            <h3 style={{ margin: 0, fontSize: '20px', color: '#333' }}>
+                                Individual PIR Statistics
+                            </h3>
+                            <div>
+                                <label style={{ marginRight: '10px', color: '#666', fontSize: '14px' }}>Sort by:</label>
+                                <select
+                                    value={sortBy}
+                                    onChange={(e) => setSortBy(e.target.value)}
+                                    style={{
+                                        padding: '8px 12px',
+                                        border: '2px solid #e0e0e0',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        background: 'white'
+                                    }}
+                                >
+                                    <option value="name">PIR Name</option>
+                                    <option value="avgMood">Avg Mood</option>
+                                    <option value="avgCraving">Avg Cravings</option>
+                                    <option value="completion">Completion Rate</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead style={{ background: '#f8f9fa' }}>
+                                    <tr>
+                                        <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '14px' }}>PIR</th>
+                                        <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Check-ins<br/>(Total / 30d)</th>
+                                        <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Avg Mood<br/>(Life / 30d)</th>
+                                        <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Avg Craving<br/>(Life / 30d)</th>
+                                        <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Avg Anxiety<br/>(Life / 30d)</th>
+                                        <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Avg Sleep<br/>(Life / 30d)</th>
+                                        <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Completion<br/>(Life / 30d)</th>
+                                        <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {sortedPIRs.map(pir => (
+                                        <tr key={pir.userId} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                                            <td style={{ padding: '15px', fontWeight: '500', color: '#333' }}>
+                                                {pir.userName}
+                                            </td>
+                                            <td style={{ padding: '15px', textAlign: 'center', color: '#666' }}>
+                                                {pir.totalCheckIns} / {pir.last30.totalCheckIns}
+                                            </td>
+                                            <td style={{ padding: '15px', textAlign: 'center' }}>
+                                                <div style={{ fontSize: '15px', fontWeight: '600', color: '#0077CC' }}>
+                                                    {pir.avgMood}
+                                                </div>
+                                                <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                    {pir.last30.avgMood}
+                                                </div>
+                                            </td>
+                                            <td style={{ padding: '15px', textAlign: 'center' }}>
+                                                <div style={{ fontSize: '15px', fontWeight: '600', color: '#DC143C' }}>
+                                                    {pir.avgCraving}
+                                                </div>
+                                                <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                    {pir.last30.avgCraving}
+                                                </div>
+                                            </td>
+                                            <td style={{ padding: '15px', textAlign: 'center' }}>
+                                                <div style={{ fontSize: '15px', fontWeight: '600', color: '#FFA500' }}>
+                                                    {pir.avgAnxiety}
+                                                </div>
+                                                <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                    {pir.last30.avgAnxiety}
+                                                </div>
+                                            </td>
+                                            <td style={{ padding: '15px', textAlign: 'center' }}>
+                                                <div style={{ fontSize: '15px', fontWeight: '600', color: '#4682B4' }}>
+                                                    {pir.avgSleep}
+                                                </div>
+                                                <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                    {pir.last30.avgSleep}
+                                                </div>
+                                            </td>
+                                            <td style={{ padding: '15px', textAlign: 'center' }}>
+                                                <div style={{ fontSize: '15px', fontWeight: '600', color: '#00A86B' }}>
+                                                    {pir.completionRate}%
+                                                </div>
+                                                <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                    {pir.last30.completionRate}%
+                                                </div>
+                                            </td>
+                                            <td style={{ padding: '15px', textAlign: 'center' }}>
+                                                <button
+                                                    onClick={() => onSelectPIR(pir.userId)}
+                                                    style={{
+                                                        padding: '6px 16px',
+                                                        background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        borderRadius: '6px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '13px',
+                                                        fontWeight: '500'
+                                                    }}
+                                                >
+                                                    View Report
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    // ========== INDIVIDUAL PIR REPORT COMPONENT ==========
+    function IndividualPIRReport({ pirId, onClose }) {
+        const [pirData, setPIRData] = useState(null);
+        const [loading, setLoading] = useState(true);
+
+        useEffect(() => {
+            loadPIRData();
+        }, [pirId]);
+
+        const loadPIRData = async () => {
+            try {
+                const pirDoc = await db.collection('users').doc(pirId).get();
+                const data = { id: pirDoc.id, ...pirDoc.data() };
+                
+                const checkInsSnap = await db.collection('checkIns')
+                    .where('userId', '==', pirId)
+                    .orderBy('createdAt', 'desc')
+                    .limit(100)
+                    .get();
+                
+                data.checkIns = checkInsSnap.docs.map(d => d.data());
+                
+                setPIRData(data);
+                setLoading(false);
+            } catch (error) {
+                console.error('Error loading PIR data:', error);
+                setLoading(false);
+            }
+        };
+
+        if (loading) {
+            return (
+                <div style={{ padding: '20px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '18px', color: '#666' }}>Loading PIR report...</div>
+                </div>
+            );
+        }
+
+        if (!pirData) {
+            return (
+                <div style={{ padding: '20px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '18px', color: '#666' }}>PIR not found</div>
+                </div>
+            );
+        }
+
+        const avgMood = pirData.checkIns.reduce((sum, c) => sum + (c.morningData?.mood || 0), 0) / pirData.checkIns.length;
+        const avgCravings = pirData.checkIns.reduce((sum, c) => sum + (c.morningData?.craving || 0), 0) / pirData.checkIns.length;
+        const sobrietyDays = pirData.sobrietyDate 
+            ? Math.floor((new Date() - new Date(pirData.sobrietyDate)) / 86400000)
+            : 0;
+
+        return (
+            <div style={{ padding: '20px', animation: 'fadeIn 0.5s' }}>
+                <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    marginBottom: '30px'
+                }}>
+                    <div>
+                        <h2 style={{ margin: '0 0 10px 0', fontSize: '28px', color: '#333' }}>
+                            {pirData.displayName || pirData.email} - Individual Report
+                        </h2>
+                        <p style={{ margin: 0, color: '#666' }}>
+                            Detailed analysis and trends
+                        </p>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            padding: '12px 24px',
+                            background: '#6c757d',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '600'
+                        }}
+                    >
+                        Back to Analytics
+                    </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
+                    <div style={{
+                        background: 'white',
+                        padding: '20px',
+                        borderRadius: '12px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        borderLeft: '4px solid #0077CC'
+                    }}>
+                        <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Total Check-ins</div>
+                        <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#333' }}>{pirData.checkIns.length}</div>
+                    </div>
+
+                    <div style={{
+                        background: 'white',
+                        padding: '20px',
+                        borderRadius: '12px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        borderLeft: '4px solid #00A86B'
+                    }}>
+                        <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Days Sober</div>
+                        <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#00A86B' }}>{sobrietyDays}</div>
+                    </div>
+
+                    <div style={{
+                        background: 'white',
+                        padding: '20px',
+                        borderRadius: '12px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        borderLeft: '4px solid #0077CC'
+                    }}>
+                        <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Avg Mood</div>
+                        <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#0077CC' }}>{avgMood.toFixed(1)}/10</div>
+                    </div>
+
+                    <div style={{
+                        background: 'white',
+                        padding: '20px',
+                        borderRadius: '12px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        borderLeft: '4px solid #f44336'
+                    }}>
+                        <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Avg Cravings</div>
+                        <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#DC143C' }}>{avgCravings.toFixed(1)}/10</div>
+                    </div>
+                </div>
+
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                }}>
+                    <h3 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#333' }}>
+                        Recent Check-ins (Last 10)
+                    </h3>
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead style={{ background: '#f8f9fa' }}>
+                                <tr>
+                                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '13px' }}>Date</th>
+                                    <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '13px' }}>Mood</th>
+                                    <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '13px' }}>Craving</th>
+                                    <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '13px' }}>Anxiety</th>
+                                    <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '13px' }}>Sleep</th>
+                                    <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '13px' }}>Overall</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {pirData.checkIns.slice(0, 10).map((checkIn, idx) => (
+                                    <tr key={idx} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                                        <td style={{ padding: '12px', fontSize: '13px', color: '#666' }}>
+                                            {formatDate(checkIn.createdAt)}
+                                        </td>
+                                        <td style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', color: '#0077CC' }}>
+                                            {checkIn.morningData?.mood || '-'}
+                                        </td>
+                                        <td style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', color: '#DC143C' }}>
+                                            {checkIn.morningData?.craving || '-'}
+                                        </td>
+                                        <td style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', color: '#FFA500' }}>
+                                            {checkIn.morningData?.anxietyLevel || '-'}
+                                        </td>
+                                        <td style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', color: '#9C27B0' }}>
+                                            {checkIn.morningData?.sleepQuality || '-'}
+                                        </td>
+                                        <td style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', color: '#4682B4' }}>
+                                                {checkIn.eveningData?.overallDay || '-'}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ========== MAIN REPORTS VIEW RENDER ==========
+    if (showAnalytics) {
+        return (
+            <AnalyticsView 
+                analyticsData={analyticsData}
+                onClose={() => setShowAnalytics(false)}
+                onSelectPIR={(pirId) => {
+                    setSelectedPIRForReport(pirId);
+                    setShowAnalytics(false);
+                }}
+            />
+        );
+    }
+
+    if (selectedPIRForReport) {
+        return (
+            <IndividualPIRReport 
+                pirId={selectedPIRForReport}
+                onClose={() => setSelectedPIRForReport(null)}
+            />
+        );
+    }
+
+    return (
+        <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto' }}>
+            {/* Header */}
+            <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                marginBottom: '30px'
+            }}>
+                <div>
+                    <h2 style={{ margin: '0 0 10px 0', fontSize: '32px', color: '#333' }}>
+                        Reports & Analytics
+                    </h2>
+                    <p style={{ margin: 0, color: '#666', fontSize: '16px' }}>
+                        Generate comprehensive reports and analyze program performance
+                    </p>
+                </div>
+                <button
+                    onClick={() => setShowAnalytics(true)}
+                    style={{
+                        padding: '14px 28px',
+                        background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '12px',
+                        cursor: 'pointer',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+                        transition: 'transform 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.target.style.transform = 'translateY(-2px)'}
+                    onMouseLeave={(e) => e.target.style.transform = 'translateY(0)'}
+                >
+                    View Analytics Dashboard
+                </button>
+            </div>
+
+        {/* ========== AUTOMATED PROGRESS REPORTS SECTION ========== */}
+<div style={{ 
+    background: 'white',
+    borderRadius: '15px',
+    padding: '25px',
+    marginBottom: '30px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+}}>
+    <h3 style={{ margin: '0 0 20px 0', color: '#333', fontSize: '20px' }}>
+        📧 Automated Progress Reports
+    </h3>
+    
+    {/* Google Drive Connection Warning */}
+    {!user.googleConnected && (
+        <div style={{
+            background: '#fff3cd',
+            border: '1px solid #ffc107',
+            borderRadius: '8px',
+            padding: '15px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+        }}>
+            <span style={{ fontSize: '24px' }}>⚠️</span>
+            <div>
+                <strong>Google Drive Not Connected</strong>
+                <p style={{ margin: '5px 0 0 0', fontSize: '14px', color: '#666' }}>
+                    Please connect Google Drive in your Profile to enable report generation.
+                </p>
+            </div>
+        </div>
+    )}
+    
+    {/* ========== AUTOMATION TOGGLE ========== */}
+    <div style={{
+        background: '#f8f9fa',
+        borderRadius: '10px',
+        padding: '20px',
+        marginBottom: '25px',
+        border: `2px solid ${automationEnabled ? '#00A86B' : '#999'}`
+    }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+                <h4 style={{ margin: '0 0 5px 0', fontSize: '16px', color: '#333' }}>
+                    🔧 Automation Status
+                </h4>
+                <p style={{ margin: 0, fontSize: '13px', color: '#666' }}>
+                    {automationEnabled 
+                        ? '✅ Automated reports are ENABLED and will be sent on schedule'
+                        : '⚠️ Automated reports are DISABLED - reports will not be sent automatically'
+                    }
+                </p>
+            </div>
+            <button
+                onClick={() => setAutomationEnabled(!automationEnabled)}
+                style={{
+                    padding: '10px 20px',
+                    background: automationEnabled ? '#00A86B' : '#999',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s'
+                }}
+                onMouseOver={(e) => e.target.style.opacity = '0.8'}
+                onMouseOut={(e) => e.target.style.opacity = '1'}
+            >
+                {automationEnabled ? '✓ ENABLED' : '✗ DISABLED'}
+            </button>
+        </div>
+    </div>
+    
+    {/* ========== REPORT SELECTION ========== */}
+    <div style={{
+        background: '#f8f9fa',
+        borderRadius: '10px',
+        padding: '20px',
+        marginBottom: '25px'
+    }}>
+        <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#333' }}>
+            ⚙️ Select Reports to Include in Automated Emails
+        </h4>
+        <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: '12px',
+            marginBottom: '15px'
+        }}>
+            {Object.entries(AVAILABLE_REPORTS).map(([key, report]) => (
+                <label 
+                    key={key}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '12px',
+                        padding: '12px',
+                        background: selectedReports[key] ? '#e3f2fd' : 'white',
+                        border: `2px solid ${selectedReports[key] ? '#2196F3' : '#e0e0e0'}`,
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                    onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                    <input
+                        type="checkbox"
+                        checked={selectedReports[key]}
+                        onChange={(e) => setSelectedReports({
+                            ...selectedReports,
+                            [key]: e.target.checked
+                        })}
+                        style={{
+                            width: '18px',
+                            height: '18px',
+                            marginTop: '2px',
+                            cursor: 'pointer'
+                        }}
+                    />
+                    <div style={{ flex: 1 }}>
+                        <div style={{ 
+                            fontSize: '14px', 
+                            fontWeight: '600', 
+                            color: '#333',
+                            marginBottom: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}>
+                            <span>{report.icon}</span>
+                            <span>{report.name}</span>
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#666', lineHeight: '1.4' }}>
+                            {report.description}
+                        </div>
+                    </div>
+                </label>
+            ))}
+        </div>
+        <button
+            onClick={saveAutomationConfig}
+            style={{
+                width: '100%',
+                padding: '12px',
+                background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '14px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                transition: 'all 0.3s'
+            }}
+            onMouseOver={(e) => e.target.style.transform = 'translateY(-2px)'}
+            onMouseOut={(e) => e.target.style.transform = 'translateY(0)'}
+        >
+            💾 Save Configuration
+        </button>
+    </div>
+    
+    {/* ========== SCHEDULE CONFIGURATION ========== */}
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '25px' }}>
+        {/* Weekly Schedule */}
+        <div style={{
+            background: '#f8f9fa',
+            borderRadius: '10px',
+            padding: '20px'
+        }}>
+            <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#333' }}>
+                📅 Weekly Reports Schedule
+            </h4>
+            <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600', color: '#555' }}>
+                    Day of Week
+                </label>
+                <select
+                    value={scheduleConfig.weekly.day}
+                    onChange={(e) => setScheduleConfig({
+                        ...scheduleConfig,
+                        weekly: { ...scheduleConfig.weekly, day: parseInt(e.target.value) }
+                    })}
+                    style={{
+                        width: '100%',
+                        padding: '10px',
+                        border: '2px solid #e0e0e0',
+                        borderRadius: '6px',
+                        fontSize: '14px'
+                    }}
+                >
+                    <option value="1">Monday</option>
+                    <option value="2">Tuesday</option>
+                    <option value="3">Wednesday</option>
+                    <option value="4">Thursday</option>
+                    <option value="5">Friday</option>
+                    <option value="6">Saturday</option>
+                    <option value="0">Sunday</option>
+                </select>
+            </div>
+            <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600', color: '#555' }}>
+                    Time
+                </label>
+                <input
+                    type="time"
+                    value={scheduleConfig.weekly.time}
+                    onChange={(e) => setScheduleConfig({
+                        ...scheduleConfig,
+                        weekly: { ...scheduleConfig.weekly, time: e.target.value }
+                    })}
+                    style={{
+                        width: '100%',
+                        padding: '10px',
+                        border: '2px solid #e0e0e0',
+                        borderRadius: '6px',
+                        fontSize: '14px'
+                    }}
+                />
+            </div>
+            <button
+                onClick={testWeeklyReports}
+                disabled={sendingWeekly || !user.googleConnected}
+                style={{
+                    width: '100%',
+                    padding: '12px',
+                    background: (sendingWeekly || !user.googleConnected) ? '#ccc' : 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    cursor: (sendingWeekly || !user.googleConnected) ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.3s'
+                }}
+            >
+                {sendingWeekly ? '📤 Sending...' : '🧪 Test Weekly Reports Now'}
+            </button>
+            {lastRunStatus.weekly && (
+                <div style={{
+                    marginTop: '12px',
+                    padding: '10px',
+                    background: lastRunStatus.weekly.success ? '#e8f5e9' : '#ffebee',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    color: '#666'
+                }}>
+                    <strong>Last Run:</strong><br/>
+                    {new Date(lastRunStatus.weekly.timestamp).toLocaleString()}<br/>
+                    {lastRunStatus.weekly.successCount}/{lastRunStatus.weekly.pirCount} PIRs
+                </div>
+            )}
+        </div>
+        
+        {/* Monthly Schedule */}
+        <div style={{
+            background: '#f8f9fa',
+            borderRadius: '10px',
+            padding: '20px'
+        }}>
+            <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#333' }}>
+                📆 Monthly Reports Schedule
+            </h4>
+            <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600', color: '#555' }}>
+                    Day of Month
+                </label>
+                <select
+                    value={scheduleConfig.monthly.day}
+                    onChange={(e) => setScheduleConfig({
+                        ...scheduleConfig,
+                        monthly: { ...scheduleConfig.monthly, day: parseInt(e.target.value) }
+                    })}
+                    style={{
+                        width: '100%',
+                        padding: '10px',
+                        border: '2px solid #e0e0e0',
+                        borderRadius: '6px',
+                        fontSize: '14px'
+                    }}
+                >
+                    {[...Array(28)].map((_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                            {i + 1}{i === 0 ? 'st' : i === 1 ? 'nd' : i === 2 ? 'rd' : 'th'}
+                        </option>
+                    ))}
+                </select>
+            </div>
+            <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600', color: '#555' }}>
+                    Time
+                </label>
+                <input
+                    type="time"
+                    value={scheduleConfig.monthly.time}
+                    onChange={(e) => setScheduleConfig({
+                        ...scheduleConfig,
+                        monthly: { ...scheduleConfig.monthly, time: e.target.value }
+                    })}
+                    style={{
+                        width: '100%',
+                        padding: '10px',
+                        border: '2px solid #e0e0e0',
+                        borderRadius: '6px',
+                        fontSize: '14px'
+                    }}
+                />
+            </div>
+            <button
+                onClick={testMonthlyReports}
+                disabled={sendingMonthly || !user.googleConnected}
+                style={{
+                    width: '100%',
+                    padding: '12px',
+                    background: (sendingMonthly || !user.googleConnected) ? '#ccc' : 'linear-gradient(135deg, #00A86B 0%, #008554 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    cursor: (sendingMonthly || !user.googleConnected) ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.3s'
+                }}
+            >
+                {sendingMonthly ? '📤 Sending...' : '🧪 Test Monthly Reports Now'}
+            </button>
+            {lastRunStatus.monthly && (
+                <div style={{
+                    marginTop: '12px',
+                    padding: '10px',
+                    background: lastRunStatus.monthly.success ? '#e8f5e9' : '#ffebee',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    color: '#666'
+                }}>
+                    <strong>Last Run:</strong><br/>
+                    {new Date(lastRunStatus.monthly.timestamp).toLocaleString()}<br/>
+                    {lastRunStatus.monthly.successCount}/{lastRunStatus.monthly.pirCount} PIRs
+                </div>
+            )}
+        </div>
+    </div>
+    
+    {/* Info Note */}
+    <div style={{ 
+        padding: '12px',
+        background: '#f0f7ff',
+        borderRadius: '8px',
+        fontSize: '13px',
+        color: '#0066cc'
+    }}>
+        <strong>ℹ️ Note:</strong> Changes to schedule take effect immediately. Use the test buttons to send reports manually to all PIRs right now. Remember to click "Save Configuration" after changing report selections.
+    </div>
+</div>
+
+{/* Report Generation Section */}
+<div style={{
+    background: 'white',
+    borderRadius: '20px',
+    padding: '35px',
+    marginBottom: '30px',
+    boxShadow: '0 2px 20px rgba(0,0,0,0.08)'
+}}>
+    <h3 style={{ margin: '0 0 25px 0', fontSize: '24px', color: '#333' }}>
+        Generate Report
+    </h3>
+
+    {/* Date Range Selector */}
+    <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: '20px',
+        marginBottom: '30px'
+    }}>
+        <div>
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#555', fontSize: '14px' }}>
+                Start Date
+            </label>
+            <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                style={{
+                    width: '100%',
+                    padding: '12px',
+                    border: '2px solid #e0e0e0',
+                    borderRadius: '10px',
+                    fontSize: '15px',
+                    boxSizing: 'border-box'
+                }}
+            />
+        </div>
+        <div>
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#555', fontSize: '14px' }}>
+                End Date
+            </label>
+            <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                style={{
+                    width: '100%',
+                    padding: '12px',
+                    border: '2px solid #e0e0e0',
+                    borderRadius: '10px',
+                    fontSize: '15px',
+                    boxSizing: 'border-box'
+                }}
+            />
+        </div>
+    </div>
+                {/* Report Templates Grid */}
+                <div>
+                    <h4 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#333' }}>
+                        Select Report Template
+                    </h4>
+                    <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                        gap: '15px',
+                        marginBottom: '25px'
+                    }}>
+                        {Object.entries(REPORT_TEMPLATES).map(([key, template]) => (
+                            <div
+                                key={key}
+                                onClick={() => setSelectedTemplate(key)}
+                                style={{
+                                    padding: '20px',
+                                    background: selectedTemplate === key ? template.color : '#f8f9fa',
+                                    borderRadius: '12px',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.3s',
+                                    border: selectedTemplate === key ? '2px solid transparent' : '2px solid #e0e0e0',
+                                    transform: selectedTemplate === key ? 'scale(1.02)' : 'scale(1)',
+                                    boxShadow: selectedTemplate === key ? '0 8px 25px rgba(0,0,0,0.15)' : '0 2px 8px rgba(0,0,0,0.05)'
+                                }}
+                            >
+                                <div style={{ 
+                                    fontSize: '32px', 
+                                    marginBottom: '10px',
+                                    filter: selectedTemplate === key ? 'brightness(2)' : 'none'
+                                }}>
+                                    {template.icon}
+                                </div>
+                                <div style={{ 
+                                    fontSize: '16px', 
+                                    fontWeight: '700',
+                                    color: selectedTemplate === key ? 'white' : '#333',
+                                    marginBottom: '6px'
+                                }}>
+                                    {template.name}
+                                </div>
+                                <div style={{ 
+                                    fontSize: '13px',
+                                    color: selectedTemplate === key ? 'rgba(255,255,255,0.9)' : '#666',
+                                    lineHeight: '1.4'
+                                }}>
+                                    {template.desc}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* PIR Selector for specific reports */}
+                {(selectedTemplate === 'fullPIR' || selectedTemplate === 'comparative') && (
+                    <div style={{ marginBottom: '25px' }}>
+                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#555', fontSize: '14px' }}>
+                            Select PIR for {REPORT_TEMPLATES[selectedTemplate].name}
+                        </label>
+                        <select
+                            value={customConfig.selectedPIRs[0] || ''}
+                            onChange={(e) => setCustomConfig({
+                                ...customConfig,
+                                selectedPIRs: [e.target.value]
+                            })}
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '10px',
+                                fontSize: '15px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="">-- Select a PIR --</option>
+                            {allPIRs.map(pir => (
+                                <option key={pir.id} value={pir.id}>{pir.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
+                {/* Generate Button */}
+                <button
+                    onClick={generateReport}
+                    disabled={loading}
+                    style={{
+                        width: '100%',
+                        padding: '16px',
+                        background: loading ? '#ccc' : 'linear-gradient(135deg, #00A86B 0%, #008554 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '12px',
+                        fontSize: '16px',
+                        fontWeight: '700',
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.3s',
+                        boxShadow: loading ? 'none' : '0 4px 15px rgba(76, 175, 80, 0.3)'
+                    }}
+                >
+                    {loading ? 'Generating Report...' : `Generate ${REPORT_TEMPLATES[selectedTemplate]?.name || 'Report'}`}
+                </button>
+            </div>
+
+            {/* Report Display Section */}
+            {reportData && (
+                <div style={{
+                    background: 'white',
+                    borderRadius: '20px',
+                    padding: '35px',
+                    boxShadow: '0 2px 20px rgba(0,0,0,0.08)',
+                    animation: 'fadeIn 0.5s'
+                }}>
+                    {/* Report Header */}
+                    <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center',
+                        marginBottom: '30px',
+                        paddingBottom: '20px',
+                        borderBottom: '2px solid #f0f0f0'
+                    }}>
+                        <div>
+                            <h3 style={{ margin: '0 0 8px 0', fontSize: '26px', color: '#333' }}>
+                                {REPORT_TEMPLATES[selectedTemplate]?.name || 'Report'}
+                            </h3>
+                            <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
+                                {startDate} to {endDate}
+                            </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button
+                                onClick={() => exportReportToPDF(reportData, REPORT_TEMPLATES[selectedTemplate]?.name || 'Report')}
+                                style={{
+                                    padding: '10px 20px',
+                                    background: '#DC143C',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '600'
+                                }}
+                            >
+                                Export PDF
+                            </button>
+                            <button
+                                onClick={() => exportToJSON(reportData, REPORT_TEMPLATES[selectedTemplate]?.name || 'Report')}
+                                style={{
+                                    padding: '10px 20px',
+                                    background: '#4682B4',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '600'
+                                }}
+                            >
+                                Export JSON
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Summary Section */}
+                    {reportData.summary && (
+                        <div style={{ marginBottom: '40px' }}>
+                            <h4 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#333' }}>
+                                Summary Statistics
+                            </h4>
+                            <div style={{ 
+                                display: 'grid', 
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                                gap: '15px'
+                            }}>
+                                {Object.entries(reportData.summary).map(([key, value]) => (
+                                    <div key={key} style={{
+                                        padding: '18px',
+                                        background: '#f8f9fa',
+                                        borderRadius: '10px',
+                                        borderLeft: '4px solid #0077CC'
+                                    }}>
+                                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px', textTransform: 'capitalize' }}>
+                                            {key.replace(/([A-Z])/g, ' $1').trim()}
+                                        </div>
+                                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#333' }}>
+                                            {value}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Patterns Section */}
+                    {reportData.patterns && reportData.patterns.length > 0 && (
+                        <div style={{ 
+                            marginBottom: '40px',
+                            padding: '20px',
+                            background: '#fff3cd',
+                            borderRadius: '12px',
+                            borderLeft: '4px solid #ffc107'
+                        }}>
+                            <h4 style={{ margin: '0 0 15px 0', fontSize: '18px', color: '#856404' }}>
+                                Detected Patterns & Alerts
+                            </h4>
+                            <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                                {reportData.patterns.map((pattern, idx) => (
+                                    <li key={idx} style={{ 
+                                        color: '#856404', 
+                                        marginBottom: '8px',
+                                        fontSize: '14px'
+                                    }}>
+                                        {pattern.message || pattern}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
+                    {/* Charts Section */}
+                    {reportData.charts && (
+                        <div style={{ marginBottom: '40px' }}>
+                            <h4 style={{ margin: '0 0 25px 0', fontSize: '20px', color: '#333' }}>
+                                Visual Analysis
+                            </h4>
+                            <div style={{ 
+                                display: 'grid',
+                                gap: '25px'
+                            }}>
+                                {/* Trend Charts */}
+                                {reportData.charts.trends && (
+                                    <>
+                                        <div style={{ 
+                                            background: '#f8f9fa', 
+                                            padding: '20px', 
+                                            borderRadius: '12px',
+                                            height: '350px'
+                                        }}>
+                                            <h5 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#555' }}>
+                                                Mood Trend
+                                            </h5>
+                                            <canvas ref={chartRefs.moodTrend} style={{ maxHeight: '280px' }}></canvas>
+                                        </div>
+                                        <div style={{ 
+                                            background: '#f8f9fa', 
+                                            padding: '20px', 
+                                            borderRadius: '12px',
+                                            height: '350px'
+                                        }}>
+                                            <h5 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#555' }}>
+                                                Craving Trend
+                                            </h5>
+                                            <canvas ref={chartRefs.cravingTrend} style={{ maxHeight: '280px' }}></canvas>
+                                        </div>
+                                        <div style={{ 
+                                            background: '#f8f9fa', 
+                                            padding: '20px', 
+                                            borderRadius: '12px',
+                                            height: '350px'
+                                        }}>
+                                            <h5 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#555' }}>
+                                                Anxiety Trend
+                                            </h5>
+                                            <canvas ref={chartRefs.anxietyTrend} style={{ maxHeight: '280px' }}></canvas>
+                                        </div>
+                                        <div style={{ 
+                                            background: '#f8f9fa', 
+                                            padding: '20px', 
+                                            borderRadius: '12px',
+                                            height: '350px'
+                                        }}>
+                                            <h5 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#555' }}>
+                                                Sleep Quality Trend
+                                            </h5>
+                                            <canvas ref={chartRefs.sleepTrend} style={{ maxHeight: '280px' }}></canvas>
+                                        </div>
+                                    </>
+                                )}
+
+                                {/* Scatter Charts */}
+                                {reportData.charts.moodVsCravings && (
+                                    <div style={{ 
+                                        background: '#f8f9fa', 
+                                        padding: '20px', 
+                                        borderRadius: '12px',
+                                        height: '350px'
+                                    }}>
+                                        <h5 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#555' }}>
+                                            Mood vs Cravings Correlation
+                                        </h5>
+                                        <canvas ref={chartRefs.moodVsCravings} style={{ maxHeight: '280px' }}></canvas>
+                                    </div>
+                                )}
+                                {reportData.charts.anxietyVsSleep && (
+                                    <div style={{ 
+                                        background: '#f8f9fa', 
+                                        padding: '20px', 
+                                        borderRadius: '12px',
+                                        height: '350px'
+                                    }}>
+                                        <h5 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#555' }}>
+                                            Anxiety vs Sleep Quality Correlation
+                                        </h5>
+                                        <canvas ref={chartRefs.anxietyVsSleep} style={{ maxHeight: '280px' }}></canvas>
+                                    </div>
+                                )}
+                                {reportData.charts.sobrietyVsCravings && (
+                                    <div style={{ 
+                                        background: '#f8f9fa', 
+                                        padding: '20px', 
+                                        borderRadius: '12px',
+                                        height: '350px'
+                                    }}>
+                                        <h5 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#555' }}>
+                                            Days Sober vs Cravings
+                                        </h5>
+                                        <canvas ref={chartRefs.sobrietyVsCravings} style={{ maxHeight: '280px' }}></canvas>
+                                    </div>
+                                )}
+
+                                {/* Distribution Charts */}
+                                {reportData.charts.distribution && (
+                                    <div style={{ 
+                                        background: '#f8f9fa', 
+                                        padding: '20px', 
+                                        borderRadius: '12px',
+                                        height: '350px'
+                                    }}>
+                                        <h5 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#555' }}>
+                                            Mood Distribution
+                                        </h5>
+                                        <canvas ref={chartRefs.moodDistribution} style={{ maxHeight: '280px' }}></canvas>
+                                    </div>
+                                )}
+                                {reportData.charts.riskDistribution && (
+                                    <div style={{ 
+                                        background: '#f8f9fa', 
+                                        padding: '20px', 
+                                        borderRadius: '12px',
+                                        height: '350px'
+                                    }}>
+                                        <h5 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#555' }}>
+                                            Risk Distribution
+                                        </h5>
+                                        <canvas ref={chartRefs.riskDistribution} style={{ maxHeight: '280px' }}></canvas>
+                                    </div>
+                                )}
+                                {reportData.charts.goalCompletion && (
+                                    <div style={{ 
+                                        background: '#f8f9fa', 
+                                        padding: '20px', 
+                                        borderRadius: '12px',
+                                        height: '350px'
+                                    }}>
+                                        <h5 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#555' }}>
+                                            Goal Completion Status
+                                        </h5>
+                                        <canvas ref={chartRefs.goalCompletion} style={{ maxHeight: '280px' }}></canvas>
+                                    </div>
+                                )}
+                                {reportData.charts.engagementDistribution && (
+                                    <div style={{ 
+                                        background: '#f8f9fa', 
+                                        padding: '20px', 
+                                        borderRadius: '12px',
+                                        height: '400px'
+                                    }}>
+                                        <h5 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#555' }}>
+                                            Engagement Scores by PIR
+                                        </h5>
+                                        <canvas ref={chartRefs.engagementChart} style={{ maxHeight: '320px' }}></canvas>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Data Tables Section */}
+                    <div>
+                        {/* Sobriety Data Table */}
+                        {reportData.sobrietyData && reportData.sobrietyData.length > 0 && (
+                            <div style={{ marginBottom: '30px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                    <h4 style={{ margin: 0, fontSize: '18px', color: '#333' }}>
+                                        Sobriety Analysis Data
+                                    </h4>
+                                    <button
+                                        onClick={() => exportToCSV(reportData.sobrietyData, 'sobriety_analysis')}
+                                        style={{
+                                            padding: '8px 16px',
+                                            background: '#00A86B',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '600'
+                                        }}
+                                    >
+                                        Export CSV
+                                    </button>
+                                </div>
+                                <div style={{ overflowX: 'auto', background: '#f8f9fa', borderRadius: '10px', padding: '15px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr style={{ background: '#0077CC', color: 'white' }}>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>PIR</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Days Sober</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Avg Mood</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Avg Cravings</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Risk Score</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Risk Level</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {reportData.sobrietyData.map((pir, idx) => (
+                                                <tr key={idx} style={{ borderBottom: '1px solid #e0e0e0', background: idx % 2 === 0 ? 'white' : '#fafafa' }}>
+                                                    <td style={{ padding: '10px', fontSize: '13px', color: '#333' }}>{pir.pirName}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', fontWeight: '600', color: '#00A86B' }}>{pir.daysSober}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', color: '#666' }}>{pir.avgMood}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', color: '#666' }}>{pir.avgCravings}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', fontWeight: '600', color: pir.riskScore >= 7 ? '#f44336' : pir.riskScore >= 4 ? '#FF9800' : '#00A86B' }}>
+                                                        {pir.riskScore}/10
+                                                    </td>
+                                                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                                                        <span style={{
+                                                            padding: '4px 12px',
+                                                            borderRadius: '12px',
+                                                            fontSize: '12px',
+                                                            fontWeight: '600',
+                                                            background: pir.riskLevel === 'Critical' ? '#ffebee' : pir.riskLevel === 'High' ? '#fff3e0' : '#e8f5e9',
+                                                            color: pir.riskLevel === 'Critical' ? '#c62828' : pir.riskLevel === 'High' ? '#ef6c00' : '#2e7d32'
+                                                        }}>
+                                                            {pir.riskLevel}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Morning Check-ins Table */}
+                        {reportData.morningData && reportData.morningData.length > 0 && (
+                            <div style={{ marginBottom: '30px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                    <h4 style={{ margin: 0, fontSize: '18px', color: '#333' }}>
+                                        Morning Check-ins Data
+                                    </h4>
+                                    <button
+                                        onClick={() => exportToCSV(reportData.morningData, 'morning_checkins')}
+                                        style={{
+                                            padding: '8px 16px',
+                                            background: '#00A86B',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '600'
+                                        }}
+                                    >
+                                        Export CSV
+                                    </button>
+                                </div>
+                                <div style={{ overflowX: 'auto', background: '#f8f9fa', borderRadius: '10px', padding: '15px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr style={{ background: '#FFA500', color: 'white' }}>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>PIR</th>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>Date</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Mood</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Craving</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Anxiety</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Sleep</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {reportData.morningData.slice(0, 50).map((morning, idx) => (
+                                                <tr key={idx} style={{ borderBottom: '1px solid #e0e0e0', background: idx % 2 === 0 ? 'white' : '#fafafa' }}>
+                                                    <td style={{ padding: '10px', fontSize: '13px', color: '#333' }}>{morning.pirName}</td>
+                                                    <td style={{ padding: '10px', fontSize: '13px', color: '#666' }}>{formatDate(morning.date)}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', fontWeight: '600', color: '#0077CC' }}>{morning.mood}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', fontWeight: '600', color: '#DC143C' }}>{morning.craving}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', fontWeight: '600', color: '#FFA500' }}>{morning.anxiety}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', fontWeight: '600', color: '#9C27B0' }}>{morning.sleep}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Evening Reflections Table */}
+                        {reportData.eveningData && reportData.eveningData.length > 0 && (
+                            <div style={{ marginBottom: '30px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                    <h4 style={{ margin: 0, fontSize: '18px', color: '#333' }}>
+                                        Evening Reflections Data
+                                    </h4>
+                                    <button
+                                        onClick={() => exportToCSV(reportData.eveningData, 'evening_reflections')}
+                                        style={{
+                                            padding: '8px 16px',
+                                            background: '#00A86B',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '600'
+                                        }}
+                                    >
+                                        Export CSV
+                                    </button>
+                                </div>
+                                <div style={{ overflowX: 'auto', background: '#f8f9fa', borderRadius: '10px', padding: '15px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr style={{ background: '#9C27B0', color: 'white' }}>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>PIR</th>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>Date</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Overall Day</th>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>Gratitude</th>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>Challenges</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {reportData.eveningData.slice(0, 50).map((evening, idx) => (
+                                                <tr key={idx} style={{ borderBottom: '1px solid #e0e0e0', background: idx % 2 === 0 ? 'white' : '#fafafa' }}>
+                                                    <td style={{ padding: '10px', fontSize: '13px', color: '#333' }}>{evening.pirName}</td>
+                                                    <td style={{ padding: '10px', fontSize: '13px', color: '#666' }}>{formatDate(evening.date)}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', fontWeight: '600', color: '#4682B4' }}>{evening.overallDay}/10</td>
+                                                    <td style={{ padding: '10px', fontSize: '12px', color: '#555', maxWidth: '250px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                        {evening.gratitude || '-'}
+                                                    </td>
+                                                    <td style={{ padding: '10px', fontSize: '12px', color: '#555', maxWidth: '250px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                        {evening.challenges || '-'}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Engagement Data Table */}
+                        {reportData.engagementData && reportData.engagementData.length > 0 && (
+                            <div style={{ marginBottom: '30px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                    <h4 style={{ margin: 0, fontSize: '18px', color: '#333' }}>
+                                        Engagement Metrics
+                                    </h4>
+                                    <button
+                                        onClick={() => exportToCSV(reportData.engagementData, 'engagement_metrics')}
+                                        style={{
+                                            padding: '8px 16px',
+                                            background: '#00A86B',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '600'
+                                        }}
+                                    >
+                                        Export CSV
+                                    </button>
+                                </div>
+                                <div style={{ overflowX: 'auto', background: '#f8f9fa', borderRadius: '10px', padding: '15px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr style={{ background: '#FF5722', color: 'white' }}>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>PIR</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Check-ins</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Streak</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Assignments</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Completion</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Messages</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Score</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {reportData.engagementData.map((engagement, idx) => (
+                                                <tr key={idx} style={{ borderBottom: '1px solid #e0e0e0', background: idx % 2 === 0 ? 'white' : '#fafafa' }}>
+                                                    <td style={{ padding: '10px', fontSize: '13px', color: '#333' }}>{engagement.pirName}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', color: '#666' }}>{engagement.checkInCount}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', fontWeight: '600', color: '#00A86B' }}>{engagement.checkInStreak} days</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', color: '#666' }}>{engagement.assignmentCount}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', fontWeight: '600', color: '#4682B4' }}>{engagement.assignmentCompletion}%</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', color: '#666' }}>{engagement.messageCount}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                                                        <span style={{
+                                                            padding: '4px 12px',
+                                                            borderRadius: '12px',
+                                                            fontSize: '12px',
+                                                            fontWeight: '600',
+                                                            background: engagement.engagementScore >= 75 ? '#e8f5e9' : engagement.engagementScore >= 50 ? '#fff3e0' : '#ffebee',
+                                                            color: engagement.engagementScore >= 75 ? '#2e7d32' : engagement.engagementScore >= 50 ? '#ef6c00' : '#c62828'
+                                                        }}>
+                                                            {engagement.engagementScore}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Risk Data Table */}
+                        {reportData.riskData && reportData.riskData.length > 0 && (
+                            <div style={{ marginBottom: '30px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                    <h4 style={{ margin: 0, fontSize: '18px', color: '#333' }}>
+                                        Predictive Risk Analysis
+                                    </h4>
+                                    <button
+                                        onClick={() => exportToCSV(reportData.riskData, 'risk_analysis')}
+                                        style={{
+                                            padding: '8px 16px',
+                                            background: '#00A86B',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '600'
+                                        }}
+                                    >
+                                        Export CSV
+                                    </button>
+                                </div>
+                                <div style={{ overflowX: 'auto', background: '#f8f9fa', borderRadius: '10px', padding: '15px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr style={{ background: '#E91E63', color: 'white' }}>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>PIR</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Risk Score</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Level</th>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>Patterns</th>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>Recommendations</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {reportData.riskData.map((risk, idx) => (
+                                                <tr key={idx} style={{ borderBottom: '1px solid #e0e0e0', background: idx % 2 === 0 ? 'white' : '#fafafa' }}>
+                                                    <td style={{ padding: '10px', fontSize: '13px', color: '#333' }}>{risk.pirName}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', fontWeight: '600', color: risk.riskScore >= 7 ? '#f44336' : risk.riskScore >= 4 ? '#FF9800' : '#00A86B' }}>
+                                                        {risk.riskScore}/10
+                                                    </td>
+                                                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                                                        <span style={{
+                                                            padding: '4px 12px',
+                                                            borderRadius: '12px',
+                                                            fontSize: '12px',
+                                                            fontWeight: '600',
+                                                            background: risk.riskLevel === 'High' ? '#ffebee' : risk.riskLevel === 'Moderate' ? '#fff3e0' : '#e8f5e9',
+                                                            color: risk.riskLevel === 'High' ? '#c62828' : risk.riskLevel === 'Moderate' ? '#ef6c00' : '#2e7d32'
+                                                        }}>
+                                                            {risk.riskLevel}
+                                                        </span>
+                                                    </td>
+                                                    <td style={{ padding: '10px', fontSize: '12px', color: '#555' }}>
+                                                        {risk.patterns.length > 0 ? risk.patterns.join(', ') : 'None detected'}
+                                                    </td>
+                                                    <td style={{ padding: '10px', fontSize: '12px', color: '#555' }}>
+                                                        {risk.recommendations.join('; ')}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Alerts Table */}
+                        {reportData.alerts && reportData.alerts.length > 0 && (
+                            <div style={{ marginBottom: '30px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                    <h4 style={{ margin: 0, fontSize: '18px', color: '#333' }}>
+                                        Crisis Alerts & Interventions
+                                    </h4>
+                                    <button
+                                        onClick={() => exportToCSV(reportData.alerts, 'crisis_alerts')}
+                                        style={{
+                                            padding: '8px 16px',
+                                            background: '#00A86B',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '600'
+                                        }}
+                                    >
+                                        Export CSV
+                                    </button>
+                                </div>
+                                <div style={{ overflowX: 'auto', background: '#f8f9fa', borderRadius: '10px', padding: '15px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr style={{ background: '#DC143C', color: 'white' }}>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>PIR</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Type</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Priority</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Status</th>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>Created</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {reportData.alerts.slice(0, 50).map((alert, idx) => (
+                                                <tr key={idx} style={{ borderBottom: '1px solid #e0e0e0', background: idx % 2 === 0 ? 'white' : '#fafafa' }}>
+                                                    <td style={{ padding: '10px', fontSize: '13px', color: '#333' }}>{alert.pirName}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                                                        <span style={{
+                                                            padding: '4px 10px',
+                                                            borderRadius: '10px',
+                                                            fontSize: '11px',
+                                                            fontWeight: '600',
+                                                            background: alert.type === 'sos' ? '#ffebee' : '#e3f2fd',
+                                                            color: alert.type === 'sos' ? '#c62828' : '#1565c0'
+                                                        }}>
+                                                            {alert.type.toUpperCase()}
+                                                        </span>
+                                                    </td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', color: alert.priority === 'critical' ? '#f44336' : '#666' }}>
+                                                        {alert.priority || 'normal'}
+                                                    </td>
+                                                    <td style={{ padding: '10px', textAlign: 'center' }}>
+                                                        <span style={{
+                                                            padding: '4px 10px',
+                                                            borderRadius: '10px',
+                                                            fontSize: '11px',
+                                                            fontWeight: '600',
+                                                            background: alert.resolved ? '#e8f5e9' : '#fff3e0',
+                                                            color: alert.resolved ? '#2e7d32' : '#ef6c00'
+                                                        }}>
+                                                            {alert.resolved ? 'Resolved' : 'Active'}
+                                                        </span>
+                                                    </td>
+                                                    <td style={{ padding: '10px', fontSize: '13px', color: '#666' }}>{formatTimeAgo(alert.createdAt)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* PIR Info (for Full PIR Report) */}
+                        {reportData.pirInfo && (
+                            <div style={{ 
+                                marginBottom: '30px',
+                                padding: '20px',
+                                background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}>
+                                <h4 style={{ margin: '0 0 15px 0', fontSize: '20px' }}>PIR Information</h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
+                                    <div>
+                                        <div style={{ fontSize: '12px', opacity: 0.9 }}>Name</div>
+                                        <div style={{ fontSize: '18px', fontWeight: '600' }}>{reportData.pirInfo.name}</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '12px', opacity: 0.9 }}>Email</div>
+                                        <div style={{ fontSize: '18px', fontWeight: '600' }}>{reportData.pirInfo.email}</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '12px', opacity: 0.9 }}>Days Sober</div>
+                                        <div style={{ fontSize: '18px', fontWeight: '600' }}>{reportData.pirInfo.daysSober}</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '12px', opacity: 0.9 }}>Sobriety Date</div>
+                                        <div style={{ fontSize: '18px', fontWeight: '600' }}>{formatDate(reportData.pirInfo.sobrietyDate)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Comparative Data */}
+                        {reportData.comparison && (
+                            <div style={{ marginBottom: '30px' }}>
+                                <h4 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#333' }}>
+                                    Comparative Analysis: {reportData.pirInfo?.name} vs Program Average
+                                </h4>
+                                <div style={{ display: 'grid', gap: '15px' }}>
+                                    {Object.entries(reportData.comparison).map(([metric, values]) => (
+                                        <div key={metric} style={{
+                                            padding: '20px',
+                                            background: '#f8f9fa',
+                                            borderRadius: '10px',
+                                            display: 'grid',
+                                            gridTemplateColumns: '200px 1fr 1fr',
+                                            gap: '20px',
+                                            alignItems: 'center'
+                                        }}>
+                                            <div style={{ fontSize: '16px', fontWeight: '600', color: '#333', textTransform: 'capitalize' }}>
+                                                {metric.replace(/([A-Z])/g, ' $1').trim()}
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>PIR</div>
+                                                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#0077CC' }}>{values.pir}</div>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>Program Avg</div>
+                                                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#FFA500' }}>{values.program}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Achievements/Milestones */}
+                        {reportData.achievements && reportData.achievements.length > 0 && (
+                            <div style={{ marginBottom: '30px' }}>
+                                <h4 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#333' }}>
+                                    Achievements & Milestones
+                                </h4>
+                                <div style={{ display: 'grid', gap: '12px' }}>
+                                    {reportData.achievements.slice(0, 20).map((achievement, idx) => (
+                                        <div key={idx} style={{
+                                            padding: '15px',
+                                            background: achievement.type === 'milestone' ? '#e8f5e9' : '#e3f2fd',
+                                            borderRadius: '10px',
+                                            borderLeft: `4px solid ${achievement.type === 'milestone' ? '#00A86B' : '#2196F3'}`,
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                        }}>
+                                            <div>
+                                                <div style={{ fontSize: '15px', fontWeight: '600', color: '#333', marginBottom: '4px' }}>
+                                                    {achievement.title}
+                                                </div>
+                                                <div style={{ fontSize: '13px', color: '#666' }}>
+                                                    {achievement.pirName} • {formatDate(achievement.completedAt)}
+                                                </div>
+                                            </div>
+                                            <div style={{
+                                                padding: '6px 14px',
+                                                background: achievement.type === 'milestone' ? '#00A86B' : '#2196F3',
+                                                color: 'white',
+                                                borderRadius: '20px',
+                                                fontSize: '12px',
+                                                fontWeight: '600'
+                                            }}>
+                                                {achievement.type === 'milestone' ? 'Milestone' : 'Goal'}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Communication Data */}
+                        {reportData.pirComms && reportData.pirComms.length > 0 && (
+                            <div style={{ marginBottom: '30px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                    <h4 style={{ margin: 0, fontSize: '18px', color: '#333' }}>
+                                        Communication Activity
+                                    </h4>
+                                    <button
+                                        onClick={() => exportToCSV(reportData.pirComms, 'communication_report')}
+                                        style={{
+                                            padding: '8px 16px',
+                                            background: '#00A86B',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '600'
+                                        }}
+                                    >
+                                        Export CSV
+                                    </button>
+                                </div>
+                                <div style={{ overflowX: 'auto', background: '#f8f9fa', borderRadius: '10px', padding: '15px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr style={{ background: '#607D8B', color: 'white' }}>
+                                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '13px', fontWeight: '600' }}>PIR</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Messages Sent</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Messages Received</th>
+                                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '13px', fontWeight: '600' }}>Total Activity</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {reportData.pirComms.map((comm, idx) => (
+                                                <tr key={idx} style={{ borderBottom: '1px solid #e0e0e0', background: idx % 2 === 0 ? 'white' : '#fafafa' }}>
+                                                    <td style={{ padding: '10px', fontSize: '13px', color: '#333' }}>{comm.pirName}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', fontWeight: '600', color: '#4682B4' }}>{comm.messagesSent}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', fontWeight: '600', color: '#00A86B' }}>{comm.messagesReceived}</td>
+                                                    <td style={{ padding: '10px', textAlign: 'center', fontSize: '13px', fontWeight: '600', color: '#0077CC' }}>{comm.messagesSent + comm.messagesReceived}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+// COMPLETE SETTINGS VIEW - ALL IN ORDER
+function SettingsView({ user }) {
+    // ========== STATE VARIABLES ==========
+    const [activeSection, setActiveSection] = useState('profile');
+    const [settings, setSettings] = useState({
+        // Notification Settings
+        emailNotifications: false,
+        smsNotifications: false,
+        pushNotifications: true,
+        sosAlertEmail: true,
+        sosAlertSMS: false,
+        dailyDigest: false,
+        weeklyReport: false,
+        
+        // Check-in Settings
+        checkInReminderTime: '09:00',
+        eveningReminderTime: '20:00',
+        missedCheckInAlert: true,
+        
+        // Alert Thresholds
+        lowMoodThreshold: 3,
+        highCravingThreshold: 7,
+        highAnxietyThreshold: 7,
+        poorSleepThreshold: 3,
+        
+        // System Settings
+        timezone: 'America/Los_Angeles',
+        dateFormat: 'MM/DD/YYYY',
+        timeFormat: '12h',
+        language: 'en',
+        autoRefresh: 30,
+        
+        // Data Management
+        autoBackupEnabled: false,
+        backupFrequency: 'weekly',
+        dataRetentionDays: 2555,
+        autoArchiveOldMessages: true,
+        archiveAfterDays: 90
+    });
+    
+    const [coaches, setCoaches] = useState([]);
+    const [pirs, setPirs] = useState([]);
+    const [permissions, setPermissions] = useState({});
+    const [saving, setSaving] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [googleConnected, setGoogleConnected] = useState(false);
+    const [googleEmail, setGoogleEmail] = useState('');
+    const [lastGoogleSync, setLastGoogleSync] = useState(null);
+    const [notificationPrefs, setNotificationPrefs] = useState({
+        // Email Notifications
+        emailOnSOS: true,
+        emailOnMissedCheckIn: true,
+        emailOnNewPIR: true,
+        emailOnGoalComplete: false,
+        emailOnAlert: true,
+        // Push Notifications
+        pushOnSOS: true,
+        pushOnMessage: false,
+        pushOnAlert: true,
+        // Calendar Integration
+        calendarOnSOS: true,
+        calendarOnMeeting: true,
+        calendarOnMissedCheckIn: true,
+        calendarAutoSync: true,
+        // Quiet Hours
+        quietHoursEnabled: false,
+        quietHoursStart: '22:00',
+        quietHoursEnd: '08:00',
+        // Digest Settings
+        dailyDigest: true,
+        dailyDigestTime: '09:00',
+        weeklyReport: true
+    });
+
+    // Profile-specific state
+    const [profileData, setProfileData] = useState({
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
+        displayName: user.displayName || '',
+        phone: user.phone || '',
+        email: user.email || '',
+        role: user.role || ''
+    });
+    const [editingProfile, setEditingProfile] = useState(false);
+    const [passwordData, setPasswordData] = useState({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+    });
+    const [showPassword, setShowPassword] = useState({
+        current: false,
+        new: false,
+        confirm: false
+    });
+    const [passwordStrength, setPasswordStrength] = useState(0);
+
+    // User creation form state
+    const [showAddCoachForm, setShowAddCoachForm] = useState(false);
+    const [showAddPIRForm, setShowAddPIRForm] = useState(false);
+    const [newUserData, setNewUserData] = useState({
+        email: '',
+        password: '',
+        firstName: '',
+        lastName: '',
+        assignedCoach: ''
+    });
+
+    // ========== USEEFFECT - INITIALIZATION ==========
+    useEffect(() => {
+        loadAllSettings();
+        loadGoogleConnectionStatus();
+        loadNotificationPreferences();
+    }, []);
+
+    // ========== LOAD ALL SETTINGS ==========
+    const loadAllSettings = async () => {
+        try {
+            const [settingsDoc, coachesSnap, pirsSnap, permissionsDoc] = await Promise.all([
+                db.collection('settings').doc('system').get(),
+                db.collection('users').where('role', 'in', ['coach', 'admin']).get(),
+                db.collection('users').where('role', '==', 'pir').get(),
+                db.collection('settings').doc('permissions').get()
+            ]);
+
+            if (settingsDoc.exists) {
+                setSettings({ ...settings, ...settingsDoc.data() });
+            }
+
+            setCoaches(coachesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setPirs(pirsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+            if (permissionsDoc.exists) {
+                setPermissions(permissionsDoc.data());
+            }
+        } catch (error) {
+            console.error('Error loading settings:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // ========== SAVE SETTINGS ==========
+    const saveSettings = async () => {
+        setSaving(true);
+        try {
+            await db.collection('settings').doc('system').set({
+                ...settings,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedBy: user.uid
+            });
+            alert('Settings saved successfully');
+        } catch (error) {
+            console.error('Error saving settings:', error);
+            alert('Failed to save settings');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    // ========== GOOGLE OAUTH INTEGRATION ==========
+    const loadGoogleConnectionStatus = async () => {
+        try {
+            const userDoc = await db.collection('users').doc(user.uid).get();
+            if (userDoc.exists) {
+                const userData = userDoc.data();
+                setGoogleConnected(userData.googleConnected || false);
+                setGoogleEmail(userData.googleEmail || '');
+                setLastGoogleSync(userData.lastGoogleSync || null);
+            }
+        } catch (error) {
+            console.error('Error loading Google connection status:', error);
+        }
+    };
+
+    const handleGoogleConnect = async () => {
+        try {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            provider.addScope('https://www.googleapis.com/auth/calendar');
+            provider.addScope('https://www.googleapis.com/auth/calendar.events');
+
+            const result = await auth.currentUser.linkWithPopup(provider);
+            const credential = result.credential;
+            const token = credential.accessToken;
+
+            // Save token and connection info to user document
+            await db.collection('users').doc(user.uid).update({
+                googleAccessToken: token,
+                googleRefreshToken: credential.refreshToken || null,
+                googleConnected: true,
+                googleEmail: result.user.email,
+                googleConnectionDate: firebase.firestore.FieldValue.serverTimestamp(),
+                lastGoogleSync: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            setGoogleConnected(true);
+            setGoogleEmail(result.user.email);
+            setLastGoogleSync(new Date());
+
+            // Log audit trail
+            await logAudit({
+                userId: user.uid,
+                tenantId: CURRENT_TENANT,
+                action: 'google-connected',
+                resourceType: 'integrations',
+                resourceId: user.uid,
+                details: { email: result.user.email }
+            });
+
+            alert('✅ Google Calendar connected successfully!');
+        } catch (error) {
+            console.error('Google OAuth error:', error);
+            if (error.code === 'auth/credential-already-in-use') {
+                alert('This Google account is already linked to another user.');
+            } else {
+                alert('Failed to connect Google Calendar. Please try again.');
+            }
+        }
+    };
+
+    const handleGoogleDisconnect = async () => {
+        if (!confirm('Are you sure you want to disconnect Google Calendar? This will stop all calendar syncing.')) {
+            return;
+        }
+
+        try {
+            await db.collection('users').doc(user.uid).update({
+                googleAccessToken: firebase.firestore.FieldValue.delete(),
+                googleRefreshToken: firebase.firestore.FieldValue.delete(),
+                googleConnected: false,
+                googleEmail: firebase.firestore.FieldValue.delete(),
+                googleDisconnectedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            setGoogleConnected(false);
+            setGoogleEmail('');
+            setLastGoogleSync(null);
+
+            // Log audit trail
+            await logAudit({
+                userId: user.uid,
+                tenantId: CURRENT_TENANT,
+                action: 'google-disconnected',
+                resourceType: 'integrations',
+                resourceId: user.uid
+            });
+
+            alert('Google Calendar disconnected successfully');
+        } catch (error) {
+            console.error('Error disconnecting Google:', error);
+            alert('Failed to disconnect Google Calendar');
+        }
+    };
+
+    // ========== GOOGLE CALENDAR SYNC ==========
+    const syncToGoogleCalendar = async () => {
+        if (!googleConnected) {
+            alert('Please connect Google Calendar first');
+            return;
+        }
+
+        setSaving(true);
+        try {
+            const userDoc = await db.collection('users').doc(user.uid).get();
+            const accessToken = userDoc.data().googleAccessToken;
+
+            if (!accessToken) {
+                alert('Google access token not found. Please reconnect.');
+                return;
+            }
+
+            // Get all meetings from Firestore
+            const meetingsSnap = await db.collection('meetings')
+                .where('tenantId', '==', CURRENT_TENANT)
+                .get();
+
+function SettingsApp() {
+    const [searchQuery, setSearchQuery] = useState('');
+    const [user, setUser] = useState(null);
+    useEffect(() => {
+        const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
+            if (firebaseUser) {
+                const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+                setUser({ uid: firebaseUser.uid, ...userDoc.data() });
+            } else {
+                window.location.href = '/';
+            }
+        });
+        return unsubscribe;
+    }, []);
+    if (!user) {
+        return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}><div className="loading-spinner"></div></div>;
+    }
+    return (
+        <div style={{ display: 'flex', minHeight: '100vh' }}>
+            <Sidebar activePage="settings" />
+            <div style={{ flex: 1, marginLeft: '280px' }}>
+                <Topbar user={user} searchQuery={searchQuery} onSearchChange={setSearchQuery} />
+                <div style={{ padding: '20px' }}>
+                    <SettingsView searchQuery={searchQuery} user={user} />
+                </div>
+            </div>
+        </div>
+    );
+}
+ReactDOM.render(<SettingsApp />, document.getElementById('root'));
+})();
+</script>
+</body>
+</html>

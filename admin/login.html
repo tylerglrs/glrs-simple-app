@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Login - GLRS</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #0077CC 0%, #008B8B 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .login-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 50px;
+            max-width: 450px;
+            width: 100%;
+            animation: slideUp 0.5s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .logo {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .logo h1 {
+            font-size: 36px;
+            color: #0077CC;
+            margin-bottom: 10px;
+        }
+        
+        .logo p {
+            color: #666;
+            font-size: 16px;
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 15px;
+            transition: all 0.3s;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #0077CC;
+            box-shadow: 0 0 0 3px rgba(0, 119, 204, 0.1);
+        }
+        
+        .login-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #0077CC 0%, #008B8B 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 10px;
+        }
+        
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 119, 204, 0.3);
+        }
+        
+        .login-btn:active {
+            transform: translateY(0);
+        }
+        
+        .login-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+            border-left: 4px solid #c33;
+        }
+        
+        .error-message.show {
+            display: block;
+            animation: shake 0.5s;
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+        
+        .divider {
+            text-align: center;
+            margin: 30px 0;
+            position: relative;
+        }
+        
+        .divider::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: #e0e0e0;
+        }
+        
+        .divider span {
+            background: white;
+            padding: 0 15px;
+            color: #999;
+            font-size: 14px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .back-link {
+            text-align: center;
+            margin-top: 25px;
+        }
+        
+        .back-link a {
+            color: #0077CC;
+            text-decoration: none;
+            font-size: 14px;
+            transition: color 0.2s;
+        }
+        
+        .back-link a:hover {
+            color: #008B8B;
+            text-decoration: underline;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">
+            <h1>🔐 Admin Login</h1>
+            <p>GLRS Administration Portal</p>
+        </div>
+        
+        <div id="errorMessage" class="error-message"></div>
+        
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input 
+                    type="email" 
+                    id="email" 
+                    placeholder="admin@example.com" 
+                    required 
+                    autocomplete="email"
+                >
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input 
+                    type="password" 
+                    id="password" 
+                    placeholder="Enter your password" 
+                    required 
+                    autocomplete="current-password"
+                >
+            </div>
+            
+            <button type="submit" class="login-btn" id="loginBtn">
+                Sign In to Admin
+            </button>
+        </form>
+        
+        <div class="divider">
+            <span>or</span>
+        </div>
+        
+        <div class="back-link">
+            <a href="/">← Back to Main App</a>
+        </div>
+    </div>
+    
+    <script src="/admin/shared/firebase.js"></script>
+    <script>
+        // Wait for Firebase to initialize
+        (function initLogin() {
+            if (!window.FIREBASE_READY || !window.auth || !window.db) {
+                console.log('Waiting for Firebase to initialize...');
+                setTimeout(initLogin, 50);
+                return;
+            }
+            
+            const { auth, db, CURRENT_TENANT } = window;
+            const loginForm = document.getElementById('loginForm');
+            const loginBtn = document.getElementById('loginBtn');
+            const errorMessage = document.getElementById('errorMessage');
+            
+            // Check if already logged in
+            auth.onAuthStateChanged(async (user) => {
+                if (user) {
+                    try {
+                        const userDoc = await db.collection('users').doc(user.uid).get();
+                        const userData = userDoc.data();
+                        
+                        // Check if user has admin/coach role
+                        if (userData && ['admin', 'coach', 'superadmin'].includes(userData.role)) {
+                            console.log('✅ User authenticated, redirecting to dashboard...');
+                            window.location.href = '/admin/dashboard';
+                        } else {
+                            console.warn('⚠️ User does not have admin privileges');
+                            showError('You do not have admin access. Please contact your administrator.');
+                            await auth.signOut();
+                        }
+                    } catch (error) {
+                        console.error('Error checking user role:', error);
+                    }
+                }
+            });
+            
+            function showError(message) {
+                errorMessage.textContent = message;
+                errorMessage.classList.add('show');
+                setTimeout(() => {
+                    errorMessage.classList.remove('show');
+                }, 5000);
+            }
+            
+            function setLoading(loading) {
+                loginBtn.disabled = loading;
+                if (loading) {
+                    loginBtn.innerHTML = '<span class="loading"></span> Signing in...';
+                } else {
+                    loginBtn.innerHTML = 'Sign In to Admin';
+                }
+            }
+            
+            loginForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const email = document.getElementById('email').value;
+                const password = document.getElementById('password').value;
+                
+                setLoading(true);
+                errorMessage.classList.remove('show');
+                
+                try {
+                    // Sign in with Firebase Auth
+                    const userCredential = await auth.signInWithEmailAndPassword(email, password);
+                    const user = userCredential.user;
+                    
+                    // Check user role in Firestore
+                    const userDoc = await db.collection('users').doc(user.uid).get();
+                    
+                    if (!userDoc.exists) {
+                        throw new Error('User profile not found');
+                    }
+                    
+                    const userData = userDoc.data();
+                    
+                    // Verify user has admin privileges
+                    if (!['admin', 'coach', 'superadmin'].includes(userData.role)) {
+                        await auth.signOut();
+                        throw new Error('You do not have admin access. Please contact your administrator.');
+                    }
+                    
+                    console.log('✅ Login successful:', userData.email);
+                    console.log('🏢 Tenant:', userData.tenantId);
+                    console.log('👤 Role:', userData.role);
+
+                    // Redirect to admin dashboard
+                    window.location.href = '/admin/dashboard';
+                    
+                } catch (error) {
+                    console.error('Login error:', error);
+                    setLoading(false);
+                    
+                    // User-friendly error messages
+                    let errorMsg = 'An error occurred during login';
+                    
+                    if (error.code === 'auth/user-not-found') {
+                        errorMsg = 'No account found with this email address';
+                    } else if (error.code === 'auth/wrong-password') {
+                        errorMsg = 'Incorrect password. Please try again.';
+                    } else if (error.code === 'auth/invalid-email') {
+                        errorMsg = 'Invalid email address format';
+                    } else if (error.code === 'auth/user-disabled') {
+                        errorMsg = 'This account has been disabled';
+                    } else if (error.code === 'auth/too-many-requests') {
+                        errorMsg = 'Too many failed login attempts. Please try again later.';
+                    } else if (error.message) {
+                        errorMsg = error.message;
+                    }
+                    
+                    showError(errorMsg);
+                }
+            });
+            
+        })();
+    </script>
+</body>
+</html>

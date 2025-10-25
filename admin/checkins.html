@@ -1,0 +1,3099 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Check-Ins - GLRS Admin</title>
+
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📝</text></svg>">
+
+    <!-- Shared Styles -->
+    <link rel="stylesheet" href="/admin/shared/styles.css">
+
+    <!-- Firebase SDK (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+
+    <!-- React -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Chart.js for analytics -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+
+    <!-- jsPDF and autoTable for PDF exports -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Shared Components -->
+    <script src="/admin/shared/firebase.js"></script>
+    <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/utils.js"></script>
+    <script src="/admin/shared/state.js"></script>
+    <script src="/admin/shared/navigation.js"></script>
+
+    <script type="text/babel">
+        // Wait for Firebase to initialize before running
+(function initPage() {
+    if (!window.FIREBASE_READY || !window.auth || !window.db) {
+        console.log('Waiting for Firebase to initialize...');
+        setTimeout(initPage, 50);
+        return;
+    }
+
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+    const { auth, db, storage, CURRENT_TENANT, logAudit } = window;
+
+        // ==========================================
+        // CHECK-INS VIEW + ANALYTICS VIEW - FULL IMPLEMENTATION
+        // ==========================================
+
+function CheckInsView({ searchQuery }) {
+    const [checkIns, setCheckIns] = useState([]);
+    const [filteredCheckIns, setFilteredCheckIns] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [filterUser, setFilterUser] = useState('all');
+    const [filterMood, setFilterMood] = useState('all');
+    const [filterCraving, setFilterCraving] = useState('all');
+    const [filterAnxiety, setFilterAnxiety] = useState('all');
+    const [filterSleep, setFilterSleep] = useState('all');
+    const [filterDate, setFilterDate] = useState('all');
+    const [filterCompletion, setFilterCompletion] = useState('all');
+    const [filterRisk, setFilterRisk] = useState('all');
+    const [users, setUsers] = useState([]);
+    const [selectedCheckIn, setSelectedCheckIn] = useState(null);
+    const [activeTab, setActiveTab] = useState('all');
+    const [sortBy, setSortBy] = useState('date');
+    const [selectedCheckIns, setSelectedCheckIns] = useState(new Set());
+    const [showCharts, setShowCharts] = useState(false);
+    const [coachNotes, setCoachNotes] = useState({});
+    const [reviewedCheckIns, setReviewedCheckIns] = useState(new Set());
+    const [analyticsData, setAnalyticsData] = useState(null);
+    const [showAnalytics, setShowAnalytics] = useState(false);
+    const [selectedPIRForReport, setSelectedPIRForReport] = useState(null);
+    
+    const moodChartRef = useRef(null);
+    const cravingChartRef = useRef(null);
+    const anxietyChartRef = useRef(null);
+    const sleepChartRef = useRef(null);
+    const completionChartRef = useRef(null);
+    const chartInstances = useRef({});
+    
+    const itemsPerPage = 20;
+
+    useEffect(() => {
+        loadCheckInsAndUsers();
+        loadCoachData();
+    }, []);
+
+    useEffect(() => {
+        filterCheckIns();
+    }, [checkIns, filterUser, filterMood, filterCraving, filterAnxiety, filterSleep, filterDate, filterCompletion, filterRisk, searchQuery, activeTab, sortBy]);
+
+    useEffect(() => {
+        if (showCharts && filteredCheckIns.length > 0) {
+            renderCharts();
+        }
+        
+        return () => {
+            Object.values(chartInstances.current).forEach(chart => {
+                if (chart) chart.destroy();
+            });
+        };
+    }, [showCharts, filteredCheckIns]);
+
+    useEffect(() => {
+        if (checkIns.length > 0) {
+            calculateAnalytics();
+        }
+    }, [checkIns]);
+
+    const loadCheckInsAndUsers = async () => {
+        try {
+            const usersSnap = await db.collection('users')
+                .where('role', '==', 'pir')
+                .get();
+            
+            const usersData = [];
+            const userMap = {};
+            
+            usersSnap.forEach(doc => {
+                const user = { id: doc.id, ...doc.data() };
+                usersData.push(user);
+                userMap[doc.id] = user.displayName || user.email;
+            });
+            
+            setUsers(usersData);
+
+            const checkInsSnap = await db.collection('checkIns')
+                .orderBy('createdAt', 'desc')
+                .limit(1000)
+                .get();
+            
+            const checkInsData = [];
+            checkInsSnap.forEach(doc => {
+                const checkIn = { id: doc.id, ...doc.data() };
+                checkIn.userName = userMap[checkIn.userId] || 'Unknown User';
+                checkIn.riskLevel = calculateRiskLevel(checkIn);
+                checkIn.completionStatus = getCompletionStatus(checkIn);
+                checkInsData.push(checkIn);
+            });
+            
+            setCheckIns(checkInsData);
+        } catch (error) {
+            console.error('Error loading check-ins:', error);
+            alert('Failed to load check-ins');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadCoachData = async () => {
+        try {
+            const notesSnap = await db.collection('coachNotes')
+                .where('type', '==', 'checkin')
+                .get();
+            
+            const notes = {};
+            notesSnap.forEach(doc => {
+                notes[doc.data().checkInId] = doc.data();
+            });
+            setCoachNotes(notes);
+
+            const reviewedSnap = await db.collection('checkInReviews')
+                .get();
+            
+            const reviewed = new Set();
+            reviewedSnap.forEach(doc => {
+                reviewed.add(doc.data().checkInId);
+            });
+            setReviewedCheckIns(reviewed);
+        } catch (error) {
+            console.error('Error loading coach data:', error);
+        }
+    };
+
+    const calculateRiskLevel = (checkIn) => {
+        const morningMood = checkIn.morningData?.mood ?? 10;
+        const morningCraving = checkIn.morningData?.craving ?? 0;
+        const anxiety = checkIn.eveningData?.anxiety ?? 0;
+        
+        if (morningMood <= 3 && morningCraving >= 7) return 'critical';
+        if (morningMood <= 4 && morningCraving >= 6) return 'high';
+        if (morningMood <= 5 || morningCraving >= 5 || anxiety >= 7) return 'moderate';
+        return 'low';
+    };
+
+    const getCompletionStatus = (checkIn) => {
+        const hasMorning = checkIn.morningData && Object.keys(checkIn.morningData).length > 0;
+        const hasEvening = checkIn.eveningData && Object.keys(checkIn.eveningData).length > 0;
+        
+        if (hasMorning && hasEvening) return 'complete';
+        if (hasMorning && !hasEvening) return 'morning-only';
+        if (!hasMorning && hasEvening) return 'evening-only';
+        return 'incomplete';
+    };
+
+    const calculateAnalytics = () => {
+        const pirStats = {};
+        const allPIRsData = {
+            totalCheckIns: checkIns.length,
+            avgMood: 0,
+            avgCraving: 0,
+            avgAnxiety: 0,
+            avgSleep: 0,
+            completionRate: 0,
+            last30Days: {
+                avgMood: 0,
+                avgCraving: 0,
+                avgAnxiety: 0,
+                avgSleep: 0,
+                completionRate: 0
+            }
+        };
+
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        // Calculate per-PIR stats
+        checkIns.forEach(checkIn => {
+            if (!pirStats[checkIn.userId]) {
+                pirStats[checkIn.userId] = {
+                    userName: checkIn.userName,
+                    userId: checkIn.userId,
+                    totalCheckIns: 0,
+                    completeCheckIns: 0,
+                    moodSum: 0,
+                    moodCount: 0,
+                    cravingSum: 0,
+                    cravingCount: 0,
+                    anxietySum: 0,
+                    anxietyCount: 0,
+                    sleepSum: 0,
+                    sleepCount: 0,
+                    last30: {
+                        totalCheckIns: 0,
+                        completeCheckIns: 0,
+                        moodSum: 0,
+                        moodCount: 0,
+                        cravingSum: 0,
+                        cravingCount: 0,
+                        anxietySum: 0,
+                        anxietyCount: 0,
+                        sleepSum: 0,
+                        sleepCount: 0
+                    }
+                };
+            }
+
+            const stat = pirStats[checkIn.userId];
+            const checkInDate = checkIn.createdAt?.toDate ? checkIn.createdAt.toDate() : new Date(checkIn.createdAt);
+            const isLast30 = checkInDate >= thirtyDaysAgo;
+
+            stat.totalCheckIns++;
+            if (checkIn.completionStatus === 'complete') stat.completeCheckIns++;
+
+            if (checkIn.morningData?.mood != null) {
+                stat.moodSum += checkIn.morningData.mood;
+                stat.moodCount++;
+            }
+            if (checkIn.morningData?.craving != null) {
+                stat.cravingSum += checkIn.morningData.craving;
+                stat.cravingCount++;
+            }
+           if (checkIn.morningData?.anxietyLevel != null) {
+    stat.anxietySum += checkIn.morningData.anxietyLevel;
+    stat.anxietyCount++;
+}
+if (checkIn.morningData?.sleepQuality != null) {
+    stat.sleepSum += checkIn.morningData.sleepQuality;
+    stat.sleepCount++;
+}
+
+            if (isLast30) {
+                stat.last30.totalCheckIns++;
+                if (checkIn.completionStatus === 'complete') stat.last30.completeCheckIns++;
+                
+                if (checkIn.morningData?.mood != null) {
+                    stat.last30.moodSum += checkIn.morningData.mood;
+                    stat.last30.moodCount++;
+                }
+                if (checkIn.morningData?.craving != null) {
+                    stat.last30.cravingSum += checkIn.morningData.craving;
+                    stat.last30.cravingCount++;
+                }
+                if (checkIn.morningData?.anxietyLevel != null) {
+    stat.last30.anxietySum += checkIn.morningData.anxietyLevel;
+    stat.last30.anxietyCount++;
+}
+if (checkIn.morningData?.sleepQuality != null) {
+    stat.last30.sleepSum += checkIn.morningData.sleepQuality;
+    stat.last30.sleepCount++;
+}
+            }
+        });
+
+        // Calculate averages
+        Object.values(pirStats).forEach(stat => {
+            stat.avgMood = stat.moodCount > 0 ? (stat.moodSum / stat.moodCount).toFixed(1) : 'N/A';
+            stat.avgCraving = stat.cravingCount > 0 ? (stat.cravingSum / stat.cravingCount).toFixed(1) : 'N/A';
+            stat.avgAnxiety = stat.anxietyCount > 0 ? (stat.anxietySum / stat.anxietyCount).toFixed(1) : 'N/A';
+            stat.avgSleep = stat.sleepCount > 0 ? (stat.sleepSum / stat.sleepCount).toFixed(1) : 'N/A';
+            stat.completionRate = stat.totalCheckIns > 0 ? Math.round((stat.completeCheckIns / stat.totalCheckIns) * 100) : 0;
+
+            stat.last30.avgMood = stat.last30.moodCount > 0 ? (stat.last30.moodSum / stat.last30.moodCount).toFixed(1) : 'N/A';
+            stat.last30.avgCraving = stat.last30.cravingCount > 0 ? (stat.last30.cravingSum / stat.last30.cravingCount).toFixed(1) : 'N/A';
+            stat.last30.avgAnxiety = stat.last30.anxietyCount > 0 ? (stat.last30.anxietySum / stat.last30.anxietyCount).toFixed(1) : 'N/A';
+            stat.last30.avgSleep = stat.last30.sleepCount > 0 ? (stat.last30.sleepSum / stat.last30.sleepCount).toFixed(1) : 'N/A';
+            stat.last30.completionRate = stat.last30.totalCheckIns > 0 ? Math.round((stat.last30.completeCheckIns / stat.last30.totalCheckIns) * 100) : 0;
+        });
+
+        // Calculate all-PIRs aggregate
+        let totalMood = 0, totalCraving = 0, totalAnxiety = 0, totalSleep = 0;
+        let moodCount = 0, cravingCount = 0, anxietyCount = 0, sleepCount = 0;
+        let completeCount = 0;
+        let last30Mood = 0, last30Craving = 0, last30Anxiety = 0, last30Sleep = 0;
+        let last30MoodCount = 0, last30CravingCount = 0, last30AnxietyCount = 0, last30SleepCount = 0;
+        let last30Complete = 0, last30Total = 0;
+
+        checkIns.forEach(checkIn => {
+            const checkInDate = checkIn.createdAt?.toDate ? checkIn.createdAt.toDate() : new Date(checkIn.createdAt);
+            const isLast30 = checkInDate >= thirtyDaysAgo;
+
+            if (checkIn.completionStatus === 'complete') completeCount++;
+            
+            if (checkIn.morningData?.mood != null) {
+                totalMood += checkIn.morningData.mood;
+                moodCount++;
+            }
+            if (checkIn.morningData?.craving != null) {
+                totalCraving += checkIn.morningData.craving;
+                cravingCount++;
+            }
+            if (checkIn.morningData?.anxietyLevel != null) {
+    totalAnxiety += checkIn.morningData.anxietyLevel;
+    anxietyCount++;
+}
+if (checkIn.morningData?.sleepQuality != null) {
+    totalSleep += checkIn.morningData.sleepQuality;
+    sleepCount++;
+}
+
+            if (isLast30) {
+                last30Total++;
+                if (checkIn.completionStatus === 'complete') last30Complete++;
+                
+                if (checkIn.morningData?.mood != null) {
+                    last30Mood += checkIn.morningData.mood;
+                    last30MoodCount++;
+                }
+                if (checkIn.morningData?.craving != null) {
+                    last30Craving += checkIn.morningData.craving;
+                    last30CravingCount++;
+                }
+               if (checkIn.morningData?.anxietyLevel != null) {
+    last30Anxiety += checkIn.morningData.anxietyLevel;
+    last30AnxietyCount++;
+}
+if (checkIn.morningData?.sleepQuality != null) {
+    last30Sleep += checkIn.morningData.sleepQuality;
+    last30SleepCount++;
+}
+            }
+        });
+
+        allPIRsData.avgMood = moodCount > 0 ? (totalMood / moodCount).toFixed(1) : 'N/A';
+        allPIRsData.avgCraving = cravingCount > 0 ? (totalCraving / cravingCount).toFixed(1) : 'N/A';
+        allPIRsData.avgAnxiety = anxietyCount > 0 ? (totalAnxiety / anxietyCount).toFixed(1) : 'N/A';
+        allPIRsData.avgSleep = sleepCount > 0 ? (totalSleep / sleepCount).toFixed(1) : 'N/A';
+        allPIRsData.completionRate = checkIns.length > 0 ? Math.round((completeCount / checkIns.length) * 100) : 0;
+
+        allPIRsData.last30Days.avgMood = last30MoodCount > 0 ? (last30Mood / last30MoodCount).toFixed(1) : 'N/A';
+        allPIRsData.last30Days.avgCraving = last30CravingCount > 0 ? (last30Craving / last30CravingCount).toFixed(1) : 'N/A';
+        allPIRsData.last30Days.avgAnxiety = last30AnxietyCount > 0 ? (last30Anxiety / last30AnxietyCount).toFixed(1) : 'N/A';
+        allPIRsData.last30Days.avgSleep = last30SleepCount > 0 ? (last30Sleep / last30SleepCount).toFixed(1) : 'N/A';
+        allPIRsData.last30Days.completionRate = last30Total > 0 ? Math.round((last30Complete / last30Total) * 100) : 0;
+
+        setAnalyticsData({ pirStats, allPIRsData });
+    };
+
+    const detectPatterns = () => {
+        const patterns = [];
+        const pirCheckIns = {};
+        
+        checkIns.forEach(checkIn => {
+            if (!pirCheckIns[checkIn.userId]) {
+                pirCheckIns[checkIn.userId] = [];
+            }
+            pirCheckIns[checkIn.userId].push(checkIn);
+        });
+
+        Object.entries(pirCheckIns).forEach(([userId, userCheckIns]) => {
+            const sorted = userCheckIns.sort((a, b) => {
+                const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+                const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+                return dateB - dateA;
+            });
+
+            if (sorted.length >= 3) {
+                const recent = sorted.slice(0, 3);
+                const moods = recent.map(c => c.morningData?.mood ?? 10);
+                
+                if (moods[0] < moods[1] && moods[1] < moods[2]) {
+                    patterns.push({
+                        userId,
+                        userName: recent[0].userName,
+                        type: 'declining-mood',
+                        message: `${recent[0].userName}'s mood declining over 3 days`
+                    });
+                }
+
+                const cravings = recent.map(c => c.morningData?.craving ?? 0);
+                if (cravings[0] > 6 && cravings[1] > 6 && cravings[2] > 6) {
+                    patterns.push({
+                        userId,
+                        userName: recent[0].userName,
+                        type: 'high-cravings',
+                        message: `${recent[0].userName} has high cravings for 3+ days`
+                    });
+                }
+
+                const anxiety = recent.map(c => c.eveningData?.anxiety ?? 0);
+                if (anxiety[0] > 7 && anxiety[1] > 7) {
+                    patterns.push({
+                        userId,
+                        userName: recent[0].userName,
+                        type: 'high-anxiety',
+                        message: `${recent[0].userName} reporting high anxiety`
+                    });
+                }
+            }
+
+            const incomplete = userCheckIns.filter(c => c.completionStatus !== 'complete');
+            if (incomplete.length >= 3) {
+                patterns.push({
+                    userId,
+                    userName: userCheckIns[0].userName,
+                    type: 'incomplete-pattern',
+                    message: `${userCheckIns[0].userName} has ${incomplete.length} incomplete check-ins`
+                });
+            }
+
+            // Keyword detection
+            const recentNotes = sorted.slice(0, 5);
+            const concerningWords = ['relapse', 'using', 'hopeless', 'giving up', 'cant cope', 'want to use'];
+            recentNotes.forEach(checkIn => {
+                const allText = [
+                    checkIn.morningData?.notes,
+                    checkIn.eveningData?.gratitude,
+                    checkIn.eveningData?.challenges,
+                    checkIn.eveningData?.tomorrowGoal
+                ].filter(Boolean).join(' ').toLowerCase();
+
+                concerningWords.forEach(word => {
+                    if (allText.includes(word)) {
+                        patterns.push({
+                            userId,
+                            userName: checkIn.userName,
+                            type: 'keyword-alert',
+                            message: `${checkIn.userName} mentioned "${word}" in check-in`
+                        });
+                    }
+                });
+            });
+        });
+
+        return patterns;
+    };
+
+    const filterCheckIns = () => {
+        let filtered = checkIns;
+        
+        if (activeTab === 'at-risk') {
+            filtered = filtered.filter(c => c.riskLevel === 'critical' || c.riskLevel === 'high');
+        } else if (activeTab === 'incomplete') {
+            filtered = filtered.filter(c => c.completionStatus !== 'complete');
+        } else if (activeTab === 'week') {
+            const weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            filtered = filtered.filter(c => {
+                const date = c.createdAt?.toDate ? c.createdAt.toDate() : new Date(c.createdAt);
+                return date >= weekAgo;
+            });
+        } else if (activeTab === 'needs-review') {
+            filtered = filtered.filter(c => !reviewedCheckIns.has(c.id));
+        }
+        
+        if (filterUser !== 'all') {
+            filtered = filtered.filter(c => c.userId === filterUser);
+        }
+        
+        if (filterMood !== 'all') {
+            const moodValue = parseInt(filterMood);
+            if (moodValue === 1) {
+                filtered = filtered.filter(c => (c.morningData?.mood ?? 10) <= 3);
+            } else if (moodValue === 2) {
+                filtered = filtered.filter(c => {
+                    const mood = c.morningData?.mood ?? 10;
+                    return mood >= 4 && mood <= 6;
+                });
+            } else if (moodValue === 3) {
+                filtered = filtered.filter(c => (c.morningData?.mood ?? 10) >= 7);
+            }
+        }
+
+        if (filterCraving !== 'all') {
+            const cravingValue = parseInt(filterCraving);
+            if (cravingValue === 1) {
+                filtered = filtered.filter(c => (c.morningData?.craving ?? 0) <= 3);
+            } else if (cravingValue === 2) {
+                filtered = filtered.filter(c => {
+                    const craving = c.morningData?.craving ?? 0;
+                    return craving >= 4 && craving <= 6;
+                });
+            } else if (cravingValue === 3) {
+                filtered = filtered.filter(c => (c.morningData?.craving ?? 0) >= 7);
+            }
+        }
+
+       if (filterAnxiety !== 'all') {
+    const anxietyValue = parseInt(filterAnxiety);
+    if (anxietyValue === 1) {
+        filtered = filtered.filter(c => (c.morningData?.anxietyLevel ?? 0) <= 3);
+    } else if (anxietyValue === 2) {
+        filtered = filtered.filter(c => {
+            const anxiety = c.morningData?.anxietyLevel ?? 0;
+            return anxiety >= 4 && anxiety <= 6;
+        });
+    } else if (anxietyValue === 3) {
+        filtered = filtered.filter(c => (c.morningData?.anxietyLevel ?? 0) >= 7);
+    }
+}
+
+if (filterSleep !== 'all') {
+    const sleepValue = parseInt(filterSleep);
+    if (sleepValue === 1) {
+        filtered = filtered.filter(c => (c.morningData?.sleepQuality ?? 0) <= 3);
+    } else if (sleepValue === 2) {
+        filtered = filtered.filter(c => {
+            const sleep = c.morningData?.sleepQuality ?? 0;
+            return sleep >= 4 && sleep <= 6;
+        });
+    } else if (sleepValue === 3) {
+        filtered = filtered.filter(c => (c.morningData?.sleepQuality ?? 0) >= 7);
+    }
+}
+        
+        if (filterDate !== 'all') {
+            const now = new Date();
+            const startDate = new Date();
+            
+            if (filterDate === 'today') {
+                startDate.setHours(0, 0, 0, 0);
+            } else if (filterDate === 'week') {
+                startDate.setDate(now.getDate() - 7);
+            } else if (filterDate === 'month') {
+                startDate.setMonth(now.getMonth() - 1);
+            }
+            
+            filtered = filtered.filter(c => {
+                const date = c.createdAt?.toDate ? c.createdAt.toDate() : new Date(c.createdAt);
+                return date >= startDate;
+            });
+        }
+
+        if (filterCompletion !== 'all') {
+            filtered = filtered.filter(c => c.completionStatus === filterCompletion);
+        }
+
+        if (filterRisk !== 'all') {
+            filtered = filtered.filter(c => c.riskLevel === filterRisk);
+        }
+        
+        if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            filtered = filtered.filter(c =>
+                c.userName?.toLowerCase().includes(query) ||
+                c.morningData?.notes?.toLowerCase().includes(query) ||
+                c.eveningData?.gratitude?.toLowerCase().includes(query) ||
+                c.eveningData?.challenges?.toLowerCase().includes(query) ||
+                c.eveningData?.tomorrowGoal?.toLowerCase().includes(query)
+            );
+        }
+
+        // Sorting
+        filtered.sort((a, b) => {
+            if (sortBy === 'date') {
+                const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+                const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+                return dateB - dateA;
+            } else if (sortBy === 'user') {
+                return a.userName.localeCompare(b.userName);
+            } else if (sortBy === 'risk') {
+                const riskOrder = { critical: 0, high: 1, moderate: 2, low: 3 };
+                return riskOrder[a.riskLevel] - riskOrder[b.riskLevel];
+            } else if (sortBy === 'mood') {
+                return (a.morningData?.mood ?? 10) - (b.morningData?.mood ?? 10);
+            }
+            return 0;
+        });
+        
+        setFilteredCheckIns(filtered);
+        setCurrentPage(1);
+    };
+
+    const renderCharts = () => {
+        if (moodChartRef.current) {
+            if (chartInstances.current.mood) chartInstances.current.mood.destroy();
+            
+            const ctx = moodChartRef.current.getContext('2d');
+            const last30 = filteredCheckIns.slice(0, 30).reverse();
+            
+            chartInstances.current.mood = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: last30.map(c => formatDate(c.createdAt)),
+                    datasets: [{
+                        label: 'Morning Mood',
+                        data: last30.map(c => c.morningData?.mood ?? null),
+                        borderColor: '#0077CC',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, max: 10 }
+                    }
+                }
+            });
+        }
+
+        if (cravingChartRef.current) {
+            if (chartInstances.current.craving) chartInstances.current.craving.destroy();
+            
+            const ctx = cravingChartRef.current.getContext('2d');
+            const last30 = filteredCheckIns.slice(0, 30).reverse();
+            
+            chartInstances.current.craving = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: last30.map(c => formatDate(c.createdAt)),
+                    datasets: [{
+                        label: 'Cravings',
+                        data: last30.map(c => c.morningData?.craving ?? null),
+                        borderColor: '#f44336',
+                        backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, max: 10 }
+                    }
+                }
+            });
+        }
+
+        if (anxietyChartRef.current) {
+            if (chartInstances.current.anxiety) chartInstances.current.anxiety.destroy();
+            
+            const ctx = anxietyChartRef.current.getContext('2d');
+            const last30 = filteredCheckIns.slice(0, 30).reverse();
+            
+            chartInstances.current.anxiety = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: last30.map(c => formatDate(c.createdAt)),
+                   datasets: [{
+    label: 'Anxiety',
+    data: last30.map(c => c.morningData?.anxietyLevel ?? null),
+    borderColor: '#FF9800',
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+    tension: 0.4,
+    fill: true
+}]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, max: 10 }
+                    }
+                }
+            });
+        }
+
+        if (sleepChartRef.current) {
+            if (chartInstances.current.sleep) chartInstances.current.sleep.destroy();
+            
+            const ctx = sleepChartRef.current.getContext('2d');
+            const last30 = filteredCheckIns.slice(0, 30).reverse();
+            
+            chartInstances.current.sleep = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: last30.map(c => formatDate(c.createdAt)),
+                    datasets: [{
+    label: 'Sleep Quality',
+    data: last30.map(c => c.morningData?.sleepQuality ?? null),
+    borderColor: '#9C27B0',
+    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+    tension: 0.4,
+    fill: true
+}]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, max: 10 }
+                    }
+                }
+            });
+        }
+
+        if (completionChartRef.current) {
+            if (chartInstances.current.completion) chartInstances.current.completion.destroy();
+            
+            const ctx = completionChartRef.current.getContext('2d');
+            const statusCounts = {
+                complete: filteredCheckIns.filter(c => c.completionStatus === 'complete').length,
+                'morning-only': filteredCheckIns.filter(c => c.completionStatus === 'morning-only').length,
+                'evening-only': filteredCheckIns.filter(c => c.completionStatus === 'evening-only').length,
+                incomplete: filteredCheckIns.filter(c => c.completionStatus === 'incomplete').length
+            };
+            
+            chartInstances.current.completion = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Both Complete', 'Morning Only', 'Evening Only', 'Incomplete'],
+                    datasets: [{
+                        data: Object.values(statusCounts),
+                        backgroundColor: ['#00A86B', '#FFC107', '#FF9800', '#f44336']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+        }
+    };
+
+    const handleExport = (format, selectedOnly = false) => {
+        const dataToExport = selectedOnly 
+            ? filteredCheckIns.filter(c => selectedCheckIns.has(c.id))
+            : filteredCheckIns;
+
+        if (format === 'pdf') {
+            exportCheckInsToPDF(dataToExport);
+        } else {
+            const exportData = dataToExport.map(checkIn => ({
+                user: checkIn.userName,
+                date: formatDateTime(checkIn.createdAt),
+                morningMood: checkIn.morningData?.mood ?? '-',
+                morningCraving: checkIn.morningData?.craving ?? '-',
+                morningNotes: checkIn.morningData?.notes ?? '-',
+                eveningAnxiety: checkIn.eveningData?.anxiety ?? '-',
+                eveningSleep: checkIn.eveningData?.sleepQuality ?? '-',
+                eveningOverallDay: checkIn.eveningData?.overallDay ?? '-',
+                eveningGratitude: checkIn.eveningData?.gratitude ?? '-',
+                eveningChallenges: checkIn.eveningData?.challenges ?? '-',
+                eveningTomorrowGoal: checkIn.eveningData?.tomorrowGoal ?? '-',
+                completionStatus: checkIn.completionStatus,
+                riskLevel: checkIn.riskLevel,
+                reviewed: reviewedCheckIns.has(checkIn.id) ? 'Yes' : 'No'
+            }));
+
+            if (format === 'json') {
+                exportToJSON(exportData, 'checkins');
+            } else if (format === 'csv') {
+                exportToCSV(exportData, 'checkins');
+            }
+        }
+    };
+
+    const exportCheckInsToPDF = (data) => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('landscape');
+        
+        let yPos = 20;
+        
+        // Title
+        doc.setFontSize(18);
+        doc.text('Check-ins Report', 14, yPos);
+        yPos += 10;
+        
+        doc.setFontSize(10);
+        doc.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, 14, yPos);
+        doc.text(`Total Records: ${data.length}`, 200, yPos);
+        yPos += 15;
+
+        // Morning Data Table
+        doc.setFontSize(14);
+        doc.text('Morning Check-ins', 14, yPos);
+        yPos += 5;
+
+        const morningData = data.map(c => [
+            c.userName,
+            formatDate(c.createdAt),
+            c.morningData?.mood ?? '-',
+            c.morningData?.craving ?? '-',
+            (c.morningData?.notes ?? '-').substring(0, 50) + (c.morningData?.notes?.length > 50 ? '...' : ''),
+            c.completionStatus.replace('-', ' ')
+        ]);
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Date', 'Mood', 'Craving', 'Notes', 'Status']],
+            body: morningData,
+            theme: 'grid',
+            headStyles: { fillColor: [102, 126, 234] },
+            styles: { fontSize: 8 },
+            columnStyles: {
+                0: { cellWidth: 40 },
+                1: { cellWidth: 35 },
+                2: { cellWidth: 20 },
+                3: { cellWidth: 20 },
+                4: { cellWidth: 80 },
+                5: { cellWidth: 35 }
+            }
+        });
+
+        // Evening Data Table (new page)
+        doc.addPage();
+        yPos = 20;
+        
+        doc.setFontSize(14);
+        doc.text('Evening Reflections', 14, yPos);
+        yPos += 5;
+
+        const eveningData = data.map(c => [
+            c.userName,
+            formatDate(c.createdAt),
+            c.eveningData?.overallDay ?? '-',
+           c.morningData?.anxietyLevel ?? '-',
+c.morningData?.sleepQuality ?? '-',
+            (c.eveningData?.gratitude ?? '-').substring(0, 40) + (c.eveningData?.gratitude?.length > 40 ? '...' : '')
+        ]);
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Date', 'Overall', 'Anxiety', 'Sleep', 'Gratitude']],
+            body: eveningData,
+            theme: 'grid',
+            headStyles: { fillColor: [118, 75, 162] },
+            styles: { fontSize: 8 },
+            columnStyles: {
+                0: { cellWidth: 40 },
+                1: { cellWidth: 35 },
+                2: { cellWidth: 20 },
+                3: { cellWidth: 20 },
+                4: { cellWidth: 20 },
+                5: { cellWidth: 95 }
+            }
+        });
+
+        // Challenges & Goals (new page if many records)
+        if (data.length > 10) {
+            doc.addPage();
+            yPos = 20;
+        } else {
+            yPos = doc.lastAutoTable.finalY + 15;
+        }
+
+        doc.setFontSize(14);
+        doc.text('Challenges & Tomorrow Goals', 14, yPos);
+        yPos += 5;
+
+        const detailsData = data.map(c => [
+            c.userName,
+            formatDate(c.createdAt),
+            (c.eveningData?.challenges ?? '-').substring(0, 60) + (c.eveningData?.challenges?.length > 60 ? '...' : ''),
+            (c.eveningData?.tomorrowGoal ?? '-').substring(0, 60) + (c.eveningData?.tomorrowGoal?.length > 60 ? '...' : '')
+        ]);
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Date', 'Challenges', 'Tomorrow\'s Goal']],
+            body: detailsData,
+            theme: 'grid',
+            headStyles: { fillColor: [255, 152, 0] },
+            styles: { fontSize: 8 },
+            columnStyles: {
+                0: { cellWidth: 40 },
+                1: { cellWidth: 35 },
+                2: { cellWidth: 90 },
+                3: { cellWidth: 90 }
+            }
+        });
+
+        doc.save(`Check-ins_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+    };
+
+    const handleBulkReview = async () => {
+        if (selectedCheckIns.size === 0) {
+            alert('No check-ins selected');
+            return;
+        }
+
+        try {
+            const batch = db.batch();
+            selectedCheckIns.forEach(checkInId => {
+                const reviewRef = db.collection('checkInReviews').doc();
+                batch.set(reviewRef, {
+                    checkInId: checkInId,
+                    reviewedBy: auth.currentUser.uid,
+                    reviewedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            });
+            
+            await batch.commit();
+            setReviewedCheckIns(new Set([...reviewedCheckIns, ...selectedCheckIns]));
+            setSelectedCheckIns(new Set());
+            alert(`${selectedCheckIns.size} check-ins marked as reviewed`);
+        } catch (error) {
+            console.error('Error bulk reviewing:', error);
+            alert('Failed to mark as reviewed');
+        }
+    };
+
+    const handleToggleSelect = (checkInId) => {
+        const newSelected = new Set(selectedCheckIns);
+        if (newSelected.has(checkInId)) {
+            newSelected.delete(checkInId);
+        } else {
+            newSelected.add(checkInId);
+        }
+        setSelectedCheckIns(newSelected);
+    };
+
+    const handleSelectAll = () => {
+        if (selectedCheckIns.size === paginatedCheckIns.length) {
+            setSelectedCheckIns(new Set());
+        } else {
+            setSelectedCheckIns(new Set(paginatedCheckIns.map(c => c.id)));
+        }
+    };
+
+    const paginatedCheckIns = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        const end = start + itemsPerPage;
+        return filteredCheckIns.slice(start, end);
+    }, [filteredCheckIns, currentPage]);
+
+    const totalPages = Math.ceil(filteredCheckIns.length / itemsPerPage);
+    const patterns = detectPatterns();
+
+    const getRiskBadgeStyle = (level) => {
+        const styles = {
+            critical: { background: '#DC143C', color: 'white' },
+            high: { background: '#FFA500', color: 'white' },
+            moderate: { background: '#FFC107', color: '#333' },
+            low: { background: '#00A86B', color: 'white' }
+        };
+        return styles[level] ?? styles.low;
+    };
+
+    const getCompletionBadgeStyle = (status) => {
+        const styles = {
+            complete: { background: '#00A86B', color: 'white', text: 'Both Complete' },
+            'morning-only': { background: '#FFC107', color: '#333', text: 'Morning Only' },
+            'evening-only': { background: '#FFA500', color: 'white', text: 'Evening Only' },
+            incomplete: { background: '#DC143C', color: 'white', text: 'Incomplete' }
+        };
+        return styles[status] ?? styles.incomplete;
+    };
+
+    const getRowStyle = (checkIn) => {
+        if (checkIn.riskLevel === 'critical') {
+            return { background: 'rgba(244, 67, 54, 0.1)', borderLeft: '4px solid #f44336' };
+        } else if (checkIn.riskLevel === 'high') {
+            return { background: 'rgba(255, 152, 0, 0.1)', borderLeft: '4px solid #FF9800' };
+        } else if (checkIn.completionStatus !== 'complete') {
+            return { background: 'rgba(255, 193, 7, 0.05)', borderLeft: '4px solid #FFC107' };
+        }
+        return {};
+    };
+
+    if (loading) {
+        return (
+            <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: '400px',
+                gap: '20px'
+            }}>
+                <div style={{
+                    width: '60px',
+                    height: '60px',
+                    border: '4px solid #f3f3f3',
+                    borderTop: '4px solid #0077CC',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite'
+                }}></div>
+                <p style={{ color: '#666' }}>Loading check-ins...</p>
+            </div>
+        );
+    }
+
+    // Main view tabs
+    if (showAnalytics) {
+        return <AnalyticsView 
+            analyticsData={analyticsData} 
+            checkIns={checkIns}
+            users={users}
+            onClose={() => setShowAnalytics(false)}
+            onSelectPIR={setSelectedPIRForReport}
+        />;
+    }
+
+    if (selectedPIRForReport) {
+        return <IndividualPIRReport
+            pirId={selectedPIRForReport}
+            checkIns={checkIns.filter(c => c.userId === selectedPIRForReport)}
+            analyticsData={analyticsData}
+            onClose={() => setSelectedPIRForReport(null)}
+        />;
+    }
+
+    return (
+        <div style={{ padding: '20px', animation: 'fadeIn 0.5s' }}>
+            {/* Action Bar */}
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                <button
+                    onClick={() => setShowAnalytics(true)}
+                    style={{
+                        padding: '12px 24px',
+                        background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '600'
+                    }}
+                >
+                    View Analytics & Reports
+                </button>
+            </div>
+
+            {/* Pattern Alerts */}
+            {patterns.length > 0 && (
+                <div style={{
+                    background: '#fff3cd',
+                    border: '1px solid #ffc107',
+                    borderRadius: '10px',
+                    padding: '15px',
+                    marginBottom: '20px'
+                }}>
+                    <div style={{ fontWeight: '600', color: '#856404', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '20px' }}>⚠️</span>
+                        Pattern Alerts Detected
+                    </div>
+                    {patterns.slice(0, 3).map((pattern, idx) => (
+                        <div key={idx} style={{ fontSize: '14px', color: '#856404', marginBottom: '5px' }}>
+                            • {pattern.message}
+                        </div>
+                    ))}
+                    {patterns.length > 3 && (
+                        <div style={{ fontSize: '13px', color: '#856404', marginTop: '8px' }}>
+                            +{patterns.length - 3} more patterns detected
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Tabs */}
+            <div style={{
+                display: 'flex',
+                gap: '10px',
+                marginBottom: '20px',
+                borderBottom: '2px solid #f0f0f0',
+                flexWrap: 'wrap'
+            }}>
+                {[
+                    { id: 'all', label: 'All Check-ins', count: checkIns.length },
+                    { id: 'at-risk', label: 'At-Risk', count: checkIns.filter(c => c.riskLevel === 'critical' || c.riskLevel === 'high').length },
+                    { id: 'incomplete', label: 'Incomplete', count: checkIns.filter(c => c.completionStatus !== 'complete').length },
+                    { id: 'week', label: 'This Week', count: checkIns.filter(c => {
+                        const date = c.createdAt?.toDate ? c.createdAt.toDate() : new Date(c.createdAt);
+                        const weekAgo = new Date();
+                        weekAgo.setDate(weekAgo.getDate() - 7);
+                        return date >= weekAgo;
+                    }).length },
+                    { id: 'needs-review', label: 'Needs Review', count: checkIns.filter(c => !reviewedCheckIns.has(c.id)).length }
+                ].map(tab => (
+                    <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        style={{
+                            padding: '10px 20px',
+                            background: activeTab === tab.id ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : 'transparent',
+                            color: activeTab === tab.id ? 'white' : '#666',
+                            border: 'none',
+                            borderBottom: activeTab === tab.id ? 'none' : '2px solid transparent',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            borderRadius: activeTab === tab.id ? '10px 10px 0 0' : '0',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        {tab.label}
+                        {tab.count > 0 && (
+                            <span style={{
+                                background: activeTab === tab.id ? 'rgba(255,255,255,0.3)' : '#e0e0e0',
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                fontSize: '12px',
+                                fontWeight: '600'
+                            }}>
+                                {tab.count}
+                            </span>
+                        )}
+                    </button>
+                ))}
+            </div>
+
+            {/* Filters Bar */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                padding: '20px',
+                marginBottom: '20px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+            }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px', marginBottom: '15px' }}>
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '5px' }}>
+                            Sort By
+                        </label>
+                        <select 
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="date">Date (Newest)</option>
+                            <option value="user">PIR Name (A-Z)</option>
+                            <option value="risk">Risk Level</option>
+                            <option value="mood">Mood (Low to High)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '5px' }}>
+                            PIR
+                        </label>
+                        <select 
+                            value={filterUser}
+                            onChange={(e) => setFilterUser(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">All PIRs</option>
+                            {users.map(user => (
+                                <option key={user.id} value={user.id}>
+                                    {user.displayName || user.email}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '5px' }}>
+                            Mood Level
+                        </label>
+                        <select 
+                            value={filterMood}
+                            onChange={(e) => setFilterMood(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">All Moods</option>
+                            <option value="1">Low (1-3)</option>
+                            <option value="2">Medium (4-6)</option>
+                            <option value="3">High (7-10)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '5px' }}>
+                            Craving Level
+                        </label>
+                        <select 
+                            value={filterCraving}
+                            onChange={(e) => setFilterCraving(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">All Levels</option>
+                            <option value="1">Low (1-3)</option>
+                            <option value="2">Medium (4-6)</option>
+                            <option value="3">High (7-10)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '5px' }}>
+                            Anxiety Level
+                        </label>
+                        <select 
+                            value={filterAnxiety}
+                            onChange={(e) => setFilterAnxiety(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">All Levels</option>
+                            <option value="1">Low (1-3)</option>
+                            <option value="2">Medium (4-6)</option>
+                            <option value="3">High (7-10)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '5px' }}>
+                            Sleep Quality
+                        </label>
+                        <select 
+                            value={filterSleep}
+                            onChange={(e) => setFilterSleep(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">All Levels</option>
+                            <option value="1">Poor (1-3)</option>
+                            <option value="2">Fair (4-6)</option>
+                            <option value="3">Good (7-10)</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '5px' }}>
+                            Time Period
+                        </label>
+                        <select 
+                            value={filterDate}
+                            onChange={(e) => setFilterDate(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">All Time</option>
+                            <option value="today">Today</option>
+                            <option value="week">Last 7 Days</option>
+                            <option value="month">Last 30 Days</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '5px' }}>
+                            Completion
+                        </label>
+                        <select 
+                            value={filterCompletion}
+                            onChange={(e) => setFilterCompletion(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">All Status</option>
+                            <option value="complete">Both Complete</option>
+                            <option value="morning-only">Morning Only</option>
+                            <option value="evening-only">Evening Only</option>
+                            <option value="incomplete">Incomplete</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '5px' }}>
+                            Risk Level
+                        </label>
+                        <select 
+                            value={filterRisk}
+                            onChange={(e) => setFilterRisk(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                background: 'white'
+                            }}
+                        >
+                            <option value="all">All Levels</option>
+                            <option value="critical">Critical</option>
+                            <option value="high">High</option>
+                            <option value="moderate">Moderate</option>
+                            <option value="low">Low</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    <button 
+                        onClick={() => setShowCharts(!showCharts)}
+                        style={{
+                            padding: '8px 16px',
+                            background: showCharts ? '#0077CC' : '#6c757d',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '500'
+                        }}
+                    >
+                        {showCharts ? 'Hide Charts' : 'Show Charts'}
+                    </button>
+
+                    {selectedCheckIns.size > 0 && (
+                        <>
+                            <button 
+                                onClick={handleBulkReview}
+                                style={{
+                                    padding: '8px 16px',
+                                    background: '#00A86B',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                Mark {selectedCheckIns.size} as Reviewed
+                            </button>
+                            <button 
+                                onClick={() => handleExport('pdf', true)}
+                                style={{
+                                    padding: '8px 16px',
+                                    background: '#FFA500',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                Export Selected PDF
+                            </button>
+                        </>
+                    )}
+
+                    <button onClick={() => handleExport('csv')} style={{
+                        padding: '8px 16px',
+                        background: '#6c757d',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '500'
+                    }}>
+                        Export All CSV
+                    </button>
+                    <button onClick={() => handleExport('json')} style={{
+                        padding: '8px 16px',
+                        background: '#6c757d',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '500'
+                    }}>
+                        Export All JSON
+                    </button>
+                    <button onClick={() => handleExport('pdf')} style={{
+                        padding: '8px 16px',
+                        background: '#6c757d',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '500'
+                    }}>
+                        Export All PDF
+                    </button>
+                </div>
+            </div>
+
+            {/* Charts Section */}
+            {showCharts && (
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '25px',
+                    marginBottom: '20px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                }}>
+                    <h3 style={{ margin: '0 0 20px 0', color: '#333' }}>Check-in Analytics</h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+                        <div>
+                            <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#666' }}>Mood Trend</h4>
+                            <div style={{ height: '250px' }}>
+                                <canvas ref={moodChartRef}></canvas>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#666' }}>Craving Intensity</h4>
+                            <div style={{ height: '250px' }}>
+                                <canvas ref={cravingChartRef}></canvas>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#666' }}>Anxiety Levels</h4>
+                            <div style={{ height: '250px' }}>
+                                <canvas ref={anxietyChartRef}></canvas>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#666' }}>Sleep Quality</h4>
+                            <div style={{ height: '250px' }}>
+                                <canvas ref={sleepChartRef}></canvas>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#666' }}>Completion Status</h4>
+                            <div style={{ height: '250px' }}>
+                                <canvas ref={completionChartRef}></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Table */}
+            <div style={{
+                background: 'white',
+                borderRadius: '15px',
+                overflow: 'hidden',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+            }}>
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead style={{ background: '#f8f9fa' }}>
+                            <tr>
+                                <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '14px' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedCheckIns.size === paginatedCheckIns.length && paginatedCheckIns.length > 0}
+                                        onChange={handleSelectAll}
+                                        style={{ cursor: 'pointer' }}
+                                    />
+                                </th>
+                                <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '14px' }}>PIR</th>
+                                <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '14px' }}>Date/Time</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Mood</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Craving</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Anxiety</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Sleep</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Overall</th>
+                                <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '14px' }}>Status</th>
+                                <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '14px' }}>Risk</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {paginatedCheckIns.map(checkIn => {
+                                const completionBadge = getCompletionBadgeStyle(checkIn.completionStatus);
+                                const riskBadge = getRiskBadgeStyle(checkIn.riskLevel);
+                                
+                                return (
+                                    <tr key={checkIn.id} style={getRowStyle(checkIn)}>
+                                        <td style={{ padding: '15px' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedCheckIns.has(checkIn.id)}
+                                                onChange={() => handleToggleSelect(checkIn.id)}
+                                                style={{ cursor: 'pointer' }}
+                                            />
+                                        </td>
+                                        <td style={{ padding: '15px', fontWeight: '500', color: '#333' }}>
+                                            {checkIn.userName}
+                                            {reviewedCheckIns.has(checkIn.id) && (
+                                                <span style={{ marginLeft: '8px', fontSize: '16px' }} title="Reviewed">✓</span>
+                                            )}
+                                        </td>
+                                        <td style={{ padding: '15px', color: '#666', fontSize: '14px' }}>
+                                            {formatDateTime(checkIn.createdAt)}
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{
+                                                width: '40px',
+                                                height: '40px',
+                                                borderRadius: '50%',
+                                                background: checkIn.morningData?.mood != null
+                                                    ? `linear-gradient(135deg, ${checkIn.morningData.mood <= 3 ? '#f44336' : checkIn.morningData.mood <= 6 ? '#FF9800' : '#00A86B'}, ${checkIn.morningData.mood <= 3 ? '#B01030' : checkIn.morningData.mood <= 6 ? '#F57C00' : '#388E3C'})`
+                                                    : '#e0e0e0',
+                                                color: 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontWeight: 'bold',
+                                                margin: '0 auto'
+                                            }}>
+                                                {checkIn.morningData?.mood ?? '-'}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{
+                                                width: '40px',
+                                                height: '40px',
+                                                borderRadius: '50%',
+                                                background: checkIn.morningData?.craving != null
+                                                    ? `linear-gradient(135deg, ${checkIn.morningData.craving >= 7 ? '#f44336' : checkIn.morningData.craving >= 4 ? '#FF9800' : '#00A86B'}, ${checkIn.morningData.craving >= 7 ? '#B01030' : checkIn.morningData.craving >= 4 ? '#F57C00' : '#388E3C'})`
+                                                    : '#e0e0e0',
+                                                color: 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontWeight: 'bold',
+                                                margin: '0 auto'
+                                            }}>
+                                                {checkIn.morningData?.craving ?? '-'}
+                                            </div>
+                                        </td>
+                                       <td style={{ padding: '15px', textAlign: 'center' }}>
+    <div style={{
+        width: '40px',
+        height: '40px',
+        borderRadius: '50%',
+        background: checkIn.morningData?.anxietyLevel != null
+            ? `linear-gradient(135deg, ${checkIn.morningData.anxietyLevel >= 7 ? '#f44336' : checkIn.morningData.anxietyLevel >= 4 ? '#FF9800' : '#00A86B'}, ${checkIn.morningData.anxietyLevel >= 7 ? '#B01030' : checkIn.morningData.anxietyLevel >= 4 ? '#F57C00' : '#388E3C'})`
+            : '#e0e0e0',
+        color: 'white',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontWeight: 'bold',
+        margin: '0 auto'
+    }}>
+        {checkIn.morningData?.anxietyLevel ?? '-'}
+    </div>
+</td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+    <div style={{
+        width: '40px',
+        height: '40px',
+        borderRadius: '50%',
+        background: checkIn.morningData?.sleepQuality != null
+            ? `linear-gradient(135deg, ${checkIn.morningData.sleepQuality <= 3 ? '#f44336' : checkIn.morningData.sleepQuality <= 6 ? '#FF9800' : '#00A86B'}, ${checkIn.morningData.sleepQuality <= 3 ? '#B01030' : checkIn.morningData.sleepQuality <= 6 ? '#F57C00' : '#388E3C'})`
+            : '#e0e0e0',
+        color: 'white',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontWeight: 'bold',
+        margin: '0 auto'
+    }}>
+        {checkIn.morningData?.sleepQuality ?? '-'}
+    </div>
+</td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{
+                                                width: '40px',
+                                                height: '40px',
+                                                borderRadius: '50%',
+                                                background: checkIn.eveningData?.overallDay != null
+                                                    ? `linear-gradient(135deg, ${checkIn.eveningData.overallDay <= 3 ? '#f44336' : checkIn.eveningData.overallDay <= 6 ? '#FF9800' : '#00A86B'}, ${checkIn.eveningData.overallDay <= 3 ? '#B01030' : checkIn.eveningData.overallDay <= 6 ? '#F57C00' : '#388E3C'})`
+                                                    : '#e0e0e0',
+                                                color: 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontWeight: 'bold',
+                                                margin: '0 auto'
+                                            }}>
+                                                {checkIn.eveningData?.overallDay ?? '-'}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px' }}>
+                                            <span style={{
+                                                padding: '4px 12px',
+                                                borderRadius: '20px',
+                                                fontSize: '12px',
+                                                fontWeight: '600',
+                                                ...completionBadge
+                                            }}>
+                                                {completionBadge.text}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: '15px' }}>
+                                            <span style={{
+                                                padding: '4px 12px',
+                                                borderRadius: '20px',
+                                                fontSize: '12px',
+                                                fontWeight: '600',
+                                                textTransform: 'capitalize',
+                                                ...riskBadge
+                                            }}>
+                                                {checkIn.riskLevel}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <button 
+                                                onClick={() => setSelectedCheckIn(checkIn)}
+                                                style={{
+                                                    padding: '6px 16px',
+                                                    background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                                    color: 'white',
+                                                    border: 'none',
+                                                    borderRadius: '6px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '13px',
+                                                    fontWeight: '500'
+                                                }}
+                                            >
+                                                View Details
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                    
+                    {filteredCheckIns.length === 0 && (
+                        <div style={{
+                            padding: '60px 20px',
+                            textAlign: 'center',
+                            color: '#999'
+                        }}>
+                            <div style={{ fontSize: '48px', marginBottom: '15px' }}>📋</div>
+                            <div style={{ fontSize: '18px', fontWeight: '500', marginBottom: '8px' }}>
+                                No check-ins found
+                            </div>
+                            <div style={{ fontSize: '14px' }}>
+                                {searchQuery ? 'Try adjusting your search or filters' : 'Check-ins will appear here'}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+            
+            {totalPages > 1 && (
+                <Pagination 
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={setCurrentPage}
+                />
+            )}
+            
+            {selectedCheckIn && (
+                <EnhancedCheckInDetailModal 
+                    checkIn={selectedCheckIn}
+                    checkIns={checkIns.filter(c => c.userId === selectedCheckIn.userId)}
+                    coachNote={coachNotes[selectedCheckIn.id]}
+                    isReviewed={reviewedCheckIns.has(selectedCheckIn.id)}
+                    onClose={() => setSelectedCheckIn(null)}
+                    onNoteAdd={async (note) => {
+                        await db.collection('coachNotes').add({
+                            type: 'checkin',
+                            checkInId: selectedCheckIn.id,
+                            note: note,
+                            createdBy: auth.currentUser.uid,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        loadCoachData();
+                    }}
+                    onMarkReviewed={async () => {
+                        await db.collection('checkInReviews').add({
+                            checkInId: selectedCheckIn.id,
+                            reviewedBy: auth.currentUser.uid,
+                            reviewedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        setReviewedCheckIns(new Set([...reviewedCheckIns, selectedCheckIn.id]));
+                    }}
+                    onFlagForSession={async () => {
+                        await db.collection('sessionFlags').add({
+                            type: 'checkin',
+                            checkInId: selectedCheckIn.id,
+                            userId: selectedCheckIn.userId,
+                            flaggedBy: auth.currentUser.uid,
+                            flaggedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        alert('Flagged for next session');
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+        // ENHANCED CHECK-IN DETAIL MODAL - COMPLETE VIEW WITH ALL FIELDS (FIXED ZEROS)
+function EnhancedCheckInDetailModal({ 
+    checkIn, 
+    checkIns, 
+    coachNote, 
+    isReviewed, 
+    onClose, 
+    onNoteAdd, 
+    onMarkReviewed, 
+    onFlagForSession 
+}) {
+    const [newNote, setNewNote] = useState('');
+    const [showNoteInput, setShowNoteInput] = useState(false);
+    const [saving, setSaving] = useState(false);
+
+    const recentCheckIns = checkIns
+        .filter(c => c.id !== checkIn.id)
+        .sort((a, b) => {
+            const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+            const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+            return dateB - dateA;
+        })
+        .slice(0, 5);
+
+    const handleSaveNote = async () => {
+        if (!newNote.trim()) return;
+        
+        setSaving(true);
+        try {
+            await onNoteAdd(newNote);
+            setNewNote('');
+            setShowNoteInput(false);
+        } catch (error) {
+            console.error('Error saving note:', error);
+            alert('Failed to save note');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const getMoodColor = (mood) => {
+        if (mood == null) return '#e0e0e0';
+        if (mood <= 3) return '#f44336';
+        if (mood <= 6) return '#FF9800';
+        return '#00A86B';
+    };
+
+    const getCravingColor = (craving) => {
+        if (craving == null) return '#e0e0e0';
+        if (craving >= 7) return '#f44336';
+        if (craving >= 4) return '#FF9800';
+        return '#00A86B';
+    };
+
+    const getAnxietyColor = (anxiety) => {
+        if (anxiety == null) return '#e0e0e0';
+        if (anxiety >= 7) return '#f44336';
+        if (anxiety >= 4) return '#FF9800';
+        return '#00A86B';
+    };
+
+    const getSleepColor = (sleep) => {
+        if (sleep == null) return '#e0e0e0';
+        if (sleep <= 3) return '#f44336';
+        if (sleep <= 6) return '#FF9800';
+        return '#00A86B';
+    };
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px',
+            animation: 'fadeIn 0.2s'
+        }}>
+            <div style={{
+                background: 'white',
+                borderRadius: '20px',
+                maxWidth: '1400px',
+                width: '100%',
+                maxHeight: '90vh',
+                overflow: 'auto',
+                boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+                animation: 'slideUp 0.3s'
+            }}>
+                {/* Header */}
+                <div style={{
+                    background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                    padding: '25px 30px',
+                    borderRadius: '20px 20px 0 0',
+                    color: 'white',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 1
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                            <h3 style={{ margin: '0 0 5px 0', fontSize: '24px' }}>
+                                {checkIn.userName}'s Check-in
+                            </h3>
+                            <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                                {formatDateTime(checkIn.createdAt)}
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                            <div style={{
+                                padding: '6px 16px',
+                                background: 'rgba(255,255,255,0.2)',
+                                borderRadius: '20px',
+                                fontSize: '13px',
+                                fontWeight: '600'
+                            }}>
+                                Risk: {checkIn.riskLevel.toUpperCase()}
+                            </div>
+                            {isReviewed && (
+                                <div style={{
+                                    padding: '6px 16px',
+                                    background: 'rgba(76, 175, 80, 0.3)',
+                                    borderRadius: '20px',
+                                    fontSize: '13px',
+                                    fontWeight: '600'
+                                }}>
+                                    ✓ Reviewed
+                                </div>
+                            )}
+                            <button 
+                                onClick={onClose}
+                                style={{
+                                    background: 'rgba(255,255,255,0.2)',
+                                    border: 'none',
+                                    color: 'white',
+                                    fontSize: '24px',
+                                    width: '36px',
+                                    height: '36px',
+                                    borderRadius: '50%',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}
+                            >
+                                ×
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Main Content */}
+                <div style={{ padding: '30px' }}>
+                    {/* Split View - Morning & Evening */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '30px' }}>
+                        {/* Morning Check-in */}
+                        <div style={{
+                            background: '#f8f9fa',
+                            borderRadius: '15px',
+                            padding: '20px',
+                            border: '2px solid #e0e0e0'
+                        }}>
+                            <h4 style={{ margin: '0 0 20px 0', color: '#0077CC', fontSize: '18px', fontWeight: '600' }}>
+                                ☀️ Morning Check-in
+                            </h4>
+                            
+                            <div style={{ display: 'grid', gap: '15px' }}>
+                                <div>
+                                    <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Mood</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                        <div style={{
+                                            width: '60px',
+                                            height: '60px',
+                                            borderRadius: '50%',
+                                            background: checkIn.morningData?.mood != null
+                                                ? `linear-gradient(135deg, ${getMoodColor(checkIn.morningData.mood)}, ${getMoodColor(checkIn.morningData.mood)}dd)`
+                                                : '#e0e0e0',
+                                            color: 'white',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontSize: '24px',
+                                            fontWeight: 'bold'
+                                        }}>
+                                            {checkIn.morningData?.mood ?? '-'}
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ 
+                                                height: '8px', 
+                                                background: '#e0e0e0', 
+                                                borderRadius: '4px',
+                                                overflow: 'hidden'
+                                            }}>
+                                                <div style={{
+                                                    height: '100%',
+                                                    width: `${(checkIn.morningData?.mood ?? 0) * 10}%`,
+                                                    background: getMoodColor(checkIn.morningData?.mood),
+                                                    transition: 'width 0.3s'
+                                                }}></div>
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                                                {checkIn.morningData?.mood == null ? 'Not reported' : 
+                                                 checkIn.morningData.mood <= 3 ? 'Low' : 
+                                                 checkIn.morningData.mood <= 6 ? 'Moderate' : 'Good'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Cravings</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                        <div style={{
+                                            width: '60px',
+                                            height: '60px',
+                                            borderRadius: '50%',
+                                            background: checkIn.morningData?.craving != null
+                                                ? `linear-gradient(135deg, ${getCravingColor(checkIn.morningData.craving)}, ${getCravingColor(checkIn.morningData.craving)}dd)`
+                                                : '#e0e0e0',
+                                            color: 'white',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontSize: '24px',
+                                            fontWeight: 'bold'
+                                        }}>
+                                            {checkIn.morningData?.craving ?? '-'}
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ 
+                                                height: '8px', 
+                                                background: '#e0e0e0', 
+                                                borderRadius: '4px',
+                                                overflow: 'hidden'
+                                            }}>
+                                                <div style={{
+                                                    height: '100%',
+                                                    width: `${(checkIn.morningData?.craving ?? 0) * 10}%`,
+                                                    background: getCravingColor(checkIn.morningData?.craving),
+                                                    transition: 'width 0.3s'
+                                                }}></div>
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                                                {checkIn.morningData?.craving == null ? 'Not reported' :
+                                                 checkIn.morningData.craving >= 7 ? 'High' : 
+                                                 checkIn.morningData.craving >= 4 ? 'Moderate' : 'Low'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {checkIn.morningData?.notes && (
+                                    <div>
+                                        <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px', fontWeight: '600' }}>Notes</div>
+                                        <div style={{
+                                            padding: '12px',
+                                            background: 'white',
+                                            borderRadius: '8px',
+                                            color: '#333',
+                                            fontSize: '14px',
+                                            lineHeight: '1.6'
+                                        }}>
+                                            {checkIn.morningData.notes}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Evening Reflection */}
+                        <div style={{
+                            background: '#f8f9fa',
+                            borderRadius: '15px',
+                            padding: '20px',
+                            border: '2px solid #e0e0e0'
+                        }}>
+                            <h4 style={{ margin: '0 0 20px 0', color: '#008B8B', fontSize: '18px', fontWeight: '600' }}>
+                                🌙 Evening Reflection
+                            </h4>
+                            
+                            {checkIn.eveningData ? (
+                                <div style={{ display: 'grid', gap: '15px' }}>
+                                    <div>
+                                        <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Overall Day</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                            <div style={{
+                                                width: '60px',
+                                                height: '60px',
+                                                borderRadius: '50%',
+                                                background: checkIn.eveningData.overallDay != null
+                                                    ? `linear-gradient(135deg, ${getMoodColor(checkIn.eveningData.overallDay)}, ${getMoodColor(checkIn.eveningData.overallDay)}dd)`
+                                                    : '#e0e0e0',
+                                                color: 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: '24px',
+                                                fontWeight: 'bold'
+                                            }}>
+                                                {checkIn.eveningData.overallDay ?? '-'}
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ 
+                                                    height: '8px', 
+                                                    background: '#e0e0e0', 
+                                                    borderRadius: '4px',
+                                                    overflow: 'hidden'
+                                                }}>
+                                                    <div style={{
+                                                        height: '100%',
+                                                        width: `${(checkIn.eveningData.overallDay ?? 0) * 10}%`,
+                                                        background: getMoodColor(checkIn.eveningData.overallDay),
+                                                        transition: 'width 0.3s'
+                                                    }}></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                   <div>
+    <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Anxiety Level</div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+        <div style={{
+            width: '60px',
+            height: '60px',
+            borderRadius: '50%',
+            background: checkIn.morningData?.anxietyLevel != null
+                ? `linear-gradient(135deg, ${getAnxietyColor(checkIn.morningData.anxietyLevel)}, ${getAnxietyColor(checkIn.morningData.anxietyLevel)}dd)`
+                : '#e0e0e0',
+            color: 'white',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '24px',
+            fontWeight: 'bold'
+        }}>
+            {checkIn.morningData?.anxietyLevel ?? '-'}
+        </div>
+        <div style={{ flex: 1 }}>
+            <div style={{ 
+                height: '8px', 
+                background: '#e0e0e0', 
+                borderRadius: '4px',
+                overflow: 'hidden'
+            }}>
+                <div style={{
+                    height: '100%',
+                    width: `${(checkIn.morningData?.anxietyLevel ?? 0) * 10}%`,
+                    background: getAnxietyColor(checkIn.morningData?.anxietyLevel),
+                    transition: 'width 0.3s'
+                }}></div>
+            </div>
+            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                {checkIn.morningData?.anxietyLevel == null ? 'Not reported' :
+                 checkIn.morningData.anxietyLevel >= 7 ? 'High' : 
+                 checkIn.morningData.anxietyLevel >= 4 ? 'Moderate' : 'Low'}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div>
+    <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>Sleep Quality (Last Night)</div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+        <div style={{
+            width: '60px',
+            height: '60px',
+            borderRadius: '50%',
+            background: checkIn.morningData?.sleepQuality != null
+                ? `linear-gradient(135deg, ${getSleepColor(checkIn.morningData.sleepQuality)}, ${getSleepColor(checkIn.morningData.sleepQuality)}dd)`
+                : '#e0e0e0',
+            color: 'white',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '24px',
+            fontWeight: 'bold'
+        }}>
+            {checkIn.morningData?.sleepQuality ?? '-'}
+        </div>
+        <div style={{ flex: 1 }}>
+            <div style={{ 
+                height: '8px', 
+                background: '#e0e0e0', 
+                borderRadius: '4px',
+                overflow: 'hidden'
+            }}>
+                <div style={{
+                    height: '100%',
+                    width: `${(checkIn.morningData?.sleepQuality ?? 0) * 10}%`,
+                    background: getSleepColor(checkIn.morningData?.sleepQuality),
+                    transition: 'width 0.3s'
+                }}></div>
+            </div>
+            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                {checkIn.morningData?.sleepQuality == null ? 'Not reported' :
+                 checkIn.morningData.sleepQuality <= 3 ? 'Poor' : 
+                 checkIn.morningData.sleepQuality <= 6 ? 'Fair' : 'Good'}
+            </div>
+        </div>
+    </div>
+</div>
+
+                                    {checkIn.eveningData.gratitude && (
+                                        <div>
+                                            <div style={{ fontSize: '13px', color: '#00A86B', marginBottom: '8px', fontWeight: '600' }}>
+                                                💚 Gratitude
+                                            </div>
+                                            <div style={{
+                                                padding: '12px',
+                                                background: 'white',
+                                                borderRadius: '8px',
+                                                color: '#333',
+                                                fontSize: '14px',
+                                                lineHeight: '1.6'
+                                            }}>
+                                                {checkIn.eveningData.gratitude}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {checkIn.eveningData.challenges && (
+                                        <div>
+                                            <div style={{ fontSize: '13px', color: '#FFA500', marginBottom: '8px', fontWeight: '600' }}>
+                                                ⚠️ Challenges
+                                            </div>
+                                            <div style={{
+                                                padding: '12px',
+                                                background: 'white',
+                                                borderRadius: '8px',
+                                                color: '#333',
+                                                fontSize: '14px',
+                                                lineHeight: '1.6'
+                                            }}>
+                                                {checkIn.eveningData.challenges}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {checkIn.eveningData.tomorrowGoal && (
+                                        <div>
+                                            <div style={{ fontSize: '13px', color: '#9C27B0', marginBottom: '8px', fontWeight: '600' }}>
+                                                🎯 Tomorrow's Goal
+                                            </div>
+                                            <div style={{
+                                                padding: '12px',
+                                                background: 'white',
+                                                borderRadius: '8px',
+                                                color: '#333',
+                                                fontSize: '14px',
+                                                lineHeight: '1.6'
+                                            }}>
+                                                {checkIn.eveningData.tomorrowGoal}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div style={{
+                                    padding: '40px',
+                                    textAlign: 'center',
+                                    color: '#999'
+                                }}>
+                                    <div style={{ fontSize: '48px', marginBottom: '10px' }}>🌙</div>
+                                    <div>No evening reflection submitted</div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Historical Context */}
+                    {recentCheckIns.length > 0 && (
+                        <div style={{
+                            background: '#f8f9fa',
+                            borderRadius: '15px',
+                            padding: '20px',
+                            marginBottom: '20px'
+                        }}>
+                            <h4 style={{ margin: '0 0 15px 0', color: '#333', fontSize: '16px', fontWeight: '600' }}>
+                                📊 Recent History (Last 5 Check-ins)
+                            </h4>
+                            <div style={{ display: 'grid', gap: '10px' }}>
+                                {recentCheckIns.map(prevCheckIn => (
+                                    <div key={prevCheckIn.id} style={{
+                                        padding: '12px',
+                                        background: 'white',
+                                        borderRadius: '8px',
+                                        display: 'grid',
+                                        gridTemplateColumns: '100px repeat(5, 1fr)',
+                                        gap: '12px',
+                                        alignItems: 'center',
+                                        fontSize: '13px'
+                                    }}>
+                                        <div style={{ color: '#666', fontSize: '12px' }}>
+                                            {formatDate(prevCheckIn.createdAt)}
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ color: '#666', fontSize: '11px' }}>Mood:</span>
+                                            <div style={{
+                                                width: '28px',
+                                                height: '28px',
+                                                borderRadius: '50%',
+                                                background: getMoodColor(prevCheckIn.morningData?.mood),
+                                                color: 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontWeight: 'bold',
+                                                fontSize: '12px'
+                                            }}>
+                                                {prevCheckIn.morningData?.mood ?? '-'}
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ color: '#666', fontSize: '11px' }}>Craving:</span>
+                                            <div style={{
+                                                width: '28px',
+                                                height: '28px',
+                                                borderRadius: '50%',
+                                                background: getCravingColor(prevCheckIn.morningData?.craving),
+                                                color: 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontWeight: 'bold',
+                                                fontSize: '12px'
+                                            }}>
+                                                {prevCheckIn.morningData?.craving ?? '-'}
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+    <span style={{ color: '#666', fontSize: '11px' }}>Anxiety:</span>
+    <div style={{
+        width: '28px',
+        height: '28px',
+        borderRadius: '50%',
+        background: getAnxietyColor(prevCheckIn.morningData?.anxietyLevel),
+        color: 'white',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontWeight: 'bold',
+        fontSize: '12px'
+    }}>
+        {prevCheckIn.morningData?.anxietyLevel ?? '-'}
+    </div>
+</div>
+<div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+    <span style={{ color: '#666', fontSize: '11px' }}>Sleep:</span>
+    <div style={{
+        width: '28px',
+        height: '28px',
+        borderRadius: '50%',
+        background: getSleepColor(prevCheckIn.morningData?.sleepQuality),
+        color: 'white',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontWeight: 'bold',
+        fontSize: '12px'
+    }}>
+        {prevCheckIn.morningData?.sleepQuality ?? '-'}
+    </div>
+</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ color: '#666', fontSize: '11px' }}>Overall:</span>
+                                            <div style={{
+                                                width: '28px',
+                                                height: '28px',
+                                                borderRadius: '50%',
+                                                background: prevCheckIn.eveningData?.overallDay != null
+                                                    ? getMoodColor(prevCheckIn.eveningData.overallDay)
+                                                    : '#e0e0e0',
+                                                color: 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontWeight: 'bold',
+                                                fontSize: '12px'
+                                            }}>
+                                                {prevCheckIn.eveningData?.overallDay ?? '-'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                 {/* Coach Notes Section */}
+                    <div style={{
+                        background: '#fff3cd',
+                        borderRadius: '15px',
+                        padding: '20px',
+                        marginBottom: '20px'
+                    }}>
+                        <h4 style={{ margin: '0 0 15px 0', color: '#856404', fontSize: '16px', fontWeight: '600' }}>
+                            📝 Coach Notes (Private)
+                        </h4>
+                        
+                        {coachNote ? (
+                            <div style={{
+                                padding: '12px',
+                                background: 'white',
+                                borderRadius: '8px',
+                                color: '#333',
+                                fontSize: '14px',
+                                lineHeight: '1.6',
+                                marginBottom: '10px'
+                            }}>
+                                {coachNote.note}
+                                <div style={{ fontSize: '12px', color: '#666', marginTop: '8px' }}>
+                                    Added {formatTimeAgo(coachNote.createdAt)}
+                                </div>
+                            </div>
+                        ) : (
+                            <div style={{ color: '#856404', fontSize: '14px', marginBottom: '10px' }}>
+                                No coach notes yet
+                            </div>
+                        )}
+
+                        {showNoteInput ? (
+                            <div>
+                                <textarea
+                                    value={newNote}
+                                    onChange={(e) => setNewNote(e.target.value)}
+                                    placeholder="Add your private observations..."
+                                    style={{
+                                        width: '100%',
+                                        minHeight: '80px',
+                                        padding: '12px',
+                                        border: '2px solid #e0e0e0',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        fontFamily: 'inherit',
+                                        resize: 'vertical',
+                                        marginBottom: '10px'
+                                    }}
+                                />
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <button
+                                        onClick={handleSaveNote}
+                                        disabled={saving}
+                                        style={{
+                                            padding: '8px 16px',
+                                            background: '#00A86B',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: saving ? 'not-allowed' : 'pointer',
+                                            fontSize: '14px',
+                                            fontWeight: '500',
+                                            opacity: saving ? 0.6 : 1
+                                        }}
+                                    >
+                                        {saving ? 'Saving...' : 'Save Note'}
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setShowNoteInput(false);
+                                            setNewNote('');
+                                        }}
+                                        style={{
+                                            padding: '8px 16px',
+                                            background: '#6c757d',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '14px',
+                                            fontWeight: '500'
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => setShowNoteInput(true)}
+                                style={{
+                                    padding: '8px 16px',
+                                    background: '#0077CC',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                {coachNote ? '+ Add Another Note' : '+ Add Coach Note'}
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        {!isReviewed && (
+                            <button
+                                onClick={onMarkReviewed}
+                                style={{
+                                    padding: '12px 24px',
+                                    background: 'linear-gradient(135deg, #00A86B 0%, #008554 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '600',
+                                    transition: 'transform 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                            >
+                                ✓ Mark as Reviewed
+                            </button>
+                        )}
+                        
+                        <button
+                            onClick={onFlagForSession}
+                            style={{
+                                padding: '12px 24px',
+                                background: 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                transition: 'transform 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            🚩 Flag for Session
+                        </button>
+
+                        <button
+                            onClick={onClose}
+                            style={{
+                                padding: '12px 24px',
+                                background: '#6c757d',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                transition: 'transform 0.2s',
+                                marginLeft: 'auto'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+        // ANALYTICS VIEW - COMPREHENSIVE STATS FOR ALL PIRS
+function AnalyticsView({ analyticsData, checkIns, users, onClose, onSelectPIR }) {
+    const [selectedTab, setSelectedTab] = useState('aggregate');
+    const [sortBy, setSortBy] = useState('name');
+
+    if (!analyticsData) return null;
+
+    const { pirStats, allPIRsData } = analyticsData;
+
+    const sortedPIRs = Object.values(pirStats).sort((a, b) => {
+        if (sortBy === 'name') return a.userName.localeCompare(b.userName);
+        if (sortBy === 'avgMood') return parseFloat(b.avgMood) - parseFloat(a.avgMood);
+        if (sortBy === 'avgCraving') return parseFloat(a.avgCraving) - parseFloat(b.avgCraving);
+        if (sortBy === 'completion') return b.completionRate - a.completionRate;
+        return 0;
+    });
+
+    const exportAggregateAnalytics = () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('landscape');
+        
+        let yPos = 20;
+        
+        // Title
+        doc.setFontSize(20);
+        doc.text('Check-ins Analytics Report - All PIRs', 14, yPos);
+        yPos += 15;
+        
+        doc.setFontSize(10);
+        doc.text(`Generated: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, 14, yPos);
+        yPos += 15;
+
+        // Aggregate Stats
+        doc.setFontSize(16);
+        doc.text('Overall Program Statistics', 14, yPos);
+        yPos += 10;
+
+        const aggregateStats = [
+            ['Metric', 'Lifetime Average', 'Last 30 Days'],
+            ['Average Mood', allPIRsData.avgMood, allPIRsData.last30Days.avgMood],
+            ['Average Cravings', allPIRsData.avgCraving, allPIRsData.last30Days.avgCraving],
+            ['Average Anxiety', allPIRsData.avgAnxiety, allPIRsData.last30Days.avgAnxiety],
+            ['Average Sleep Quality', allPIRsData.avgSleep, allPIRsData.last30Days.avgSleep],
+            ['Completion Rate', `${allPIRsData.completionRate}%`, `${allPIRsData.last30Days.completionRate}%`],
+            ['Total Check-ins', allPIRsData.totalCheckIns, '-']
+        ];
+
+        doc.autoTable({
+            startY: yPos,
+            head: [aggregateStats[0]],
+            body: aggregateStats.slice(1),
+            theme: 'grid',
+            headStyles: { fillColor: [102, 126, 234] },
+            styles: { fontSize: 10 }
+        });
+
+        // Individual PIR Stats
+        doc.addPage();
+        yPos = 20;
+        
+        doc.setFontSize(16);
+        doc.text('Individual PIR Statistics - Lifetime', 14, yPos);
+        yPos += 10;
+
+        const pirLifetimeData = sortedPIRs.map(pir => [
+            pir.userName,
+            pir.totalCheckIns,
+            pir.avgMood,
+            pir.avgCraving,
+            pir.avgAnxiety,
+            pir.avgSleep,
+            `${pir.completionRate}%`
+        ]);
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Check-ins', 'Avg Mood', 'Avg Craving', 'Avg Anxiety', 'Avg Sleep', 'Completion']],
+            body: pirLifetimeData,
+            theme: 'grid',
+            headStyles: { fillColor: [102, 126, 234] },
+            styles: { fontSize: 9 },
+            columnStyles: {
+                0: { cellWidth: 60 },
+                1: { cellWidth: 30 },
+                2: { cellWidth: 30 },
+                3: { cellWidth: 35 },
+                4: { cellWidth: 30 },
+                5: { cellWidth: 30 },
+                6: { cellWidth: 35 }
+            }
+        });
+
+        // 30-Day Stats
+        doc.addPage();
+        yPos = 20;
+        
+        doc.setFontSize(16);
+        doc.text('Individual PIR Statistics - Last 30 Days', 14, yPos);
+        yPos += 10;
+
+        const pir30DayData = sortedPIRs.map(pir => [
+            pir.userName,
+            pir.last30.totalCheckIns,
+            pir.last30.avgMood,
+            pir.last30.avgCraving,
+            pir.last30.avgAnxiety,
+            pir.last30.avgSleep,
+            `${pir.last30.completionRate}%`
+        ]);
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['PIR', 'Check-ins', 'Avg Mood', 'Avg Craving', 'Avg Anxiety', 'Avg Sleep', 'Completion']],
+            body: pir30DayData,
+            theme: 'grid',
+            headStyles: { fillColor: [118, 75, 162] },
+            styles: { fontSize: 9 },
+            columnStyles: {
+                0: { cellWidth: 60 },
+                1: { cellWidth: 30 },
+                2: { cellWidth: 30 },
+                3: { cellWidth: 35 },
+                4: { cellWidth: 30 },
+                5: { cellWidth: 30 },
+                6: { cellWidth: 35 }
+            }
+        });
+
+        doc.save(`Analytics_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+    };
+
+    return (
+        <div style={{ padding: '20px', animation: 'fadeIn 0.5s' }}>
+            {/* Header */}
+            <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                marginBottom: '30px'
+            }}>
+                <div>
+                    <h2 style={{ margin: '0 0 10px 0', fontSize: '28px', color: '#333' }}>
+                        Analytics & Reports
+                    </h2>
+                    <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
+                        Comprehensive check-in statistics and trends
+                    </p>
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        onClick={exportAggregateAnalytics}
+                        style={{
+                            padding: '12px 24px',
+                            background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '600'
+                        }}
+                    >
+                        Export Analytics PDF
+                    </button>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            padding: '12px 24px',
+                            background: '#6c757d',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '600'
+                        }}
+                    >
+                        Back to Check-ins
+                    </button>
+                </div>
+            </div>
+
+            {/* Tabs */}
+            <div style={{
+                display: 'flex',
+                gap: '10px',
+                marginBottom: '30px',
+                borderBottom: '2px solid #f0f0f0'
+            }}>
+                {[
+                    { id: 'aggregate', label: 'All PIRs Aggregate' },
+                    { id: 'individual', label: 'Individual PIR Stats' }
+                ].map(tab => (
+                    <button
+                        key={tab.id}
+                        onClick={() => setSelectedTab(tab.id)}
+                        style={{
+                            padding: '12px 24px',
+                            background: selectedTab === tab.id ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : 'transparent',
+                            color: selectedTab === tab.id ? 'white' : '#666',
+                            border: 'none',
+                            borderBottom: selectedTab === tab.id ? 'none' : '2px solid transparent',
+                            cursor: 'pointer',
+                            fontSize: '15px',
+                            fontWeight: '600',
+                            borderRadius: selectedTab === tab.id ? '10px 10px 0 0' : '0',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        {tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* Aggregate View */}
+            {selectedTab === 'aggregate' && (
+                <div>
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '30px',
+                        marginBottom: '30px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                    }}>
+                        <h3 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#333' }}>
+                            Overall Program Statistics
+                        </h3>
+                        
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
+                            <div style={{
+                                background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                padding: '20px',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}>
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Total Check-ins</div>
+                                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.totalCheckIns}</div>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, #00A86B 0%, #008554 100%)',
+                                padding: '20px',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}>
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Completion Rate</div>
+                                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.completionRate}%</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                    30-day: {allPIRsData.last30Days.completionRate}%
+                                </div>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)',
+                                padding: '20px',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}>
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Average Mood</div>
+                                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.avgMood}/10</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                    30-day: {allPIRsData.last30Days.avgMood}/10
+                                </div>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, #f44336 0%, #B01030 100%)',
+                                padding: '20px',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}>
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Average Cravings</div>
+                                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.avgCraving}/10</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                    30-day: {allPIRsData.last30Days.avgCraving}/10
+                                </div>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%)',
+                                padding: '20px',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}>
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Average Anxiety</div>
+                                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.avgAnxiety}/10</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                    30-day: {allPIRsData.last30Days.avgAnxiety}/10
+                                </div>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                                padding: '20px',
+                                borderRadius: '12px',
+                                color: 'white'
+                            }}>
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>Average Sleep Quality</div>
+                                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{allPIRsData.avgSleep}/10</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                                    30-day: {allPIRsData.last30Days.avgSleep}/10
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Trend Comparison */}
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '30px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                    }}>
+                        <h3 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#333' }}>
+                            30-Day Trend vs Lifetime Average
+                        </h3>
+                        
+                        <div style={{ display: 'grid', gap: '20px' }}>
+                            {[
+                                { label: 'Mood', lifetime: allPIRsData.avgMood, recent: allPIRsData.last30Days.avgMood, color: '#0077CC' },
+                                { label: 'Cravings', lifetime: allPIRsData.avgCraving, recent: allPIRsData.last30Days.avgCraving, color: '#DC143C', inverse: true },
+                                { label: 'Anxiety', lifetime: allPIRsData.avgAnxiety, recent: allPIRsData.last30Days.avgAnxiety, color: '#FFA500', inverse: true },
+                                { label: 'Sleep Quality', lifetime: allPIRsData.avgSleep, recent: allPIRsData.last30Days.avgSleep, color: '#4682B4' },
+                                { label: 'Completion Rate', lifetime: `${allPIRsData.completionRate}`, recent: `${allPIRsData.last30Days.completionRate}`, color: '#00A86B', isPercent: true }
+                            ].map(metric => {
+                                const lifetimeVal = parseFloat(metric.lifetime);
+                                const recentVal = parseFloat(metric.recent);
+                                const diff = recentVal - lifetimeVal;
+                                const isImproving = metric.inverse ? diff < 0 : diff > 0;
+                                
+                                return (
+                                    <div key={metric.label} style={{
+                                        padding: '20px',
+                                        background: '#f8f9fa',
+                                        borderRadius: '10px'
+                                    }}>
+                                        <div style={{ 
+                                            display: 'flex', 
+                                            justifyContent: 'space-between', 
+                                            alignItems: 'center',
+                                            marginBottom: '15px'
+                                        }}>
+                                            <div style={{ fontSize: '16px', fontWeight: '600', color: '#333' }}>
+                                                {metric.label}
+                                            </div>
+                                            <div style={{
+                                                padding: '4px 12px',
+                                                background: isImproving ? '#d4edda' : '#f8d7da',
+                                                color: isImproving ? '#155724' : '#721c24',
+                                                borderRadius: '20px',
+                                                fontSize: '13px',
+                                                fontWeight: '600'
+                                            }}>
+                                                {diff > 0 ? '+' : ''}{diff.toFixed(1)}{metric.isPercent ? '%' : ''} {isImproving ? '↑' : '↓'}
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>
+                                                    Lifetime: {metric.lifetime}{metric.isPercent ? '%' : '/10'}
+                                                </div>
+                                                <div style={{
+                                                    height: '10px',
+                                                    background: '#e0e0e0',
+                                                    borderRadius: '5px',
+                                                    overflow: 'hidden'
+                                                }}>
+                                                    <div style={{
+                                                        height: '100%',
+                                                        width: `${metric.isPercent ? lifetimeVal : lifetimeVal * 10}%`,
+                                                        background: metric.color,
+                                                        opacity: 0.6
+                                                    }}></div>
+                                                </div>
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>
+                                                    Last 30 Days: {metric.recent}{metric.isPercent ? '%' : '/10'}
+                                                </div>
+                                                <div style={{
+                                                    height: '10px',
+                                                    background: '#e0e0e0',
+                                                    borderRadius: '5px',
+                                                    overflow: 'hidden'
+                                                }}>
+                                                    <div style={{
+                                                        height: '100%',
+                                                        width: `${metric.isPercent ? recentVal : recentVal * 10}%`,
+                                                        background: metric.color
+                                                    }}></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Individual PIR Stats View */}
+            {selectedTab === 'individual' && (
+                <div style={{
+                    background: 'white',
+                    borderRadius: '15px',
+                    padding: '30px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                }}>
+                    <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center',
+                        marginBottom: '20px'
+                    }}>
+                        <h3 style={{ margin: 0, fontSize: '20px', color: '#333' }}>
+                            Individual PIR Statistics
+                        </h3>
+                        <div>
+                            <label style={{ marginRight: '10px', color: '#666', fontSize: '14px' }}>Sort by:</label>
+                            <select
+                                value={sortBy}
+                                onChange={(e) => setSortBy(e.target.value)}
+                                style={{
+                                    padding: '8px 12px',
+                                    border: '2px solid #e0e0e0',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    background: 'white'
+                                }}
+                            >
+                                <option value="name">PIR Name</option>
+                                <option value="avgMood">Avg Mood</option>
+                                <option value="avgCraving">Avg Cravings</option>
+                                <option value="completion">Completion Rate</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead style={{ background: '#f8f9fa' }}>
+                                <tr>
+                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333', fontSize: '14px' }}>PIR</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Check-ins<br/>(Total / 30d)</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Avg Mood<br/>(Life / 30d)</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Avg Craving<br/>(Life / 30d)</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Avg Anxiety<br/>(Life / 30d)</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Avg Sleep<br/>(Life / 30d)</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Completion<br/>(Life / 30d)</th>
+                                    <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600', color: '#333', fontSize: '14px' }}>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sortedPIRs.map(pir => (
+                                    <tr key={pir.userId} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                                        <td style={{ padding: '15px', fontWeight: '500', color: '#333' }}>
+                                            {pir.userName}
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center', color: '#666' }}>
+                                            {pir.totalCheckIns} / {pir.last30.totalCheckIns}
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{ fontSize: '15px', fontWeight: '600', color: '#0077CC' }}>
+                                                {pir.avgMood}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                {pir.last30.avgMood}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{ fontSize: '15px', fontWeight: '600', color: '#DC143C' }}>
+                                                {pir.avgCraving}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                {pir.last30.avgCraving}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{ fontSize: '15px', fontWeight: '600', color: '#FFA500' }}>
+                                                {pir.avgAnxiety}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                {pir.last30.avgAnxiety}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{ fontSize: '15px', fontWeight: '600', color: '#4682B4' }}>
+                                                {pir.avgSleep}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                {pir.last30.avgSleep}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <div style={{ fontSize: '15px', fontWeight: '600', color: '#00A86B' }}>
+                                                {pir.completionRate}%
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                                                {pir.last30.completionRate}%
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <button
+                                                onClick={() => onSelectPIR(pir.userId)}
+                                                style={{
+                                                    padding: '6px 16px',
+                                                    background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                                    color: 'white',
+                                                    border: 'none',
+                                                    borderRadius: '6px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '13px',
+                                                    fontWeight: '500'
+                                                }}
+                                            >
+                                                View Report
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+        // INDIVIDUAL PIR REPORT - DETAILED ANALYSIS
+function IndividualPIRReport({ pirId, checkIns, analyticsData, onClose }) {
+
+        // ==========================================
+        // ROOT APP COMPONENT
+        // ==========================================
+
+        function CheckInsApp() {
+            const [searchQuery, setSearchQuery] = useState('');
+            const [user, setUser] = useState(null);
+
+            useEffect(() => {
+                const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
+                    if (firebaseUser) {
+                        const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+                        setUser({ uid: firebaseUser.uid, ...userDoc.data() });
+                    } else {
+                        window.location.href = '/';
+                    }
+                });
+
+                return unsubscribe;
+            }, []);
+
+            if (!user) {
+                return (
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
+                        <div className="loading-spinner"></div>
+                    </div>
+                );
+            }
+
+            return (
+                <div style={{ display: 'flex', minHeight: '100vh' }}>
+                    <Sidebar activePage="checkins" />
+                    <div style={{ flex: 1, marginLeft: '280px' }}>
+                        <Topbar user={user} searchQuery={searchQuery} onSearchChange={setSearchQuery} />
+                        <div style={{ padding: '20px' }}>
+                            <CheckInsView searchQuery={searchQuery} />
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<CheckInsApp />, document.getElementById('root'));
+
+    })(); // End initPage
+    </script>
+</body>
+</html>
