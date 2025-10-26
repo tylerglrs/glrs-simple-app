@@ -31,7 +31,19 @@ if (!firebase.apps.length) {
 // Create instances and make them globally available
 const auth = firebase.auth();
 const db = firebase.firestore();
-const storage = firebase.storage();
+
+// Storage is optional - only create if SDK is loaded
+let storage = null;
+try {
+    if (firebase.storage) {
+        storage = firebase.storage();
+        console.log('✅ Firebase Storage initialized');
+    } else {
+        console.log('ℹ️ Firebase Storage SDK not loaded (optional)');
+    }
+} catch (error) {
+    console.log('ℹ️ Firebase Storage not available:', error.message);
+}
 
 // Also attach to window for compatibility
 window.auth = auth;

@@ -249,14 +249,42 @@
     
     <script src="/admin/shared/firebase.js"></script>
     <script>
-        // Wait for Firebase to initialize
+        // Wait for Firebase to initialize with timeout
         (function initLogin() {
+            // Initialize retry counter
+            if (typeof initLogin.retries === 'undefined') {
+                initLogin.retries = 0;
+                console.log('🔄 Starting Firebase initialization check...');
+            }
+
+            initLogin.retries++;
+
+            // Check initialization status
+            console.log(`Attempt ${initLogin.retries}: FIREBASE_READY=${!!window.FIREBASE_READY}, auth=${!!window.auth}, db=${!!window.db}`);
+
+            // Timeout after 100 attempts (5 seconds)
+            if (initLogin.retries > 100) {
+                console.error('❌ Firebase initialization timeout after 5 seconds');
+                console.error('Debug info:', {
+                    FIREBASE_READY: window.FIREBASE_READY,
+                    auth: window.auth,
+                    db: window.db,
+                    firebase: typeof firebase !== 'undefined'
+                });
+                document.getElementById('errorMessage').textContent =
+                    'Firebase initialization failed. Please refresh the page or contact support.';
+                document.getElementById('errorMessage').classList.add('show');
+                return;
+            }
+
+            // Check if Firebase is ready
             if (!window.FIREBASE_READY || !window.auth || !window.db) {
-                console.log('Waiting for Firebase to initialize...');
                 setTimeout(initLogin, 50);
                 return;
             }
-            
+
+            console.log('✅ Firebase initialized successfully after', initLogin.retries, 'attempts');
+
             const { auth, db, CURRENT_TENANT } = window;
             const loginForm = document.getElementById('loginForm');
             const loginBtn = document.getElementById('loginBtn');
@@ -303,17 +331,23 @@
             
             loginForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                
+
                 const email = document.getElementById('email').value;
                 const password = document.getElementById('password').value;
-                
+
+                console.log('🔐 Attempting login for:', email);
+                console.log('🏢 Current tenant:', CURRENT_TENANT);
+                console.log('🌐 Current domain:', window.location.hostname);
+
                 setLoading(true);
                 errorMessage.classList.remove('show');
-                
+
                 try {
                     // Sign in with Firebase Auth
+                    console.log('📡 Calling Firebase signInWithEmailAndPassword...');
                     const userCredential = await auth.signInWithEmailAndPassword(email, password);
                     const user = userCredential.user;
+                    console.log('✅ Firebase authentication successful, UID:', user.uid);
                     
                     // Check user role in Firestore
                     const userDoc = await db.collection('users').doc(user.uid).get();
@@ -338,12 +372,14 @@
                     window.location.href = '/admin/dashboard';
                     
                 } catch (error) {
-                    console.error('Login error:', error);
+                    console.error('❌ Login error:', error);
+                    console.error('Error code:', error.code);
+                    console.error('Error message:', error.message);
                     setLoading(false);
-                    
+
                     // User-friendly error messages
                     let errorMsg = 'An error occurred during login';
-                    
+
                     if (error.code === 'auth/user-not-found') {
                         errorMsg = 'No account found with this email address';
                     } else if (error.code === 'auth/wrong-password') {
@@ -354,10 +390,18 @@
                         errorMsg = 'This account has been disabled';
                     } else if (error.code === 'auth/too-many-requests') {
                         errorMsg = 'Too many failed login attempts. Please try again later.';
+                    } else if (error.code === 'auth/unauthorized-domain' ||
+                               error.message?.includes('not authorized') ||
+                               error.message?.includes('domain')) {
+                        errorMsg = `OAuth Error: The domain "${window.location.hostname}" is not authorized in Firebase Console. Please add it to Authentication → Settings → Authorized domains.`;
+                        console.error('🚨 FIREBASE CONSOLE ACTION REQUIRED:');
+                        console.error('   1. Go to https://console.firebase.google.com/project/glrs-pir-system/authentication/settings');
+                        console.error('   2. Scroll to "Authorized domains"');
+                        console.error(`   3. Add: ${window.location.hostname}`);
                     } else if (error.message) {
                         errorMsg = error.message;
                     }
-                    
+
                     showError(errorMsg);
                 }
             });
