@@ -94,7 +94,7 @@ function Sidebar({ user, collapsed = false, onCollapsedChange = null }) {
                     }));
                     setTenants(tenantsData);
                 } catch (error) {
-                    console.error('Error loading tenants:', error);
+                    console.error('Error loading portals:', error);
                 }
             };
             loadTenants();
@@ -376,11 +376,11 @@ function Sidebar({ user, collapsed = false, onCollapsedChange = null }) {
                                             setManagingTenant({ id: currentTenant, ...tenantDoc.data() });
                                             setShowManageTenantModal(true);
                                         } else {
-                                            alert('Tenant data not found');
+                                            alert('Portal data not found');
                                         }
                                     } catch (error) {
-                                        console.error('Error loading tenant:', error);
-                                        alert('Error loading tenant data');
+                                        console.error('Error loading portal:', error);
+                                        alert('Error loading portal data');
                                     }
                                 }}
                                 style={{
@@ -616,7 +616,7 @@ function Sidebar({ user, collapsed = false, onCollapsedChange = null }) {
                                     });
                                 }
 
-                                alert(`✅ Tenant "${newTenantData.companyName}" created successfully!\n\nAdmin: ${newTenantData.adminFirstName} ${newTenantData.adminLastName}\nEmail: ${newTenantData.adminEmail}`);
+                                alert(`✅ Portal "${newTenantData.companyName}" created successfully!\n\nAdmin: ${newTenantData.adminFirstName} ${newTenantData.adminLastName}\nEmail: ${newTenantData.adminEmail}`);
                                 setShowNewTenantModal(false);
                                 setNewTenantData({
                                     tenantId: '', companyName: '', contactEmail: '', contactPhone: '',
@@ -633,8 +633,8 @@ function Sidebar({ user, collapsed = false, onCollapsedChange = null }) {
                                 }));
                                 setTenants(tenantsData);
                             } catch (error) {
-                                console.error('Error creating tenant:', error);
-                                alert('❌ Error creating tenant: ' + error.message);
+                                console.error('Error creating portal:', error);
+                                alert('❌ Error creating portal: ' + error.message);
                                 // Clean up secondary app if it exists
                                 if (secondaryApp) {
                                     try {
@@ -1139,7 +1139,7 @@ function Sidebar({ user, collapsed = false, onCollapsedChange = null }) {
                                     });
                                 }
 
-                                alert('✅ Tenant updated successfully!');
+                                alert('✅ Portal updated successfully!');
                                 setShowManageTenantModal(false);
                                 setManagingTenant(null);
 
@@ -1151,12 +1151,12 @@ function Sidebar({ user, collapsed = false, onCollapsedChange = null }) {
                                 }));
                                 setTenants(tenantsData);
                             } catch (error) {
-                                console.error('Error updating tenant:', error);
-                                alert('❌ Error updating tenant: ' + error.message);
+                                console.error('Error updating portal:', error);
+                                alert('❌ Error updating portal: ' + error.message);
                             }
                         }}>
                             <h3 style={{ fontSize: '15px', fontWeight: '600', marginTop: '0', marginBottom: '15px', color: '#333' }}>
-                                📋 Tenant Information
+                                📋 Portal Information
                             </h3>
 
                             <div style={{ marginBottom: '15px' }}>
