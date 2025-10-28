@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alumni Management - GLRS Admin</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👥</text></svg>">
+    <link rel="stylesheet" href="/admin/shared/styles.css">
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    <script src="/admin/shared/firebase.js"></script>
+    <script src="/admin/shared/auth.js"></script>
+    <script type="text/babel" src="/admin/shared/navigation.js?v=7"></script>
+    <script type="text/babel" src="/admin/shared/header.js?v=1"></script>
+    <script type="text/babel">
+(function initPage() {
+    if (!window.FIREBASE_READY) {
+        setTimeout(initPage, 50);
+        return;
+    }
+    const { useState, useEffect } = React;
+    const { db } = window;
+    
+    function AlumniManagement() {
+        const [data, setData] = useState([]);
+        const [loading, setLoading] = useState(true);
+        
+        useEffect(() => {
+            loadData();
+        }, []);
+        
+        const loadData = async () => {
+            try {
+                const snapshot = await db.collection('users')
+                    .where('tenantId', '==', 'alumni')
+                    .limit(50)
+                    .get();
+                const items = [];
+                snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
+                setData(items);
+                setLoading(false);
+            } catch (error) {
+                console.error('Error loading data:', error);
+                setLoading(false);
+            }
+        };
+        
+        if (loading) return <div style={{padding: '40px', textAlign: 'center'}}><div className="loading-spinner"></div></div>;
+        
+        return (
+            <div className="admin-container">
+                <Navigation currentPage="alumni-management" />
+                <div className="main-content">
+                    <Header title="Alumni Management" subtitle="Manage alumni accounts and access extensions" />
+                    <div style={{padding: '30px'}}>
+                        <div className="card">
+                            <h3>Alumni List</h3>
+                            <p>Found {data.length} items</p>
+                            <table className="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {data.map(item => (
+                                        <tr key={item.id}>
+                                            <td>{item.firstName} {item.lastName}</td>
+                                            <td>{item.email}</td>
+                                            <td><span className="badge">{item.status || 'Active'}</span></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+    
+    ReactDOM.render(<AlumniManagement />, document.getElementById('root'));
+})();
+    </script>
+</body>
+</html>
