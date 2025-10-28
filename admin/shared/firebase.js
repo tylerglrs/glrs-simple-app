@@ -51,36 +51,31 @@ window.db = db;
 window.storage = storage;
 
 // ==========================================
-// MULTI-TENANT ARCHITECTURE
+// PORTAL TYPE DETECTION (SINGLE-BUSINESS)
 // ==========================================
 
-// Tenant Detection Function
-// Detects tenant from subdomain (e.g., tenant.glrecoveryservices.com)
-// Falls back to 'glrs' for localhost and default domain
+// Portal Type Detection Function
+// Determines portal type from current file path
+// Returns: 'full-service' | 'consumer' | 'alumni'
+// Note: Field name 'tenantId' kept for backward compatibility, but now stores portal types
 const getTenantId = () => {
     const hostname = window.location.hostname;
+    const path = window.location.pathname;
 
-    // For localhost or IP addresses
-    if (hostname === 'localhost' || hostname.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-        return 'glrs';
+    // Determine portal type from file path
+    if (path.includes('consumer.html') || path.includes('/consumer')) {
+        return 'consumer';
+    } else if (path.includes('alumni.html') || path.includes('/alumni')) {
+        return 'alumni';
     }
 
-    // Extract subdomain
-    const parts = hostname.split('.');
-
-    // For subdomain.glrecoveryservices.com
-    if (parts.length >= 3) {
-        const subdomain = parts[0];
-        // Exclude common prefixes
-        if (subdomain !== 'www' && subdomain !== 'app') {
-            return subdomain;
-        }
-    }
-
-    // Default tenant
-    return 'glrs';
+    // Default to full-service portal
+    // (index.html, admin pages, or any other files)
+    return 'full-service';
 };
 
+// Keep CURRENT_TENANT variable name for backward compatibility
+// Now contains portal type instead of tenant organization name
 const CURRENT_TENANT = getTenantId();
 
 // Attach to window for compatibility
@@ -258,4 +253,4 @@ window.validateTenantData = async (tenantId) => {
 window.FIREBASE_READY = true;
 
 console.log('✅ Firebase configuration loaded');
-console.log(`🏢 Current tenant: ${window.CURRENT_TENANT}`);
+console.log(`🏢 Current portal: ${window.CURRENT_TENANT}`);

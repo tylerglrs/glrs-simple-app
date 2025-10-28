@@ -78,12 +78,77 @@ function CreateUserModal({ onClose, onSuccess, defaultRole }) {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        
+
         if (!validateEmail(formData.email)) {
             alert('Please enter a valid email address');
             return;
         }
-        
+
+        // ==========================================
+        // CAPACITY LIMIT ENFORCEMENT
+        // ==========================================
+        // Check tenant subscription limits before creating user
+        try {
+            const tenantDoc = await db.collection('tenants').doc(CURRENT_TENANT).get();
+
+            if (tenantDoc.exists) {
+                const tenantConfig = tenantDoc.data().config;
+                const subscriptionTier = tenantConfig?.subscriptionTier || 'Professional';
+                const maxPirs = tenantConfig?.maxPirs || 100;
+                const maxCoaches = tenantConfig?.maxCoaches || 10;
+
+                // Check PIR capacity
+                if (formData.role === 'pir') {
+                    const pirSnapshot = await db.collection('users')
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .where('role', '==', 'pir')
+                        .get();
+
+                    const currentPirCount = pirSnapshot.size;
+
+                    if (currentPirCount >= maxPirs) {
+                        alert(
+                            `⚠️ PIR Capacity Limit Reached\n\n` +
+                            `Your ${subscriptionTier} subscription allows ${maxPirs} PIRs.\n` +
+                            `You currently have ${currentPirCount} PIRs.\n\n` +
+                            `Please contact your administrator to upgrade your subscription.`
+                        );
+                        return;
+                    }
+
+                    console.log(`✅ PIR capacity check passed: ${currentPirCount}/${maxPirs}`);
+                }
+
+                // Check Coach/Admin capacity
+                if (formData.role === 'coach' || formData.role === 'admin') {
+                    const coachSnapshot = await db.collection('users')
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .where('role', 'in', ['coach', 'admin'])
+                        .get();
+
+                    const currentCoachCount = coachSnapshot.size;
+
+                    if (currentCoachCount >= maxCoaches) {
+                        alert(
+                            `⚠️ Coach/Admin Capacity Limit Reached\n\n` +
+                            `Your ${subscriptionTier} subscription allows ${maxCoaches} coaches/admins.\n` +
+                            `You currently have ${currentCoachCount} coaches/admins.\n\n` +
+                            `Please contact your administrator to upgrade your subscription.`
+                        );
+                        return;
+                    }
+
+                    console.log(`✅ Coach/Admin capacity check passed: ${currentCoachCount}/${maxCoaches}`);
+                }
+            } else {
+                console.warn('⚠️ Tenant document not found - proceeding without capacity check');
+            }
+        } catch (capacityError) {
+            console.error('❌ Error checking capacity limits:', capacityError);
+            alert('⚠️ Error checking subscription limits. Please try again or contact support.');
+            return;
+        }
+
         setLoading(true);
         
         let secondaryApp;

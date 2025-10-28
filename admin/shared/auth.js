@@ -10,10 +10,11 @@
 
 // Role hierarchy definition
 window.ROLE_HIERARCHY = {
-    superadmin: 4,
-    admin: 3,
-    coach: 2,
-    pir: 1
+    superadmin: 5,      // Global - all tenants
+    superadmin1: 4,     // Tenant-level - own tenant only
+    admin: 3,           // Managed user
+    coach: 2,           // Managed user
+    pir: 1              // Client
 };
 
 /**
@@ -27,7 +28,7 @@ window.hasPermission = (userRole, requiredRole) => {
 };
 
 /**
- * Check if user is a SuperAdmin
+ * Check if user is a SuperAdmin (global)
  * @param {object} user - User object
  * @returns {boolean}
  */
@@ -36,12 +37,30 @@ window.isSuperAdmin = (user) => {
 };
 
 /**
- * Check if user is an Admin or SuperAdmin
+ * Check if user is a SuperAdmin1 (tenant-level super admin)
+ * @param {object} user - User object
+ * @returns {boolean}
+ */
+window.isSuperAdmin1 = (user) => {
+    return user && user.role === 'superadmin1';
+};
+
+/**
+ * Check if user is either SuperAdmin or SuperAdmin1
+ * @param {object} user - User object
+ * @returns {boolean}
+ */
+window.isSuperAdminAny = (user) => {
+    return user && (user.role === 'superadmin' || user.role === 'superadmin1');
+};
+
+/**
+ * Check if user is an Admin or SuperAdmin (any level)
  * @param {object} user - User object
  * @returns {boolean}
  */
 window.isAdmin = (user) => {
-    return user && (user.role === 'admin' || user.role === 'superadmin');
+    return user && (user.role === 'admin' || user.role === 'superadmin' || user.role === 'superadmin1');
 };
 
 /**
@@ -192,6 +211,94 @@ window.createNotificationWithPreferences = async (notificationData, notification
 };
 
 // ==========================================
+// TENANT STATUS CHECKING
+// ==========================================
+
+/**
+ * Check tenant status and trial expiration
+ * @param {string} tenantId - Tenant ID to check
+ * @returns {object} Status object with suspended, trialExpired, isTrial, daysRemaining
+ */
+window.checkTenantStatus = async (tenantId) => {
+    try {
+        const tenantDoc = await window.db.collection('tenants').doc(tenantId).get();
+
+        if (!tenantDoc.exists) {
+            console.warn('⚠️ Tenant document not found:', tenantId);
+            return { suspended: false, trialExpired: false, isTrial: false };
+        }
+
+        const tenantData = tenantDoc.data();
+        const config = tenantData.config || {};
+        const status = (config.status || 'Active').toLowerCase();
+
+        // Check if suspended
+        if (status === 'suspended') {
+            return {
+                suspended: true,
+                trialExpired: false,
+                isTrial: false,
+                status: 'Suspended'
+            };
+        }
+
+        // Check if trial and if expired
+        if (status === 'trial') {
+            const trialEndDate = config.trialEndDate;
+
+            if (trialEndDate) {
+                const now = new Date();
+                const endDate = trialEndDate.toDate ? trialEndDate.toDate() : new Date(trialEndDate);
+                const isExpired = now > endDate;
+
+                if (isExpired) {
+                    return {
+                        suspended: false,
+                        trialExpired: true,
+                        isTrial: true,
+                        status: 'Trial Expired',
+                        trialEndDate: endDate
+                    };
+                }
+
+                // Trial active - calculate days remaining
+                const daysRemaining = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+
+                return {
+                    suspended: false,
+                    trialExpired: false,
+                    isTrial: true,
+                    status: 'Trial',
+                    trialEndDate: endDate,
+                    daysRemaining: daysRemaining
+                };
+            }
+
+            // Trial status but no end date - treat as active trial
+            return {
+                suspended: false,
+                trialExpired: false,
+                isTrial: true,
+                status: 'Trial'
+            };
+        }
+
+        // Active status
+        return {
+            suspended: false,
+            trialExpired: false,
+            isTrial: false,
+            status: 'Active'
+        };
+
+    } catch (error) {
+        console.error('Error checking tenant status:', error);
+        // On error, allow access (fail open)
+        return { suspended: false, trialExpired: false, isTrial: false };
+    }
+};
+
+// ==========================================
 // AUTHENTICATION HELPERS
 // ==========================================
 
@@ -207,10 +314,41 @@ window.getCurrentUser = async () => {
         const userDoc = await window.db.collection('users').doc(firebaseUser.uid).get();
         if (!userDoc.exists) return null;
 
-        return {
+        const userData = {
             uid: firebaseUser.uid,
             ...userDoc.data()
         };
+
+        // ==========================================
+        // TENANT STATUS ENFORCEMENT
+        // ==========================================
+        // Check tenant status and enforce restrictions
+        if (userData.tenantId && userData.role !== 'superadmin') {
+            const tenantStatus = await window.checkTenantStatus(userData.tenantId);
+
+            if (tenantStatus.suspended) {
+                // Redirect to suspended page
+                console.warn('⚠️ Tenant is suspended:', userData.tenantId);
+                if (!window.location.pathname.includes('/admin/suspended')) {
+                    window.location.href = '/admin/suspended';
+                }
+                return null;
+            }
+
+            if (tenantStatus.trialExpired) {
+                // Redirect to suspended page (trial expired = suspended)
+                console.warn('⚠️ Trial expired for tenant:', userData.tenantId);
+                if (!window.location.pathname.includes('/admin/suspended')) {
+                    window.location.href = '/admin/suspended';
+                }
+                return null;
+            }
+
+            // Attach tenant status to user data
+            userData.tenantStatus = tenantStatus;
+        }
+
+        return userData;
     } catch (error) {
         console.error('Error getting current user:', error);
         return null;

@@ -28,9 +28,11 @@
     <!-- Shared Components -->
     <script src="/admin/shared/firebase.js"></script>
     <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/permissions.js?v=1"></script>
     <script src="/admin/shared/utils.js"></script>
-    <script src="/admin/shared/state.js"></script>
-    <script src="/admin/shared/navigation.js"></script>
+    <script src="/admin/shared/state.js?v=2"></script>
+    <script type="text/babel" src="/admin/shared/navigation.js?v=7"></script>
+    <script type="text/babel" src="/admin/shared/header.js?v=1"></script>
 
     <script type="text/babel">
         // Wait for Firebase to initialize before running
@@ -67,7 +69,7 @@
                                 padding: '8px 12px',
                                 margin: '0 2px',
                                 background: currentPage === i
-                                    ? 'var(--primary-color)'
+                                    ? '#0077CC'
                                     : 'white',
                                 color: currentPage === i ? 'white' : '#333',
                                 border: currentPage === i ? 'none' : '1px solid #ddd',
@@ -178,7 +180,7 @@
                     }}>
                         {/* Header */}
                         <div style={{
-                            background: 'linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%)',
+                            background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
                             padding: '25px 30px',
                             borderRadius: '20px 20px 0 0',
                             color: 'white',
@@ -322,7 +324,7 @@
                                         resize: 'vertical',
                                         transition: 'border-color 0.2s'
                                     }}
-                                    onFocus={(e) => e.currentTarget.style.borderColor = 'var(--primary-color)'}
+                                    onFocus={(e) => e.currentTarget.style.borderColor = '#0077CC'}
                                     onBlur={(e) => e.currentTarget.style.borderColor = '#e0e0e0'}
                                 />
                             </div>
@@ -359,7 +361,7 @@
                                         padding: '12px 24px',
                                         background: submitting || !response.trim()
                                             ? '#ccc'
-                                            : 'linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%)',
+                                            : 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
                                         color: 'white',
                                         border: 'none',
                                         borderRadius: '8px',
@@ -686,7 +688,7 @@
                             width: '60px',
                             height: '60px',
                             border: '4px solid #f3f3f3',
-                            borderTop: '4px solid var(--primary-color)',
+                            borderTop: '4px solid #0077CC',
                             borderRadius: '50%',
                             animation: 'spin 1s linear infinite'
                         }}></div>
@@ -705,7 +707,7 @@
                         marginBottom: '30px'
                     }}>
                         <div style={{
-                            background: 'linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%)',
+                            background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
                             borderRadius: '15px',
                             padding: '25px',
                             color: 'white',
@@ -830,7 +832,7 @@
                             onClick={() => quickFilter('needs-response')}
                             style={{
                                 padding: '8px 16px',
-                                background: 'linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%)',
+                                background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '8px',
@@ -918,7 +920,7 @@
                                         onClick={handleBulkMarkReviewed}
                                         style={{
                                             padding: '10px 16px',
-                                            background: 'linear-gradient(135deg, var(--success-color) 0%, #008554 100%)',
+                                            background: 'linear-gradient(135deg, #00A86B 0%, #008554 100%)',
                                             color: 'white',
                                             border: 'none',
                                             borderRadius: '8px',
@@ -1049,7 +1051,7 @@
                                                 onClick={() => setSelectedFeedback(feedback)}
                                                 style={{
                                                     padding: '6px 12px',
-                                                    background: 'linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%)',
+                                                    background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
                                                     color: 'white',
                                                     border: 'none',
                                                     borderRadius: '6px',
@@ -1114,6 +1116,14 @@
             const [user, setUser] = useState(null);
             const [loading, setLoading] = useState(true);
             const [searchQuery, setSearchQuery] = useState('');
+            // Manage sidebar collapsed state
+            const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+                return window.getPreference ? window.getPreference('sidebarCollapsed', false) : false;
+            });
+            // Notification state
+            const [notifications, setNotifications] = useState([]);
+            // Connection status
+            const [isOnline, setIsOnline] = useState(navigator.onLine);
 
             useEffect(() => {
                 const unsubscribe = firebase.auth().onAuthStateChanged(async (firebaseUser) => {
@@ -1124,18 +1134,80 @@
                             .get();
 
                         if (userDoc.exists) {
-                            setUser({ uid: firebaseUser.uid, ...userDoc.data() });
+                            const userData = { uid: firebaseUser.uid, ...userDoc.data() };
+                            // 🔐 PAGE ACCESS CONTROL: Check if user has permission to access Feedback
+                            if (!window.canAccessPage(userData, 'feedback')) {
+                                alert('You do not have permission to access Feedback.');
+                                window.location.href = '/admin/mypirs.html'; // Redirect to My PIRs (default fallback)
+                                return;
+                            }
+
+                            setUser(userData);
                         } else {
-                            window.location.href = '/';
+                            window.location.href = '/admin/login';
                         }
                     } else {
-                        window.location.href = '/';
+                        window.location.href = '/admin/login';
                     }
                     setLoading(false);
                 });
 
                 return () => unsubscribe();
             }, []);
+
+            // Set up notification listener
+            useEffect(() => {
+                if (!user) return;
+                const unsubscribe = firebase.firestore()
+                    .collection('notifications')
+                    .where('userId', '==', user.uid)
+                    .orderBy('timestamp', 'desc')
+                    .limit(50)
+                    .onSnapshot((snapshot) => {
+                        const notifs = snapshot.docs.map(doc => ({
+                            id: doc.id,
+                            ...doc.data()
+                        }));
+                        setNotifications(notifs);
+                    }, (error) => {
+                        console.error('Error loading notifications:', error);
+                    });
+                return () => unsubscribe();
+            }, [user]);
+
+            // Set up connection status listener
+            useEffect(() => {
+                const handleOnline = () => setIsOnline(true);
+                const handleOffline = () => setIsOnline(false);
+                window.addEventListener('online', handleOnline);
+                window.addEventListener('offline', handleOffline);
+                return () => {
+                    window.removeEventListener('online', handleOnline);
+                    window.removeEventListener('offline', handleOffline);
+                };
+            }, []);
+
+            // Clear notification handlers
+            const handleClearNotification = async (notificationId) => {
+                try {
+                    await firebase.firestore().collection('notifications').doc(notificationId).delete();
+                } catch (error) {
+                    console.error('Error clearing notification:', error);
+                }
+            };
+
+            const handleClearAllNotifications = async () => {
+                try {
+                    const batch = firebase.firestore().batch();
+                    notifications.forEach(notif => {
+                        const docRef = firebase.firestore().collection('notifications').doc(notif.id);
+                        batch.delete(docRef);
+                    });
+                    await batch.commit();
+                } catch (error) {
+                    console.error('Error clearing all notifications:', error);
+                }
+            };
 
             if (loading) {
                 return (
@@ -1150,7 +1222,7 @@
                             width: '60px',
                             height: '60px',
                             border: '4px solid #f3f3f3',
-                            borderTop: '4px solid var(--primary-color)',
+                            borderTop: '4px solid #0077CC',
                             borderRadius: '50%',
                             animation: 'spin 1s linear infinite'
                         }}></div>
@@ -1159,16 +1231,49 @@
             }
 
             return (
-                <div style={{ display: 'flex', minHeight: '100vh', background: '#f5f7fa' }}>
-                    <Sidebar user={user} />
-                    <div style={{
-                        flex: 1,
-                        marginLeft: '280px',
-                        transition: 'margin-left 0.3s'
-                    }}>
-                        <FeedbackView user={user} searchQuery={searchQuery} />
+                <>
+                    {!isOnline && (
+                        <div style={{
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            background: '#ff9800',
+                            color: 'white',
+                            padding: '10px',
+                            textAlign: 'center',
+                            zIndex: 10000,
+                            fontSize: '14px',
+                            fontWeight: '500'
+                        }}>
+                            You are currently offline. Some features may be unavailable.
+                        </div>
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+                        {/* Header Component */}
+                        <Header
+                            user={user}
+                            searchQuery={searchQuery}
+                            setSearchQuery={setSearchQuery}
+                            sidebarCollapsed={sidebarCollapsed}
+                            notifications={notifications}
+                            onClearNotification={handleClearNotification}
+                            onClearAllNotifications={handleClearAllNotifications}
+                        />
+                        {/* Sidebar Component */}
+                        <Sidebar user={user} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
+                        {/* Main Content */}
+                        <div style={{
+                            marginLeft: sidebarCollapsed ? '80px' : '280px',
+                            minHeight: '100vh',
+                            background: '#c4c9cf',
+                            padding: '20px',
+                            transition: 'margin-left 0.3s'
+                        }}>
+                            <FeedbackView user={user} searchQuery={searchQuery} />
+                        </div>
                     </div>
-                </div>
+                </>
             );
         }
 

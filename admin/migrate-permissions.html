@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Permissions Migration Script - GLRS Admin</title>
+    <link rel="stylesheet" href="/admin/shared/styles.css">
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: #f5f7fa;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .success {
+            background: #d4edda;
+            border: 2px solid #28a745;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .error {
+            background: #f8d7da;
+            border: 2px solid #dc3545;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764BA2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 15px;
+            border-radius: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+        .log-entry {
+            padding: 5px 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .log-success { color: #28a745; }
+        .log-error { color: #dc3545; }
+        .log-info { color: #17a2b8; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764BA2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 36px;
+            font-weight: bold;
+        }
+        .stat-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Permissions System Migration</h1>
+        <p>This script will add the new permissions system to all existing users in the database.</p>
+
+        <div class="warning">
+            <strong>⚠️ WARNING:</strong> This script will modify all user documents in Firestore.
+            Make sure you have a backup before proceeding. This action cannot be undone automatically.
+        </div>
+
+        <div class="stats" id="stats" style="display: none;">
+            <div class="stat-card">
+                <div class="stat-value" id="totalUsers">0</div>
+                <div class="stat-label">Total Users</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="migratedUsers">0</div>
+                <div class="stat-label">Migrated</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="skippedUsers">0</div>
+                <div class="stat-label">Already Had Permissions</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="errorUsers">0</div>
+                <div class="stat-label">Errors</div>
+            </div>
+        </div>
+
+        <div>
+            <button onclick="runMigration(false)" id="dryRunBtn">🔍 Dry Run (Preview Only)</button>
+            <button onclick="runMigration(true)" id="migrationBtn" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                ⚠️ Run Migration (LIVE)
+            </button>
+        </div>
+
+        <div class="log" id="log"></div>
+    </div>
+
+    <script src="/admin/shared/firebase.js"></script>
+    <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/permissions.js"></script>
+
+    <script>
+    (function initMigration() {
+        if (!window.FIREBASE_READY || !window.auth || !window.db) {
+            console.log('Waiting for Firebase to initialize...');
+            setTimeout(initMigration, 50);
+            return;
+        }
+
+        const { auth, db } = window;
+        let totalUsers = 0;
+        let migratedUsers = 0;
+        let skippedUsers = 0;
+        let errorUsers = 0;
+
+        function log(message, type = 'info') {
+            const logEl = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+            console.log(message);
+        }
+
+        function updateStats() {
+            document.getElementById('totalUsers').textContent = totalUsers;
+            document.getElementById('migratedUsers').textContent = migratedUsers;
+            document.getElementById('skippedUsers').textContent = skippedUsers;
+            document.getElementById('errorUsers').textContent = errorUsers;
+            document.getElementById('stats').style.display = 'grid';
+        }
+
+        window.runMigration = async function(isLive) {
+            const dryRunBtn = document.getElementById('dryRunBtn');
+            const migrationBtn = document.getElementById('migrationBtn');
+
+            if (isLive && !confirm('⚠️ ARE YOU SURE? This will modify ALL user documents in Firestore. Have you made a backup?')) {
+                return;
+            }
+
+            dryRunBtn.disabled = true;
+            migrationBtn.disabled = true;
+
+            // Reset counters
+            totalUsers = 0;
+            migratedUsers = 0;
+            skippedUsers = 0;
+            errorUsers = 0;
+            document.getElementById('log').innerHTML = '';
+
+            log(isLive ? '🚀 Starting LIVE migration...' : '🔍 Starting DRY RUN (no changes will be made)...', 'info');
+
+            try {
+                // Check auth
+                const currentUser = auth.currentUser;
+                if (!currentUser) {
+                    log('❌ Not authenticated. Please log in first.', 'error');
+                    dryRunBtn.disabled = false;
+                    migrationBtn.disabled = false;
+                    return;
+                }
+
+                // Get current user data to check if superadmin
+                const userDoc = await db.collection('users').doc(currentUser.uid).get();
+                const userData = userDoc.data();
+                if (userData.role !== 'superadmin' && userData.role !== 'superadmin1') {
+                    log('❌ Only SuperAdmin or SuperAdmin1 can run this migration.', 'error');
+                    dryRunBtn.disabled = false;
+                    migrationBtn.disabled = false;
+                    return;
+                }
+
+                log(`✅ Authenticated as ${userData.email} (${userData.role})`, 'success');
+
+                // Get all users
+                log('📊 Loading all users...', 'info');
+                const usersSnap = await db.collection('users').get();
+                totalUsers = usersSnap.size;
+                log(`Found ${totalUsers} users`, 'info');
+                updateStats();
+
+                // Process each user
+                for (const doc of usersSnap.docs) {
+                    const user = doc.data();
+                    const userId = doc.id;
+
+                    // Skip if already has permissions
+                    if (user.permissions) {
+                        log(`⏭️  Skipped ${user.email || userId} - already has permissions`, 'info');
+                        skippedUsers++;
+                        updateStats();
+                        continue;
+                    }
+
+                    // Determine preset based on role
+                    let permissions;
+                    let presetName;
+
+                    if (user.role === 'superadmin1') {
+                        permissions = window.SUPERADMIN1_PRESET;
+                        presetName = 'SUPERADMIN1_PRESET';
+                    } else if (user.role === 'admin') {
+                        permissions = window.ADMIN_PRESET;
+                        presetName = 'ADMIN_PRESET';
+                    } else if (user.role === 'coach') {
+                        permissions = window.COACH_PRESET;
+                        presetName = 'COACH_PRESET';
+                    } else {
+                        // PIR or unknown - most restrictive
+                        permissions = window.getDefaultPermissions(user.role);
+                        presetName = 'DEFAULT (restrictive)';
+                    }
+
+                    log(`📝 ${isLive ? 'Applying' : 'Would apply'} ${presetName} to ${user.email || userId} (${user.role})`, 'info');
+
+                    if (isLive) {
+                        try {
+                            await db.collection('users').doc(userId).update({
+                                permissions: permissions,
+                                permissionsLastModified: firebase.firestore.FieldValue.serverTimestamp(),
+                                permissionsModifiedBy: 'system-migration'
+                            });
+                            log(`✅ Successfully migrated ${user.email || userId}`, 'success');
+                            migratedUsers++;
+                        } catch (error) {
+                            log(`❌ Error migrating ${user.email || userId}: ${error.message}`, 'error');
+                            errorUsers++;
+                        }
+                    } else {
+                        migratedUsers++;
+                    }
+
+                    updateStats();
+                }
+
+                log('', 'info');
+                log('===================', 'info');
+                log(`✅ ${isLive ? 'Migration' : 'Dry run'} complete!`, 'success');
+                log(`Total users: ${totalUsers}`, 'info');
+                log(`Migrated: ${migratedUsers}`, 'success');
+                log(`Skipped (already had permissions): ${skippedUsers}`, 'info');
+                log(`Errors: ${errorUsers}`, errorUsers > 0 ? 'error' : 'info');
+                log('===================', 'info');
+
+                if (!isLive) {
+                    log('', 'info');
+                    log('ℹ️  This was a DRY RUN. No changes were made.', 'info');
+                    log('Click "Run Migration (LIVE)" to apply changes.', 'info');
+                }
+
+            } catch (error) {
+                log(`❌ Fatal error: ${error.message}`, 'error');
+                console.error('Migration error:', error);
+            } finally {
+                dryRunBtn.disabled = false;
+                migrationBtn.disabled = false;
+            }
+        };
+
+        log('✅ Migration script ready', 'success');
+        log('Click "Dry Run" to preview changes without modifying data', 'info');
+    })();
+    </script>
+</body>
+</html>

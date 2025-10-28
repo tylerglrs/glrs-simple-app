@@ -28,9 +28,11 @@
     <!-- Shared Components -->
     <script src="/admin/shared/firebase.js"></script>
     <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/permissions.js"></script>
     <script src="/admin/shared/utils.js"></script>
-    <script src="/admin/shared/state.js"></script>
-    <script src="/admin/shared/navigation.js"></script>
+    <script src="/admin/shared/state.js?v=2"></script>
+    <script type="text/babel" src="/admin/shared/navigation.js?v=7"></script>
+    <script type="text/babel" src="/admin/shared/header.js?v=1"></script>
 
     <script type="text/babel">
         // Wait for Firebase to initialize before running
@@ -67,7 +69,7 @@
                                 padding: '8px 12px',
                                 margin: '0 2px',
                                 background: currentPage === i
-                                    ? 'var(--primary-color)'
+                                    ? '#0077CC'
                                     : 'white',
                                 color: currentPage === i ? 'white' : '#333',
                                 border: currentPage === i ? 'none' : '1px solid #ddd',
@@ -171,7 +173,7 @@
                             onClick={onClose}
                             style={{
                                 padding: '10px 20px',
-                                background: 'var(--primary-color)',
+                                background: '#0077CC',
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '6px',
@@ -215,7 +217,7 @@
                             onClick={onClose}
                             style={{
                                 padding: '10px 20px',
-                                background: 'var(--primary-color)',
+                                background: '#0077CC',
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '6px',
@@ -259,7 +261,7 @@
                             onClick={onClose}
                             style={{
                                 padding: '10px 20px',
-                                background: 'var(--primary-color)',
+                                background: '#0077CC',
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '6px',
@@ -327,10 +329,36 @@
                 try {
                     setLoading(true);
 
-                    const usersSnap = await db.collection('users')
-                        .where('tenantId', '==', CURRENT_TENANT)
-                        .orderBy('createdAt', 'desc')
-                        .get();
+                    // 🔐 SCOPE FILTERING: Apply data scope based on user role
+                    // - Coaches: Only see assigned PIRs (if they have access to this page)
+                    // - Admins/SuperAdmin1: See all users in tenant
+                    // - SuperAdmin: See all users across all tenants
+                    const scope = window.getDataScope(user);
+                    let usersQuery = db.collection('users');
+
+                    if (scope === 'all_tenants') {
+                        // SuperAdmin: No tenant filter, see all users
+                        usersQuery = usersQuery.orderBy('createdAt', 'desc');
+                    } else if (scope === 'all_pirs_tenant' || scope === 'all_coaches_tenant') {
+                        // Admin/SuperAdmin1: Filter by tenant
+                        usersQuery = usersQuery
+                            .where('tenantId', '==', CURRENT_TENANT)
+                            .orderBy('createdAt', 'desc');
+                    } else if (scope === 'assigned_pirs') {
+                        // Coach: Only assigned PIRs (defensive - coaches shouldn't access this page)
+                        usersQuery = usersQuery
+                            .where('tenantId', '==', CURRENT_TENANT)
+                            .where('role', '==', 'pir')
+                            .where('assignedCoach', '==', user.uid)
+                            .orderBy('createdAt', 'desc');
+                    } else {
+                        // own_data or unknown: Only own user record
+                        usersQuery = usersQuery
+                            .where('tenantId', '==', CURRENT_TENANT)
+                            .where(firebase.firestore.FieldPath.documentId(), '==', user.uid);
+                    }
+
+                    const usersSnap = await usersQuery.get();
 
                     const usersData = [];
                     const coachIds = new Set();
@@ -639,12 +667,12 @@
                             marginBottom: '30px'
                         }}>
                            <div style={{
-                                background: 'var(--gradient-primary)',
-                                borderRadius: 'var(--radius-lg)',
+                                background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                borderRadius: '12px',
                                 padding: '25px',
-                                color: 'var(--text-white)',
-                                boxShadow: 'var(--shadow-primary)',
-                                transition: 'var(--transition-fast)',
+                                color: 'white',
+                                boxShadow: '0 8px 20px rgba(0,119,204,0.3)',
+                                transition: 'all 0.3s ease',
                                 cursor: 'pointer'
                             }}
                             onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
@@ -658,12 +686,12 @@
                             </div>
 
                             <div style={{
-                                background: 'var(--gradient-warning)',
-                                borderRadius: 'var(--radius-lg)',
+                                background: 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)',
+                                borderRadius: '12px',
                                 padding: '25px',
-                                color: 'var(--text-white)',
-                                boxShadow: 'var(--shadow-md)',
-                                transition: 'var(--transition-fast)',
+                                color: 'white',
+                                boxShadow: '0 4px 12px rgba(255,152,0,0.3)',
+                                transition: 'all 0.3s ease',
                                 cursor: 'pointer'
                             }}
                             onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
@@ -677,12 +705,12 @@
                             </div>
 
                             <div style={{
-                                background: 'var(--gradient-info)',
-                                borderRadius: 'var(--radius-lg)',
+                                background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                                borderRadius: '12px',
                                 padding: '25px',
-                                color: 'var(--text-white)',
-                                boxShadow: 'var(--shadow-md)',
-                                transition: 'var(--transition-fast)',
+                                color: 'white',
+                                boxShadow: '0 4px 12px rgba(79,172,254,0.3)',
+                                transition: 'all 0.3s ease',
                                 cursor: 'pointer'
                             }}
                             onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
@@ -696,12 +724,12 @@
                             </div>
 
                             <div style={{
-                                background: 'var(--gradient-success)',
-                                borderRadius: 'var(--radius-lg)',
+                                background: 'linear-gradient(135deg, #00A86B 0%, #008554 100%)',
+                                borderRadius: '12px',
                                 padding: '25px',
-                                color: 'var(--text-white)',
-                                boxShadow: 'var(--shadow-success)',
-                                transition: 'var(--transition-fast)',
+                                color: 'white',
+                                boxShadow: '0 8px 20px rgba(0,168,107,0.3)',
+                                transition: 'all 0.3s ease',
                                 cursor: 'pointer'
                             }}
                             onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
@@ -716,12 +744,12 @@
                         </div>
                     )}
 
-                  {/* Tab Navigation - FIXED: Using CSS Variables */}
+                  {/* Tab Navigation */}
                     <div style={{
                         display: 'flex',
                         gap: '10px',
                         marginBottom: '25px',
-                        borderBottom: '2px solid var(--border-color)',
+                        borderBottom: '2px solid #e0e0e0',
                         paddingBottom: '5px'
                     }}>
                         <button
@@ -729,28 +757,28 @@
                             style={{
                                 padding: '12px 24px',
                                 border: 'none',
-                                background: activeTab === 'pir' ? 'var(--gradient-primary)' : 'transparent',
-                                color: activeTab === 'pir' ? 'var(--text-white)' : 'var(--text-gray)',
-                                borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+                                background: activeTab === 'pir' ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : 'transparent',
+                                color: activeTab === 'pir' ? 'white' : '#666',
+                                borderRadius: '8px 8px 0 0',
                                 cursor: 'pointer',
                                 fontSize: '15px',
                                 fontWeight: activeTab === 'pir' ? '600' : '500',
-                                transition: 'var(--transition-normal)',
-                                boxShadow: activeTab === 'pir' ? 'var(--shadow-primary)' : 'none',
+                                transition: 'all 0.3s ease',
+                                boxShadow: activeTab === 'pir' ? '0 4px 12px rgba(0,119,204,0.3)' : 'none',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '8px'
                             }}
                             onMouseEnter={(e) => {
                                 if (activeTab !== 'pir') {
-                                    e.currentTarget.style.background = 'var(--background-secondary)';
-                                    e.currentTarget.style.color = 'var(--text-primary)';
+                                    e.currentTarget.style.background = '#f8f9fa';
+                                    e.currentTarget.style.color = '#333';
                                 }
                             }}
                             onMouseLeave={(e) => {
                                 if (activeTab !== 'pir') {
                                     e.currentTarget.style.background = 'transparent';
-                                    e.currentTarget.style.color = 'var(--text-gray)';
+                                    e.currentTarget.style.color = '#666';
                                 }
                             }}
                         >
@@ -762,28 +790,28 @@
                             style={{
                                 padding: '12px 24px',
                                 border: 'none',
-                                background: activeTab === 'coach' ? 'var(--gradient-primary)' : 'transparent',
-                                color: activeTab === 'coach' ? 'var(--text-white)' : 'var(--text-gray)',
-                                borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+                                background: activeTab === 'coach' ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : 'transparent',
+                                color: activeTab === 'coach' ? 'white' : '#666',
+                                borderRadius: '8px 8px 0 0',
                                 cursor: 'pointer',
                                 fontSize: '15px',
                                 fontWeight: activeTab === 'coach' ? '600' : '500',
-                                transition: 'var(--transition-normal)',
-                                boxShadow: activeTab === 'coach' ? 'var(--shadow-primary)' : 'none',
+                                transition: 'all 0.3s ease',
+                                boxShadow: activeTab === 'coach' ? '0 4px 12px rgba(0,119,204,0.3)' : 'none',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '8px'
                             }}
                             onMouseEnter={(e) => {
                                 if (activeTab !== 'coach') {
-                                    e.currentTarget.style.background = 'var(--background-secondary)';
-                                    e.currentTarget.style.color = 'var(--text-primary)';
+                                    e.currentTarget.style.background = '#f8f9fa';
+                                    e.currentTarget.style.color = '#333';
                                 }
                             }}
                             onMouseLeave={(e) => {
                                 if (activeTab !== 'coach') {
                                     e.currentTarget.style.background = 'transparent';
-                                    e.currentTarget.style.color = 'var(--text-gray)';
+                                    e.currentTarget.style.color = '#666';
                                 }
                             }}
                         >
@@ -795,28 +823,28 @@
                             style={{
                                 padding: '12px 24px',
                                 border: 'none',
-                                background: activeTab === 'admin' ? 'var(--gradient-primary)' : 'transparent',
-                                color: activeTab === 'admin' ? 'var(--text-white)' : 'var(--text-gray)',
-                                borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+                                background: activeTab === 'admin' ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : 'transparent',
+                                color: activeTab === 'admin' ? 'white' : '#666',
+                                borderRadius: '8px 8px 0 0',
                                 cursor: 'pointer',
                                 fontSize: '15px',
                                 fontWeight: activeTab === 'admin' ? '600' : '500',
-                                transition: 'var(--transition-normal)',
-                                boxShadow: activeTab === 'admin' ? 'var(--shadow-primary)' : 'none',
+                                transition: 'all 0.3s ease',
+                                boxShadow: activeTab === 'admin' ? '0 4px 12px rgba(0,119,204,0.3)' : 'none',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '8px'
                             }}
                             onMouseEnter={(e) => {
                                 if (activeTab !== 'admin') {
-                                    e.currentTarget.style.background = 'var(--background-secondary)';
-                                    e.currentTarget.style.color = 'var(--text-primary)';
+                                    e.currentTarget.style.background = '#f8f9fa';
+                                    e.currentTarget.style.color = '#333';
                                 }
                             }}
                             onMouseLeave={(e) => {
                                 if (activeTab !== 'admin') {
                                     e.currentTarget.style.background = 'transparent';
-                                    e.currentTarget.style.color = 'var(--text-gray)';
+                                    e.currentTarget.style.color = '#666';
                                 }
                             }}
                         >
@@ -941,74 +969,82 @@
                             )}
 
                             {/* Export Buttons */}
-                            <button
-                                onClick={() => handleExport('csv')}
-                                style={{
-                                    padding: '10px 16px',
-                                    background: '#6c757d',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '8px',
-                                    cursor: 'pointer',
-                                    fontSize: '14px',
-                                    fontWeight: '500',
-                                    transition: 'all 0.2s'
-                                }}
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = '#5a6268';
-                                    e.currentTarget.style.transform = 'translateY(-2px)';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = '#6c757d';
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                }}
-                            >
-                                Export CSV
-                            </button>
+                            {/* 🔐 ACTION PERMISSION: export_data - Export user data to CSV */}
+                            {window.canPerformAction(user, 'export_data') && (
+                                <button
+                                    onClick={() => handleExport('csv')}
+                                    style={{
+                                        padding: '10px 16px',
+                                        background: '#6c757d',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        fontWeight: '500',
+                                        transition: 'all 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = '#5a6268';
+                                        e.currentTarget.style.transform = 'translateY(-2px)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = '#6c757d';
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                    }}
+                                >
+                                    Export CSV
+                                </button>
+                            )}
 
-                            <button
-                                onClick={() => setShowCreateModal(true)}
-                                style={{
-                                    padding: '10px 20px',
-                                    background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '8px',
-                                    cursor: 'pointer',
-                                    fontSize: '14px',
-                                    fontWeight: '600',
-                                    transition: 'all 0.2s',
-                                    boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                }}
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(-2px)';
-                                    e.currentTarget.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.5)';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
-                                }}
-                            >
-                                <span style={{ fontSize: '16px' }}>+</span> Create User
-                            </button>
+                            {/* 🔐 ACTION PERMISSION: create_pir/create_coach/create_admin - Create new user (role-specific) */}
+                            {(window.canPerformAction(user, 'create_pir') ||
+                              window.canPerformAction(user, 'create_coach') ||
+                              window.canPerformAction(user, 'create_admin')) && (
+                                <button
+                                    onClick={() => setShowCreateModal(true)}
+                                    style={{
+                                        padding: '10px 20px',
+                                        background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        fontWeight: '600',
+                                        transition: 'all 0.2s',
+                                        boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.transform = 'translateY(-2px)';
+                                        e.currentTarget.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.5)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+                                    }}
+                                >
+                                    <span style={{ fontSize: '16px' }}>+</span> Create User
+                                </button>
+                            )}
                         </div>
                     </div>
 
                  {/* User Table */}
                     <div style={{
-                        background: 'var(--text-white)',
-                        borderRadius: 'var(--radius-lg)',
-                        boxShadow: 'var(--shadow-md)',
+                        background: 'white',
+                        borderRadius: '12px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                         overflow: 'hidden'
                     }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr style={{ background: 'var(--background-secondary)', borderBottom: '2px solid var(--border-color)' }}>
+                                <tr style={{ background: '#f8f9fa', borderBottom: '2px solid #e0e0e0' }}>
                                     {activeTab === 'pir' && (
-                                        <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: 'var(--text-primary)' }}>
+                                        <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>
                                             <input
                                                 type="checkbox"
                                                 checked={selectedUsers.size === paginatedUsers.length && paginatedUsers.length > 0}
@@ -1017,32 +1053,32 @@
                                             />
                                         </th>
                                     )}
-                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: 'var(--text-primary)' }}>Name</th>
-                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: 'var(--text-primary)' }}>Email</th>
-                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: 'var(--text-primary)' }}>Status</th>
-                                    {activeTab === 'pir' && <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: 'var(--text-primary)' }}>Health</th>}
-                                    {activeTab === 'pir' && <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: 'var(--text-primary)' }}>Assigned Coach</th>}
-                                    {activeTab === 'pir' && <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: 'var(--text-primary)' }}>Last Check-in</th>}
-                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: 'var(--text-primary)' }}>Phone</th>
-                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: 'var(--text-primary)' }}>Joined</th>
-                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: 'var(--text-primary)' }}>Actions</th>
+                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Name</th>
+                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Email</th>
+                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Status</th>
+                                    {activeTab === 'pir' && <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Health</th>}
+                                    {activeTab === 'pir' && <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Assigned Coach</th>}
+                                    {activeTab === 'pir' && <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Last Check-in</th>}
+                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Phone</th>
+                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Joined</th>
+                                    <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Actions</th>
                                 </tr>
                             </thead>
                            <tbody>
                                 {paginatedUsers.map((user, index) => (
                                     <tr key={user.id} style={{
-                                        borderBottom: '1px solid var(--border-color)',
-                                        transition: 'var(--transition-fast)',
-                                        background: selectedUsers.has(user.id) ? 'var(--bg-primary-light)' : 'var(--text-white)'
+                                        borderBottom: '1px solid #e0e0e0',
+                                        transition: 'all 0.3s ease',
+                                        background: selectedUsers.has(user.id) ? '#e3f2fd' : 'white'
                                     }}
                                     onMouseEnter={(e) => {
                                         if (!selectedUsers.has(user.id)) {
-                                            e.currentTarget.style.background = 'var(--background-secondary)';
+                                            e.currentTarget.style.background = '#f8f9fa';
                                         }
                                     }}
                                     onMouseLeave={(e) => {
                                         if (!selectedUsers.has(user.id)) {
-                                            e.currentTarget.style.background = 'var(--text-white)';
+                                            e.currentTarget.style.background = 'white';
                                         }
                                     }}
                                     >
@@ -1077,15 +1113,15 @@
                                                 </span>
                                             </div>
                                        </td>
-                                        <td style={{ padding: '15px', color: 'var(--text-gray)' }}>{user.email}</td>
+                                        <td style={{ padding: '15px', color: '#666' }}>{user.email}</td>
                                         <td style={{ padding: '15px' }}>
                                             <span style={{
                                                 padding: '4px 12px',
-                                                borderRadius: 'var(--radius-xl)',
+                                                borderRadius: '20px',
                                                 fontSize: '12px',
                                                 fontWeight: '500',
-                                                background: user.active !== false ? 'var(--bg-success-light)' : 'var(--bg-danger-light)',
-                                                color: user.active !== false ? 'var(--success-dark)' : 'var(--danger-dark)'
+                                                background: user.active !== false ? '#e8f5e9' : '#ffebee',
+                                                color: user.active !== false ? '#2e7d32' : '#c62828'
                                             }}>
                                                 {user.active !== false ? 'Active' : 'Inactive'}
                                             </span>
@@ -1102,61 +1138,62 @@
                                                     <span style={{
                                                         fontSize: '13px',
                                                         fontWeight: '500',
-                                                        color: 'var(--text-gray)'
+                                                        color: '#666'
                                                     }}>
                                                         {pirHealthData[user.id]?.compliance || 0}%
                                                     </span>
                                                 </div>
                                             </td>
                                         )}
-                                        {activeTab === 'pir' && <td style={{ padding: '15px', color: 'var(--text-gray)' }}>{user.coachName || '-'}</td>}
+                                        {activeTab === 'pir' && <td style={{ padding: '15px', color: '#666' }}>{user.coachName || '-'}</td>}
                                         {activeTab === 'pir' && (
-                                            <td style={{ padding: '15px', color: 'var(--text-gray)' }}>
+                                            <td style={{ padding: '15px', color: '#666' }}>
                                                 {pirHealthData[user.id]?.lastCheckIn ? formatTimeAgo(pirHealthData[user.id].lastCheckIn) : 'Never'}
                                             </td>
                                         )}
-                                        <td style={{ padding: '15px', color: 'var(--text-gray)' }}>{user.phone || '-'}</td>
-                                        <td style={{ padding: '15px', color: 'var(--text-gray)' }}>{formatDate(user.createdAt)}</td>
+                                        <td style={{ padding: '15px', color: '#666' }}>{user.phone || '-'}</td>
+                                        <td style={{ padding: '15px', color: '#666' }}>{formatDate(user.createdAt)}</td>
                                         <td style={{ padding: '15px' }}>
                                             <div style={{ display: 'flex', gap: '8px' }}>
                                                <button
                                                     onClick={() => setSelectedUser(user)}
                                                     style={{
                                                         padding: '6px 12px',
-                                                        background: 'var(--gradient-primary)',
-                                                        color: 'var(--text-white)',
+                                                        background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                                        color: 'white',
                                                         border: 'none',
-                                                        borderRadius: 'var(--radius-sm)',
+                                                        borderRadius: '6px',
                                                         cursor: 'pointer',
                                                         fontSize: '13px',
                                                         fontWeight: '500',
-                                                        transition: 'var(--transition-fast)'
+                                                        transition: 'all 0.3s ease'
                                                     }}
                                                     onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
                                                     onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                                                 >
                                                     View
                                                 </button>
-                                                {user.role === 'pir' && (
+                                                {/* 🔐 ACTION PERMISSION: impersonate - View as PIR */}
+                                                {user.role === 'pir' && window.canPerformAction(window.currentUser || {}, 'impersonate') && (
                                                     <button
                                                         onClick={() => onImpersonate && onImpersonate(user)}
                                                         style={{
                                                             padding: '6px 12px',
-                                                            background: 'var(--text-dark-gray)',
-                                                            color: 'var(--text-white)',
+                                                            background: '#555',
+                                                            color: 'white',
                                                             border: 'none',
-                                                            borderRadius: 'var(--radius-sm)',
+                                                            borderRadius: '6px',
                                                             cursor: 'pointer',
                                                             fontSize: '13px',
                                                             fontWeight: '500',
-                                                            transition: 'var(--transition-fast)'
+                                                            transition: 'all 0.3s ease'
                                                         }}
                                                         onMouseEnter={(e) => {
-                                                            e.currentTarget.style.background = 'var(--text-gray)';
+                                                            e.currentTarget.style.background = '#666';
                                                             e.currentTarget.style.transform = 'scale(1.05)';
                                                         }}
                                                         onMouseLeave={(e) => {
-                                                            e.currentTarget.style.background = 'var(--text-dark-gray)';
+                                                            e.currentTarget.style.background = '#555';
                                                             e.currentTarget.style.transform = 'scale(1)';
                                                         }}
                                                     >
@@ -1174,7 +1211,7 @@
                             <div style={{
                                 padding: '60px 20px',
                                 textAlign: 'center',
-                                color: 'var(--text-gray)'
+                                color: '#666'
                             }}>
                                 <div style={{ fontSize: '48px', marginBottom: '15px' }}>🔍</div>
                                 <div style={{ fontSize: '18px', fontWeight: '500', marginBottom: '8px' }}>
@@ -1241,35 +1278,101 @@
             const [user, setUser] = useState(null);
             const [loading, setLoading] = useState(true);
             const [searchQuery, setSearchQuery] = useState('');
+            // Notification state
+            const [notifications, setNotifications] = useState([]);
+            // Connection status
+            const [isOnline, setIsOnline] = useState(navigator.onLine);
+            // Manage sidebar collapsed state
+            const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+                return window.getPreference ? window.getPreference('sidebarCollapsed', false) : false;
+            });
 
             useEffect(() => {
                 const unsubscribe = firebase.auth().onAuthStateChanged(async (firebaseUser) => {
                     if (firebaseUser) {
-                        const userDoc = await firebase.firestore()
-                            .collection('users')
-                            .doc(firebaseUser.uid)
-                            .get();
+                        // Use shared getCurrentUser() function which includes tenant status checking
+                        const userData = await window.getCurrentUser();
 
-                        if (userDoc.exists) {
-                            const userData = userDoc.data();
-                            // Check if user has admin or superadmin role
-                            if (userData.role === 'admin' || userData.role === 'superadmin') {
-                                setUser({ uid: firebaseUser.uid, ...userData });
-                            } else {
-                                alert('Access denied. Admin access required for Users Management.');
-                                window.location.href = '/';
+                        if (userData) {
+                            // 🔐 PAGE ACCESS CONTROL: Check if user has permission to access Users Management
+                            if (!window.canAccessPage(userData, 'users')) {
+                                alert('You do not have permission to access Users Management.');
+                                window.location.href = '/admin/mypirs.html'; // Redirect to My PIRs (default fallback)
+                                return;
                             }
+
+                            setUser(userData);
                         } else {
-                            window.location.href = '/';
+                            // getCurrentUser returns null if tenant is suspended/expired (already redirected)
+                            // or if user doc doesn't exist
+                            window.location.href = '/admin/login';
                         }
                     } else {
-                        window.location.href = '/';
+                        window.location.href = '/admin/login';
                     }
                     setLoading(false);
                 });
 
                 return () => unsubscribe();
             }, []);
+
+            // Set up notification listener
+            useEffect(() => {
+                if (!user) return;
+
+                const unsubscribe = firebase.firestore()
+                    .collection('notifications')
+                    .where('userId', '==', user.uid)
+                    .orderBy('timestamp', 'desc')
+                    .limit(50)
+                    .onSnapshot((snapshot) => {
+                        const notifs = snapshot.docs.map(doc => ({
+                            id: doc.id,
+                            ...doc.data()
+                        }));
+                        setNotifications(notifs);
+                    }, (error) => {
+                        console.error('Error loading notifications:', error);
+                    });
+
+                return () => unsubscribe();
+            }, [user]);
+
+            // Set up connection status listener
+            useEffect(() => {
+                const handleOnline = () => setIsOnline(true);
+                const handleOffline = () => setIsOnline(false);
+
+                window.addEventListener('online', handleOnline);
+                window.addEventListener('offline', handleOffline);
+
+                return () => {
+                    window.removeEventListener('online', handleOnline);
+                    window.removeEventListener('offline', handleOffline);
+                };
+            }, []);
+
+            // Clear notification handlers
+            const handleClearNotification = async (notificationId) => {
+                try {
+                    await firebase.firestore().collection('notifications').doc(notificationId).delete();
+                } catch (error) {
+                    console.error('Error clearing notification:', error);
+                }
+            };
+
+            const handleClearAllNotifications = async () => {
+                try {
+                    const batch = firebase.firestore().batch();
+                    notifications.forEach(notif => {
+                        const docRef = firebase.firestore().collection('notifications').doc(notif.id);
+                        batch.delete(docRef);
+                    });
+                    await batch.commit();
+                } catch (error) {
+                    console.error('Error clearing all notifications:', error);
+                }
+            };
 
             const handleImpersonate = (pirUser) => {
                 alert(`Impersonation feature not yet implemented for: ${pirUser.displayName || pirUser.email}`);
@@ -1288,7 +1391,7 @@
                             width: '60px',
                             height: '60px',
                             border: '4px solid #f3f3f3',
-                            borderTop: '4px solid var(--primary-color)',
+                            borderTop: '4px solid #0077CC',
                             borderRadius: '50%',
                             animation: 'spin 1s linear infinite'
                         }}></div>
@@ -1297,16 +1400,53 @@
             }
 
             return (
-                <div style={{ display: 'flex', minHeight: '100vh', background: '#f5f7fa' }}>
-                    <Sidebar user={user} />
-                    <div style={{
-                        flex: 1,
-                        marginLeft: '280px',
-                        transition: 'margin-left 0.3s'
-                    }}>
-                        <UsersView user={user} searchQuery={searchQuery} onImpersonate={handleImpersonate} />
+                <>
+                    {/* Connection Status Bar */}
+                    {!isOnline && (
+                        <div style={{
+                            background: '#FFA500',
+                            color: 'white',
+                            padding: '10px',
+                            textAlign: 'center',
+                            fontWeight: '600',
+                            fontSize: '14px',
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            zIndex: 9999
+                        }}>
+                            ⚠️ Offline - Some features may be limited
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+                        {/* Header Component */}
+                        <Header
+                            user={user}
+                            searchQuery={searchQuery}
+                            setSearchQuery={setSearchQuery}
+                            sidebarCollapsed={sidebarCollapsed}
+                            notifications={notifications}
+                            onClearNotification={handleClearNotification}
+                            onClearAllNotifications={handleClearAllNotifications}
+                        />
+
+                        {/* Sidebar Component */}
+                        <Sidebar user={user} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
+
+                        {/* Main Content */}
+                        <div style={{
+                            marginLeft: sidebarCollapsed ? '80px' : '280px',
+                            minHeight: '100vh',
+                            background: '#c4c9cf',
+                            padding: '20px',
+                            transition: 'margin-left 0.3s'
+                        }}>
+                            <UsersView user={user} searchQuery={searchQuery} onImpersonate={handleImpersonate} />
+                        </div>
                     </div>
-                </div>
+                </>
             );
         }
 

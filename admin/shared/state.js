@@ -25,24 +25,22 @@
  */
 
 // Get current tenant ID (uses window.CURRENT_TENANT or calculates)
-const getStateT
-
-enantId = () => {
+const getStateTenantId = () => {
     if (window.CURRENT_TENANT) return window.CURRENT_TENANT;
     if (window.getTenantId) return window.getTenantId();
 
     const hostname = window.location.hostname;
-    if (hostname === 'localhost' || hostname.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-        return 'glrs';
+    const path = window.location.pathname;
+
+    // Determine portal type from file path (fallback logic)
+    if (path.includes('consumer.html') || path.includes('/consumer')) {
+        return 'consumer';
+    } else if (path.includes('alumni.html') || path.includes('/alumni')) {
+        return 'alumni';
     }
-    const parts = hostname.split('.');
-    if (parts.length >= 3) {
-        const subdomain = parts[0];
-        if (subdomain !== 'www' && subdomain !== 'app') {
-            return subdomain;
-        }
-    }
-    return 'glrs';
+
+    // Default to full-service portal
+    return 'full-service';
 };
 
 /**

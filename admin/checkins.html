@@ -35,9 +35,11 @@
     <!-- Shared Components -->
     <script src="/admin/shared/firebase.js"></script>
     <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/permissions.js?v=1"></script>
     <script src="/admin/shared/utils.js"></script>
-    <script src="/admin/shared/state.js"></script>
-    <script src="/admin/shared/navigation.js"></script>
+    <script src="/admin/shared/state.js?v=2"></script>
+    <script type="text/babel" src="/admin/shared/navigation.js?v=7"></script>
+    <script type="text/babel" src="/admin/shared/header.js?v=1"></script>
 
     <script type="text/babel">
         // Wait for Firebase to initialize before running
@@ -52,10 +54,98 @@
     const { auth, db, storage, CURRENT_TENANT, logAudit } = window;
 
         // ==========================================
+        // PAGINATION COMPONENT
+        // ==========================================
+        function Pagination({ currentPage, totalPages, onPageChange }) {
+            const renderPageNumbers = () => {
+                const pages = [];
+                const showPages = 5;
+                let startPage = Math.max(1, currentPage - Math.floor(showPages / 2));
+                let endPage = Math.min(totalPages, startPage + showPages - 1);
+
+                if (endPage - startPage < showPages - 1) {
+                    startPage = Math.max(1, endPage - showPages + 1);
+                }
+
+                for (let i = startPage; i <= endPage; i++) {
+                    pages.push(
+                        <button
+                            key={i}
+                            onClick={() => onPageChange(i)}
+                            style={{
+                                padding: '8px 12px',
+                                margin: '0 2px',
+                                background: currentPage === i
+                                    ? '#0077CC'
+                                    : 'white',
+                                color: currentPage === i ? 'white' : '#333',
+                                border: currentPage === i ? 'none' : '1px solid #ddd',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontWeight: currentPage === i ? '600' : 'normal',
+                                fontSize: '14px'
+                            }}
+                        >
+                            {i}
+                        </button>
+                    );
+                }
+
+                return pages;
+            };
+
+            return (
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '20px'
+                }}>
+                    <button
+                        onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                        disabled={currentPage === 1}
+                        style={{
+                            padding: '8px 16px',
+                            background: currentPage === 1 ? '#f0f0f0' : 'white',
+                            color: currentPage === 1 ? '#999' : '#333',
+                            border: '1px solid #ddd',
+                            borderRadius: '6px',
+                            cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '500'
+                        }}
+                    >
+                        Previous
+                    </button>
+
+                    {renderPageNumbers()}
+
+                    <button
+                        onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+                        disabled={currentPage === totalPages}
+                        style={{
+                            padding: '8px 16px',
+                            background: currentPage === totalPages ? '#f0f0f0' : 'white',
+                            color: currentPage === totalPages ? '#999' : '#333',
+                            border: '1px solid #ddd',
+                            borderRadius: '6px',
+                            cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '500'
+                        }}
+                    >
+                        Next
+                    </button>
+                </div>
+            );
+        }
+
+        // ==========================================
         // CHECK-INS VIEW + ANALYTICS VIEW - FULL IMPLEMENTATION
         // ==========================================
 
-function CheckInsView({ searchQuery }) {
+function CheckInsView({ searchQuery, user }) {
     const [checkIns, setCheckIns] = useState([]);
     const [filteredCheckIns, setFilteredCheckIns] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -118,35 +208,43 @@ function CheckInsView({ searchQuery }) {
 
     const loadCheckInsAndUsers = async () => {
         try {
-            const usersSnap = await db.collection('users')
-                .where('role', '==', 'pir')
-                .get();
-            
+            // 🔐 SCOPE FILTERING: Apply data scope based on user role
+            let pirQuery = db.collection('users').where('role', '==', 'pir');
+            pirQuery = window.applyScopeToPIRQuery(pirQuery, user, CURRENT_TENANT);
+            const usersSnap = await pirQuery.get();
+
             const usersData = [];
             const userMap = {};
-            
+            const allowedPIRIds = new Set();
+
             usersSnap.forEach(doc => {
-                const user = { id: doc.id, ...doc.data() };
-                usersData.push(user);
-                userMap[doc.id] = user.displayName || user.email;
+                const userData = { id: doc.id, ...doc.data() };
+                usersData.push(userData);
+                userMap[doc.id] = userData.displayName || userData.email;
+                allowedPIRIds.add(doc.id);
             });
-            
+
             setUsers(usersData);
 
             const checkInsSnap = await db.collection('checkIns')
                 .orderBy('createdAt', 'desc')
                 .limit(1000)
                 .get();
-            
+
+            // 🔐 Filter check-ins to only those for PIRs in scope
             const checkInsData = [];
             checkInsSnap.forEach(doc => {
                 const checkIn = { id: doc.id, ...doc.data() };
-                checkIn.userName = userMap[checkIn.userId] || 'Unknown User';
-                checkIn.riskLevel = calculateRiskLevel(checkIn);
-                checkIn.completionStatus = getCompletionStatus(checkIn);
-                checkInsData.push(checkIn);
+
+                // Only include check-ins for PIRs the user can see
+                if (checkIn.userId && allowedPIRIds.has(checkIn.userId)) {
+                    checkIn.userName = userMap[checkIn.userId] || 'Unknown User';
+                    checkIn.riskLevel = calculateRiskLevel(checkIn);
+                    checkIn.completionStatus = getCompletionStatus(checkIn);
+                    checkInsData.push(checkIn);
+                }
             });
-            
+
             setCheckIns(checkInsData);
         } catch (error) {
             console.error('Error loading check-ins:', error);
@@ -3048,6 +3146,21 @@ function AnalyticsView({ analyticsData, checkIns, users, onClose, onSelectPIR })
 }
         // INDIVIDUAL PIR REPORT - DETAILED ANALYSIS
 function IndividualPIRReport({ pirId, checkIns, analyticsData, onClose }) {
+    return (
+        <div style={{ padding: '20px' }}>
+            <h2>Individual PIR Report</h2>
+            <p>Report for PIR ID: {pirId}</p>
+            <button onClick={onClose} style={{
+                padding: '10px 20px',
+                background: '#0077CC',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer'
+            }}>Close</button>
+        </div>
+    );
+}
 
         // ==========================================
         // ROOT APP COMPONENT
@@ -3056,19 +3169,93 @@ function IndividualPIRReport({ pirId, checkIns, analyticsData, onClose }) {
         function CheckInsApp() {
             const [searchQuery, setSearchQuery] = useState('');
             const [user, setUser] = useState(null);
+            // Notification state
+            const [notifications, setNotifications] = useState([]);
+            // Connection status
+            const [isOnline, setIsOnline] = useState(navigator.onLine);
+            // Manage sidebar collapsed state
+            const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+                return window.getPreference ? window.getPreference('sidebarCollapsed', false) : false;
+            });
 
             useEffect(() => {
                 const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
                     if (firebaseUser) {
                         const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
-                        setUser({ uid: firebaseUser.uid, ...userDoc.data() });
+                        const userData = { uid: firebaseUser.uid, ...userDoc.data() };
+                        // 🔐 PAGE ACCESS CONTROL: Check if user has permission to access Check-ins
+                        if (!window.canAccessPage(userData, 'checkins')) {
+                            alert('You do not have permission to access Check-ins.');
+                            window.location.href = '/admin/mypirs.html'; // Redirect to My PIRs (default fallback)
+                            return;
+                        }
+
+                        setUser(userData);
                     } else {
-                        window.location.href = '/';
+                        window.location.href = '/admin/login';
                     }
                 });
 
                 return unsubscribe;
             }, []);
+
+            // Set up notification listener
+            useEffect(() => {
+                if (!user) return;
+
+                const unsubscribe = firebase.firestore()
+                    .collection('notifications')
+                    .where('userId', '==', user.uid)
+                    .orderBy('timestamp', 'desc')
+                    .limit(50)
+                    .onSnapshot((snapshot) => {
+                        const notifs = snapshot.docs.map(doc => ({
+                            id: doc.id,
+                            ...doc.data()
+                        }));
+                        setNotifications(notifs);
+                    }, (error) => {
+                        console.error('Error loading notifications:', error);
+                    });
+
+                return () => unsubscribe();
+            }, [user]);
+
+            // Set up connection status listener
+            useEffect(() => {
+                const handleOnline = () => setIsOnline(true);
+                const handleOffline = () => setIsOnline(false);
+
+                window.addEventListener('online', handleOnline);
+                window.addEventListener('offline', handleOffline);
+
+                return () => {
+                    window.removeEventListener('online', handleOnline);
+                    window.removeEventListener('offline', handleOffline);
+                };
+            }, []);
+
+            // Clear notification handlers
+            const handleClearNotification = async (notificationId) => {
+                try {
+                    await firebase.firestore().collection('notifications').doc(notificationId).delete();
+                } catch (error) {
+                    console.error('Error clearing notification:', error);
+                }
+            };
+
+            const handleClearAllNotifications = async () => {
+                try {
+                    const batch = firebase.firestore().batch();
+                    notifications.forEach(notif => {
+                        const docRef = firebase.firestore().collection('notifications').doc(notif.id);
+                        batch.delete(docRef);
+                    });
+                    await batch.commit();
+                } catch (error) {
+                    console.error('Error clearing all notifications:', error);
+                }
+            };
 
             if (!user) {
                 return (
@@ -3079,15 +3266,53 @@ function IndividualPIRReport({ pirId, checkIns, analyticsData, onClose }) {
             }
 
             return (
-                <div style={{ display: 'flex', minHeight: '100vh' }}>
-                    <Sidebar activePage="checkins" />
-                    <div style={{ flex: 1, marginLeft: '280px' }}>
-                        <Topbar user={user} searchQuery={searchQuery} onSearchChange={setSearchQuery} />
-                        <div style={{ padding: '20px' }}>
-                            <CheckInsView searchQuery={searchQuery} />
+                <>
+                    {/* Connection Status Bar */}
+                    {!isOnline && (
+                        <div style={{
+                            background: '#FFA500',
+                            color: 'white',
+                            padding: '10px',
+                            textAlign: 'center',
+                            fontWeight: '600',
+                            fontSize: '14px',
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            zIndex: 9999
+                        }}>
+                            ⚠️ Offline - Some features may be limited
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+                        {/* Header Component */}
+                        <Header
+                            user={user}
+                            searchQuery={searchQuery}
+                            setSearchQuery={setSearchQuery}
+                            sidebarCollapsed={sidebarCollapsed}
+                            notifications={notifications}
+                            onClearNotification={handleClearNotification}
+                            onClearAllNotifications={handleClearAllNotifications}
+                        />
+
+                        {/* Sidebar Component */}
+                        <Sidebar user={user} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
+
+                        {/* Main Content */}
+                        <div style={{
+                            marginLeft: sidebarCollapsed ? '80px' : '280px',
+                            minHeight: '100vh',
+                            background: '#c4c9cf',
+                            padding: '20px',
+                            transition: 'margin-left 0.3s'
+                        }}>
+                            <CheckInsView searchQuery={searchQuery} user={user} />
                         </div>
                     </div>
-                </div>
+                </>
             );
         }
 

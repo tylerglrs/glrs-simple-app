@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GLRS Portal Migration Tool</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f7fa;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #0077CC;
+            margin-top: 0;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .warning h3 {
+            margin-top: 0;
+            color: #856404;
+        }
+        .info {
+            background: #e7f3ff;
+            border: 2px solid #0077CC;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        button {
+            background: linear-gradient(135deg, #0077CC 0%, #00A86B 100%);
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        button:disabled {
+            background: #ddd;
+            cursor: not-allowed;
+        }
+        .danger {
+            background: linear-gradient(135deg, #DC143C 0%, #A01030 100%);
+        }
+        #log {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #0077CC;
+        }
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #0077CC;
+        }
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 GLRS Portal Migration Tool</h1>
+        <p>This tool migrates existing Firestore data from multi-tenant to single-business portal architecture.</p>
+
+        <div class="warning">
+            <h3>⚠️ IMPORTANT: Read Before Running</h3>
+            <ul>
+                <li><strong>BACKUP YOUR DATA:</strong> This migration modifies Firestore documents. Make sure you have a backup before proceeding.</li>
+                <li><strong>What it does:</strong> Changes all tenantId values from 'glrs' to 'full-service'</li>
+                <li><strong>Irreversible:</strong> This cannot be undone automatically. You'll need to restore from backup to revert.</li>
+                <li><strong>SuperAdmin Only:</strong> You must be logged in as a SuperAdmin to run this.</li>
+            </ul>
+        </div>
+
+        <div class="info">
+            <h3>📋 Migration Details</h3>
+            <p><strong>Current Portal Values:</strong></p>
+            <ul>
+                <li><code>'glrs'</code> → <code>'full-service'</code> (Premium portal)</li>
+                <li><code>'acme'</code> → <code>'full-service'</code> (Legacy, if exists)</li>
+                <li><code>'brightpath'</code> → <code>'full-service'</code> (Legacy, if exists)</li>
+            </ul>
+            <p><strong>Collections to Migrate:</strong> 19 total</p>
+            <p style="font-size: 13px; color: #666;">
+                users, checkins, goals, assignments, messages, communityMessages, topicRooms, supportGroups,
+                meetings, resources, resourceNotes, notifications, broadcasts, connections, emergencyContacts,
+                achievements, feedback, alerts, auditLogs
+            </p>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="totalDocs">-</div>
+                <div class="stat-label">Total Documents</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="migratedDocs">-</div>
+                <div class="stat-label">Migrated</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="errorCount">-</div>
+                <div class="stat-label">Errors</div>
+            </div>
+        </div>
+
+        <div style="margin: 30px 0;">
+            <button id="scanBtn" onclick="scanData()">
+                🔍 Scan Data (Preview Only)
+            </button>
+            <button id="migrateBtn" class="danger" onclick="runMigration()" disabled>
+                🚀 Run Migration
+            </button>
+        </div>
+
+        <div id="log"></div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+    <!-- Firebase Config -->
+    <script src="/admin/shared/firebase.js"></script>
+
+    <script>
+        let currentUser = null;
+        let scanResults = {};
+
+        // Log helper
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const colors = {
+                'info': '#00ff00',
+                'success': '#00ff00',
+                'warning': '#ffaa00',
+                'error': '#ff0000'
+            };
+            logDiv.innerHTML += `<span style="color: ${colors[type]}">[${timestamp}] ${message}</span>\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        // Collections to migrate
+        const COLLECTIONS = [
+            'users', 'checkins', 'goals', 'assignments', 'messages',
+            'communityMessages', 'topicRooms', 'supportGroups', 'meetings',
+            'resources', 'resourceNotes', 'notifications', 'broadcasts',
+            'connections', 'emergencyContacts', 'achievements', 'feedback',
+            'alerts', 'auditLogs'
+        ];
+
+        // Check authentication
+        firebase.auth().onAuthStateChanged(async (user) => {
+            if (user) {
+                const userDoc = await db.collection('users').doc(user.uid).get();
+                currentUser = userDoc.data();
+
+                if (currentUser.role === 'superadmin') {
+                    log('✅ Authenticated as SuperAdmin: ' + user.email, 'success');
+                } else {
+                    log('❌ ERROR: You must be SuperAdmin to run migrations', 'error');
+                    alert('Access Denied: SuperAdmin role required');
+                }
+            } else {
+                log('❌ ERROR: Not authenticated', 'error');
+                alert('Please log in first');
+                window.location.href = '/admin/dashboard.html';
+            }
+        });
+
+        // Scan data (preview only)
+        async function scanData() {
+            if (!currentUser || currentUser.role !== 'superadmin') {
+                alert('SuperAdmin authentication required');
+                return;
+            }
+
+            document.getElementById('scanBtn').disabled = true;
+            log('🔍 Starting data scan...', 'info');
+            scanResults = {};
+            let totalCount = 0;
+
+            for (const collection of COLLECTIONS) {
+                try {
+                    // Count documents with tenantId = 'glrs'
+                    const glrsSnapshot = await db.collection(collection)
+                        .where('tenantId', '==', 'glrs')
+                        .get();
+
+                    // Count other legacy values
+                    const acmeSnapshot = await db.collection(collection)
+                        .where('tenantId', '==', 'acme')
+                        .get();
+
+                    const brightpathSnapshot = await db.collection(collection)
+                        .where('tenantId', '==', 'brightpath')
+                        .get();
+
+                    const count = glrsSnapshot.size + acmeSnapshot.size + brightpathSnapshot.size;
+
+                    if (count > 0) {
+                        scanResults[collection] = count;
+                        totalCount += count;
+                        log(`   ${collection}: ${count} documents need migration`, 'info');
+                    } else {
+                        log(`   ${collection}: ✅ No migration needed`, 'success');
+                    }
+
+                } catch (error) {
+                    log(`   ${collection}: ❌ Error - ${error.message}`, 'error');
+                }
+            }
+
+            log('─'.repeat(50), 'info');
+            log(`📊 SCAN COMPLETE: ${totalCount} total documents need migration`, 'success');
+            document.getElementById('totalDocs').textContent = totalCount;
+
+            if (totalCount > 0) {
+                document.getElementById('migrateBtn').disabled = false;
+                log('✅ Ready to migrate. Click "Run Migration" to proceed.', 'success');
+            } else {
+                log('✅ No migration needed! All data already uses new portal values.', 'success');
+            }
+
+            document.getElementById('scanBtn').disabled = false;
+        }
+
+        // Run migration
+        async function runMigration() {
+            if (!currentUser || currentUser.role !== 'superadmin') {
+                alert('SuperAdmin authentication required');
+                return;
+            }
+
+            const confirmed = confirm(
+                '⚠️ FINAL WARNING ⚠️\n\n' +
+                'This will permanently modify your Firestore database.\n\n' +
+                'Have you created a backup?\n\n' +
+                'Click OK to proceed with migration.'
+            );
+
+            if (!confirmed) {
+                log('❌ Migration cancelled by user', 'warning');
+                return;
+            }
+
+            document.getElementById('migrateBtn').disabled = true;
+            document.getElementById('scanBtn').disabled = true;
+
+            log('🚀 Starting migration...', 'info');
+            log('─'.repeat(50), 'info');
+
+            let totalMigrated = 0;
+            let totalErrors = 0;
+
+            for (const collection of COLLECTIONS) {
+                try {
+                    log(`📦 Migrating ${collection}...`, 'info');
+
+                    // Migrate 'glrs' → 'full-service'
+                    let collectionTotal = 0;
+                    collectionTotal += await migrateTenantValue(collection, 'glrs', 'full-service');
+
+                    // Migrate legacy values if they exist
+                    collectionTotal += await migrateTenantValue(collection, 'acme', 'full-service');
+                    collectionTotal += await migrateTenantValue(collection, 'brightpath', 'full-service');
+
+                    if (collectionTotal > 0) {
+                        log(`   ✅ ${collection}: Migrated ${collectionTotal} documents`, 'success');
+                        totalMigrated += collectionTotal;
+                    } else {
+                        log(`   ✅ ${collection}: No documents to migrate`, 'success');
+                    }
+
+                } catch (error) {
+                    log(`   ❌ ${collection}: ERROR - ${error.message}`, 'error');
+                    totalErrors++;
+                }
+            }
+
+            log('─'.repeat(50), 'info');
+            log(`✅ MIGRATION COMPLETE!`, 'success');
+            log(`   Migrated: ${totalMigrated} documents`, 'success');
+            log(`   Errors: ${totalErrors}`, totalErrors > 0 ? 'error' : 'success');
+
+            document.getElementById('migratedDocs').textContent = totalMigrated;
+            document.getElementById('errorCount').textContent = totalErrors;
+
+            // Log to audit
+            await db.collection('auditLogs').add({
+                action: 'portal_migration_completed',
+                userId: currentUser.uid,
+                userEmail: currentUser.email,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                details: {
+                    totalMigrated,
+                    totalErrors,
+                    collections: COLLECTIONS
+                }
+            });
+
+            alert(`Migration complete!\n\nMigrated: ${totalMigrated} documents\nErrors: ${totalErrors}`);
+        }
+
+        // Helper: Migrate specific tenant value
+        async function migrateTenantValue(collection, oldValue, newValue) {
+            const snapshot = await db.collection(collection)
+                .where('tenantId', '==', oldValue)
+                .get();
+
+            if (snapshot.empty) return 0;
+
+            // Process in batches of 500 (Firestore limit)
+            const batchSize = 500;
+            const batches = [];
+            let currentBatch = db.batch();
+            let batchCount = 0;
+
+            snapshot.docs.forEach((doc, index) => {
+                currentBatch.update(doc.ref, { tenantId: newValue });
+                batchCount++;
+
+                if (batchCount === batchSize) {
+                    batches.push(currentBatch);
+                    currentBatch = db.batch();
+                    batchCount = 0;
+                }
+            });
+
+            // Add remaining docs
+            if (batchCount > 0) {
+                batches.push(currentBatch);
+            }
+
+            // Commit all batches
+            for (const batch of batches) {
+                await batch.commit();
+            }
+
+            return snapshot.size;
+        }
+
+        // Initialize
+        window.addEventListener('load', () => {
+            log('🔧 Migration tool loaded', 'info');
+            log('👉 Click "Scan Data" to preview what will be migrated', 'info');
+        });
+    </script>
+</body>
+</html>

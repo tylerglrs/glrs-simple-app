@@ -19,9 +19,11 @@
     <div id="root"></div>
     <script src="/admin/shared/firebase.js"></script>
     <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/permissions.js"></script>
     <script src="/admin/shared/utils.js"></script>
-    <script src="/admin/shared/state.js"></script>
-    <script src="/admin/shared/navigation.js"></script>
+    <script src="/admin/shared/state.js?v=2"></script>
+    <script type="text/babel" src="/admin/shared/navigation.js?v=7"></script>
+    <script type="text/babel" src="/admin/shared/header.js?v=1"></script>
     <script type="text/babel">
 (function initPage() {
     if (!window.FIREBASE_READY || !window.auth || !window.db) {
@@ -2006,20 +2008,23 @@ function EnhancedChatTab({
                                     >
                                         ⚠️
                                     </button>
-                                    <button
-                                        onClick={() => handleDeleteMessage(message.id)}
-                                        style={{
-                                            padding: '4px 8px',
-                                            background: 'transparent',
-                                            border: '1px solid #ddd',
-                                            borderRadius: '6px',
-                                            cursor: 'pointer',
-                                            fontSize: '12px'
-                                        }}
-                                        title="Delete message"
-                                    >
-                                        🗑️
-                                    </button>
+                                    {/* 🔐 ACTION PERMISSION: send_message - Delete messages (moderation) */}
+                                    {window.canPerformAction(user, 'send_message') && (
+                                        <button
+                                            onClick={() => handleDeleteMessage(message.id)}
+                                            style={{
+                                                padding: '4px 8px',
+                                                background: 'transparent',
+                                                border: '1px solid #ddd',
+                                                borderRadius: '6px',
+                                                cursor: 'pointer',
+                                                fontSize: '12px'
+                                            }}
+                                            title="Delete message"
+                                        >
+                                            🗑️
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                             
@@ -2162,21 +2167,24 @@ function EnhancedChatTab({
                                 fontSize: '14px'
                             }}
                         />
-                        <button
-                            onClick={handleSendMessage}
-                            style={{
-                                padding: '12px 24px',
-                                background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '10px',
-                                cursor: 'pointer',
-                                fontSize: '14px',
-                                fontWeight: '600'
-                            }}
-                        >
-                            Send
-                        </button>
+                        {/* 🔐 ACTION PERMISSION: send_message - Send messages in community */}
+                        {window.canPerformAction(user, 'send_message') && (
+                            <button
+                                onClick={handleSendMessage}
+                                style={{
+                                    padding: '12px 24px',
+                                    background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '600'
+                                }}
+                            >
+                                Send
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -3358,11 +3366,13 @@ function CommunityCreateModal({ type, item, onSubmit, onClose, user }) {
 
     const loadPIRs = async () => {
         try {
-            const pirsSnap = await db.collection('users')
+            // 🔐 SCOPE FILTERING: Apply data scope based on user role
+            let pirQuery = db.collection('users')
                 .where('role', '==', 'pir')
-                .where('active', '!=', false)
-                .get();
-            
+                .where('active', '!=', false);
+            pirQuery = window.applyScopeToPIRQuery(pirQuery, user, CURRENT_TENANT);
+            const pirsSnap = await pirQuery.get();
+
             const pirsData = [];
             pirsSnap.forEach(doc => {
                 const data = doc.data();
@@ -4388,11 +4398,12 @@ function AttendanceModal({ meeting, onClose, handleRecordAttendance }) {
         try {
             // Load PIRs
             let pirIds = meeting.assignedPIRs || [];
-            
+
             if (meeting.isGlobal) {
-                const pirsSnap = await db.collection('users')
-                    .where('role', '==', 'pir')
-                    .get();
+                // 🔐 SCOPE FILTERING: Apply data scope based on user role
+                let pirQuery = db.collection('users').where('role', '==', 'pir');
+                pirQuery = window.applyScopeToPIRQuery(pirQuery, user, CURRENT_TENANT);
+                const pirsSnap = await pirQuery.get();
                 pirIds = pirsSnap.docs.map(doc => doc.id);
             }
 
@@ -4603,30 +4614,131 @@ function AttendanceModal({ meeting, onClose, handleRecordAttendance }) {
 function CommunityApp() {
     const [searchQuery, setSearchQuery] = useState('');
     const [user, setUser] = useState(null);
+    // Notification state
+    const [notifications, setNotifications] = useState([]);
+    // Connection status
+    const [isOnline, setIsOnline] = useState(navigator.onLine);
+    // Manage sidebar collapsed state
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+        return window.getPreference ? window.getPreference('sidebarCollapsed', false) : false;
+    });
     useEffect(() => {
         const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
             if (firebaseUser) {
                 const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
-                setUser({ uid: firebaseUser.uid, ...userDoc.data() });
+                const userData = { uid: firebaseUser.uid, ...userDoc.data() };
+                // 🔐 PAGE ACCESS CONTROL: Check if user has permission to access Community
+                if (!window.canAccessPage(userData, 'community')) {
+                    alert('You do not have permission to access Community.');
+                    window.location.href = '/admin/mypirs.html'; // Redirect to My PIRs (default fallback)
+                    return;
+                }
+
+                setUser(userData);
             } else {
-                window.location.href = '/';
+                window.location.href = '/admin/login';
             }
         });
         return unsubscribe;
     }, []);
+    // Set up notification listener
+    useEffect(() => {
+        if (!user) return;
+        const unsubscribe = firebase.firestore()
+            .collection('notifications')
+            .where('userId', '==', user.uid)
+            .orderBy('timestamp', 'desc')
+            .limit(50)
+            .onSnapshot((snapshot) => {
+                const notifs = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+                setNotifications(notifs);
+            }, (error) => {
+                console.error('Error loading notifications:', error);
+            });
+        return () => unsubscribe();
+    }, [user]);
+    // Set up connection status listener
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
+    // Clear notification handlers
+    const handleClearNotification = async (notificationId) => {
+        try {
+            await firebase.firestore().collection('notifications').doc(notificationId).delete();
+        } catch (error) {
+            console.error('Error clearing notification:', error);
+        }
+    };
+    const handleClearAllNotifications = async () => {
+        try {
+            const batch = firebase.firestore().batch();
+            notifications.forEach(notif => {
+                const docRef = firebase.firestore().collection('notifications').doc(notif.id);
+                batch.delete(docRef);
+            });
+            await batch.commit();
+        } catch (error) {
+            console.error('Error clearing all notifications:', error);
+        }
+    };
     if (!user) {
         return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}><div className="loading-spinner"></div></div>;
     }
     return (
-        <div style={{ display: 'flex', minHeight: '100vh' }}>
-            <Sidebar activePage="community" />
-            <div style={{ flex: 1, marginLeft: '280px' }}>
-                <Topbar user={user} searchQuery={searchQuery} onSearchChange={setSearchQuery} />
-                <div style={{ padding: '20px' }}>
+        <>
+            {/* Connection Status Bar */}
+            {!isOnline && (
+                <div style={{
+                    background: '#FFA500',
+                    color: 'white',
+                    padding: '10px',
+                    textAlign: 'center',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    zIndex: 9999
+                }}>
+                    ⚠️ Offline - Some features may be limited
+                </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+                {/* Header Component */}
+                <Header
+                    user={user}
+                    searchQuery={searchQuery}
+                    setSearchQuery={setSearchQuery}
+                    sidebarCollapsed={sidebarCollapsed}
+                    notifications={notifications}
+                    onClearNotification={handleClearNotification}
+                    onClearAllNotifications={handleClearAllNotifications}
+                />
+                {/* Sidebar Component */}
+                <Sidebar user={user} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
+                {/* Main Content */}
+                <div style={{
+                    marginLeft: sidebarCollapsed ? '80px' : '280px',
+                    minHeight: '100vh',
+                    background: '#c4c9cf',
+                    padding: '20px',
+                    transition: 'margin-left 0.3s'
+                }}>
                     <CommunityView searchQuery={searchQuery} user={user} />
                 </div>
             </div>
-        </div>
+        </>
     );
 }
 ReactDOM.render(<CommunityApp />, document.getElementById('root'));

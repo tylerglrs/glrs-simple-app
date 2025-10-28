@@ -34,9 +34,11 @@
     <!-- Shared Components -->
     <script src="/admin/shared/firebase.js"></script>
     <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/permissions.js"></script>
     <script src="/admin/shared/utils.js"></script>
-    <script src="/admin/shared/state.js"></script>
-    <script src="/admin/shared/navigation.js"></script>
+    <script src="/admin/shared/state.js?v=2"></script>
+    <script type="text/babel" src="/admin/shared/navigation.js?v=7"></script>
+    <script type="text/babel" src="/admin/shared/header.js?v=1"></script>
 
     <script type="text/babel">
         // Wait for Firebase to initialize before running
@@ -757,11 +759,14 @@ const addMilestonesToCoachCalendar = async (pir, accessToken) => {
                 try {
                     setLoading(true);
 
-                    const pirsSnap = await db.collection('users')
-                        .where('tenantId', '==', CURRENT_TENANT)
-                        .where('assignedCoach', '==', user.uid)
-                        .where('role', '==', 'pir')
-                        .get();
+                    // 🔐 SCOPE FILTERING: Apply data scope based on user role
+                    // - Coaches: Only assigned PIRs
+                    // - Admins: All PIRs in tenant
+                    // - SuperAdmin: All PIRs across all tenants
+                    let pirQuery = db.collection('users').where('role', '==', 'pir');
+                    pirQuery = window.applyScopeToPIRQuery(pirQuery, user, CURRENT_TENANT);
+
+                    const pirsSnap = await pirQuery.get();
 
                     const pirsData = [];
                     const pirIds = [];
@@ -1589,36 +1594,42 @@ const addMilestonesToCoachCalendar = async (pir, accessToken) => {
                         >
                             Notes
                         </button>
-                        <button
-                            onClick={() => handleQuickAssignment(pir.id)}
-                            style={{
-                                padding: '10px 16px',
-                                background: '#00A86B',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                fontSize: '13px',
-                                fontWeight: '500'
-                            }}
-                        >
-                            + Task
-                        </button>
-                        <button
-                            onClick={() => handleExportPIRReport(pir)}
-                            style={{
-                                padding: '10px 16px',
-                                background: '#FFA500',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                fontSize: '13px',
-                                fontWeight: '500'
-                            }}
-                        >
-                            Export
-                        </button>
+                        {/* 🔐 ACTION PERMISSION: create_assignment - Quick assignment button */}
+                        {window.canPerformAction(user, 'create_assignment') && (
+                            <button
+                                onClick={() => handleQuickAssignment(pir.id)}
+                                style={{
+                                    padding: '10px 16px',
+                                    background: '#00A86B',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                + Task
+                            </button>
+                        )}
+                        {/* 🔐 ACTION PERMISSION: export_data - Export PIR report */}
+                        {window.canPerformAction(user, 'export_data') && (
+                            <button
+                                onClick={() => handleExportPIRReport(pir)}
+                                style={{
+                                    padding: '10px 16px',
+                                    background: '#FFA500',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                Export
+                            </button>
+                        )}
                     </div>
                 </div>
             ))}
@@ -1723,6 +1734,14 @@ const addMilestonesToCoachCalendar = async (pir, accessToken) => {
             const [user, setUser] = useState(null);
             const [loading, setLoading] = useState(true);
             const [searchQuery, setSearchQuery] = useState('');
+            // Notification state
+            const [notifications, setNotifications] = useState([]);
+            // Connection status
+            const [isOnline, setIsOnline] = useState(navigator.onLine);
+            // Manage sidebar collapsed state
+            const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+                return window.getPreference ? window.getPreference('sidebarCollapsed', false) : false;
+            });
 
             useEffect(() => {
                 const unsubscribe = firebase.auth().onAuthStateChanged(async (firebaseUser) => {
@@ -1733,25 +1752,84 @@ const addMilestonesToCoachCalendar = async (pir, accessToken) => {
                             .get();
 
                         if (userDoc.exists) {
-                            const userData = userDoc.data();
-                            // Check if user has coach or admin role
-                            if (userData.role === 'coach' || userData.role === 'admin' || userData.role === 'superadmin') {
-                                setUser({ uid: firebaseUser.uid, ...userData });
-                            } else {
-                                alert('Access denied. Coach access required for My PIRs.');
-                                window.location.href = '/';
+                            const userData = { uid: firebaseUser.uid, ...userDoc.data() };
+                            // 🔐 PAGE ACCESS CONTROL: Check if user has permission to access My PIRs
+                            if (!window.canAccessPage(userData, 'my_pirs')) {
+                                alert('You do not have permission to access My PIRs.');
+                                window.location.href = '/admin/mypirs.html'; // Redirect to My PIRs (default fallback)
+                                return;
                             }
+
+                            setUser(userData);
                         } else {
-                            window.location.href = '/';
+                            window.location.href = '/admin/login';
                         }
                     } else {
-                        window.location.href = '/';
+                        window.location.href = '/admin/login';
                     }
                     setLoading(false);
                 });
 
                 return () => unsubscribe();
             }, []);
+
+            // Set up notification listener
+            useEffect(() => {
+                if (!user) return;
+
+                const unsubscribe = firebase.firestore()
+                    .collection('notifications')
+                    .where('userId', '==', user.uid)
+                    .orderBy('timestamp', 'desc')
+                    .limit(50)
+                    .onSnapshot((snapshot) => {
+                        const notifs = snapshot.docs.map(doc => ({
+                            id: doc.id,
+                            ...doc.data()
+                        }));
+                        setNotifications(notifs);
+                    }, (error) => {
+                        console.error('Error loading notifications:', error);
+                    });
+
+                return () => unsubscribe();
+            }, [user]);
+
+            // Set up connection status listener
+            useEffect(() => {
+                const handleOnline = () => setIsOnline(true);
+                const handleOffline = () => setIsOnline(false);
+
+                window.addEventListener('online', handleOnline);
+                window.addEventListener('offline', handleOffline);
+
+                return () => {
+                    window.removeEventListener('online', handleOnline);
+                    window.removeEventListener('offline', handleOffline);
+                };
+            }, []);
+
+            // Clear notification handlers
+            const handleClearNotification = async (notificationId) => {
+                try {
+                    await firebase.firestore().collection('notifications').doc(notificationId).delete();
+                } catch (error) {
+                    console.error('Error clearing notification:', error);
+                }
+            };
+
+            const handleClearAllNotifications = async () => {
+                try {
+                    const batch = firebase.firestore().batch();
+                    notifications.forEach(notif => {
+                        const docRef = firebase.firestore().collection('notifications').doc(notif.id);
+                        batch.delete(docRef);
+                    });
+                    await batch.commit();
+                } catch (error) {
+                    console.error('Error clearing all notifications:', error);
+                }
+            };
 
             if (loading) {
                 return (
@@ -1775,16 +1853,53 @@ const addMilestonesToCoachCalendar = async (pir, accessToken) => {
             }
 
             return (
-                <div style={{ display: 'flex', minHeight: '100vh', background: '#f5f7fa' }}>
-                    <Sidebar user={user} />
-                    <div style={{
-                        flex: 1,
-                        marginLeft: '280px',
-                        transition: 'margin-left 0.3s'
-                    }}>
-                        <MyPIRsView user={user} searchQuery={searchQuery} />
+                <>
+                    {/* Connection Status Bar */}
+                    {!isOnline && (
+                        <div style={{
+                            background: '#FFA500',
+                            color: 'white',
+                            padding: '10px',
+                            textAlign: 'center',
+                            fontWeight: '600',
+                            fontSize: '14px',
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            zIndex: 9999
+                        }}>
+                            ⚠️ Offline - Some features may be limited
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+                        {/* Header Component */}
+                        <Header
+                            user={user}
+                            searchQuery={searchQuery}
+                            setSearchQuery={setSearchQuery}
+                            sidebarCollapsed={sidebarCollapsed}
+                            notifications={notifications}
+                            onClearNotification={handleClearNotification}
+                            onClearAllNotifications={handleClearAllNotifications}
+                        />
+
+                        {/* Sidebar Component */}
+                        <Sidebar user={user} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
+
+                        {/* Main Content */}
+                        <div style={{
+                            marginLeft: sidebarCollapsed ? '80px' : '280px',
+                            minHeight: '100vh',
+                            background: '#c4c9cf',
+                            padding: '20px',
+                            transition: 'margin-left 0.3s'
+                        }}>
+                            <MyPIRsView user={user} searchQuery={searchQuery} />
+                        </div>
                     </div>
-                </div>
+                </>
             );
         }
 

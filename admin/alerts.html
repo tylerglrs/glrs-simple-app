@@ -28,9 +28,11 @@
     <!-- Shared Components -->
     <script src="/admin/shared/firebase.js"></script>
     <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/permissions.js"></script>
     <script src="/admin/shared/utils.js"></script>
-    <script src="/admin/shared/state.js"></script>
-    <script src="/admin/shared/navigation.js"></script>
+    <script src="/admin/shared/state.js?v=2"></script>
+    <script type="text/babel" src="/admin/shared/navigation.js?v=7"></script>
+    <script type="text/babel" src="/admin/shared/header.js?v=1"></script>
 
     <!-- Page Component -->
     <script type="text/babel">
@@ -368,6 +370,17 @@
 
     const loadAlerts = async () => {
         try {
+            // 🔐 SCOPE FILTERING: First, get PIRs user can see
+            let pirQuery = db.collection('users').where('role', '==', 'pir');
+            pirQuery = window.applyScopeToPIRQuery(pirQuery, user, CURRENT_TENANT);
+            const pirsSnap = await pirQuery.get();
+
+            const allowedPIRIds = new Set();
+            pirsSnap.forEach(doc => {
+                allowedPIRIds.add(doc.id);
+            });
+
+            // Load all alerts (note: ideally alerts should have tenantId for better filtering)
             const alertsSnap = await db.collection('alerts')
                 .orderBy('createdAt', 'desc')
                 .get();
@@ -375,10 +388,15 @@
             const alertsData = [];
             const userIds = new Set();
 
+            // 🔐 Filter alerts to only those for PIRs in scope
             alertsSnap.forEach(doc => {
                 const alert = { id: doc.id, ...doc.data() };
-                alertsData.push(alert);
-                if (alert.userId) userIds.add(alert.userId);
+
+                // Only include alerts for PIRs the user can see
+                if (alert.userId && allowedPIRIds.has(alert.userId)) {
+                    alertsData.push(alert);
+                    userIds.add(alert.userId);
+                }
             });
 
             if (userIds.size > 0) {
@@ -672,7 +690,7 @@
             }}>
                 {/* Total Alerts */}
                 <div style={{
-                    background: 'linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%)',
+                    background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
                     borderRadius: '15px',
                     padding: '25px',
                     color: 'white',
@@ -726,14 +744,14 @@
                     <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
                         {stats.sos.count}
                     </div>
-                    <div style={{ fontSize: '12px', opacity: 0.8' }}>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>
                         Avg response: {formatResponseTime(stats.sos.avgResponseTime)}
                     </div>
                 </div>
 
                 {/* Missed Check-ins */}
                 <div style={{
-                    background: 'linear-gradient(135deg, var(--accent-color) 0%, #FF6B00 100%)',
+                    background: 'linear-gradient(135deg, #FF9800 0%, #FF6B00 100%)',
                     borderRadius: '15px',
                     padding: '25px',
                     color: 'white',
@@ -749,7 +767,7 @@
                     <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
                         {stats.missedCheckin.count}
                     </div>
-                    <div style={{ fontSize: '12px', opacity: 0.8' }}>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>
                         Avg response: {formatResponseTime(stats.missedCheckin.avgResponseTime)}
                     </div>
                 </div>
@@ -772,7 +790,7 @@
                     <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
                         {stats.highCraving.count}
                     </div>
-                    <div style={{ fontSize: '12px', opacity: 0.8' }}>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>
                         Avg response: {formatResponseTime(stats.highCraving.avgResponseTime)}
                     </div>
                 </div>
@@ -789,13 +807,13 @@
                 onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
                 onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
                 >
-                    <div style={{ fontSize: '14px', opacity: 0.9', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <div style={{ fontSize: '14px', opacity: 0.9, display: 'flex', alignItems: 'center', gap: '5px' }}>
                         <span>🔔</span> Custom/System
                     </div>
                     <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
                         {stats.customThreshold.count}
                     </div>
-                    <div style={{ fontSize: '12px', opacity: 0.8' }}>
+                    <div style={{ fontSize: '12px', opacity: 0.8 }}>
                         Other alert types
                     </div>
                 </div>
@@ -1001,7 +1019,7 @@
                                 </td>
                                 <td style={{ padding: '15px' }}>
                                     {alert.emailSent ? (
-                                        <span style={{ color: 'var(--success-color)', fontSize: '16px' }} title="Email sent">✓</span>
+                                        <span style={{ color: '#00A86B', fontSize: '16px' }} title="Email sent">✓</span>
                                     ) : (
                                         <span style={{ color: '#999', fontSize: '16px' }} title="No email sent">—</span>
                                     )}
@@ -1013,7 +1031,7 @@
                                             onClick={() => setSelectedAlert(alert)}
                                             style={{
                                                 padding: '6px 12px',
-                                                background: 'linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%)',
+                                                background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
                                                 color: 'white',
                                                 border: 'none',
                                                 borderRadius: '6px',
@@ -1029,7 +1047,7 @@
                                                 onClick={() => handleQuickResolve(alert.id)}
                                                 style={{
                                                     padding: '6px 12px',
-                                                    background: 'var(--success-color)',
+                                                    background: '#00A86B',
                                                     color: 'white',
                                                     border: 'none',
                                                     borderRadius: '6px',
@@ -1092,6 +1110,14 @@
             const [user, setUser] = useState(null);
             const [loading, setLoading] = useState(true);
             const [searchQuery, setSearchQuery] = useState('');
+            // Manage sidebar collapsed state
+            const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+                return window.getPreference ? window.getPreference('sidebarCollapsed', false) : false;
+            });
+            // Notification state
+            const [notifications, setNotifications] = useState([]);
+            // Connection status
+            const [isOnline, setIsOnline] = useState(navigator.onLine);
 
             useEffect(() => {
                 const unsubscribe = firebase.auth().onAuthStateChanged(async (firebaseUser) => {
@@ -1102,16 +1128,78 @@
                             .get();
 
                         if (userDoc.exists) {
-                            setUser({ uid: firebaseUser.uid, ...userDoc.data() });
+                            const userData = { uid: firebaseUser.uid, ...userDoc.data() };
+                            // 🔐 PAGE ACCESS CONTROL: Check if user has permission to access Alerts
+                            if (!window.canAccessPage(userData, 'alerts')) {
+                                alert('You do not have permission to access Alerts.');
+                                window.location.href = '/admin/mypirs.html'; // Redirect to My PIRs (default fallback)
+                                return;
+                            }
+
+                            setUser(userData);
                         }
                     } else {
-                        window.location.href = '/';
+                        window.location.href = '/admin/login';
                     }
                     setLoading(false);
                 });
 
                 return () => unsubscribe();
             }, []);
+
+            // Set up notification listener
+            useEffect(() => {
+                if (!user) return;
+                const unsubscribe = firebase.firestore()
+                    .collection('notifications')
+                    .where('userId', '==', user.uid)
+                    .orderBy('timestamp', 'desc')
+                    .limit(50)
+                    .onSnapshot((snapshot) => {
+                        const notifs = snapshot.docs.map(doc => ({
+                            id: doc.id,
+                            ...doc.data()
+                        }));
+                        setNotifications(notifs);
+                    }, (error) => {
+                        console.error('Error loading notifications:', error);
+                    });
+                return () => unsubscribe();
+            }, [user]);
+
+            // Set up connection status listener
+            useEffect(() => {
+                const handleOnline = () => setIsOnline(true);
+                const handleOffline = () => setIsOnline(false);
+                window.addEventListener('online', handleOnline);
+                window.addEventListener('offline', handleOffline);
+                return () => {
+                    window.removeEventListener('online', handleOnline);
+                    window.removeEventListener('offline', handleOffline);
+                };
+            }, []);
+
+            // Clear notification handlers
+            const handleClearNotification = async (notificationId) => {
+                try {
+                    await firebase.firestore().collection('notifications').doc(notificationId).delete();
+                } catch (error) {
+                    console.error('Error clearing notification:', error);
+                }
+            };
+
+            const handleClearAllNotifications = async () => {
+                try {
+                    const batch = firebase.firestore().batch();
+                    notifications.forEach(notif => {
+                        const docRef = firebase.firestore().collection('notifications').doc(notif.id);
+                        batch.delete(docRef);
+                    });
+                    await batch.commit();
+                } catch (error) {
+                    console.error('Error clearing all notifications:', error);
+                }
+            };
 
             if (loading) {
                 return <div style={{ padding: '50px', textAlign: 'center' }}>Loading...</div>;
@@ -1122,12 +1210,49 @@
             }
 
             return (
-                <div style={{ display: 'flex', minHeight: '100vh' }}>
-                    <Sidebar user={user} />
-                    <div style={{ flex: 1, marginLeft: '280px', background: 'var(--background-primary)' }}>
-                        <AlertsView user={user} searchQuery={searchQuery} />
+                <>
+                    {!isOnline && (
+                        <div style={{
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            background: '#ff9800',
+                            color: 'white',
+                            padding: '10px',
+                            textAlign: 'center',
+                            zIndex: 10000,
+                            fontSize: '14px',
+                            fontWeight: '500'
+                        }}>
+                            You are currently offline. Some features may be unavailable.
+                        </div>
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+                        {/* Header Component */}
+                        <Header
+                            user={user}
+                            searchQuery={searchQuery}
+                            setSearchQuery={setSearchQuery}
+                            sidebarCollapsed={sidebarCollapsed}
+                            notifications={notifications}
+                            onClearNotification={handleClearNotification}
+                            onClearAllNotifications={handleClearAllNotifications}
+                        />
+                        {/* Sidebar Component */}
+                        <Sidebar user={user} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
+                        {/* Main Content */}
+                        <div style={{
+                            marginLeft: sidebarCollapsed ? '80px' : '280px',
+                            minHeight: '100vh',
+                            background: '#c4c9cf',
+                            padding: '20px',
+                            transition: 'margin-left 0.3s'
+                        }}>
+                            <AlertsView user={user} searchQuery={searchQuery} />
+                        </div>
                     </div>
-                </div>
+                </>
             );
         }
 

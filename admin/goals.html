@@ -28,9 +28,11 @@
     <!-- Shared Components -->
     <script src="/admin/shared/firebase.js"></script>
     <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/permissions.js"></script>
     <script src="/admin/shared/utils.js"></script>
-    <script src="/admin/shared/state.js"></script>
-    <script src="/admin/shared/navigation.js"></script>
+    <script src="/admin/shared/state.js?v=2"></script>
+    <script type="text/babel" src="/admin/shared/navigation.js?v=7"></script>
+    <script type="text/babel" src="/admin/shared/header.js?v=1"></script>
 
     <script type="text/babel">
         // Wait for Firebase to initialize before running
@@ -81,10 +83,14 @@ function GoalsView({ searchQuery, user }) {
             setLoading(true);
             console.log('🎯 GoalsView: Loading PIRs for tenant:', CURRENT_TENANT);
 
-            const pirsSnap = await db.collection('users')
-                .where('tenantId', '==', CURRENT_TENANT)
-                .where('role', '==', 'pir')
-                .get();
+            // 🔐 SCOPE FILTERING: Apply data scope based on user role
+            // - Coaches: Only assigned PIRs
+            // - Admins: All PIRs in tenant
+            // - SuperAdmin: All PIRs across all tenants
+            let pirQuery = db.collection('users').where('role', '==', 'pir');
+            pirQuery = window.applyScopeToPIRQuery(pirQuery, user, CURRENT_TENANT);
+
+            const pirsSnap = await pirQuery.get();
 
             console.log('✓ GoalsView: Found', pirsSnap.size, 'total PIRs');
 
@@ -565,24 +571,27 @@ function GoalsView({ searchQuery, user }) {
                     <div style={{ display: 'flex', gap: '10px' }}>
                         {!isCompleted && (
                             <>
-                                <button
-                                    onClick={() => {
-                                        setSelectedParent({ type: 'goal', id: goal.id, title: goal.title });
-                                        setModalType('objective');
-                                        setShowCreateModal(true);
-                                    }}
-                                    style={{
-                                        background: '#00A86B',
-                                        border: 'none',
-                                        borderRadius: '6px',
-                                        color: 'white',
-                                        padding: '6px 12px',
-                                        cursor: 'pointer',
-                                        fontSize: '0.85em'
-                                    }}
-                                >
-                                    + Objective
-                                </button>
+                                {/* 🔐 ACTION PERMISSION: create_goal - Add objective to goal */}
+                                {window.canPerformAction(user, 'create_goal') && (
+                                    <button
+                                        onClick={() => {
+                                            setSelectedParent({ type: 'goal', id: goal.id, title: goal.title });
+                                            setModalType('objective');
+                                            setShowCreateModal(true);
+                                        }}
+                                        style={{
+                                            background: '#00A86B',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            color: 'white',
+                                            padding: '6px 12px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.85em'
+                                        }}
+                                    >
+                                        + Objective
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => handleCompleteGoal(goal.id)}
                                     style={{
@@ -656,29 +665,32 @@ function GoalsView({ searchQuery, user }) {
                     <div style={{ display: 'flex', gap: '10px' }}>
                         {!isCompleted && (
                             <>
-                                <button
-                                    onClick={() => {
-                                        setSelectedParent({
-                                            type: 'objective',
-                                            id: objective.id,
-                                            goalId: goal.id,
-                                            title: `${goal.title} > ${objective.title}`
-                                        });
-                                        setModalType('assignment');
-                                        setShowCreateModal(true);
-                                    }}
-                                    style={{
-                                        background: '#9C27B0',
-                                        border: 'none',
-                                        borderRadius: '6px',
-                                        color: 'white',
-                                        padding: '5px 10px',
-                                        cursor: 'pointer',
-                                        fontSize: '0.8em'
-                                    }}
-                                >
-                                    + Assignment
-                                </button>
+                                {/* 🔐 ACTION PERMISSION: create_assignment - Add assignment to objective */}
+                                {window.canPerformAction(user, 'create_assignment') && (
+                                    <button
+                                        onClick={() => {
+                                            setSelectedParent({
+                                                type: 'objective',
+                                                id: objective.id,
+                                                goalId: goal.id,
+                                                title: `${goal.title} > ${objective.title}`
+                                            });
+                                            setModalType('assignment');
+                                            setShowCreateModal(true);
+                                        }}
+                                        style={{
+                                            background: '#9C27B0',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            color: 'white',
+                                            padding: '5px 10px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.8em'
+                                        }}
+                                    >
+                                        + Assignment
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => handleCompleteObjective(objective.id)}
                                     style={{
@@ -817,24 +829,30 @@ function GoalsView({ searchQuery, user }) {
                     </div>
 
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                        <ActionButton
-                            icon="🧵"
-                            label="Golden Thread"
-                            variant="primary"
-                            onClick={() => {
-                                setModalType('goldenThread');
-                                setShowCreateModal(true);
-                            }}
-                        />
-                        <ActionButton
-                            icon="🎯"
-                            label="Add Goal"
-                            variant="success"
-                            onClick={() => {
-                                setModalType('goal');
-                                setShowCreateModal(true);
-                            }}
-                        />
+                        {/* 🔐 ACTION PERMISSION: create_goal - Create golden thread (multiple goals) */}
+                        {window.canPerformAction(user, 'create_goal') && (
+                            <ActionButton
+                                icon="🧵"
+                                label="Golden Thread"
+                                variant="primary"
+                                onClick={() => {
+                                    setModalType('goldenThread');
+                                    setShowCreateModal(true);
+                                }}
+                            />
+                        )}
+                        {/* 🔐 ACTION PERMISSION: create_goal - Add individual goal */}
+                        {window.canPerformAction(user, 'create_goal') && (
+                            <ActionButton
+                                icon="🎯"
+                                label="Add Goal"
+                                variant="success"
+                                onClick={() => {
+                                    setModalType('goal');
+                                    setShowCreateModal(true);
+                                }}
+                            />
+                        )}
                         <ActionButton
                             icon="⭐"
                             label="Add Milestone"
@@ -1493,6 +1511,14 @@ function CreateGoalModal({ type, selectedPIR, selectedParent, currentUser, onSub
             const [user, setUser] = useState(null);
             const [loading, setLoading] = useState(true);
             const [searchQuery, setSearchQuery] = useState('');
+            // Notification state
+            const [notifications, setNotifications] = useState([]);
+            // Connection status
+            const [isOnline, setIsOnline] = useState(navigator.onLine);
+            // Manage sidebar collapsed state
+            const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+                return window.getPreference ? window.getPreference('sidebarCollapsed', false) : false;
+            });
 
             useEffect(() => {
                 const unsubscribe = firebase.auth().onAuthStateChanged(async (firebaseUser) => {
@@ -1503,25 +1529,84 @@ function CreateGoalModal({ type, selectedPIR, selectedParent, currentUser, onSub
                             .get();
 
                         if (userDoc.exists) {
-                            const userData = userDoc.data();
-                            // Allow coach, admin, superadmin
-                            if (['coach', 'admin', 'superadmin'].includes(userData.role)) {
-                                setUser({ uid: firebaseUser.uid, ...userData });
-                            } else {
-                                alert('Access denied. Coach/Admin access required for Goals Management.');
-                                window.location.href = '/';
+                            const userData = { uid: firebaseUser.uid, ...userDoc.data() };
+                            // 🔐 PAGE ACCESS CONTROL: Check if user has permission to access Goals
+                            if (!window.canAccessPage(userData, 'goals')) {
+                                alert('You do not have permission to access Goals.');
+                                window.location.href = '/admin/mypirs.html'; // Redirect to My PIRs (default fallback)
+                                return;
                             }
+
+                            setUser(userData);
                         } else {
-                            window.location.href = '/';
+                            window.location.href = '/admin/login';
                         }
                     } else {
-                        window.location.href = '/';
+                        window.location.href = '/admin/login';
                     }
                     setLoading(false);
                 });
 
                 return () => unsubscribe();
             }, []);
+
+            // Set up notification listener
+            useEffect(() => {
+                if (!user) return;
+
+                const unsubscribe = firebase.firestore()
+                    .collection('notifications')
+                    .where('userId', '==', user.uid)
+                    .orderBy('timestamp', 'desc')
+                    .limit(50)
+                    .onSnapshot((snapshot) => {
+                        const notifs = snapshot.docs.map(doc => ({
+                            id: doc.id,
+                            ...doc.data()
+                        }));
+                        setNotifications(notifs);
+                    }, (error) => {
+                        console.error('Error loading notifications:', error);
+                    });
+
+                return () => unsubscribe();
+            }, [user]);
+
+            // Set up connection status listener
+            useEffect(() => {
+                const handleOnline = () => setIsOnline(true);
+                const handleOffline = () => setIsOnline(false);
+
+                window.addEventListener('online', handleOnline);
+                window.addEventListener('offline', handleOffline);
+
+                return () => {
+                    window.removeEventListener('online', handleOnline);
+                    window.removeEventListener('offline', handleOffline);
+                };
+            }, []);
+
+            // Clear notification handlers
+            const handleClearNotification = async (notificationId) => {
+                try {
+                    await firebase.firestore().collection('notifications').doc(notificationId).delete();
+                } catch (error) {
+                    console.error('Error clearing notification:', error);
+                }
+            };
+
+            const handleClearAllNotifications = async () => {
+                try {
+                    const batch = firebase.firestore().batch();
+                    notifications.forEach(notif => {
+                        const docRef = firebase.firestore().collection('notifications').doc(notif.id);
+                        batch.delete(docRef);
+                    });
+                    await batch.commit();
+                } catch (error) {
+                    console.error('Error clearing all notifications:', error);
+                }
+            };
 
             if (loading) {
                 return (
@@ -1545,16 +1630,53 @@ function CreateGoalModal({ type, selectedPIR, selectedParent, currentUser, onSub
             }
 
             return (
-                <div style={{ display: 'flex', minHeight: '100vh', background: '#f5f7fa' }}>
-                    <Sidebar user={user} />
-                    <div style={{
-                        flex: 1,
-                        marginLeft: '280px',
-                        transition: 'margin-left 0.3s'
-                    }}>
-                        <GoalsView user={user} searchQuery={searchQuery} />
+                <>
+                    {/* Connection Status Bar */}
+                    {!isOnline && (
+                        <div style={{
+                            background: '#FFA500',
+                            color: 'white',
+                            padding: '10px',
+                            textAlign: 'center',
+                            fontWeight: '600',
+                            fontSize: '14px',
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            zIndex: 9999
+                        }}>
+                            ⚠️ Offline - Some features may be limited
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+                        {/* Header Component */}
+                        <Header
+                            user={user}
+                            searchQuery={searchQuery}
+                            setSearchQuery={setSearchQuery}
+                            sidebarCollapsed={sidebarCollapsed}
+                            notifications={notifications}
+                            onClearNotification={handleClearNotification}
+                            onClearAllNotifications={handleClearAllNotifications}
+                        />
+
+                        {/* Sidebar Component */}
+                        <Sidebar user={user} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
+
+                        {/* Main Content */}
+                        <div style={{
+                            marginLeft: sidebarCollapsed ? '80px' : '280px',
+                            minHeight: '100vh',
+                            background: '#c4c9cf',
+                            padding: '20px',
+                            transition: 'margin-left 0.3s'
+                        }}>
+                            <GoalsView user={user} searchQuery={searchQuery} />
+                        </div>
                     </div>
-                </div>
+                </>
             );
         }
 
