@@ -1791,6 +1791,8 @@ function PIRApp({ user }) {
     const [calendarCurrentMonth, setCalendarCurrentMonth] = useState(new Date());
     const [calendarCurrentWeek, setCalendarCurrentWeek] = useState(new Date());
     const [showMoodInsightsModal, setShowMoodInsightsModal] = useState(false);
+    const [moodWeekData, setMoodWeekData] = useState([]);
+    const [showFullAnalyticsDashboard, setShowFullAnalyticsDashboard] = useState(false);
     const [showCopingTechniqueModal, setShowCopingTechniqueModal] = useState(false);
     const [showMilestoneModal, setShowMilestoneModal] = useState(false);
     const [allMilestones, setAllMilestones] = useState([]);
@@ -4657,6 +4659,119 @@ const loadCalendarHeatmapData = async () => {
     }
 };
 
+// Load 7-day mood data for mood insights modal
+const loadMoodWeekData = async () => {
+    try {
+        // Get user's timezone
+        const userTimezone = user.timezone || "America/Los_Angeles";
+
+        // Fetch last 14 days of check-ins (to compare this week vs last week)
+        const fourteenDaysAgo = new Date();
+        fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+
+        const snapshot = await db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .where('createdAt', '>=', fourteenDaysAgo)
+            .orderBy('createdAt', 'desc')
+            .get();
+
+        // Process check-ins by day
+        const moodByDay = {};
+
+        snapshot.docs.forEach(doc => {
+            const checkIn = doc.data();
+            const checkInDate = checkIn.createdAt?.toDate ?
+                checkIn.createdAt.toDate() : new Date(checkIn.createdAt);
+
+            // Convert to user's timezone
+            const checkInUserTZ = new Date(checkInDate.toLocaleString("en-US", {timeZone: userTimezone}));
+
+            // Create dateKey
+            const year = checkInUserTZ.getFullYear();
+            const month = String(checkInUserTZ.getMonth() + 1).padStart(2, '0');
+            const day = String(checkInUserTZ.getDate()).padStart(2, '0');
+            const dateKey = `${year}-${month}-${day}`;
+
+            // Get mood value (morning check-in mood, scale 1-10)
+            const moodValue = checkIn.morningData?.mood;
+
+            if (moodValue) {
+                // Store the mood for this day (if multiple check-ins, take the latest/highest)
+                if (!moodByDay[dateKey] || moodValue > moodByDay[dateKey].mood) {
+                    moodByDay[dateKey] = {
+                        dateKey: dateKey,
+                        date: checkInUserTZ,
+                        mood: moodValue
+                    };
+                }
+            }
+        });
+
+        // Convert to array and sort by date (oldest first)
+        const moodArray = Object.values(moodByDay).sort((a, b) =>
+            new Date(a.dateKey) - new Date(b.dateKey)
+        );
+
+        // Split into last week and this week
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        const sevenDaysAgoKey = `${sevenDaysAgo.getFullYear()}-${String(sevenDaysAgo.getMonth() + 1).padStart(2, '0')}-${String(sevenDaysAgo.getDate()).padStart(2, '0')}`;
+
+        const thisWeekMoods = moodArray.filter(m => m.dateKey >= sevenDaysAgoKey);
+        const lastWeekMoods = moodArray.filter(m => m.dateKey < sevenDaysAgoKey);
+
+        // Calculate averages (only from days with actual check-ins)
+        const thisWeekAvg = thisWeekMoods.length > 0
+            ? thisWeekMoods.reduce((sum, m) => sum + m.mood, 0) / thisWeekMoods.length
+            : 0;
+
+        const lastWeekAvg = lastWeekMoods.length > 0
+            ? lastWeekMoods.reduce((sum, m) => sum + m.mood, 0) / lastWeekMoods.length
+            : 0;
+
+        // Create 7-day breakdown (last 7 days)
+        const weekData = [];
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+        for (let i = 6; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const dateKey = `${year}-${month}-${day}`;
+
+            const dayName = dayNames[date.getDay()];
+            const moodData = moodByDay[dateKey];
+
+            weekData.push({
+                dateKey: dateKey,
+                dayName: dayName,
+                mood: moodData ? moodData.mood : null, // null means no check-in
+                hasMood: !!moodData
+            });
+        }
+
+        setMoodWeekData({
+            thisWeekAvg: parseFloat(thisWeekAvg.toFixed(1)),
+            lastWeekAvg: parseFloat(lastWeekAvg.toFixed(1)),
+            difference: parseFloat((thisWeekAvg - lastWeekAvg).toFixed(1)),
+            weekData: weekData
+        });
+
+        console.log('📊 MOOD WEEK DATA:', {
+            thisWeekAvg: parseFloat(thisWeekAvg.toFixed(1)),
+            lastWeekAvg: parseFloat(lastWeekAvg.toFixed(1)),
+            difference: parseFloat((thisWeekAvg - lastWeekAvg).toFixed(1)),
+            daysWithMood: weekData.filter(d => d.hasMood).length
+        });
+
+    } catch (error) {
+        console.error('Error loading mood week data:', error);
+    }
+};
+
 // Load reflections and calculate stats
 const loadReflections = async () => {
     try {
@@ -7352,8 +7467,9 @@ return (
                                 cursor: 'pointer',
                                 transition: 'all 0.2s'
                             }}
-                            onClick={() => {
+                            onClick={async () => {
                                 triggerHaptic('light');
+                                await loadMoodWeekData();
                                 setShowMoodInsightsModal(true);
                             }}>
                                 <span style={{
@@ -12722,14 +12838,14 @@ return (
                         color: '#058585',
                         marginBottom: '4px'
                     }}>
-                        4.2
+                        {moodWeekData.thisWeekAvg || '—'}
                     </div>
                     <div style={{
                         fontSize: '14px',
                         fontWeight: '400',
-                        color: '#00A86B'
+                        color: moodWeekData.difference > 0 ? '#00A86B' : moodWeekData.difference < 0 ? '#DC143C' : '#666666'
                     }}>
-                        ↑ +0.3 from last week
+                        {moodWeekData.difference > 0 ? '↑' : moodWeekData.difference < 0 ? '↓' : '—'} {moodWeekData.difference > 0 ? '+' : ''}{moodWeekData.difference || '0'} from last week
                     </div>
                 </div>
 
@@ -12743,13 +12859,12 @@ return (
                     Weekly Breakdown
                 </h4>
                 <div style={{ marginBottom: '20px' }}>
-                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => {
-                        const scores = [4.5, 4.0, 4.2, 3.8, 4.3, 4.5, 4.1];
-                        const score = scores[index];
-                        const barWidth = (score / 5) * 100;
+                    {moodWeekData.weekData && moodWeekData.weekData.map((dayData, index) => {
+                        const score = dayData.mood;
+                        const barWidth = score ? (score / 10) * 100 : 0; // Out of 10, not 5!
 
                         return (
-                            <div key={day} style={{
+                            <div key={dayData.dateKey} style={{
                                 marginBottom: '12px'
                             }}>
                                 <div style={{
@@ -12763,14 +12878,14 @@ return (
                                         fontWeight: '400',
                                         color: '#000000'
                                     }}>
-                                        {day}
+                                        {dayData.dayName}
                                     </span>
                                     <span style={{
                                         fontSize: '14px',
                                         fontWeight: 'bold',
-                                        color: '#058585'
+                                        color: score ? '#058585' : '#999999'
                                     }}>
-                                        {score}
+                                        {score ? score.toFixed(1) : 'No check-in'}
                                     </span>
                                 </div>
                                 <div style={{
@@ -12783,7 +12898,7 @@ return (
                                     <div style={{
                                         width: `${barWidth}%`,
                                         height: '100%',
-                                        background: score >= 4 ? '#00A86B' : score >= 3 ? '#FFA500' : '#DC143C',
+                                        background: score >= 7 ? '#00A86B' : score >= 5 ? '#FFA500' : score ? '#DC143C' : '#E5E5E5',
                                         transition: 'width 0.3s'
                                     }} />
                                 </div>
@@ -12797,7 +12912,7 @@ return (
                     onClick={() => {
                         triggerHaptic('light');
                         setShowMoodInsightsModal(false);
-                        setCurrentView('progress');
+                        setShowFullAnalyticsDashboard(true);
                     }}
                     style={{
                         width: '100%',
@@ -12812,7 +12927,116 @@ return (
                         transition: 'all 0.2s'
                     }}
                 >
-                    View Full Trends
+                    View Full Analytics
+                </button>
+            </div>
+        </div>
+    </div>
+)}
+
+{/* Full Analytics Dashboard Modal - Option 2 */}
+{showFullAnalyticsDashboard && (
+    <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0, 0, 0, 0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: '20px'
+    }}>
+        <div style={{
+            background: '#FFFFFF',
+            borderRadius: '12px',
+            width: '100%',
+            maxWidth: '900px',
+            maxHeight: '90vh',
+            overflow: 'auto',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)'
+        }}>
+            {/* Header */}
+            <div style={{
+                padding: '20px',
+                borderBottom: '1px solid #E5E5E5',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                position: 'sticky',
+                top: 0,
+                background: '#FFFFFF',
+                zIndex: 10
+            }}>
+                <h3 style={{
+                    margin: 0,
+                    fontSize: '24px',
+                    fontWeight: 'bold',
+                    color: '#000000'
+                }}>
+                    📊 Full Analytics Dashboard
+                </h3>
+                <button
+                    onClick={() => setShowFullAnalyticsDashboard(false)}
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '8px'
+                    }}>
+                    <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
+                </button>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: '20px' }}>
+                <p style={{
+                    fontSize: '16px',
+                    color: '#666666',
+                    marginBottom: '30px',
+                    textAlign: 'center'
+                }}>
+                    Comprehensive analytics and insights about your recovery journey
+                </p>
+
+                {/* Coming Soon Message */}
+                <div style={{
+                    textAlign: 'center',
+                    padding: '60px 20px',
+                    background: 'linear-gradient(135deg, rgba(5, 133, 133, 0.05) 0%, rgba(0, 168, 107, 0.05) 100%)',
+                    borderRadius: '12px',
+                    border: '2px dashed #058585'
+                }}>
+                    <div style={{ fontSize: '72px', marginBottom: '20px' }}>📈</div>
+                    <h2 style={{ color: '#058585', marginBottom: '15px', fontSize: '28px' }}>
+                        Full Analytics Dashboard
+                    </h2>
+                    <p style={{ color: '#666666', fontSize: '16px', maxWidth: '600px', margin: '0 auto', lineHeight: '1.6' }}>
+                        This comprehensive dashboard will provide detailed insights into your mood trends, check-in patterns, goal progress, and recovery milestones.
+                        <br /><br />
+                        <strong>Coming Soon!</strong>
+                    </p>
+                </div>
+
+                {/* Close Button */}
+                <button
+                    onClick={() => setShowFullAnalyticsDashboard(false)}
+                    style={{
+                        width: '100%',
+                        marginTop: '30px',
+                        padding: '15px',
+                        background: '#058585',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '16px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer'
+                    }}
+                >
+                    Close
                 </button>
             </div>
         </div>
