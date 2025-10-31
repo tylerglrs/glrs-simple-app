@@ -4665,13 +4665,9 @@ const loadMoodWeekData = async () => {
         // Get user's timezone
         const userTimezone = user.timezone || "America/Los_Angeles";
 
-        // Fetch last 14 days of check-ins (to compare this week vs last week)
-        const fourteenDaysAgo = new Date();
-        fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-
+        // Fetch ALL check-ins (no date limit - pull complete history)
         const snapshot = await db.collection('checkIns')
             .where('userId', '==', user.uid)
-            .where('createdAt', '>=', fourteenDaysAgo)
             .orderBy('createdAt', 'desc')
             .get();
 
@@ -4713,12 +4709,20 @@ const loadMoodWeekData = async () => {
         );
 
         // Split into last week and this week
+        const today = new Date();
+
+        // This week = last 7 days (days 0-6 from today)
         const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        sevenDaysAgo.setDate(today.getDate() - 7);
         const sevenDaysAgoKey = `${sevenDaysAgo.getFullYear()}-${String(sevenDaysAgo.getMonth() + 1).padStart(2, '0')}-${String(sevenDaysAgo.getDate()).padStart(2, '0')}`;
 
+        // Last week = 7 days before that (days 7-13 from today)
+        const fourteenDaysAgo = new Date();
+        fourteenDaysAgo.setDate(today.getDate() - 14);
+        const fourteenDaysAgoKey = `${fourteenDaysAgo.getFullYear()}-${String(fourteenDaysAgo.getMonth() + 1).padStart(2, '0')}-${String(fourteenDaysAgo.getDate()).padStart(2, '0')}`;
+
         const thisWeekMoods = moodArray.filter(m => m.dateKey >= sevenDaysAgoKey);
-        const lastWeekMoods = moodArray.filter(m => m.dateKey < sevenDaysAgoKey);
+        const lastWeekMoods = moodArray.filter(m => m.dateKey >= fourteenDaysAgoKey && m.dateKey < sevenDaysAgoKey);
 
         // Calculate averages (only from days with actual check-ins)
         const thisWeekAvg = thisWeekMoods.length > 0
