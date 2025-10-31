@@ -1789,6 +1789,7 @@ function PIRApp({ user }) {
     const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
     const [calendarViewMode, setCalendarViewMode] = useState('month'); // 'week', 'month'
     const [calendarCurrentMonth, setCalendarCurrentMonth] = useState(new Date());
+    const [calendarCurrentWeek, setCalendarCurrentWeek] = useState(new Date());
     const [showMoodInsightsModal, setShowMoodInsightsModal] = useState(false);
     const [showCopingTechniqueModal, setShowCopingTechniqueModal] = useState(false);
     const [showMilestoneModal, setShowMilestoneModal] = useState(false);
@@ -11591,8 +11592,8 @@ return (
                     ))}
                 </div>
 
-                {/* Month Navigation (for month/week view) */}
-                {(calendarViewMode === 'month' || calendarViewMode === 'week') && (
+                {/* Month Navigation */}
+                {calendarViewMode === 'month' && (
                     <div style={{
                         display: 'flex',
                         justifyContent: 'space-between',
@@ -11645,11 +11646,87 @@ return (
                     </div>
                 )}
 
+                {/* Week Navigation */}
+                {calendarViewMode === 'week' && (() => {
+                    // Get Monday as start of week (ISO 8601 standard)
+                    const getMonday = (d) => {
+                        const date = new Date(d);
+                        const day = date.getDay();
+                        const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+                        return new Date(date.setDate(diff));
+                    };
+
+                    const monday = getMonday(calendarCurrentWeek);
+                    const sunday = new Date(monday);
+                    sunday.setDate(monday.getDate() + 6);
+
+                    return (
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '12px',
+                            background: '#F8F9FA',
+                            borderRadius: '8px'
+                        }}>
+                            <button
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    const newWeek = new Date(calendarCurrentWeek);
+                                    newWeek.setDate(newWeek.getDate() - 7);
+                                    setCalendarCurrentWeek(newWeek);
+                                    setSelectedCalendarDay(null);
+                                }}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: '4px'
+                                }}
+                            >
+                                <i data-lucide="chevron-left" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
+                            </button>
+
+                            <div style={{
+                                fontSize: '16px',
+                                fontWeight: '600',
+                                color: '#000000',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }}>
+                                <i data-lucide="calendar-range" style={{ width: '16px', height: '16px', color: '#058585' }}></i>
+                                {monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </div>
+
+                            <button
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    const newWeek = new Date(calendarCurrentWeek);
+                                    newWeek.setDate(newWeek.getDate() + 7);
+                                    setCalendarCurrentWeek(newWeek);
+                                    setSelectedCalendarDay(null);
+                                }}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: '4px'
+                                }}
+                            >
+                                <i data-lucide="chevron-right" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
+                            </button>
+                        </div>
+                    );
+                })()}
+
                 {/* Jump to Today Button */}
                 <button
                     onClick={() => {
                         triggerHaptic('light');
-                        setCalendarCurrentMonth(new Date());
+                        const today = new Date();
+                        setCalendarCurrentMonth(today);
+                        setCalendarCurrentWeek(today);
                         setSelectedCalendarDay(null);
                     }}
                     style={{
@@ -12018,19 +12095,29 @@ return (
                             </div>
                         );
                     } else {
-                        // Week view - Current week display
-                        // Get start of week (Sunday)
-                        const today = new Date(calendarCurrentMonth);
-                        const dayOfWeek = today.getDay();
-                        const startOfWeek = new Date(today);
-                        startOfWeek.setDate(today.getDate() - dayOfWeek);
+                        // Week view - Monday to Sunday
+                        // Get Monday as start of week (ISO 8601 standard)
+                        const getMonday = (d) => {
+                            const date = new Date(d);
+                            const day = date.getDay();
+                            const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+                            return new Date(date.setDate(diff));
+                        };
 
-                        // Generate 7 days for the week
+                        const monday = getMonday(calendarCurrentWeek);
+
+                        // Generate 7 days for the week (Monday to Sunday)
                         const weekDays = [];
                         for (let i = 0; i < 7; i++) {
-                            const date = new Date(startOfWeek);
-                            date.setDate(startOfWeek.getDate() + i);
-                            const dateKey = date.toISOString().split('T')[0];
+                            const date = new Date(monday);
+                            date.setDate(monday.getDate() + i);
+
+                            // Create dateKey the same way we do in loadCalendarHeatmapData
+                            const year = date.getFullYear();
+                            const month = String(date.getMonth() + 1).padStart(2, '0');
+                            const day = String(date.getDate()).padStart(2, '0');
+                            const dateKey = `${year}-${month}-${day}`;
+
                             const dayData = calendarHeatmapData.find(d => d.dateKey === dateKey);
 
                             weekDays.push({
@@ -12062,8 +12149,8 @@ return (
                                         alignItems: 'center',
                                         gap: '8px'
                                     }}>
-                                        <i data-lucide="calendar-range" style={{ width: '16px', height: '16px', color: '#058585' }}></i>
-                                        Week of {weekDays[0].date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - {weekDays[6].date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+                                        <i data-lucide="calendar-days" style={{ width: '16px', height: '16px', color: '#058585' }}></i>
+                                        {weekDays[0].date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - {weekDays[6].date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
                                     </div>
                                     <div style={{
                                         fontSize: '13px',
