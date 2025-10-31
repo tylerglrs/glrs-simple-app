@@ -1793,6 +1793,8 @@ function PIRApp({ user }) {
     const [showMoodInsightsModal, setShowMoodInsightsModal] = useState(false);
     const [moodWeekData, setMoodWeekData] = useState([]);
     const [showCopingTechniqueModal, setShowCopingTechniqueModal] = useState(false);
+    const [showStreaksModal, setShowStreaksModal] = useState(false);
+    const [streakData, setStreakData] = useState({ longestStreak: 0, currentStreak: 0, allStreaks: [] });
     const [showMilestoneModal, setShowMilestoneModal] = useState(false);
     const [allMilestones, setAllMilestones] = useState([]);
     const [showPastReflectionsModal, setShowPastReflectionsModal] = useState(false);
@@ -2554,7 +2556,8 @@ function PIRApp({ user }) {
                 calculateMilestones(),
                 checkMilestoneNotifications(),
                 loadDailyTasksStatus(),
-                calculateTotalCheckIns().then(count => setTotalCheckIns(count))
+                calculateTotalCheckIns().then(count => setTotalCheckIns(count)),
+                calculateStreaks()
             ]);
         } catch (error) {
             console.error('Error loading data:', error);
@@ -4772,6 +4775,114 @@ const loadMoodWeekData = async () => {
 
     } catch (error) {
         console.error('Error loading mood week data:', error);
+    }
+};
+
+// Calculate all check-in streaks
+const calculateStreaks = async () => {
+    try {
+        const userTimezone = user.timezone || "America/Los_Angeles";
+
+        // Fetch ALL check-ins
+        const snapshot = await db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .orderBy('createdAt', 'asc')
+            .get();
+
+        // Group check-ins by date
+        const checkInsByDate = {};
+        snapshot.docs.forEach(doc => {
+            const checkIn = doc.data();
+            const checkInDate = checkIn.createdAt?.toDate ?
+                checkIn.createdAt.toDate() : new Date(checkIn.createdAt);
+            const checkInUserTZ = new Date(checkInDate.toLocaleString("en-US", {timeZone: userTimezone}));
+
+            const year = checkInUserTZ.getFullYear();
+            const month = String(checkInUserTZ.getMonth() + 1).padStart(2, '0');
+            const day = String(checkInUserTZ.getDate()).padStart(2, '0');
+            const dateKey = `${year}-${month}-${day}`;
+
+            checkInsByDate[dateKey] = true;
+        });
+
+        // Get all dates with check-ins, sorted
+        const datesWithCheckIns = Object.keys(checkInsByDate).sort();
+
+        if (datesWithCheckIns.length === 0) {
+            setStreakData({ longestStreak: 0, currentStreak: 0, allStreaks: [] });
+            return;
+        }
+
+        // Find all streaks
+        const allStreaks = [];
+        let currentStreakStart = datesWithCheckIns[0];
+        let currentStreakEnd = datesWithCheckIns[0];
+
+        for (let i = 1; i < datesWithCheckIns.length; i++) {
+            const prevDate = new Date(datesWithCheckIns[i - 1]);
+            const currDate = new Date(datesWithCheckIns[i]);
+
+            // Calculate day difference
+            const diffTime = currDate - prevDate;
+            const diffDays = diffTime / (1000 * 60 * 60 * 24);
+
+            if (diffDays === 1) {
+                // Consecutive day - extend current streak
+                currentStreakEnd = datesWithCheckIns[i];
+            } else {
+                // Streak broken - save current streak
+                const streakStart = new Date(currentStreakStart);
+                const streakEnd = new Date(currentStreakEnd);
+                const streakLength = Math.round((streakEnd - streakStart) / (1000 * 60 * 60 * 24)) + 1;
+
+                allStreaks.push({
+                    startDate: currentStreakStart,
+                    endDate: currentStreakEnd,
+                    length: streakLength
+                });
+
+                // Start new streak
+                currentStreakStart = datesWithCheckIns[i];
+                currentStreakEnd = datesWithCheckIns[i];
+            }
+        }
+
+        // Add final streak
+        const streakStart = new Date(currentStreakStart);
+        const streakEnd = new Date(currentStreakEnd);
+        const streakLength = Math.round((streakEnd - streakStart) / (1000 * 60 * 60 * 24)) + 1;
+        allStreaks.push({
+            startDate: currentStreakStart,
+            endDate: currentStreakEnd,
+            length: streakLength
+        });
+
+        // Sort streaks by length (longest first)
+        allStreaks.sort((a, b) => b.length - a.length);
+
+        // Find current streak (last streak if it includes today)
+        const today = new Date();
+        const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        const lastStreak = allStreaks[allStreaks.length - 1];
+        const currentStreak = lastStreak && lastStreak.endDate === todayKey ? lastStreak.length : 0;
+
+        // Longest streak
+        const longestStreak = allStreaks.length > 0 ? allStreaks[0].length : 0;
+
+        setStreakData({
+            longestStreak,
+            currentStreak,
+            allStreaks
+        });
+
+        console.log('🔥 STREAK DATA:', {
+            longestStreak,
+            currentStreak,
+            totalStreaks: allStreaks.length
+        });
+
+    } catch (error) {
+        console.error('Error calculating streaks:', error);
     }
 };
 
@@ -7507,7 +7618,7 @@ return (
                                 </div>
                             </div>
 
-                            {/* This Week Stat Card - Clickable */}
+                            {/* Longest Streak Stat Card - Clickable */}
                             <div style={{
                                 width: '100%',
                                 background: '#FFFFFF',
@@ -7523,28 +7634,24 @@ return (
                             }}
                             onClick={() => {
                                 triggerHaptic('light');
-                                if (weeklyStats.thisWeekCompletion > 0) {
-                                    alert(`This Week: ${weeklyStats.thisWeekCompletion}% completion`);
-                                } else {
-                                    alert('Start checking in this week to see your completion rate!');
-                                }
+                                setShowStreaksModal(true);
                             }}>
                                 <span style={{
                                     fontSize: '14px',
                                     fontWeight: '400',
                                     color: '#000000'
                                 }}>
-                                    This Week
+                                    Longest Streak
                                 </span>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    {weeklyStats.thisWeekCompletion > 0 ? (
+                                    {streakData.longestStreak > 0 ? (
                                         <>
                                             <span style={{
                                                 fontSize: '18px',
                                                 fontWeight: 'bold',
                                                 color: '#000000'
                                             }}>
-                                                {weeklyStats.thisWeekCompletion}%
+                                                🔥 {streakData.longestStreak} {streakData.longestStreak === 1 ? 'day' : 'days'}
                                             </span>
                                             <i data-lucide="chevron-right" style={{ width: '16px', height: '16px', color: '#666666' }}></i>
                                         </>
@@ -12917,6 +13024,154 @@ return (
                         setShowMoodInsightsModal(false);
                     }}
                     style={{
+                        width: '100%',
+                        height: '48px',
+                        background: '#058585',
+                        border: 'none',
+                        borderRadius: '8px',
+                        color: '#FFFFFF',
+                        fontSize: '14px',
+                        fontWeight: '400',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    Back
+                </button>
+            </div>
+        </div>
+    </div>
+)}
+
+{/* Streaks Modal */}
+{showStreaksModal && (
+    <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0, 0, 0, 0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: '20px'
+    }}>
+        <div style={{
+            background: '#FFFFFF',
+            borderRadius: '12px',
+            width: '100%',
+            maxWidth: '500px',
+            maxHeight: '80vh',
+            overflow: 'auto'
+        }}>
+            {/* Header */}
+            <div style={{
+                padding: '20px',
+                borderBottom: '1px solid #E5E5E5',
+                position: 'sticky',
+                top: 0,
+                background: '#FFFFFF',
+                zIndex: 10
+            }}>
+                <h3 style={{
+                    margin: 0,
+                    fontSize: '20px',
+                    fontWeight: 'bold',
+                    color: '#000000'
+                }}>
+                    🔥 Your Check-In Streaks
+                </h3>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: '20px' }}>
+                {/* Current Streak */}
+                {streakData.currentStreak > 0 && (
+                    <div style={{
+                        padding: '16px',
+                        background: 'linear-gradient(135deg, rgba(5, 133, 133, 0.1) 0%, rgba(0, 168, 107, 0.1) 100%)',
+                        borderRadius: '12px',
+                        marginBottom: '20px',
+                        border: '2px solid #058585'
+                    }}>
+                        <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>
+                            Current Streak
+                        </div>
+                        <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#058585' }}>
+                            🔥 {streakData.currentStreak} {streakData.currentStreak === 1 ? 'day' : 'days'}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#666', marginTop: '8px' }}>
+                            Keep it up! Check in today to extend your streak.
+                        </div>
+                    </div>
+                )}
+
+                {/* All Streaks List */}
+                <div style={{ marginBottom: '12px', fontSize: '16px', fontWeight: '600', color: '#000' }}>
+                    All Streaks
+                </div>
+
+                {streakData.allStreaks.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {streakData.allStreaks.map((streak, index) => {
+                            const startDate = new Date(streak.startDate);
+                            const endDate = new Date(streak.endDate);
+                            const isLongest = index === 0; // First in sorted array is longest
+                            const isCurrent = streak.endDate === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+
+                            return (
+                                <div
+                                    key={index}
+                                    style={{
+                                        padding: '14px',
+                                        background: isLongest ? '#FFF9E6' : '#F8F9FA',
+                                        borderRadius: '10px',
+                                        border: isLongest ? '2px solid #FFA500' : '1px solid #E5E5E5',
+                                        position: 'relative'
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div>
+                                            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#000', marginBottom: '4px' }}>
+                                                {streak.length} {streak.length === 1 ? 'day' : 'days'}
+                                                {isLongest && <span style={{ marginLeft: '8px', fontSize: '14px' }}>⭐ Longest</span>}
+                                                {isCurrent && <span style={{ marginLeft: '8px', fontSize: '14px' }}>← Current</span>}
+                                            </div>
+                                            <div style={{ fontSize: '13px', color: '#666' }}>
+                                                {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                {' - '}
+                                                {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                            </div>
+                                        </div>
+                                        <div style={{ fontSize: '24px' }}>
+                                            🔥
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div style={{
+                        textAlign: 'center',
+                        padding: '40px 20px',
+                        color: '#999'
+                    }}>
+                        <div style={{ fontSize: '48px', marginBottom: '12px' }}>🔥</div>
+                        <div>Start checking in to build your first streak!</div>
+                    </div>
+                )}
+
+                {/* Close Button */}
+                <button
+                    onClick={() => {
+                        triggerHaptic('light');
+                        setShowStreaksModal(false);
+                    }}
+                    style={{
+                        marginTop: '20px',
                         width: '100%',
                         height: '48px',
                         background: '#058585',
