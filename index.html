@@ -5368,17 +5368,56 @@ const handleMorningCheckIn = async (data) => {
 // Handle evening reflection - SAVES REAL DATA
 const handleEveningReflection = async (data) => {
     try {
-        const today = new Date();
+        const userTimezone = user.timezone || "America/Los_Angeles";
+        const userNow = new Date(new Date().toLocaleString("en-US", {timeZone: userTimezone}));
+        const today = new Date(userNow);
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
-        
+
+        // Create dateKey for uniqueness check
+        const year = userNow.getFullYear();
+        const month = String(userNow.getMonth() + 1).padStart(2, '0');
+        const day = String(userNow.getDate()).padStart(2, '0');
+        const dateKey = `${year}-${month}-${day}`;
+
+        // Check if reflection already exists for today
+        const existingReflection = await db.collection('reflections')
+            .where('userId', '==', user.uid)
+            .where('dateKey', '==', dateKey)
+            .get();
+
+        if (existingReflection.empty) {
+            // Create new reflection
+            await db.collection('reflections').add({
+                userId: user.uid,
+                promptResponse: data.promptResponse,
+                overallDay: data.overallDay,
+                challenges: data.challenges,
+                gratitude: data.gratitude,
+                tomorrowGoal: data.tomorrowGoal,
+                dateKey: dateKey,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        } else {
+            // Update existing reflection
+            await db.collection('reflections').doc(existingReflection.docs[0].id).update({
+                promptResponse: data.promptResponse,
+                overallDay: data.overallDay,
+                challenges: data.challenges,
+                gratitude: data.gratitude,
+                tomorrowGoal: data.tomorrowGoal,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+
+        // Also save to checkIns for daily tracking
         const existingCheckIn = await db.collection('checkIns')
             .where('userId', '==', user.uid)
             .where('createdAt', '>=', today)
             .where('createdAt', '<', tomorrow)
             .get();
-        
+
         if (existingCheckIn.empty) {
             await db.collection('checkIns').add({
                 userId: user.uid,
@@ -5391,20 +5430,23 @@ const handleEveningReflection = async (data) => {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
         }
-        
+
         setCheckInStatus(prev => ({ ...prev, evening: true }));
-        
-        // Create activity log
-        await db.collection('activities').add({
-            userId: user.uid,
-            type: 'reflection',
-            description: 'Completed evening reflection',
-            data: data,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+
+        // Clear the form
+        setEveningReflectionData({
+            promptResponse: '',
+            overallDay: 5,
+            challenges: '',
+            gratitude: '',
+            tomorrowGoal: ''
         });
-        
+
+        // Reload reflections to update stats
+        await loadReflections();
         await loadCheckIns();
         await loadDailyTasksStatus();
+
         alert('Evening reflection complete!');
     } catch (error) {
         console.error('Error with evening reflection:', error);
@@ -8234,6 +8276,38 @@ return (
                                 Evening Reflections
                             </h3>
 
+                            {/* Check if evening reflection is already complete */}
+                            {checkInStatus.evening ? (
+                                // COMPLETE STATE - Show completion message
+                                <div style={{
+                                    width: '100%',
+                                    background: 'linear-gradient(135deg, rgba(5, 133, 133, 0.1) 0%, rgba(5, 133, 133, 0.05) 100%)',
+                                    borderRadius: '12px',
+                                    padding: '30px 20px',
+                                    marginBottom: '20px',
+                                    textAlign: 'center',
+                                    border: '2px solid rgba(5, 133, 133, 0.2)'
+                                }}>
+                                    <div style={{ fontSize: '64px', marginBottom: '15px' }}>✅</div>
+                                    <h3 style={{
+                                        fontSize: '18px',
+                                        fontWeight: 'bold',
+                                        color: '#058585',
+                                        marginBottom: '8px'
+                                    }}>
+                                        Evening Reflection Complete!
+                                    </h3>
+                                    <p style={{
+                                        fontSize: '14px',
+                                        color: '#666',
+                                        margin: 0
+                                    }}>
+                                        Great job! Your evening reflection has been recorded. Come back tomorrow for your next reflection.
+                                    </p>
+                                </div>
+                            ) : (
+                                // PENDING STATE - Show form
+                                <>
                             {/* Daily Reflection Prompt */}
                             <div style={{
                                 width: '100%',
@@ -8297,7 +8371,7 @@ return (
                                 />
                             </div>
 
-                            {/* Overall Day Card */}
+                            {/* Overall Day Card - Scrolling Picker */}
                             <div style={{
                                 width: '100%',
                                 background: '#FFFFFF',
@@ -8314,55 +8388,130 @@ return (
                                 }}>
                                     Overall Day
                                 </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <div style={{ display: 'flex', gap: '6px', justifyContent: 'space-between' }}>
-                                        {[1, 2, 3, 4, 5].map(rating => (
-                                            <button
-                                                key={rating}
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    position: 'relative',
+                                    height: '70px',
+                                    overflow: 'hidden'
+                                }}>
+                                    {/* Highlight Box Behind Selected Number */}
+                                    <div style={{
+                                        position: 'absolute',
+                                        width: '70px',
+                                        height: '60px',
+                                        background: 'rgba(5, 133, 133, 0.12)',
+                                        borderRadius: '12px',
+                                        top: '50%',
+                                        left: '50%',
+                                        transform: 'translate(-50%, -50%)',
+                                        pointerEvents: 'none',
+                                        zIndex: 1
+                                    }} />
+
+                                    {/* Left Vertical Divider */}
+                                    <div style={{
+                                        position: 'absolute',
+                                        width: '1px',
+                                        height: '50px',
+                                        background: 'rgba(5, 133, 133, 0.3)',
+                                        left: 'calc(50% - 40px)',
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        pointerEvents: 'none',
+                                        zIndex: 2
+                                    }} />
+
+                                    {/* Right Vertical Divider */}
+                                    <div style={{
+                                        position: 'absolute',
+                                        width: '1px',
+                                        height: '50px',
+                                        background: 'rgba(5, 133, 133, 0.3)',
+                                        left: 'calc(50% + 40px)',
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        pointerEvents: 'none',
+                                        zIndex: 2
+                                    }} />
+
+                                    {/* Left Gradient Fade */}
+                                    <div style={{
+                                        position: 'absolute',
+                                        width: '60px',
+                                        height: '100%',
+                                        background: 'linear-gradient(to right, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 100%)',
+                                        left: 0,
+                                        top: 0,
+                                        pointerEvents: 'none',
+                                        zIndex: 3
+                                    }} />
+
+                                    {/* Right Gradient Fade */}
+                                    <div style={{
+                                        position: 'absolute',
+                                        width: '60px',
+                                        height: '100%',
+                                        background: 'linear-gradient(to left, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 100%)',
+                                        right: 0,
+                                        top: 0,
+                                        pointerEvents: 'none',
+                                        zIndex: 3
+                                    }} />
+
+                                    <div
+                                        className="swipeable-picker-container"
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '20px',
+                                            overflowX: 'auto',
+                                            overflowY: 'hidden',
+                                            scrollSnapType: 'x mandatory',
+                                            WebkitOverflowScrolling: 'touch',
+                                            scrollBehavior: 'smooth',
+                                            padding: '0 calc(50% - 30px)',
+                                            width: '100%',
+                                            touchAction: 'pan-x'
+                                        }}
+                                        onScroll={(e) => {
+                                            const container = e.target;
+                                            const scrollLeft = container.scrollLeft;
+                                            const itemWidth = 80; // 60px width + 20px gap
+                                            const centerIndex = Math.round(scrollLeft / itemWidth);
+                                            setEveningReflectionData(prev => ({ ...prev, overallDay: centerIndex }));
+                                        }}
+                                    >
+                                        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+                                            <div
+                                                key={num}
+                                                style={{
+                                                    minWidth: '60px',
+                                                    height: '60px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontSize: eveningReflectionData.overallDay === num ? '36px' : '24px',
+                                                    fontWeight: eveningReflectionData.overallDay === num ? 'bold' : '400',
+                                                    color: eveningReflectionData.overallDay === num ? '#058585' : '#CCCCCC',
+                                                    transition: 'all 0.2s',
+                                                    scrollSnapAlign: 'center',
+                                                    cursor: 'pointer',
+                                                    userSelect: 'none'
+                                                }}
                                                 onClick={() => {
                                                     triggerHaptic('light');
-                                                    setEveningReflectionData(prev => ({ ...prev, overallDay: rating }));
-                                                }}
-                                                style={{
-                                                    width: '32px',
-                                                    height: '32px',
-                                                    borderRadius: '50%',
-                                                    border: eveningReflectionData.overallDay === rating ? '2px solid #058585' : '1px solid #ddd',
-                                                    background: eveningReflectionData.overallDay === rating ? '#058585' : '#FFFFFF',
-                                                    color: eveningReflectionData.overallDay === rating ? '#FFFFFF' : '#666666',
-                                                    fontSize: '12px',
-                                                    fontWeight: eveningReflectionData.overallDay === rating ? 'bold' : '400',
-                                                    cursor: 'pointer',
-                                                    transition: 'all 0.2s'
+                                                    setEveningReflectionData(prev => ({ ...prev, overallDay: num }));
+                                                    const container = e.target.closest('.swipeable-picker-container');
+                                                    if (container) {
+                                                        const itemWidth = 80;
+                                                        container.scrollLeft = num * itemWidth;
+                                                    }
                                                 }}
                                             >
-                                                {rating}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '6px', justifyContent: 'space-between' }}>
-                                        {[6, 7, 8, 9, 10].map(rating => (
-                                            <button
-                                                key={rating}
-                                                onClick={() => {
-                                                    triggerHaptic('light');
-                                                    setEveningReflectionData(prev => ({ ...prev, overallDay: rating }));
-                                                }}
-                                                style={{
-                                                    width: '32px',
-                                                    height: '32px',
-                                                    borderRadius: '50%',
-                                                    border: eveningReflectionData.overallDay === rating ? '2px solid #058585' : '1px solid #ddd',
-                                                    background: eveningReflectionData.overallDay === rating ? '#058585' : '#FFFFFF',
-                                                    color: eveningReflectionData.overallDay === rating ? '#FFFFFF' : '#666666',
-                                                    fontSize: '12px',
-                                                    fontWeight: eveningReflectionData.overallDay === rating ? 'bold' : '400',
-                                                    cursor: 'pointer',
-                                                    transition: 'all 0.2s'
-                                                }}
-                                            >
-                                                {rating}
-                                            </button>
+                                                {num}
+                                            </div>
                                         ))}
                                     </div>
                                 </div>
@@ -8479,28 +8628,29 @@ return (
                             {/* Submit Button */}
                             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
                                 <button
-                                    onClick={() => {
+                                    onClick={async () => {
                                         triggerHaptic('success');
-                                        // TODO: Submit reflection logic
-                                        alert('Reflection submitted!');
+                                        await handleEveningReflection(eveningReflectionData);
                                     }}
-                                    disabled={!eveningReflectionData.overallDay || !eveningReflectionData.challenges || !eveningReflectionData.gratitude || !eveningReflectionData.tomorrowGoal}
+                                    disabled={eveningReflectionData.overallDay === null || !eveningReflectionData.challenges || !eveningReflectionData.gratitude || !eveningReflectionData.tomorrowGoal}
                                     style={{
                                         width: '120px',
                                         height: '40px',
-                                        background: (!eveningReflectionData.overallDay || !eveningReflectionData.challenges || !eveningReflectionData.gratitude || !eveningReflectionData.tomorrowGoal) ? '#cccccc' : '#058585',
+                                        background: (eveningReflectionData.overallDay === null || !eveningReflectionData.challenges || !eveningReflectionData.gratitude || !eveningReflectionData.tomorrowGoal) ? '#cccccc' : '#058585',
                                         border: 'none',
                                         borderRadius: '8px',
                                         color: '#FFFFFF',
                                         fontSize: '14px',
                                         fontWeight: '400',
-                                        cursor: (!eveningReflectionData.overallDay || !eveningReflectionData.challenges || !eveningReflectionData.gratitude || !eveningReflectionData.tomorrowGoal) ? 'not-allowed' : 'pointer',
+                                        cursor: (eveningReflectionData.overallDay === null || !eveningReflectionData.challenges || !eveningReflectionData.gratitude || !eveningReflectionData.tomorrowGoal) ? 'not-allowed' : 'pointer',
                                         transition: 'all 0.2s'
                                     }}
                                 >
                                     Submit
                                 </button>
                             </div>
+                                </>
+                            )}
 
                             {/* Reflection Streak Card */}
                             <div style={{
