@@ -1797,6 +1797,8 @@ function PIRApp({ user }) {
     const [streakData, setStreakData] = useState({ longestStreak: 0, currentStreak: 0, allStreaks: [] });
     const [showReflectionStreaksModal, setShowReflectionStreaksModal] = useState(false);
     const [reflectionStreakData, setReflectionStreakData] = useState({ longestStreak: 0, currentStreak: 0, allStreaks: [] });
+    const [showOverallDayInsightsModal, setShowOverallDayInsightsModal] = useState(false);
+    const [overallDayWeekData, setOverallDayWeekData] = useState([]);
     const [showMilestoneModal, setShowMilestoneModal] = useState(false);
     const [allMilestones, setAllMilestones] = useState([]);
     const [showPastReflectionsModal, setShowPastReflectionsModal] = useState(false);
@@ -4778,6 +4780,123 @@ const loadMoodWeekData = async () => {
 
     } catch (error) {
         console.error('Error loading mood week data:', error);
+    }
+};
+
+// Load 7-day overall day score data for overall day insights modal
+const loadOverallDayWeekData = async () => {
+    try {
+        // Get user's timezone
+        const userTimezone = user.timezone || "America/Los_Angeles";
+
+        // Fetch ALL check-ins (no date limit - pull complete history)
+        const snapshot = await db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .orderBy('createdAt', 'desc')
+            .get();
+
+        // Process check-ins by day
+        const overallDayByDay = {};
+
+        snapshot.docs.forEach(doc => {
+            const checkIn = doc.data();
+            const checkInDate = checkIn.createdAt?.toDate ?
+                checkIn.createdAt.toDate() : new Date(checkIn.createdAt);
+
+            // Convert to user's timezone
+            const checkInUserTZ = new Date(checkInDate.toLocaleString("en-US", {timeZone: userTimezone}));
+
+            // Create dateKey
+            const year = checkInUserTZ.getFullYear();
+            const month = String(checkInUserTZ.getMonth() + 1).padStart(2, '0');
+            const day = String(checkInUserTZ.getDate()).padStart(2, '0');
+            const dateKey = `${year}-${month}-${day}`;
+
+            // Get overall day score (evening reflection overallDay, scale 1-10)
+            const overallDayValue = checkIn.eveningData?.overallDay;
+
+            if (overallDayValue) {
+                // Store the overall day score for this day (if multiple check-ins, take the latest/highest)
+                if (!overallDayByDay[dateKey] || overallDayValue > overallDayByDay[dateKey].overallDay) {
+                    overallDayByDay[dateKey] = {
+                        dateKey: dateKey,
+                        date: checkInUserTZ,
+                        overallDay: overallDayValue
+                    };
+                }
+            }
+        });
+
+        // Convert to array and sort by date (oldest first)
+        const overallDayArray = Object.values(overallDayByDay).sort((a, b) =>
+            new Date(a.dateKey) - new Date(b.dateKey)
+        );
+
+        // Split into last week and this week
+        const today = new Date();
+
+        // This week = last 7 days (days 0-6 from today)
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(today.getDate() - 7);
+        const sevenDaysAgoKey = `${sevenDaysAgo.getFullYear()}-${String(sevenDaysAgo.getMonth() + 1).padStart(2, '0')}-${String(sevenDaysAgo.getDate()).padStart(2, '0')}`;
+
+        // Last week = 7 days before that (days 7-13 from today)
+        const fourteenDaysAgo = new Date();
+        fourteenDaysAgo.setDate(today.getDate() - 14);
+        const fourteenDaysAgoKey = `${fourteenDaysAgo.getFullYear()}-${String(fourteenDaysAgo.getMonth() + 1).padStart(2, '0')}-${String(fourteenDaysAgo.getDate()).padStart(2, '0')}`;
+
+        const thisWeekScores = overallDayArray.filter(m => m.dateKey >= sevenDaysAgoKey);
+        const lastWeekScores = overallDayArray.filter(m => m.dateKey >= fourteenDaysAgoKey && m.dateKey < sevenDaysAgoKey);
+
+        // Calculate averages (only from days with actual evening reflections)
+        const thisWeekAvg = thisWeekScores.length > 0
+            ? thisWeekScores.reduce((sum, m) => sum + m.overallDay, 0) / thisWeekScores.length
+            : 0;
+
+        const lastWeekAvg = lastWeekScores.length > 0
+            ? lastWeekScores.reduce((sum, m) => sum + m.overallDay, 0) / lastWeekScores.length
+            : 0;
+
+        // Create 7-day breakdown (last 7 days)
+        const weekData = [];
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+        for (let i = 6; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const dateKey = `${year}-${month}-${day}`;
+
+            const dayName = dayNames[date.getDay()];
+            const overallDayData = overallDayByDay[dateKey];
+
+            weekData.push({
+                dateKey: dateKey,
+                dayName: dayName,
+                overallDay: overallDayData ? overallDayData.overallDay : null, // null means no evening reflection
+                hasOverallDay: !!overallDayData
+            });
+        }
+
+        setOverallDayWeekData({
+            thisWeekAvg: parseFloat(thisWeekAvg.toFixed(1)),
+            lastWeekAvg: parseFloat(lastWeekAvg.toFixed(1)),
+            difference: parseFloat((thisWeekAvg - lastWeekAvg).toFixed(1)),
+            weekData: weekData
+        });
+
+        console.log('📊 OVERALL DAY WEEK DATA:', {
+            thisWeekAvg: parseFloat(thisWeekAvg.toFixed(1)),
+            lastWeekAvg: parseFloat(lastWeekAvg.toFixed(1)),
+            difference: parseFloat((thisWeekAvg - lastWeekAvg).toFixed(1)),
+            daysWithOverallDay: weekData.filter(d => d.hasOverallDay).length
+        });
+
+    } catch (error) {
+        console.error('Error loading overall day week data:', error);
     }
 };
 
@@ -8898,7 +9017,7 @@ return (
                                 </div>
                             </div>
 
-                            {/* Avg Daily Score Stat Card */}
+                            {/* Avg Daily Score Stat Card - Clickable */}
                             <div style={{
                                 width: '100%',
                                 background: '#FFFFFF',
@@ -8908,7 +9027,14 @@ return (
                                 boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                                 display: 'flex',
                                 justifyContent: 'space-between',
-                                alignItems: 'center'
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                            onClick={async () => {
+                                triggerHaptic('light');
+                                await loadOverallDayWeekData();
+                                setShowOverallDayInsightsModal(true);
                             }}>
                                 <span style={{
                                     fontSize: '14px',
@@ -8917,24 +9043,29 @@ return (
                                 }}>
                                     Avg Daily Score
                                 </span>
-                                {reflectionStats.avgDailyScore > 0 ? (
-                                    <span style={{
-                                        fontSize: '18px',
-                                        fontWeight: 'bold',
-                                        color: '#000000'
-                                    }}>
-                                        {reflectionStats.avgDailyScore}
-                                    </span>
-                                ) : (
-                                    <span style={{
-                                        fontSize: '14px',
-                                        fontWeight: '400',
-                                        color: '#999999',
-                                        fontStyle: 'italic'
-                                    }}>
-                                        No data
-                                    </span>
-                                )}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    {reflectionStats.avgDailyScore > 0 ? (
+                                        <>
+                                            <span style={{
+                                                fontSize: '18px',
+                                                fontWeight: 'bold',
+                                                color: '#000000'
+                                            }}>
+                                                {reflectionStats.avgDailyScore}
+                                            </span>
+                                            <i data-lucide="chevron-right" style={{ width: '16px', height: '16px', color: '#666666' }}></i>
+                                        </>
+                                    ) : (
+                                        <span style={{
+                                            fontSize: '14px',
+                                            fontWeight: '400',
+                                            color: '#999999',
+                                            fontStyle: 'italic'
+                                        }}>
+                                            No data
+                                        </span>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Top Gratitude Theme Stat Card */}
@@ -13473,6 +13604,175 @@ return (
                     onClick={() => {
                         triggerHaptic('light');
                         setShowMoodInsightsModal(false);
+                    }}
+                    style={{
+                        width: '100%',
+                        height: '48px',
+                        background: '#058585',
+                        border: 'none',
+                        borderRadius: '8px',
+                        color: '#FFFFFF',
+                        fontSize: '14px',
+                        fontWeight: '400',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    Back
+                </button>
+            </div>
+        </div>
+    </div>
+)}
+
+{/* Overall Day Insights Modal */}
+{showOverallDayInsightsModal && (
+    <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0,0,0,0.7)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 10000,
+        padding: '20px'
+    }}
+    onClick={() => setShowOverallDayInsightsModal(false)}>
+        <div style={{
+            background: '#FFFFFF',
+            borderRadius: '15px',
+            maxWidth: '500px',
+            width: '100%',
+            maxHeight: '80vh',
+            overflow: 'auto'
+        }}
+        onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div style={{
+                padding: '20px',
+                borderBottom: '1px solid #E5E5E5'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{
+                        margin: 0,
+                        fontSize: '18px',
+                        fontWeight: '400',
+                        color: '#000000'
+                    }}>
+                        Overall Day Insights
+                    </h3>
+                    <button
+                        onClick={() => setShowOverallDayInsightsModal(false)}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '4px'
+                        }}
+                    >
+                        <i data-lucide="x" style={{ width: '20px', height: '20px', color: '#666666' }}></i>
+                    </button>
+                </div>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: '20px' }}>
+                {/* Average Overall Day Score */}
+                <div style={{
+                    textAlign: 'center',
+                    marginBottom: '24px'
+                }}>
+                    <div style={{
+                        fontSize: '14px',
+                        fontWeight: '400',
+                        color: '#666666',
+                        marginBottom: '8px'
+                    }}>
+                        7-Day Average
+                    </div>
+                    <div style={{
+                        fontSize: '48px',
+                        fontWeight: 'bold',
+                        color: '#058585',
+                        marginBottom: '4px'
+                    }}>
+                        {overallDayWeekData.thisWeekAvg || '—'}
+                    </div>
+                    <div style={{
+                        fontSize: '14px',
+                        fontWeight: '400',
+                        color: overallDayWeekData.difference > 0 ? '#00A86B' : overallDayWeekData.difference < 0 ? '#DC143C' : '#666666'
+                    }}>
+                        {overallDayWeekData.difference > 0 ? '↑' : overallDayWeekData.difference < 0 ? '↓' : '—'} {overallDayWeekData.difference > 0 ? '+' : ''}{overallDayWeekData.difference || '0'} from last week
+                    </div>
+                </div>
+
+                {/* Weekly Breakdown */}
+                <h4 style={{
+                    fontSize: '16px',
+                    fontWeight: '400',
+                    color: '#000000',
+                    marginBottom: '12px'
+                }}>
+                    Weekly Breakdown
+                </h4>
+                <div style={{ marginBottom: '20px' }}>
+                    {overallDayWeekData.weekData && overallDayWeekData.weekData.map((dayData, index) => {
+                        const score = dayData.overallDay;
+                        const barWidth = score ? (score / 10) * 100 : 0; // Out of 10
+
+                        return (
+                            <div key={dayData.dateKey} style={{
+                                marginBottom: '12px'
+                            }}>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    marginBottom: '4px'
+                                }}>
+                                    <span style={{
+                                        fontSize: '14px',
+                                        fontWeight: '400',
+                                        color: '#000000'
+                                    }}>
+                                        {dayData.dayName}
+                                    </span>
+                                    <span style={{
+                                        fontSize: '14px',
+                                        fontWeight: 'bold',
+                                        color: score ? '#058585' : '#999999'
+                                    }}>
+                                        {score ? score.toFixed(1) : 'No check-in'}
+                                    </span>
+                                </div>
+                                <div style={{
+                                    width: '100%',
+                                    height: '8px',
+                                    background: '#E5E5E5',
+                                    borderRadius: '4px',
+                                    overflow: 'hidden'
+                                }}>
+                                    <div style={{
+                                        width: `${barWidth}%`,
+                                        height: '100%',
+                                        background: score >= 7 ? '#00A86B' : score >= 5 ? '#FFA500' : score ? '#DC143C' : '#E5E5E5',
+                                        transition: 'width 0.3s'
+                                    }} />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Back Button */}
+                <button
+                    onClick={() => {
+                        triggerHaptic('light');
+                        setShowOverallDayInsightsModal(false);
                     }}
                     style={{
                         width: '100%',
