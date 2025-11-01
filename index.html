@@ -4889,22 +4889,42 @@ const calculateStreaks = async () => {
 // Load reflections and calculate stats
 const loadReflections = async () => {
     try {
-        // Load last 90 days of reflections
+        // Load last 90 days of check-ins that have evening reflections
         const ninetyDaysAgo = new Date();
         ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
-        const reflectionsSnapshot = await db.collection('reflections')
+        // Query checkIns collection instead of reflections collection
+        const checkInsSnapshot = await db.collection('checkIns')
             .where('userId', '==', user.uid)
             .where('createdAt', '>=', ninetyDaysAgo)
             .orderBy('createdAt', 'desc')
             .get();
 
+        // Extract only check-ins that have eveningData
         const reflectionsList = [];
-        reflectionsSnapshot.forEach(doc => {
-            reflectionsList.push({ id: doc.id, ...doc.data() });
+        checkInsSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.eveningData) {
+                // Flatten structure for easier use
+                reflectionsList.push({
+                    id: doc.id,
+                    createdAt: data.createdAt,
+                    updatedAt: data.updatedAt,
+                    // Extract eveningData fields to top level
+                    overallDay: data.eveningData.overallDay,
+                    challenges: data.eveningData.challenges,
+                    gratitude: data.eveningData.gratitude,
+                    tomorrowGoal: data.eveningData.tomorrowGoal,
+                    promptResponse: data.eveningData.promptResponse || '',
+                    // Keep original eveningData for modal display
+                    eveningData: data.eveningData
+                });
+            }
         });
 
         setReflectionData(reflectionsList);
+
+        console.log('🌙 Loaded reflections:', reflectionsList.length, 'reflections found');
 
         // Calculate reflection streak
         let streak = 0;
@@ -4935,6 +4955,7 @@ const loadReflections = async () => {
         }
 
         setReflectionStreak(streak);
+        console.log('🔥 Reflection streak:', streak);
 
         // Calculate this month's total
         const startOfMonth = new Date();
@@ -4951,39 +4972,42 @@ const loadReflections = async () => {
 
         // Calculate avg daily score (from overallDay field)
         const scores = thisMonthReflections
-            .filter(r => r.overallDay)
+            .filter(r => r.overallDay !== undefined && r.overallDay !== null)
             .map(r => r.overallDay);
 
         const avgDailyScore = scores.length > 0
             ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
             : 0;
 
-        // Calculate top gratitude theme (will need gratitudes collection - placeholder for now)
+        console.log('📊 Reflection stats:', { totalThisMonth, avgDailyScore, scoresCount: scores.length });
+
+        // Extract gratitude themes from reflection data
         let topGratitudeTheme = '';
+        const gratitudes = thisMonthReflections
+            .filter(r => r.gratitude && r.gratitude.trim())
+            .map(r => r.gratitude);
 
-        // Try to load gratitudes to find most common theme
-        try {
-            const gratitudesSnapshot = await db.collection('gratitudes')
-                .where('userId', '==', user.uid)
-                .where('createdAt', '>=', startOfMonth)
-                .get();
-
+        if (gratitudes.length > 0) {
+            // Simple keyword extraction (can be improved later)
+            const keywords = ['family', 'friends', 'health', 'recovery', 'therapy', 'support', 'peace', 'hope'];
             const themeCounts = {};
-            gratitudesSnapshot.forEach(doc => {
-                const theme = doc.data().theme;
-                if (theme) {
-                    themeCounts[theme] = (themeCounts[theme] || 0) + 1;
-                }
+
+            gratitudes.forEach(gratitude => {
+                const lowerGratitude = gratitude.toLowerCase();
+                keywords.forEach(keyword => {
+                    if (lowerGratitude.includes(keyword)) {
+                        themeCounts[keyword] = (themeCounts[keyword] || 0) + 1;
+                    }
+                });
             });
 
             if (Object.keys(themeCounts).length > 0) {
                 topGratitudeTheme = Object.keys(themeCounts).reduce((a, b) =>
                     themeCounts[a] > themeCounts[b] ? a : b
                 );
+                // Capitalize first letter
+                topGratitudeTheme = topGratitudeTheme.charAt(0).toUpperCase() + topGratitudeTheme.slice(1);
             }
-        } catch (err) {
-            // Gratitudes collection might not exist yet
-            console.log('Gratitudes not yet available');
         }
 
         setReflectionStats({
@@ -5365,7 +5389,7 @@ const handleMorningCheckIn = async (data) => {
 };
         
        
-// Handle evening reflection - SAVES REAL DATA
+// Handle evening reflection - SAVES TO CHECKINS COLLECTION ONLY
 const handleEveningReflection = async (data) => {
     try {
         const userTimezone = user.timezone || "America/Los_Angeles";
@@ -5375,43 +5399,7 @@ const handleEveningReflection = async (data) => {
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        // Create dateKey for uniqueness check
-        const year = userNow.getFullYear();
-        const month = String(userNow.getMonth() + 1).padStart(2, '0');
-        const day = String(userNow.getDate()).padStart(2, '0');
-        const dateKey = `${year}-${month}-${day}`;
-
-        // Check if reflection already exists for today
-        const existingReflection = await db.collection('reflections')
-            .where('userId', '==', user.uid)
-            .where('dateKey', '==', dateKey)
-            .get();
-
-        if (existingReflection.empty) {
-            // Create new reflection
-            await db.collection('reflections').add({
-                userId: user.uid,
-                promptResponse: data.promptResponse,
-                overallDay: data.overallDay,
-                challenges: data.challenges,
-                gratitude: data.gratitude,
-                tomorrowGoal: data.tomorrowGoal,
-                dateKey: dateKey,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        } else {
-            // Update existing reflection
-            await db.collection('reflections').doc(existingReflection.docs[0].id).update({
-                promptResponse: data.promptResponse,
-                overallDay: data.overallDay,
-                challenges: data.challenges,
-                gratitude: data.gratitude,
-                tomorrowGoal: data.tomorrowGoal,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        }
-
-        // Also save to checkIns for daily tracking
+        // Save to checkIns collection with eveningData
         const existingCheckIn = await db.collection('checkIns')
             .where('userId', '==', user.uid)
             .where('createdAt', '>=', today)
@@ -5419,16 +5407,21 @@ const handleEveningReflection = async (data) => {
             .get();
 
         if (existingCheckIn.empty) {
+            // Create new check-in with eveningData
             await db.collection('checkIns').add({
                 userId: user.uid,
+                tenantId: user.tenantId || 'glrs',
                 eveningData: data,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
+            console.log('✅ Created new check-in with evening reflection');
         } else {
+            // Update existing check-in with eveningData
             await db.collection('checkIns').doc(existingCheckIn.docs[0].id).update({
                 eveningData: data,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
+            console.log('✅ Updated existing check-in with evening reflection');
         }
 
         setCheckInStatus(prev => ({ ...prev, evening: true }));
