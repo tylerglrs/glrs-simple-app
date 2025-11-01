@@ -5024,17 +5024,38 @@ const loadReflections = async () => {
 // Load all reflections for streak modal
 const loadStreakReflections = async () => {
     try {
-        // Load enough reflections to cover potential streak (last 90 days)
-        const reflectionsSnapshot = await db.collection('reflections')
+        // Load check-ins with evening reflections (last 90 days)
+        const ninetyDaysAgo = new Date();
+        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+        const checkInsSnapshot = await db.collection('checkIns')
             .where('userId', '==', user.uid)
+            .where('createdAt', '>=', ninetyDaysAgo)
             .orderBy('createdAt', 'desc')
-            .limit(90)
             .get();
 
+        // Extract only check-ins that have eveningData
         const allReflections = [];
-        reflectionsSnapshot.forEach(doc => {
-            allReflections.push({ id: doc.id, ...doc.data() });
+        checkInsSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.eveningData) {
+                // Flatten structure for modal display
+                allReflections.push({
+                    id: doc.id,
+                    createdAt: data.createdAt,
+                    updatedAt: data.updatedAt,
+                    // Extract eveningData fields
+                    overallDay: data.eveningData.overallDay,
+                    challenges: data.eveningData.challenges,
+                    gratitude: data.eveningData.gratitude,
+                    tomorrowGoal: data.eveningData.tomorrowGoal,
+                    promptResponse: data.eveningData.promptResponse || '',
+                    eveningData: data.eveningData
+                });
+            }
         });
+
+        console.log('🔥 Loading streak reflections:', allReflections.length, 'reflections found');
 
         // Calculate consecutive days from today backwards
         const streakList = [];
@@ -5057,10 +5078,16 @@ const loadStreakReflections = async () => {
                 streakList.push(dayReflection);
                 currentDate.setDate(currentDate.getDate() - 1);
             } else {
+                // Allow grace period for today if before 9 PM
+                if (currentDate.getTime() === today.getTime() && new Date().getHours() < 21) {
+                    currentDate.setDate(currentDate.getDate() - 1);
+                    continue;
+                }
                 consecutiveDays = false;
             }
         }
 
+        console.log('🔥 Streak reflections:', streakList.length, 'consecutive days');
         setStreakReflections(streakList);
     } catch (error) {
         console.error('Error loading streak reflections:', error);
