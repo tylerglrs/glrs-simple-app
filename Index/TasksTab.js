@@ -835,6 +835,7 @@ function TasksTab(app) {
                         </button>
                     </div>
                     </>
+                    )}
 
                     <div style={{
                         width: '100%',

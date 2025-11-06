@@ -9,9 +9,8 @@ window.GLRSApp = window.GLRSApp || {};
 window.GLRSApp.services = window.GLRSApp.services || {};
 
 // Get storage reference from config.js (already initialized)
-const storage = window.GLRSApp.storage || window.storage;
-
-if (!storage) {
+// Note: storage is accessed via window.GLRSApp.storage throughout this file to avoid global const conflicts
+if (!window.GLRSApp.storage && !window.storage) {
     console.warn('⚠️ Firebase Storage not initialized');
 }
 
@@ -82,11 +81,11 @@ window.GLRSApp.services.storage = {
 
     // Generic file upload with progress tracking to Firebase Storage
     uploadFile: async (file, path, onProgress) => {
-        if (!storage) {
+        if (!window.GLRSApp.storage && !window.storage) {
             throw new Error('Firebase Storage not initialized');
         }
 
-        const storageRef = storage.ref(path);
+        const storageRef = window.GLRSApp.storage.ref(path);
         const uploadTask = storageRef.put(file);
 
         return new Promise((resolve, reject) => {
@@ -106,33 +105,33 @@ window.GLRSApp.services.storage = {
 
     // Upload data URL to Firebase Storage (alternative method)
     uploadDataURL: async (dataURL, path) => {
-        if (!storage) {
+        if (!window.GLRSApp.storage && !window.storage) {
             throw new Error('Firebase Storage not initialized');
         }
 
-        const storageRef = storage.ref(path);
+        const storageRef = window.GLRSApp.storage.ref(path);
         await storageRef.putString(dataURL, 'data_url');
         return await storageRef.getDownloadURL();
     },
 
     // Delete file from Firebase Storage
     deleteFile: async (path) => {
-        if (!storage) {
+        if (!window.GLRSApp.storage && !window.storage) {
             throw new Error('Firebase Storage not initialized');
         }
 
-        const storageRef = storage.ref(path);
+        const storageRef = window.GLRSApp.storage.ref(path);
         await storageRef.delete();
         return true;
     },
 
     // Get download URL for a file
     getDownloadURL: async (path) => {
-        if (!storage) {
+        if (!window.GLRSApp.storage && !window.storage) {
             throw new Error('Firebase Storage not initialized');
         }
 
-        const storageRef = storage.ref(path);
+        const storageRef = window.GLRSApp.storage.ref(path);
         return await storageRef.getDownloadURL();
     },
 

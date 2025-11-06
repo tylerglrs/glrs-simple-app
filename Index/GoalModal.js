@@ -1397,6 +1397,7 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                 </div>
             )}
         </div>
+        </>
     );
 }
 
