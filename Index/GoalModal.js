@@ -1011,7 +1011,6 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                 )}
             </div>
 
-            {/* Completed Goals Section */}
             {completedGoalsData.length > 0 && (
                 <div style={{padding: '0 20px', paddingBottom: '20px'}}>
                     <h2 style={{

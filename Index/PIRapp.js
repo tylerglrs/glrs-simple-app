@@ -6369,11 +6369,6 @@ const app = {
     uploading, setUploading,
 
     // ========================================
-    // CHECKBOX STATE (1 state × 2 = 2 properties)
-    // ========================================
-    checkboxChecked, setCheckboxChecked,
-
-    // ========================================
     // REFS (12 refs)
     // ========================================
     chartRef,
