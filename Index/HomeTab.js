@@ -324,32 +324,32 @@ function HomeTab(app) {
                 <div className="stats-grid">
                     <div className="stat-card">
                         <div className="stat-icon"><i data-lucide="dollar-sign"></i></div>
-                        <div className="stat-value">${moneySaved.toLocaleString()}</div>
+                        <div className="stat-value">${(moneySaved || 0).toLocaleString()}</div>
                         <div className="stat-label">Money Saved</div>
                     </div>
                     <div className="stat-card">
                         <div className="stat-icon"><i data-lucide="calendar-days"></i></div>
-                        <div className="stat-value">{sobrietyDays}</div>
+                        <div className="stat-value">{sobrietyDays || 0}</div>
                         <div className="stat-label">Total Days</div>
                     </div>
                     <div className="stat-card">
                         <div className="stat-icon"><i data-lucide="flame"></i></div>
-                        <div className="stat-value">{checkInStreak}</div>
+                        <div className="stat-value">{checkInStreak || 0}</div>
                         <div className="stat-label">Day Streak</div>
                     </div>
                     <div className="stat-card">
                         <div className="stat-icon"><i data-lucide="calendar-check"></i></div>
-                        <div className="stat-value">{Math.floor(sobrietyDays / 7)}</div>
+                        <div className="stat-value">{Math.floor((sobrietyDays || 0) / 7)}</div>
                         <div className="stat-label">Weeks Clean</div>
                     </div>
                     <div className="stat-card">
                         <div className="stat-icon"><i data-lucide="check-circle"></i></div>
-                        <div className="stat-value">{totalCheckIns}</div>
+                        <div className="stat-value">{totalCheckIns || 0}</div>
                         <div className="stat-label">Total Check-ins</div>
                     </div>
                     <div className="stat-card">
                         <div className="stat-icon"><i data-lucide="bar-chart-2"></i></div>
-                        <div className="stat-value">{complianceRate.checkIn}%</div>
+                        <div className="stat-value">{complianceRate?.checkIn || 0}%</div>
                         <div className="stat-label">Check-in Rate</div>
                     </div>
                 </div>
