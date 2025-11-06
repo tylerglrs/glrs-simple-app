@@ -2,187 +2,491 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper function to check if user is authenticated
-    function isSignedIn() {
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
+
+    function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Helper function to check if user owns the document
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+    function isAdmin() {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'superadmin'];
     }
 
-    // Users collection
+    function isCoach() {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['coach', 'admin', 'superadmin'];
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // ============================================
+    // USER MANAGEMENT
+    // ============================================
+
     match /users/{userId} {
-      allow read: if isSignedIn();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isCoach() ||
+        (isOwner(userId) &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'active', 'tenantId']));
+      allow delete: if isAdmin();
+
+      // User subcollections
+      match /preferences/{document} {
+        allow read, write: if isOwner(userId) || isCoach();
+      }
+
+      match /resourceViews/{document} {
+        allow read, write: if isOwner(userId) || isCoach();
+      }
+
+      match /resourcePreferences/{document} {
+        allow read, write: if isOwner(userId) || isCoach();
+      }
+
+      // NEW: Insights (created by Cloud Functions)
+      match /insights/{document} {
+        allow read: if isOwner(userId) || isCoach();
+        allow write: if true; // Cloud Functions write here
+      }
+
+      // NEW: Savings Preferences (Finances tab user data)
+      match /savingsPreferences/{document} {
+        allow read, write: if isOwner(userId) || isCoach();
+      }
+    }
+
+    // ============================================
+    // CHECK-INS & REFLECTIONS
+    // ============================================
+
+    match /checkIns/{checkInId} {
+      allow read: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow delete: if isCoach();
+    }
+
+    match /pledges/{pledgeId} {
+      allow read: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow delete: if isCoach();
+    }
+
+    match /streaks/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId) || isCoach();
+    }
+
+    // ============================================
+    // GOALS, OBJECTIVES & ASSIGNMENTS
+    // ============================================
+
+    match /goals/{goalId} {
+      allow read: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isCoach();
+      allow update: if isCoach() ||
+        (isAuthenticated() &&
+         resource.data.userId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['progress', 'status', 'completedAt', 'updatedAt']));
+      allow delete: if isCoach();
+    }
+
+    match /objectives/{objectiveId} {
+      allow read: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isCoach();
+      allow update: if isCoach() ||
+        (isAuthenticated() &&
+         resource.data.userId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['status', 'completedAt', 'updatedAt']));
+      allow delete: if isCoach();
+    }
+
+    match /assignments/{assignmentId} {
+      allow read: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isCoach();
+      allow update: if isCoach() ||
+        (isAuthenticated() &&
+         resource.data.userId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['status', 'reflection', 'completedAt', 'updatedAt']));
+      allow delete: if isCoach();
+    }
+
+    match /milestones/{milestoneId} {
+      allow read: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isCoach();
+      allow update: if isCoach() ||
+        (isAuthenticated() &&
+         resource.data.userId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['achieved', 'achievedDate', 'updatedAt']));
+      allow delete: if isCoach();
+    }
+
+    // ============================================
+    // RESOURCES
+    // ============================================
+
+    match /resources/{resourceId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isCoach();
+    }
+
+    match /resourceFeedback/{feedbackId} {
+      allow read: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update: if isCoach();
+      allow delete: if isAdmin();
+    }
+
+    match /resourceViews/{viewId} {
+      allow read: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================
+    // MESSAGING & COMMUNITY
+    // ============================================
+
+    match /messages/{messageId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isCoach() ||
+        (isAuthenticated() && resource.data.senderId == request.auth.uid);
+      allow delete: if isCoach();
+    }
+
+    match /glrsChat/{messageId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isCoach() ||
+        (isAuthenticated() && resource.data.senderId == request.auth.uid);
+      allow delete: if isCoach();
+    }
+
+    match /topicRoomMessages/{messageId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isCoach() ||
+        (isAuthenticated() && resource.data.senderId == request.auth.uid);
+      allow delete: if isCoach();
+    }
+
+    match /topicRooms/{roomId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isCoach();
+      allow delete: if isAdmin();
+    }
+
+    match /messageReactions/{reactionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // ============================================
+    // COACH NOTES (COACH-ONLY)
+    // ============================================
+
+    match /coachNotes/{noteId} {
+      allow read, write: if isCoach();
+    }
+
+    match /pirNotes/{noteId} {
+      allow read, write: if isCoach();
+    }
+
+    match /checkInReviews/{reviewId} {
+      allow read, write: if isCoach();
+    }
+
+    match /sessionFlags/{flagId} {
+      allow read, write: if isCoach();
+    }
+
+    // ============================================
+    // NOTIFICATIONS & ALERTS
+    // ============================================
+
+    match /notifications/{notificationId} {
+      allow read: if isCoach() ||
+        (isAuthenticated() && resource.data.recipientId == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update: if isCoach() ||
+        (isAuthenticated() && resource.data.recipientId == request.auth.uid);
+      allow delete: if isAdmin() ||
+        (isAuthenticated() && resource.data.recipientId == request.auth.uid);
+    }
+
+    match /alerts/{alertId} {
+      allow read: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow delete: if isCoach();
+    }
+
+    match /activities/{activityId} {
+      allow read: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update: if isCoach();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================
+    // SUPPORT GROUPS & MEETINGS
+    // ============================================
+
+    match /supportGroups/{groupId} {
+      allow read: if isAuthenticated();
+      allow write: if isCoach();
+
+      match /members/{memberId} {
+        allow read: if isAuthenticated();
+        allow write: if isCoach() || isOwner(memberId);
+      }
+    }
+
+    match /groups/{groupId} {
+      allow read: if isAuthenticated();
+      allow write: if isCoach();
+
+      match /members/{memberId} {
+        allow read: if isAuthenticated();
+        allow write: if isCoach() || isOwner(memberId);
+      }
+    }
+
+    match /meetings/{meetingId} {
+      allow read: if isAuthenticated();
+      allow write: if isCoach();
+    }
+
+    match /meetingAttendance/{attendanceId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isCoach();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================
+    // FEEDBACK & MODERATION
+    // ============================================
+
+    match /feedback/{feedbackId} {
+      allow read: if isCoach() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /flaggedContent/{flagId} {
+      allow read: if isCoach();
+      allow create: if isAuthenticated();
+      allow update, delete: if isCoach();
+    }
+
+    match /moderationActions/{actionId} {
+      allow read, write: if isCoach();
+    }
+
+    match /userWarnings/{warningId} {
+      allow read, write: if isCoach();
+    }
+
+    // ============================================
+    // SYSTEM & ADMIN - READABLE BY ALL
+    // ============================================
+
+    match /dailyInspirations/{inspirationId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /goalTemplates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if isCoach();
+    }
+
+    match /broadcasts/{broadcastId} {
+      allow read: if isAuthenticated();
+      allow write: if isCoach();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+    }
+
+    match /presence/{userId} {
+      allow read: if isAuthenticated();
       allow write: if isOwner(userId);
     }
 
-    // Check-ins collection
-    match /checkIns/{checkInId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    // ============================================
+    // FINANCES SYSTEM (Journey Tab - Finances)
+    // ============================================
+
+    match /savingsItems/{itemId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
-    // Reflections collection (NEW)
-    match /reflections/{reflectionId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    match /savingsGoals/{goalId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
-    // Goals collection
-    match /goals/{goalId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /moneyMapStops/{stopId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
-    // Assignments collection
-    match /assignments/{assignmentId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    // ============================================
+    // EMAIL SYSTEM
+    // ============================================
+
+    match /mail/{mailId} {
+      allow create, read: if isAuthenticated();
+      allow update: if false;
+      allow delete: if isAdmin();
     }
 
-    // Messages collection
-    match /messages/{messageId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /emailLog/{logId} {
+      allow read: if isCoach();
+      allow create: if isCoach();
+      allow update, delete: if isAdmin();
     }
 
-    // Community messages
-    match /communityMessages/{messageId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    match /emailQueue/{queueId} {
+      allow read, create, update, delete: if isCoach();
     }
 
-    // Topic rooms
-    match /topicRooms/{roomId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /emailTemplates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
-    // Support groups
-    match /supportGroups/{groupId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /emailPreferences/{userId} {
+      allow read, write: if isOwner(userId) || isCoach();
     }
 
-    // Meetings
-    match /meetings/{meetingId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    // ============================================
+    // REPORTING & AUTOMATION
+    // ============================================
+
+    match /reportLinks/{linkId} {
+      allow read, create, update: if isCoach();
+      allow delete: if isAdmin();
     }
 
-    // Resources
-    match /resources/{resourceId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /automationConfig/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isCoach() && request.auth.uid == userId;
+      allow delete: if isAdmin();
     }
 
-    // Resource notes
-    match /resourceNotes/{noteId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    // ============================================
+    // COACH MANAGEMENT
+    // ============================================
+
+    match /certifications/{certId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isCoach();
+      allow delete: if isAdmin();
     }
 
-    // Notifications
-    match /notifications/{notificationId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    match /specializations/{specId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isCoach();
+      allow delete: if isAdmin();
     }
 
-    // Broadcasts
-    match /broadcasts/{broadcastId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /trainings/{trainingId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isCoach();
+      allow delete: if isAdmin();
     }
 
-    // Connections
-    match /connections/{connectionId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    match /sessions/{sessionId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isCoach();
+      allow delete: if isAdmin();
     }
 
-    // Emergency contacts
-    match /emergencyContacts/{contactId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    // ============================================
+    // CLOUD FUNCTIONS COLLECTIONS (NEW)
+    // ============================================
+
+    // Gratitude insights (created by analyzeGratitude function)
+    match /gratitudeInsights/{insightId} {
+      allow read: if isAuthenticated();
+      allow write: if true; // Cloud Functions write here
     }
 
-    // Achievements
-    match /achievements/{achievementId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    // Challenge insights (created by analyzeChallenge function)
+    match /challengeInsights/{insightId} {
+      allow read: if isAuthenticated();
+      allow write: if true; // Cloud Functions write here
     }
 
-    // Feedback
-    match /feedback/{feedbackId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    // Breakthrough detection (created by detectBreakthroughs function)
+    match /breakthroughs/{breakthroughId} {
+      allow read: if isAuthenticated();
+      allow write: if true; // Cloud Functions write here
     }
 
-    // Alerts
-    match /alerts/{alertId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isSignedIn();
+    // Daily computed insights (created by dailyInsightsComputation function)
+    match /dailyInsights/{insightId} {
+      allow read: if isAuthenticated();
+      allow write: if true; // Cloud Functions write here
     }
 
-    // Attendance
-    match /attendance/{attendanceId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    // Goal achievement tracking
+    match /goalAchievements/{achievementId} {
+      allow read: if isAuthenticated();
+      allow write: if true; // Cloud Functions write here
     }
 
-    // Tenants
+    // ============================================
+    // TENANT SYSTEM (For future white-label)
+    // ============================================
+
     match /tenants/{tenantId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
+      allow read: if isAdmin();
+      allow write: if isAdmin();
 
-    // Audit logs
-    match /auditLogs/{logId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-    }
-
-    // Streaks
-    match /streaks/{streakId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    // Activities
-    match /activities/{activityId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
-    }
-
-    // Milestones
-    match /milestones/{milestoneId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    // Gratitudes
-    match /gratitudes/{gratitudeId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
-    }
-
-    // Calendar events
-    match /calendarEvents/{eventId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      match /{collection}/{document} {
+        allow read, write: if isAdmin();
+      }
     }
   }
 }

@@ -41,16 +41,16 @@ const fs = require('fs');
 
   try {
     console.log('🚀 Loading app from Firebase emulator...');
-    
-    await page.goto('http://localhost:5002', {
-      waitUntil: 'networkidle2',
-      timeout: 30000
+
+    await page.goto('http://localhost:5003', {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000
     });
-    
-    console.log('✅ App loaded successfully');
-    
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
+
+    console.log('✅ App DOM loaded, waiting for errors...');
+
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
     if (errors.length > 0) {
       console.log(`❌ Found ${errors.length} error(s):`);
       errors.forEach((err, index) => {
