@@ -6419,12 +6419,11 @@ const app = {
     handleTouchEnd,
 
     // ========================================
-    // CORE UTILITY FUNCTIONS (10 functions)
+    // CORE UTILITY FUNCTIONS (9 functions)
     // ========================================
     triggerHaptic,
     setupRealtimeListeners,
     calculateSobrietyDays,
-    calculateStats,
     loadSavingsData,
     savePreferences,
     findCheckInForDate,
