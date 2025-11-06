@@ -581,9 +581,7 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
     }, [dueToday, onDueTodayChange]);
 
     return (
-        <>
-            {/* Active Goals Section */}
-            <div style={{padding: '0 20px', paddingBottom: '12px'}}>
+        <div style={{padding: '0 20px', paddingBottom: '12px'}}>
                 <h2 style={{
                     color: '#000000',
                     fontSize: '18px',
@@ -1397,7 +1395,6 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                 </div>
             )}
         </div>
-        </>
     );
 }
 
