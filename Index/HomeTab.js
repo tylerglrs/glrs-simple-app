@@ -144,7 +144,7 @@ function HomeTab(app) {
                         gap: 'var(--space-3)',
                         paddingBottom: 'var(--space-2)'
                     }}>
-                        {milestones.slice(0, 10).map((milestone, index) => {
+                        {milestones?.slice(0, 10).map((milestone, index) => {
                             const achieved = sobrietyDays >= milestone.days;
                             const isNext = nextMilestone && milestone.days === nextMilestone.daysRequired;
 
