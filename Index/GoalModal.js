@@ -581,6 +581,7 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
     }, [dueToday, onDueTodayChange]);
 
     return (
+        <>
         <div style={{padding: '0 20px', paddingBottom: '12px'}}>
                 <h2 style={{
                     color: '#000000',
@@ -1394,6 +1395,7 @@ function GoalsTasksView({ user, goals, assignments, onAssignmentComplete, onRefl
                 </div>
             )}
         </div>
+        </>
     );
 }
 
