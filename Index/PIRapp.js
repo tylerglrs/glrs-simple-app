@@ -6740,10 +6740,10 @@ return (
             )}
 
            {currentView === 'notifications' && (
-                <NotificationsTab
-                    notifications={notifications}
-                    onMarkAsRead={markNotificationAsRead}
-                />
+                <div style={{padding: '20px', textAlign: 'center', color: '#666'}}>
+                    <h3>Notifications</h3>
+                    <p>Notification center coming soon!</p>
+                </div>
             )}
         </div>
 
