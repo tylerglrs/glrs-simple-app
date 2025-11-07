@@ -75,7 +75,7 @@ function JourneyTab(app) {
                 alignItems: 'center',
                 height: '48px',
                 position: 'fixed',
-                top: '40px',
+                top: '48px',
                 left: 0,
                 right: 0,
                 zIndex: 99,
@@ -183,7 +183,7 @@ function JourneyTab(app) {
                 background: '#FFFFFF',
                 minHeight: '100vh',
                 paddingBottom: '80px',
-                paddingTop: '48px'
+                paddingTop: '96px'
             }}>
                 {/* LIFE TAB */}
                 {journeyTab === 'life' && (
