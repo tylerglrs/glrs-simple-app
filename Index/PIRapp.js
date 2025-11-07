@@ -6073,6 +6073,42 @@ if (loading) {
 }
 
 // ==========================================
+// LOADING SPINNER COMPONENT
+// ==========================================
+const LoadingSpinner = ({ message = 'Loading...' }) => {
+    return React.createElement('div', {
+        style: {
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '60vh',
+            flexDirection: 'column',
+            gap: '15px'
+        }
+    }, [
+        React.createElement('div', {
+            key: 'spinner',
+            style: {
+                width: '50px',
+                height: '50px',
+                border: '4px solid rgba(6, 148, 148, 0.2)',
+                borderTop: '4px solid #069494',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite'
+            }
+        }),
+        React.createElement('div', {
+            key: 'message',
+            style: {
+                color: '#666',
+                fontSize: '14px',
+                fontWeight: '500'
+            }
+        }, message)
+    ]);
+};
+
+// ==========================================
 // APP OBJECT CREATION
 // Central state container - passes all state, functions, and refs to child components
 // ==========================================
@@ -6673,25 +6709,35 @@ return (
             onTouchEnd={handleTouchEnd}
         >
 
-            {currentView === 'home' &&
-                React.createElement(window.GLRSApp.components.HomeTab, { app })
-            }
+            {currentView === 'home' && (
+                loading || !userData ?
+                    React.createElement(LoadingSpinner, { message: 'Loading your recovery data...' }) :
+                    React.createElement(window.GLRSApp.components.HomeTab, { app })
+            )}
 
-            {currentView === 'tasks' &&
-                React.createElement(window.GLRSApp.components.TasksTab, { app })
-            }
+            {currentView === 'tasks' && (
+                loading || !goals || !assignments ?
+                    React.createElement(LoadingSpinner, { message: 'Loading your tasks...' }) :
+                    React.createElement(window.GLRSApp.components.TasksTab, { app })
+            )}
 
-            {currentView === 'progress' &&
-                React.createElement(window.GLRSApp.components.JourneyTab, { app })
-            }
+            {currentView === 'progress' && (
+                loading || !checkIns ?
+                    React.createElement(LoadingSpinner, { message: 'Loading your progress...' }) :
+                    React.createElement(window.GLRSApp.components.JourneyTab, { app })
+            )}
 
-            {currentView === 'connect' &&
-                React.createElement(window.GLRSApp.components.CommunityTab, { app })
-            }
+            {currentView === 'connect' && (
+                loading ?
+                    React.createElement(LoadingSpinner, { message: 'Loading community...' }) :
+                    React.createElement(window.GLRSApp.components.CommunityTab, { app })
+            )}
 
-            {currentView === 'guides' &&
-                React.createElement(window.GLRSApp.components.ResourcesView, { app })
-            }
+            {currentView === 'guides' && (
+                loading || !resources ?
+                    React.createElement(LoadingSpinner, { message: 'Loading resources...' }) :
+                    React.createElement(window.GLRSApp.components.ResourcesView, { app })
+            )}
 
            {currentView === 'notifications' && (
                 <NotificationsTab
