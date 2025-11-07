@@ -32,7 +32,7 @@ function ResourcesView(app) {
     useEffect(() => {
         loadAllResources();
         loadUserPreferences();
-    }, [user.uid]);
+    }, [user?.uid]);
 
     useEffect(() => {
         if (allResources.length > 0) {

@@ -54,10 +54,10 @@ function CommunityTab(app) {
             </div>
 
             {activeChat === 'main' && (
-                <CommunityChat 
+                <CommunityChat
                     messages={communityMessages}
                     onSendMessage={sendCommunityMessage}
-                    currentUserId={user.uid}
+                    currentUserId={user?.uid}
                     uploadChatImage={uploadChatImage}  
                     flagContent={flagContent} 
                     setModalImage={setModalImage}
@@ -67,7 +67,7 @@ function CommunityTab(app) {
             {activeChat === 'rooms' && (
                 <>
                     <h3 style={{color: '#f4c430', marginBottom: '20px'}}>Recovery Topic Rooms</h3>
-                    {topicRooms.length > 0 ? (
+                    {topicRooms?.length > 0 ? (
                         topicRooms.map(room => (
                             <div 
                                 key={room.id} 
@@ -95,7 +95,7 @@ function CommunityTab(app) {
             {activeChat === 'groups' && (
                 <>
                     <h3 style={{color: '#f4c430', marginBottom: '20px'}}>Support Groups</h3>
-                    {supportGroups.length > 0 ? (
+                    {supportGroups?.length > 0 ? (
                         supportGroups.map(group => (
                             <div key={group.id} className="support-group-card">
                                 <div className="group-header">
@@ -166,7 +166,7 @@ function CommunityTab(app) {
             {activeChat === 'meetings' && (
                 <>
                     <h3 style={{color: '#f4c430', marginBottom: '20px'}}>Scheduled Group Meetings</h3>
-                    {meetings.length > 0 ? (
+                    {meetings?.length > 0 ? (
                         meetings.map(meeting => {
                             const meetingDate = meeting.scheduledTime?.toDate ? 
                                 meeting.scheduledTime.toDate() : 
@@ -242,7 +242,7 @@ function CommunityTab(app) {
                     <i data-lucide="alert-octagon" style={{width: '20px', height: '20px', marginRight: '8px', color: '#DC143C'}}></i>
                     Crisis Resources
                 </div>
-                {emergencyResources.length > 0 ? (
+                {emergencyResources?.length > 0 ? (
                     emergencyResources.map(resource => (
                         <div key={resource.id} style={{marginBottom: '15px'}}>
                             <div className="crisis-number">
@@ -498,7 +498,7 @@ function CommunityChat({ messages, onSendMessage, currentUserId, uploadChatImage
 
             {/* Feed Posts */}
             <div>
-                {messages.length > 0 ? (
+                {messages?.length > 0 ? (
                     messages.slice().reverse().map(msg => (
                         <div key={msg.id} style={{
                             background: 'rgba(255,255,255,0.95)',
