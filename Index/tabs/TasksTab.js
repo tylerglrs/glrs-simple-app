@@ -3011,6 +3011,24 @@ function TasksTab() {
                     else if (modalName === 'reflectionHistory') setShowReflectionHistory(false);
                     else if (modalName === 'winsHistory') setShowWinsHistory(false);
                 },
+                onOpenModal: (modalName) => {
+                    if (modalName === 'habitTrackerModal') setShowHabitTrackerModal(true);
+                    else if (modalName === 'quickReflectionModal') setShowQuickReflectionModal(true);
+                    else if (modalName === 'thisWeekTasksModal') setShowThisWeekTasksModal(true);
+                    else if (modalName === 'overdueItemsModal') setShowOverdueItemsModal(true);
+                    else if (modalName === 'markCompleteModal') setShowMarkCompleteModal(true);
+                    else if (modalName === 'progressStatsModal') setShowProgressStatsModal(true);
+                    else if (modalName === 'goalProgressModal') setShowGoalProgressModal(true);
+                    else if (modalName === 'todayWinsModal') setShowTodayWinsModal(true);
+                    else if (modalName === 'streaksModal') setShowStreaksModal(true);
+                    else if (modalName === 'reflectionStreaksModal') setShowReflectionStreaksModal(true);
+                    else if (modalName === 'intentionsModal') setShowIntentionsModal(true);
+                    else if (modalName === 'pastIntentionsModal') setShowPastIntentionsModal(true);
+                    else if (modalName === 'progressSnapshotModal') setShowProgressSnapshotModal(true);
+                    else if (modalName === 'habitHistory') setShowHabitHistory(true);
+                    else if (modalName === 'reflectionHistory') setShowReflectionHistory(true);
+                    else if (modalName === 'winsHistory') setShowWinsHistory(true);
+                },
                 onSaveHabit: async (habitData) => {
                     console.log('TODO: Save habit to Firestore:', habitData);
                 },
@@ -4555,8 +4573,9 @@ function TasksSidebarModals({
     reflectionStreakData,   // Reflection streak data
     pastIntentions,         // Array of past intentions
 
-    // ===== CALLBACK PROPS (12) =====
+    // ===== CALLBACK PROPS (13) =====
     onClose,                    // (modalName: string) => void
+    onOpenModal,                // (modalName: string) => void - Opens modals from sidebar buttons
     onSaveHabit,                // (habitData) => Promise<void>
     onToggleHabit,              // (habitId, completed) => Promise<void>
     onSaveReflection,           // (reflectionText) => Promise<void>
@@ -4568,7 +4587,7 @@ function TasksSidebarModals({
     onSaveAndShareReflection,   // (reflectionData) => Promise<void>
     onSaveIntention,            // (intentionData) => Promise<void>
     onLoadPastIntentions        // () => Promise<void>
-}) {  // ✅ PHASE 7: Props-based modal pattern (39 props: 17 flags + 10 data + 12 callbacks)
+}) {  // ✅ PHASE 7: Props-based modal pattern (40 props: 17 flags + 10 data + 13 callbacks)
     // ✅ PHASE 4, PART 6, STEP 2: React imports for local state
     const { useState } = React;
 
@@ -6493,7 +6512,7 @@ function TasksSidebarModals({
                             onClick={() => {
                                 if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
                                 onClose('sidebar');
-                                setShowHabitTrackerModal(true);
+                                onOpenModal('habitTrackerModal');
                             }}
                             style={{
                                 padding: '15px',
@@ -6518,7 +6537,7 @@ function TasksSidebarModals({
                             onClick={() => {
                                 if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
                                 onClose('sidebar');
-                                setShowQuickReflectionModal(true);
+                                onOpenModal('quickReflectionModal');
                             }}
                             style={{
                                 padding: '15px',
@@ -6543,7 +6562,7 @@ function TasksSidebarModals({
                             onClick={() => {
                                 if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
                                 onClose('sidebar');
-                                setShowThisWeekTasksModal(true);
+                                onOpenModal('thisWeekTasksModal');
                             }}
                             style={{
                                 padding: '15px',
@@ -6568,7 +6587,7 @@ function TasksSidebarModals({
                             onClick={() => {
                                 if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
                                 onClose('sidebar');
-                                setShowOverdueItemsModal(true);
+                                onOpenModal('overdueItemsModal');
                             }}
                             style={{
                                 padding: '15px',
@@ -6593,7 +6612,7 @@ function TasksSidebarModals({
                             onClick={() => {
                                 if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
                                 onClose('sidebar');
-                                setShowMarkCompleteModal(true);
+                                onOpenModal('markCompleteModal');
                             }}
                             style={{
                                 padding: '15px',
@@ -6618,7 +6637,7 @@ function TasksSidebarModals({
                             onClick={() => {
                                 if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
                                 onClose('sidebar');
-                                setShowProgressStatsModal(true);
+                                onOpenModal('progressStatsModal');
                             }}
                             style={{
                                 padding: '15px',
@@ -6643,7 +6662,7 @@ function TasksSidebarModals({
                             onClick={() => {
                                 if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
                                 onClose('sidebar');
-                                setShowGoalProgressModal(true);
+                                onOpenModal('goalProgressModal');
                             }}
                             style={{
                                 padding: '15px',
@@ -6668,7 +6687,7 @@ function TasksSidebarModals({
                             onClick={() => {
                                 if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
                                 onClose('sidebar');
-                                setShowTodayWinsModal(true);
+                                onOpenModal('todayWinsModal');
                             }}
                             style={{
                                 padding: '15px',
