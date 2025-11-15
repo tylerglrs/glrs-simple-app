@@ -70,7 +70,6 @@ function TasksTab() {
     const [activeTaskTab, setActiveTaskTab] = React.useState('checkin'); // 'checkin' | 'reflections' | 'golden'
     const [checkInStatus, setCheckInStatus] = React.useState({ morning: false, evening: false });
     const [checkInStreak, setCheckInStreak] = React.useState(0);
-    const [reflectionStreak, setReflectionStreak] = React.useState(0);
     const [streakData, setStreakData] = React.useState(null); // Full streak object with currentStreak, longestStreak, etc.
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState(null);
@@ -115,24 +114,6 @@ function TasksTab() {
     const [showMilestoneModal, setShowMilestoneModal] = React.useState(false);
     const [showPastReflectionsModal, setShowPastReflectionsModal] = React.useState(false);
     const [showGratitudeModal, setShowGratitudeModal] = React.useState(false);
-
-    // SIDEBAR MODAL VISIBILITY STATE (16 hooks)
-    const [showHabitTrackerModal, setShowHabitTrackerModal] = React.useState(false);
-    const [showQuickReflectionModal, setShowQuickReflectionModal] = React.useState(false);
-    const [showThisWeekTasksModal, setShowThisWeekTasksModal] = React.useState(false);
-    const [showOverdueItemsModal, setShowOverdueItemsModal] = React.useState(false);
-    const [showMarkCompleteModal, setShowMarkCompleteModal] = React.useState(false);
-    const [showProgressStatsModal, setShowProgressStatsModal] = React.useState(false);
-    const [showGoalProgressModal, setShowGoalProgressModal] = React.useState(false);
-    const [showTodayWinsModal, setShowTodayWinsModal] = React.useState(false);
-    const [showStreaksModal, setShowStreaksModal] = React.useState(false);
-    const [showReflectionStreaksModal, setShowReflectionStreaksModal] = React.useState(false);
-    const [showIntentionsModal, setShowIntentionsModal] = React.useState(false);
-    const [showPastIntentionsModal, setShowPastIntentionsModal] = React.useState(false);
-    const [showProgressSnapshotModal, setShowProgressSnapshotModal] = React.useState(false);
-    const [showHabitHistory, setShowHabitHistory] = React.useState(false);
-    const [showReflectionHistory, setShowReflectionHistory] = React.useState(false);
-    const [showWinsHistory, setShowWinsHistory] = React.useState(false);
 
     // ═══════════════════════════════════════════════════════════
     // STEP 3 COMPLETE: Firebase authentication listener
@@ -207,7 +188,6 @@ function TasksTab() {
     React.useEffect(() => {
         if (!user) {
             setCheckInStreak(0);
-            setReflectionStreak(0);
             setStreakData(null);
             return;
         }
@@ -223,11 +203,9 @@ function TasksTab() {
                         const data = doc.data();
                         setStreakData(data); // Store full streak object
                         setCheckInStreak(data.currentStreak || 0); // Keep for backward compatibility
-                        setReflectionStreak(data.reflectionStreak || 0);
                     } else {
                         setStreakData(null);
                         setCheckInStreak(0);
-                        setReflectionStreak(0);
                     }
                 },
                 (error) => {
@@ -235,7 +213,6 @@ function TasksTab() {
                     window.handleFirebaseError && window.handleFirebaseError(error, 'loadStreakData');
                     setStreakData(null);
                     setCheckInStreak(0);
-                    setReflectionStreak(0);
                 }
             );
 
@@ -659,8 +636,11 @@ function TasksTab() {
                 completedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
 
-            // Real-time listener will automatically update assignments array
-            console.log('Assignment completed - real-time listener will update state');
+            // Reload assignments
+            if (window.GLRSApp?.loaders?.loadAssignments) {
+                const updatedAssignments = await window.GLRSApp.loaders.loadAssignments();
+                setAssignments(updatedAssignments || []);
+            }
 
             window.GLRSApp?.utils?.showNotification &&
                 window.GLRSApp.utils.showNotification('Assignment completed!', 'success');
@@ -1487,7 +1467,10 @@ function TasksTab() {
                                 try {
                                     await handleMorningCheckIn(morningCheckInData);
                                     await new Promise(resolve => setTimeout(resolve, 200));
-                                    // Real-time listeners will update streak, check-ins, and status
+                                    await window.GLRSApp.loaders.loadStreak();
+                                    await window.GLRSApp.loaders.loadCheckIns();
+                                    await window.GLRSApp.loaders.loadStreakCheckIns();
+                                    await window.GLRSApp.loaders.loadDailyTasksStatus();
                                     alert('Check-in submitted! ✅');
                                     setMorningCheckInData({
                                         mood: null,
@@ -1533,6 +1516,7 @@ function TasksTab() {
                     }}
                     onClick={async () => {
                         window.GLRSApp.utils.triggerHaptic('light');
+                        await window.GLRSApp.loaders.loadStreakCheckIns();
                         // TODO: This modal should be passed as prop from PIRapp - setShowModal('streak')
                         console.warn('Streak modal functionality needs PIRapp integration');
                     }}>
@@ -1596,7 +1580,8 @@ function TasksTab() {
                     onClick={async () => {
                         window.GLRSApp.utils.triggerHaptic('light');
                         // TODO: Global modal - needs PIRapp prop
-                        console.warn('Calendar heatmap modal needs PIRapp integration - loaders.js not compatible with TasksTab architecture');
+                        console.warn('Calendar heatmap modal needs PIRapp integration');
+                        await window.GLRSApp.loaders.loadCalendarHeatmapData();
                     }}>
                         <span style={{
                             fontSize: '14px',
@@ -1646,8 +1631,8 @@ function TasksTab() {
                     }}
                     onClick={async () => {
                         window.GLRSApp.utils.triggerHaptic('light');
+                        await window.GLRSApp.loaders.loadMoodWeekData();
                         // TODO: Global modal - needs PIRapp prop
-                        console.warn('Mood week modal needs PIRapp integration');
                     }}>
                         <span style={{
                             fontSize: '14px',
@@ -2471,8 +2456,8 @@ function TasksTab() {
                         }}
                         onClick={async () => {
                             window.GLRSApp.utils.triggerHaptic('light');
+                            await window.GLRSApp.loaders.loadStreakReflections();
                             // TODO: Global modal - needs PIRapp prop
-                            console.warn('Reflection streak modal needs PIRapp integration');
                         }}>
                             <span style={{
                                 fontSize: '14px',
@@ -2534,7 +2519,8 @@ function TasksTab() {
                         onClick={async () => {
                             window.GLRSApp.utils.triggerHaptic('light');
                             // TODO: Global modal - needs PIRapp prop
-                            console.warn('Calendar heatmap modal needs PIRapp integration');
+                        console.warn('Calendar heatmap modal needs PIRapp integration');
+                            await window.GLRSApp.loaders.loadCalendarHeatmapData();
                         }}>
                             <span style={{
                                 fontSize: '14px',
@@ -2584,8 +2570,8 @@ function TasksTab() {
                         }}
                         onClick={async () => {
                             window.GLRSApp.utils.triggerHaptic('light');
+                            await window.GLRSApp.loaders.loadOverallDayWeekData();
                             // TODO: Global modal - needs PIRapp prop
-                            console.warn('Overall day week modal needs PIRapp integration');
                         }}>
                             <span style={{
                                 fontSize: '14px',
@@ -2805,6 +2791,8 @@ function TasksTab() {
                         }}
                         onClick={async () => {
                             window.GLRSApp.utils.triggerHaptic('light');
+                            await window.GLRSApp.loaders.loadGratitudeJournal();
+                            await window.GLRSApp.loaders.loadGratitudeInsights();
                             // TODO: This modal should be passed as prop from PIRapp - setShowModal('gratitudeJournal')
                             console.warn('Gratitude Journal modal functionality needs PIRapp integration');
                         }}>
@@ -2834,6 +2822,8 @@ function TasksTab() {
                         }}
                         onClick={async () => {
                             window.GLRSApp.utils.triggerHaptic('light');
+                            await window.GLRSApp.loaders.loadChallengesHistory();
+                            await window.GLRSApp.loaders.loadChallengesInsights();
                             // TODO: This modal should be passed as prop from PIRapp - setShowModal('challengesHistory')
                             console.warn('Challenges History modal functionality needs PIRapp integration');
                         }}>
@@ -2863,6 +2853,7 @@ function TasksTab() {
                         }}
                         onClick={async () => {
                             window.GLRSApp.utils.triggerHaptic('light');
+                            await window.GLRSApp.loaders.loadGoalAchievementData();
                             // TODO: This modal should be passed as prop from PIRapp - setShowModal('tomorrowGoals')
                             console.warn('Tomorrow Goals modal functionality needs PIRapp integration');
                         }}>
