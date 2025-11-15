@@ -2931,6 +2931,93 @@ function TasksTab() {
                     </div>
                 )}
             </div>
+
+            {/* RENDER TASKS SIDEBAR MODALS */}
+            {React.createElement(window.GLRSApp.components.TasksSidebarModals, {
+                // Modal visibility flags (17)
+                showHabitTrackerModal: showHabitTrackerModal,
+                showQuickReflectionModal: showQuickReflectionModal,
+                showThisWeekTasksModal: showThisWeekTasksModal,
+                showOverdueItemsModal: showOverdueItemsModal,
+                showMarkCompleteModal: showMarkCompleteModal,
+                showProgressStatsModal: showProgressStatsModal,
+                showGoalProgressModal: showGoalProgressModal,
+                showTodayWinsModal: showTodayWinsModal,
+                showStreaksModal: showStreaksModal,
+                showReflectionStreaksModal: showReflectionStreaksModal,
+                showIntentionsModal: showIntentionsModal,
+                showPastIntentionsModal: showPastIntentionsModal,
+                showProgressSnapshotModal: showProgressSnapshotModal,
+                showHabitHistory: showHabitHistory,
+                showReflectionHistory: showReflectionHistory,
+                showWinsHistory: showWinsHistory,
+                showSidebar: false, // Sidebar rendered separately in TasksSidebarModals
+
+                // Data props (10)
+                user: user,
+                habits: [], // TODO: Load habits data with useEffect
+                todayHabits: [], // TODO: Load today's habits
+                quickReflections: [], // TODO: Load quick reflections
+                todayWins: [], // TODO: Load today's wins
+                goals: goals,
+                assignments: assignments,
+                streakData: streakData,
+                reflectionStreakData: reflectionStreakData,
+                pastIntentions: [], // TODO: Load past intentions
+
+                // Callback props (12)
+                onClose: (modalName) => {
+                    if (modalName === 'habitTrackerModal') setShowHabitTrackerModal(false);
+                    else if (modalName === 'quickReflectionModal') setShowQuickReflectionModal(false);
+                    else if (modalName === 'thisWeekTasksModal') setShowThisWeekTasksModal(false);
+                    else if (modalName === 'overdueItemsModal') setShowOverdueItemsModal(false);
+                    else if (modalName === 'markCompleteModal') setShowMarkCompleteModal(false);
+                    else if (modalName === 'progressStatsModal') setShowProgressStatsModal(false);
+                    else if (modalName === 'goalProgressModal') setShowGoalProgressModal(false);
+                    else if (modalName === 'todayWinsModal') setShowTodayWinsModal(false);
+                    else if (modalName === 'streaksModal') setShowStreaksModal(false);
+                    else if (modalName === 'reflectionStreaksModal') setShowReflectionStreaksModal(false);
+                    else if (modalName === 'intentionsModal') setShowIntentionsModal(false);
+                    else if (modalName === 'pastIntentionsModal') setShowPastIntentionsModal(false);
+                    else if (modalName === 'progressSnapshotModal') setShowProgressSnapshotModal(false);
+                    else if (modalName === 'habitHistory') setShowHabitHistory(false);
+                    else if (modalName === 'reflectionHistory') setShowReflectionHistory(false);
+                    else if (modalName === 'winsHistory') setShowWinsHistory(false);
+                },
+                onSaveHabit: async (habitData) => {
+                    console.log('TODO: Save habit to Firestore:', habitData);
+                },
+                onToggleHabit: async (habitId, completed) => {
+                    console.log('TODO: Toggle habit in Firestore:', habitId, completed);
+                },
+                onSaveReflection: async (reflectionText) => {
+                    console.log('TODO: Save reflection to Firestore:', reflectionText);
+                },
+                onSaveWin: async (winText) => {
+                    console.log('TODO: Save win to Firestore:', winText);
+                },
+                onUpdateGoal: async (goalId, updates) => {
+                    console.log('TODO: Update goal in Firestore:', goalId, updates);
+                },
+                onMarkComplete: async (assignmentId) => {
+                    await handleAssignmentComplete(assignmentId, true);
+                },
+                onSaveAndShareHabit: async (habitData) => {
+                    console.log('TODO: Save and share habit:', habitData);
+                },
+                onSaveAndShareWin: async (winData) => {
+                    console.log('TODO: Save and share win:', winData);
+                },
+                onSaveAndShareReflection: async (reflectionData) => {
+                    console.log('TODO: Save and share reflection:', reflectionData);
+                },
+                onSaveIntention: async (intentionData) => {
+                    console.log('TODO: Save intention to Firestore:', intentionData);
+                },
+                onLoadPastIntentions: async () => {
+                    console.log('TODO: Load past intentions from Firestore');
+                }
+            })}
         </>
     );
 }
