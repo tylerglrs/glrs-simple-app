@@ -1,0 +1,2011 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Recovery Compass</title>
+    <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" type="image/png">
+
+    <!-- Firebase Scripts -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+
+    <!-- Google Identity Services - FOR CALENDAR INTEGRATION -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+    <!-- React & Babel -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Chart.js for Progress Charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+
+    <!-- html2canvas for Graph Capture -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <!-- jsPDF for Exporting Reports -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            /* Design Tokens - Colors */
+            --color-primary: #069494;
+            --color-primary-light: #40E0D0;
+            --color-primary-dark: #057575;
+            --color-secondary: #5795A7;
+            --color-secondary-light: #89B8CA;
+            --color-accent: #FF8559;
+            --color-accent-light: #FFB399;
+            --color-success: #2ECC71;
+            --color-warning: #F39C12;
+            --color-error: #E74C3C;
+            --color-info: #3498DB;
+
+            /* Neutrals */
+            --color-text-primary: #2C3E50;
+            --color-text-secondary: #7F8C8D;
+            --color-text-tertiary: #95A5A6;
+            --color-bg: #FFFFFF;
+            --color-bg-alt: #F8F9FA;
+            --color-bg-dark: #E9ECEF;
+            --color-border: #E5E7EB;
+
+            /* Spacing (8px grid) */
+            --space-1: 0.25rem;  /* 4px */
+            --space-2: 0.5rem;   /* 8px */
+            --space-3: 0.75rem;  /* 12px */
+            --space-4: 1rem;     /* 16px */
+            --space-6: 1.5rem;   /* 24px */
+            --space-8: 2rem;     /* 32px */
+            --space-12: 3rem;    /* 48px */
+
+            /* Typography */
+            --font-xs: 0.75rem;      /* 12px */
+            --font-sm: 0.875rem;     /* 14px */
+            --font-base: 1rem;       /* 16px */
+            --font-lg: 1.125rem;     /* 18px */
+            --font-xl: 1.25rem;      /* 20px */
+            --font-2xl: 1.5rem;      /* 24px */
+            --font-3xl: 2.25rem;     /* 36px */
+
+            /* Border Radius */
+            --radius-sm: 0.25rem;  /* 4px */
+            --radius-md: 0.5rem;   /* 8px */
+            --radius-lg: 0.75rem;  /* 12px */
+            --radius-xl: 1rem;     /* 16px */
+
+            /* Shadows */
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+
+            /* Gradients */
+            --gradient-primary: linear-gradient(135deg, #069494 0%, #5795A7 100%);
+            --gradient-accent: linear-gradient(135deg, #FF8559 0%, #FFB399 100%);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--gradient-primary);
+            min-height: 100vh;
+            color: white;
+            position: relative;
+            overflow-x: hidden;
+        }
+        
+        .loading-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid var(--color-primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: var(--space-4);
+            background: var(--gradient-primary);
+        }
+        
+        .login-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+        
+        .logo-container {
+            margin-bottom: 20px;
+        }
+        
+        .lighthouse-logo {
+            width: 100px;
+            height: 100px;
+            margin: 0 auto;
+        }
+        
+        .app-title {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: white;
+        }
+
+        /* Lucide Icon Color Classes */
+        [data-lucide] {
+            stroke: currentColor;
+        }
+
+        .icon-primary {
+            color: var(--color-primary);
+        }
+
+        .icon-success {
+            color: var(--color-success);
+        }
+
+        .icon-warning {
+            color: var(--color-warning);
+        }
+
+        .icon-accent {
+            color: var(--color-accent);
+        }
+        
+        .app-subtitle {
+            font-size: var(--font-base);
+            opacity: 0.8;
+            margin-bottom: var(--space-8);
+            color: var(--color-primary-light);
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .form-input, .form-select {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            font-size: 16px;
+        }
+        
+        .form-input::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+        
+        .btn-primary {
+            width: 100%;
+            min-height: 48px;
+            padding: var(--space-3) var(--space-4);
+            border: none;
+            border-radius: var(--radius-md);
+            background: var(--gradient-accent);
+            color: white;
+            font-size: var(--font-base);
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, opacity 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+        }
+        
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .btn-primary.completed {
+            background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
+        }
+        
+        .error-message {
+            color: #ff6b6b;
+            margin-top: 10px;
+            font-size: 14px;
+            text-align: center;
+        }
+        
+        .success-message {
+            color: #4caf50;
+            margin-top: 10px;
+            font-size: 14px;
+            text-align: center;
+        }
+        
+        .app-container {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: #FFFFFF;
+        }
+
+        .header {
+            background: #FFFFFF;
+            height: 48px;
+            padding: 0 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #E5E5E5;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #000000;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-btn {
+            height: 32px;
+            padding: 0 12px;
+            border-radius: 8px;
+            border: none;
+            background: transparent;
+            color: var(--color-primary);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+
+        .header-btn:hover {
+            background: rgba(6, 148, 148, 0.1);
+        }
+
+        .header-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--gradient-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #FFFFFF;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .header-avatar:hover {
+            transform: scale(1.05);
+        }
+        
+        .header-logo {
+            width: 30px;
+            height: 30px;
+        }
+        
+        .notification-badge {
+            position: relative;
+            cursor: pointer;
+        }
+        
+        .badge-count {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ff4757;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .content {
+            flex: 1;
+            padding: 0;
+            padding-bottom: 80px;
+            overflow-y: auto;
+            background: #FFFFFF;
+        }
+
+        .hero-section {
+            background: var(--color-primary);
+            padding: 24px 16px;
+            border-bottom-left-radius: 12px;
+            border-bottom-right-radius: 12px;
+            margin-top: 0;
+        }
+
+        .body-section {
+            padding: 16px;
+            background: #FFFFFF;
+        }
+
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 64px;
+            background: #FFFFFF;
+            display: flex;
+            justify-content: space-around;
+            padding: 0;
+            z-index: 1000;
+            border-top: 1px solid #E5E5E5;
+            box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .nav-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-width: 48px;
+            min-height: 48px;
+            padding: var(--space-1) var(--space-3);
+            gap: 2px;
+            cursor: pointer;
+            transition: color 0.2s;
+            color: var(--color-text-secondary);
+        }
+
+        .nav-item:active {
+            transform: scale(0.95);
+        }
+
+        .nav-item.active {
+            color: var(--color-primary);
+        }
+
+        .nav-icon {
+            width: 20px;
+            height: 20px;
+        }
+
+        .nav-label {
+            font-size: 10px;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+        }
+
+        .profile-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 10000;
+            display: flex;
+            align-items: flex-end;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .profile-modal {
+            background: #FFFFFF;
+            width: 100%;
+            max-height: 90vh;
+            border-top-left-radius: 20px;
+            border-top-right-radius: 20px;
+            overflow-y: auto;
+            animation: slideUp 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+            }
+            to {
+                transform: translateY(0);
+            }
+        }
+
+        .profile-modal-header {
+            padding: 20px;
+            border-bottom: 1px solid #E5E5E5;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .profile-modal-close {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: none;
+            background: #F5F5F5;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .profile-modal-content {
+            padding: 20px;
+        }
+
+        .section-content {
+            animation: fadeIn 0.3s ease-in;
+            margin-top: 0;
+            padding-top: 0;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideInLeft {
+            from {
+                transform: translateX(-100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .hero-background {
+            position: relative;
+            border-radius: var(--radius-xl);
+            padding: var(--space-6);
+            margin-bottom: var(--space-4);
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+        }
+
+        .day-counter-container {
+            position: relative;
+            z-index: 1;
+            text-align: center;
+        }
+
+        .large-number {
+            font-size: clamp(2.5rem, 5vw, 3rem);
+            font-weight: 700;
+            margin-bottom: var(--space-2);
+            color: white;
+            font-variant-numeric: tabular-nums;
+            line-height: 1.2;
+        }
+
+        .large-text {
+            font-size: clamp(1rem, 2.5vw, 1.25rem);
+            margin-bottom: var(--space-4);
+            opacity: 0.95;
+            font-weight: 500;
+        }
+
+        .motivational-quote {
+            font-size: var(--font-sm);
+            opacity: 0.85;
+            font-style: italic;
+            line-height: 1.5;
+        }
+        
+        .coach-info-card {
+            display: flex;
+            align-items: center;
+            gap: var(--space-4);
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: var(--radius-lg);
+            padding: var(--space-4);
+            margin-bottom: var(--space-2);
+        }
+
+        .coach-info-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            background: var(--color-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+        }
+
+        .coach-info-details {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .coach-info-name {
+            font-size: var(--font-base);
+            font-weight: 600;
+            margin-bottom: var(--space-1);
+            line-height: 1.3;
+        }
+
+        .coach-info-role {
+            font-size: var(--font-sm);
+            opacity: 0.8;
+            line-height: 1.4;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: var(--space-2);
+            margin-top: var(--space-4);
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(5px);
+            border-radius: var(--radius-lg);
+            padding: var(--space-3);
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-icon {
+            width: 24px;
+            height: 24px;
+            margin: 0 auto var(--space-2);
+            color: var(--color-primary-light);
+        }
+
+        .stat-value {
+            font-size: var(--font-xl);
+            font-weight: 700;
+            color: white;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .stat-label {
+            font-size: var(--font-xs);
+            opacity: 0.85;
+            margin-top: var(--space-1);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .daily-pledge {
+            background: rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: var(--radius-lg);
+            padding: var(--space-4);
+            text-align: center;
+            margin-bottom: var(--space-4);
+        }
+
+        .pledge-text {
+            font-size: var(--font-lg);
+            margin-bottom: var(--space-3);
+            font-weight: 600;
+            line-height: 1.4;
+        }
+        
+        .mood-tracker {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: var(--radius-lg);
+            padding: var(--space-4);
+            margin-bottom: var(--space-4);
+            text-align: center;
+        }
+
+        .mood-options {
+            display: flex;
+            justify-content: space-around;
+            gap: var(--space-2);
+            margin-top: var(--space-4);
+        }
+
+        .mood-button {
+            flex: 1;
+            min-height: 48px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-1);
+            cursor: pointer;
+            transition: all 0.2s;
+            padding: var(--space-2);
+            border-radius: var(--radius-md);
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid transparent;
+        }
+
+        .mood-button:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .mood-button.selected {
+            background: rgba(6, 148, 148, 0.2);
+            border-color: var(--color-primary);
+            transform: scale(1.05);
+        }
+
+        .mood-icon {
+            width: 24px;
+            height: 24px;
+        }
+
+        .mood-label {
+            font-size: var(--font-xs);
+            font-weight: 500;
+        }
+        
+        .milestone-preview {
+            background: rgba(46, 204, 113, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(46, 204, 113, 0.3);
+            border-radius: var(--radius-lg);
+            padding: var(--space-4);
+            margin-bottom: var(--space-4);
+            margin-top: var(--space-4);
+        }
+
+        .broadcast-banner {
+            background: rgba(255, 133, 89, 0.15);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 133, 89, 0.3);
+            border-radius: var(--radius-lg);
+            padding: var(--space-4);
+            margin-bottom: var(--space-4);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: var(--space-3);
+        }
+        
+        .broadcast-content {
+            flex: 1;
+        }
+        
+        .broadcast-dismiss {
+            background: none;
+            border: none;
+            color: white;
+            opacity: 0.6;
+            cursor: pointer;
+            font-size: 20px;
+        }
+        
+        .daily-tasks-card {
+            background: linear-gradient(135deg, rgba(76, 175, 80, 0.1) 0%, rgba(67, 160, 71, 0.1) 100%);
+            border: 1px solid rgba(76, 175, 80, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .task-list {
+            margin-top: 15px;
+        }
+        
+        .task-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+        }
+        
+        .task-item:last-child {
+            border-bottom: none;
+        }
+        
+        .task-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            margin: 0 -10px;
+            padding: 12px 10px;
+            border-radius: 10px;
+        }
+        
+        .completed {
+            color: #4caf50;
+            font-weight: bold;
+        }
+        
+        .pending {
+            color: #ff9800;
+        }
+        
+        .overdue {
+            color: #ff4757;
+        }
+        
+        .goal-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .goal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .progress-badge {
+            background: linear-gradient(135deg, #f4c430 0%, #ff9500 100%);
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+        
+        .progress-bar {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            height: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .progress-fill {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            border-radius: 10px;
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+        
+        .objectives-list {
+            margin-top: 15px;
+            padding-left: 20px;
+        }
+        
+        .objective-item {
+            margin-bottom: 10px;
+            list-style-type: none;
+            position: relative;
+        }
+        
+        .objective-item:before {
+            content: "→";
+            position: absolute;
+            left: -20px;
+            color: #f4c430;
+        }
+        
+        .assignments-list {
+            margin-top: 15px;
+        }
+        
+        .assignment-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .btn-complete {
+            padding: 5px 15px;
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            border: none;
+            border-radius: 15px;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .chart-container {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            height: 300px;
+        }
+        
+        .milestones-container {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .milestone-item {
+            display: flex;
+            align-items: center;
+            padding: 15px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .milestone-item:last-child {
+            border-bottom: none;
+        }
+        
+        .milestone-icon {
+            font-size: 24px;
+            margin-right: 15px;
+        }
+        
+        .milestone-content {
+            flex: 1;
+        }
+        
+        .milestone-title {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        
+        .milestone-days {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .milestone-achieved {
+            opacity: 0.5;
+            text-decoration: line-through;
+        }
+        
+        .compliance-card {
+            background: linear-gradient(135deg, rgba(156, 39, 176, 0.1) 0%, rgba(103, 58, 183, 0.1) 100%);
+            border: 1px solid rgba(156, 39, 176, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .chat-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 5px;
+            border-radius: 15px;
+        }
+        
+        .tab-btn {
+            flex: 1;
+            padding: 10px;
+            background: transparent;
+            border: none;
+            border-radius: 10px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .tab-btn.active {
+            background: linear-gradient(135deg, #f4c430 0%, #ff9500 100%);
+        }
+        
+        .community-chat-container {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 20px;
+        }
+        
+        .messages-container {
+            height: 400px;
+            overflow-y: auto;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .community-message {
+            margin-bottom: 15px;
+            animation: slideUp 0.3s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from { transform: translateY(10px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .message-author {
+            font-weight: bold;
+            color: #f4c430;
+        }
+        
+        .message-time {
+            font-size: 12px;
+        }
+        
+        .message-content {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px;
+            border-radius: 10px;
+            word-wrap: break-word;
+        }
+        
+        .chat-input-group {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .chat-input {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            font-size: 16px;
+        }
+        
+        .send-btn {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #f4c430 0%, #ff9500 100%);
+            border: none;
+            border-radius: 20px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .room-card {
+            background: linear-gradient(135deg, rgba(244, 196, 48, 0.1) 0%, rgba(255, 149, 0, 0.1) 100%);
+            border: 1px solid rgba(244, 196, 48, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 15px;
+        }
+        
+        .room-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        
+        .room-icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        
+        .support-group-card {
+            background: linear-gradient(135deg, rgba(156, 39, 176, 0.1) 0%, rgba(103, 58, 183, 0.1) 100%);
+            border: 1px solid rgba(156, 39, 176, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 15px;
+        }
+        
+        .meeting-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 15px;
+        }
+        
+        .meeting-type {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            padding: 5px 10px;
+            border-radius: 10px;
+            font-size: 12px;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+        
+        .join-btn {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            border-radius: 25px;
+            color: white;
+            text-decoration: none;
+            font-weight: bold;
+            border: none;
+            cursor: pointer;
+        }
+        
+        .crisis-resources {
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(255, 71, 87, 0.1);
+            border: 1px solid rgba(255, 71, 87, 0.3);
+            border-radius: 15px;
+        }
+        
+        .crisis-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #ff4757;
+        }
+        
+        .crisis-number {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .crisis-number a {
+            color: white;
+            text-decoration: none;
+        }
+        
+        .crisis-description {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .sos-btn {
+            width: 100%;
+            margin-top: 15px;
+            padding: 15px;
+            background: linear-gradient(135deg, #ff4757 0%, #ff6348 100%);
+            border: none;
+            border-radius: 25px;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .profile-menu {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .profile-header {
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .profile-avatar {
+            width: 100px;
+            height: 100px;
+            margin: 0 auto 15px;
+            background: linear-gradient(135deg, #f4c430 0%, #ff9500 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+            font-weight: bold;
+            position: relative;
+            cursor: pointer;
+            overflow: hidden;
+        }
+        
+        .profile-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .profile-avatar-upload {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.7);
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+        
+        .upload-input {
+            display: none;
+        }
+        
+        .profile-name {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .profile-email {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .menu-section {
+            margin-top: 20px;
+        }
+        
+        .menu-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            opacity: 0.6;
+            margin-bottom: 10px;
+            padding: 0 10px;
+        }
+        
+        .menu-item {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: transparent;
+            border: none;
+            color: white;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-radius: 10px;
+            text-align: left;
+            text-decoration: none;
+        }
+        
+        .menu-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .menu-item-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex: 1;
+        }
+        
+        .menu-icon {
+            font-size: 20px;
+        }
+        
+        .menu-arrow {
+            opacity: 0.5;
+        }
+        
+        .btn-danger {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #ff4757 0%, #ff6348 100%);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            opacity: 0.6;
+        }
+        
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+        
+        .empty-state-text {
+            font-size: 16px;
+        }
+        
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            padding: 20px;
+            animation: fadeIn 0.2s ease-in;
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            border-radius: 20px;
+            padding: 30px;
+            width: 100%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s ease-out;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .modal-title {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .close-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 28px;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-body {
+            color: white;
+        }
+        
+        .slider-group {
+            margin-bottom: 25px;
+        }
+        
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        
+        .slider-value {
+            color: #f4c430;
+            font-weight: bold;
+        }
+        
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.2);
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #f4c430;
+            cursor: pointer;
+        }
+        
+        .slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #f4c430;
+            cursor: pointer;
+        }
+        
+        .textarea {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            font-size: 16px;
+            min-height: 100px;
+            resize: vertical;
+        }
+        
+        .notification-panel {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .notification-item {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .notification-item:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+        
+        .notification-item.unread {
+            border-left: 3px solid #f4c430;
+        }
+        
+        .notification-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        
+        .notification-type {
+            font-size: 12px;
+            background: rgba(244, 196, 48, 0.3);
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+        
+        .notification-time {
+            font-size: 12px;
+            opacity: 0.7;
+        }
+        
+        .notification-message {
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .large-number {
+                font-size: 56px;
+            }
+
+            .modal-content {
+                padding: 20px;
+            }
+        }
+
+        /* Hide scrollbars on swipeable pickers */
+        .swipeable-picker-container::-webkit-scrollbar {
+            display: none;
+        }
+
+        .swipeable-picker-container {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- React and Firebase -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- jsPDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- ========================================
+         GLRS LIGHTHOUSE - MODULAR ARCHITECTURE
+         FLAT STRUCTURE - All files at root level
+         Load order: config → constants → helpers → services → components → app
+         ======================================== -->
+
+    <!-- Namespace Collision Detection (Development/Monitoring) -->
+    <script src="/Index/shared/collision-detector.js"></script>
+    <script src="/Index/shared/namespace-manager.js"></script>
+
+    <!-- 1. Configuration (no dependencies) -->
+    <script src="/Index/shared/config.js"></script>
+
+    <!-- 2. Constants & Helpers (depend on config) -->
+    <script src="/Index/shared/constants.js"></script>
+    <script src="/Index/shared/helpers.js"></script>
+
+    <!-- 3. Services (depend on config) -->
+    <script src="/Index/shared/firestore.js"></script>
+    <script src="/Index/shared/storage.js"></script>
+    <script src="/Index/shared/functions.js"></script>
+
+    <!-- Initialize GLRSApp global namespace -->
+    <script>
+        window.GLRSApp = window.GLRSApp || {};
+        window.GLRSApp.components = window.GLRSApp.components || {};
+        console.log('✅ GLRSApp namespace initialized');
+    </script>
+
+    <!-- ============================================================ -->
+    <!-- SHARED UTILITIES - Load before tab components -->
+    <!-- ============================================================ -->
+    <script src="/Index/shared/utils.js"></script>
+    <script src="/Index/shared/staticData.js"></script>
+    <script src="/Index/shared/auth.js"></script>
+    <script src="/Index/shared/state.js"></script>
+    <script src="/Index/shared/calculations.js"></script>
+    <script type="text/babel" src="/Index/shared/handlers.js"></script>
+    <script src="/Index/shared/listeners.js"></script>
+    <script type="text/babel" src="/Index/shared/loaders.js"></script>
+
+    <!-- SHARED MODALS - Load before tabs that use them -->
+    <script type="text/babel" src="/Index/shared/Modals.js"></script>
+
+    <!-- ============================================================ -->
+    <!-- TAB COMPONENTS -->
+    <!-- ============================================================ -->
+    <script type="text/babel" src="/Index/Home/HomeTab.js"></script>
+    <script type="text/babel" src="/Index/Journey/JourneyTab.js"></script>
+    <script type="text/babel" src="/Index/Task/TasksTab.js"></script>
+    <script type="text/babel" src="/Index/Connect/CommunityTab.js"></script>
+    <script type="text/babel" src="/Index/Resources/ResourcesTab.js"></script>
+    <script type="text/babel" src="/Index/Notifications/NotificationsTab.js"></script>
+    <script type="text/babel" src="/Index/Profile/ProfileTab.js"></script>
+
+    <!-- 5. Modals (simple standalone modals) -->
+    <!-- ImageModal, LegalModal, CrisisModal now in ModalRenderer.js - removing old references -->
+    <script type="text/babel" src="/Index/modals/GoalModal.js"></script>
+    <script type="text/babel" src="/Index/modals/GroupDetailModal.js"></script>
+
+    <!-- 6. ModalContainer - Centralized modal system (TasksTab + JourneyTab modals) -->
+    <script type="text/babel" src="/Index/modals/ModalContainer.js"></script>
+
+    <!-- ============================================================ -->
+    <!-- TAB-SPECIFIC MODALS -->
+    <!-- ============================================================ -->
+    <script type="text/babel" src="/Index/Journey/JourneyTabModals.js"></script>
+    <script type="text/babel" src="/Index/Journey/JourneyTabHomeModals.js"></script>
+    <script type="text/babel" src="/Index/Task/TasksTabModals.js"></script>
+    <script type="text/babel" src="/Index/Task/TasksSidebarModals.js"></script>
+
+    <!-- 6.5. Context API - MUST load before PIRapp.js -->
+    <script type="text/babel" src="/Index/shared/AppContext.js"></script>
+
+    <!-- 6.6. Custom Hooks - MUST load before PIRapp.js -->
+    <script type="text/babel" src="/Index/shared/useAppInitialization.js"></script>
+    <script type="text/babel" src="/Index/shared/assignmentActions.js"></script>
+    <script type="text/babel" src="/Index/shared/messagingActions.js"></script>
+    <script type="text/babel" src="/Index/shared/emergencyActions.js"></script>
+    <script type="text/babel" src="/Index/shared/exportActions.js"></script>
+    <script type="text/babel" src="/Index/shared/notificationActions.js"></script>
+    <script type="text/babel" src="/Index/shared/uiActions.js"></script>
+
+    <!-- 6.7. Shared Utilities - MUST load before PIRapp.js -->
+    <script type="text/babel" src="/Index/shared/touchHandlers.js"></script>
+    <script type="text/babel" src="/Index/shared/patternDetection.js"></script>
+
+    <!-- 6.8. UI Components - MUST load before PIRapp.js -->
+    <script type="text/babel" src="/Index/components/HeaderBar.js"></script>
+    <script type="text/babel" src="/Index/components/PullToRefreshIndicator.js"></script>
+    <script type="text/babel" src="/Index/components/MainContent.js"></script>
+    <script type="text/babel" src="/Index/components/LoadingSpinner.js"></script>
+    <script type="text/babel" src="/Index/components/ModalRenderer.js"></script>
+    <script type="text/babel" src="/Index/components/LegalFooter.js"></script>
+    <script type="text/babel" src="/Index/components/CrisisButton.js"></script>
+    <script type="text/babel" src="/Index/components/BottomNavigation.js"></script>
+
+    <!-- 7. Main PIRApp Component -->
+    <script type="text/babel" src="/Index/PIRapp.js"></script>
+
+    <!-- 8. Portal-specific code (STAYS IN INDEX.HTML - uses libraries above) -->
+    <script type="text/babel">
+        // ========================================
+        // MAIN APP CODE
+        // Uses modules loaded above via window.GLRSApp namespace
+        // Firebase, auth, db, storage already initialized in config.js
+        // ========================================
+
+        const { useState, useEffect, useRef } = React;
+
+        // Get references from modular services (already initialized)
+        const auth = window.GLRSApp.auth || window.auth;
+        const db = window.GLRSApp.db || window.db;
+        const storage = window.GLRSApp.storage || window.storage;
+         
+        // Lighthouse Logo Component
+        function LighthouseLogo({ size = 100 }) {
+            return (
+                <svg width={size} height={size} viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="100" cy="100" r="95" stroke="#1e3c72" strokeWidth="3" fill="rgba(30, 60, 114, 0.1)"/>
+                    <path d="M100 140 L85 180 L115 180 Z" fill="#ffffff"/>
+                    <rect x="92" y="100" width="16" height="40" fill="#ffffff"/>
+                    <rect x="88" y="90" width="24" height="10" fill="#1e3c72"/>
+                    <path d="M100 70 L90 90 L110 90 Z" fill="#1e3c72"/>
+                    <rect x="95" y="70" width="10" height="20" fill="#1e3c72"/>
+                    <path d="M100 80 L60 70" stroke="#f4c430" strokeWidth="3" opacity="0.8"/>
+                    <path d="M100 80 L140 70" stroke="#f4c430" strokeWidth="3" opacity="0.8"/>
+                    <path d="M100 80 L50 85" stroke="#f4c430" strokeWidth="3" opacity="0.6"/>
+                    <path d="M100 80 L150 85" stroke="#f4c430" strokeWidth="3" opacity="0.6"/>
+                    <circle cx="100" cy="80" r="8" fill="#f4c430"/>
+                    <path d="M 60 170 Q 80 165, 100 170 T 140 170" stroke="#4a90e2" strokeWidth="2" fill="none"/>
+                    <path d="M 50 175 Q 75 170, 100 175 T 150 175" stroke="#4a90e2" strokeWidth="2" fill="none" opacity="0.6"/>
+                </svg>
+            );
+        }
+
+
+// ═══════════════════════════════════════════════════════════
+// FIRESTORE TIMEOUT WRAPPER - Prevents infinite hangs
+// ═══════════════════════════════════════════════════════════
+function firestoreWithTimeout(promise, timeoutMs = 10000) {
+    let timeoutHandle;
+
+    const timeoutPromise = new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+            reject(new Error(`Firestore query timeout after ${timeoutMs}ms`));
+        }, timeoutMs);
+    });
+
+    return Promise.race([promise, timeoutPromise])
+        .finally(() => clearTimeout(timeoutHandle));
+}
+
+       // Main App Component
+function App() {
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        console.log('🔍 DEBUG: Setting up auth listener');
+        console.log('🔍 DEBUG: auth object:', auth);
+        console.log('🔍 DEBUG: auth.onAuthStateChanged:', typeof auth?.onAuthStateChanged);
+
+        const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
+            console.log('🔍 DEBUG: Auth state changed, user:', firebaseUser ? firebaseUser.email : 'null');
+            if (firebaseUser) {
+                try {
+                    // ✅ CRITICAL FIX: Verify token is ready before querying Firestore
+                    console.log('🔍 DEBUG: Verifying auth token...');
+                    await firebaseUser.getIdToken(false);
+
+                    // ✅ CRITICAL FIX: Small delay ensures Firestore has received auth token
+                    await new Promise(r => setTimeout(r, 100));
+                    console.log('🔍 DEBUG: Token verified, querying user document...');
+
+                    // ✅ CRITICAL FIX: Wrap query with timeout to catch hangs
+                    let userDoc = await firestoreWithTimeout(
+                        db.collection('users').doc(firebaseUser.uid).get(),
+                        10000
+                    );
+                    
+                    if (!userDoc.exists) {
+                        // Create new user document with timestamps
+                        await db.collection('users').doc(firebaseUser.uid).set({
+                            email: firebaseUser.email,
+                            role: 'pir',
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            active: true,
+                            sobrietyDate: new Date().toISOString(),
+                            profileComplete: false
+                        });
+                        
+                        // Re-fetch the document after creating it
+                        userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+                    }
+                    
+                    const userData = userDoc.data();
+                    
+                    // Check for existing users without createdAt
+                    if (userData && !userData.createdAt) {
+                        await db.collection('users').doc(firebaseUser.uid).update({
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                    
+                    // Verify role
+                    if (userData && userData.role !== 'pir') {
+                        await auth.signOut();
+                        alert('This portal is for PIRs only. Coaches should use admin.html');
+                        setUser(null);
+                    } else {
+                        setUser(firebaseUser);
+                    }
+                } catch (error) {
+                    setUser(null);
+                }
+            } else {
+                console.log('🔍 DEBUG: No Firebase user, setting user to null');
+                setUser(null);
+            }
+            console.log('🔍 DEBUG: Setting loading to false');
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, []);
+
+    if (loading) {
+        return (
+            <div className="loading-container">
+                <div className="loading-spinner"></div>
+            </div>
+        );
+    }
+
+    return user ? <PIRApp user={user} /> : <LoginScreen />;
+}
+
+// Login Screen Component
+function LoginScreen() {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [success, setSuccess] = useState('');
+
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        setError('');
+        setSuccess('');
+        
+        if (!email || !password) {
+            setError('Please enter both email and password');
+            return;
+        }
+
+        setLoading(true);
+
+        try {
+            await auth.signInWithEmailAndPassword(email, password);
+            setSuccess('Login successful! Redirecting...');
+            // onAuthStateChanged (lines 1645-1705) handles validation, role check, and activity logging
+        } catch (error) {
+            
+            switch(error.code) {
+                case 'auth/user-not-found':
+                    setError('No account found with this email');
+                    break;
+                case 'auth/wrong-password':
+                    setError('Incorrect password');
+                    break;
+                case 'auth/invalid-email':
+                    setError('Invalid email address');
+                    break;
+                default:
+                    setError('Failed to sign in. Please try again.');
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="login-container">
+            <div className="login-card">
+                <h1 className="app-title" style={{ marginTop: '40px' }}>Guiding Light</h1>
+                <p className="app-subtitle">Recovery Services</p>
+                
+                <form onSubmit={handleLogin}>
+                    <div className="form-group">
+                        <label className="form-label">Email</label>
+                        <input
+                            type="email"
+                            className="form-input"
+                            placeholder="Enter your email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            disabled={loading}
+                            autoComplete="email"
+                        />
+                    </div>
+                    
+                    <div className="form-group">
+                        <label className="form-label">Password</label>
+                        <input
+                            type="password"
+                            className="form-input"
+                            placeholder="Enter your password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            disabled={loading}
+                            autoComplete="current-password"
+                        />
+                    </div>
+                    
+                    <button type="submit" className="btn-primary" disabled={loading}>
+                        {loading ? 'Signing in...' : 'Sign In'}
+                    </button>
+                    
+                    {error && <div className="error-message">{error}</div>}
+                    {success && <div className="success-message">{success}</div>}
+                </form>
+            </div>
+        </div>
+    );
+}
+
+// ========================================
+// PDF EXPORT FUNCTIONS (Graph Capture)
+// ========================================
+
+// Export wellness graphs to PDF
+const exportGraphsToPDF = async (graphDateRange, user) => {
+    try {
+        console.log('📄 Starting PDF export...');
+
+        // Get all graph canvases
+        const moodCanvas = document.querySelector('canvas[id*="mood"]') || document.querySelector('.wellness-graph canvas');
+
+        if (!moodCanvas) {
+            alert('❌ Could not find wellness graphs to export. Please ensure graphs are visible on screen.');
+            return;
+        }
+
+        // Initialize jsPDF
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('p', 'mm', 'a4');
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+
+        // Add header
+        doc.setFontSize(20);
+        doc.setTextColor(0, 119, 204); // Medical Blue
+        doc.text('Wellness Graphs Report', pageWidth / 2, 20, { align: 'center' });
+
+        // Add user info
+        doc.setFontSize(12);
+        doc.setTextColor(51, 51, 51);
+        doc.text(`Generated: ${new Date().toLocaleDateString()}`, 20, 30);
+
+        if (graphDateRange && graphDateRange.start) {
+            const dateRangeText = `Period: ${graphDateRange.start.toLocaleDateString()} - ${(graphDateRange.end || new Date()).toLocaleDateString()}`;
+            doc.text(dateRangeText, 20, 36);
+        }
+
+        // Find the wellness graphs container
+        const graphsContainer = document.querySelector('.wellness-graphs-container') ||
+                               document.querySelector('[style*="wellness"]') ||
+                               moodCanvas.closest('div');
+
+        if (graphsContainer) {
+            console.log('📊 Capturing graphs container with html2canvas...');
+
+            // Capture the graphs with html2canvas
+            const canvas = await html2canvas(graphsContainer, {
+                scale: 2, // Higher quality
+                logging: false,
+                backgroundColor: '#ffffff',
+                windowWidth: graphsContainer.scrollWidth,
+                windowHeight: graphsContainer.scrollHeight
+            });
+
+            // Convert canvas to base64 image
+            const imgData = canvas.toDataURL('image/png');
+
+            // Calculate dimensions to fit page
+            const imgWidth = pageWidth - 40; // 20mm margins on each side
+            const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+            // Add image to PDF
+            if (imgHeight > (pageHeight - 50)) {
+                // Image too tall, scale down further
+                const scaledHeight = pageHeight - 50;
+                const scaledWidth = (canvas.width * scaledHeight) / canvas.height;
+                doc.addImage(imgData, 'PNG', (pageWidth - scaledWidth) / 2, 45, scaledWidth, scaledHeight);
+            } else {
+                doc.addImage(imgData, 'PNG', 20, 45, imgWidth, imgHeight);
+            }
+
+            console.log('✅ Image added to PDF');
+        }
+
+        // Add footer
+        doc.setFontSize(10);
+        doc.setTextColor(102, 102, 102);
+        doc.text('Generated with GLRS Lighthouse Recovery App', pageWidth / 2, pageHeight - 10, { align: 'center' });
+
+        // Save the PDF
+        const fileName = `wellness-graphs-${new Date().toISOString().split('T')[0]}.pdf`;
+        doc.save(fileName);
+
+        console.log('✅ PDF saved successfully:', fileName);
+        alert('✅ PDF downloaded successfully!');
+
+    } catch (error) {
+        console.error('❌ PDF export error:', error);
+        alert('❌ Error creating PDF. Please try again.\n\n' + error.message);
+    }
+};
+
+// Share wellness graphs as PDF
+const shareGraphsPDF = async (graphDateRange, user) => {
+    try {
+        console.log('📄 Creating PDF for sharing...');
+
+        // Get all graph canvases
+        const moodCanvas = document.querySelector('canvas[id*="mood"]') || document.querySelector('.wellness-graph canvas');
+
+        if (!moodCanvas) {
+            alert('❌ Could not find wellness graphs to share. Please ensure graphs are visible on screen.');
+            return;
+        }
+
+        // Initialize jsPDF
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('p', 'mm', 'a4');
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+
+        // Add header
+        doc.setFontSize(20);
+        doc.setTextColor(0, 119, 204);
+        doc.text('Wellness Graphs Report', pageWidth / 2, 20, { align: 'center' });
+
+        doc.setFontSize(12);
+        doc.setTextColor(51, 51, 51);
+        doc.text(`Generated: ${new Date().toLocaleDateString()}`, 20, 30);
+
+        if (graphDateRange && graphDateRange.start) {
+            const dateRangeText = `Period: ${graphDateRange.start.toLocaleDateString()} - ${(graphDateRange.end || new Date()).toLocaleDateString()}`;
+            doc.text(dateRangeText, 20, 36);
+        }
+
+        // Find the wellness graphs container
+        const graphsContainer = document.querySelector('.wellness-graphs-container') ||
+                               document.querySelector('[style*="wellness"]') ||
+                               moodCanvas.closest('div');
+
+        if (graphsContainer) {
+            console.log('📊 Capturing graphs for sharing...');
+
+            const canvas = await html2canvas(graphsContainer, {
+                scale: 2,
+                logging: false,
+                backgroundColor: '#ffffff',
+                windowWidth: graphsContainer.scrollWidth,
+                windowHeight: graphsContainer.scrollHeight
+            });
+
+            const imgData = canvas.toDataURL('image/png');
+
+            const imgWidth = pageWidth - 40;
+            const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+            if (imgHeight > (pageHeight - 50)) {
+                const scaledHeight = pageHeight - 50;
+                const scaledWidth = (canvas.width * scaledHeight) / canvas.height;
+                doc.addImage(imgData, 'PNG', (pageWidth - scaledWidth) / 2, 45, scaledWidth, scaledHeight);
+            } else {
+                doc.addImage(imgData, 'PNG', 20, 45, imgWidth, imgHeight);
+            }
+        }
+
+        doc.setFontSize(10);
+        doc.setTextColor(102, 102, 102);
+        doc.text('Generated with GLRS Lighthouse Recovery App', pageWidth / 2, pageHeight - 10, { align: 'center' });
+
+        // Convert PDF to blob for sharing
+        const pdfBlob = doc.output('blob');
+        const fileName = `wellness-graphs-${new Date().toISOString().split('T')[0]}.pdf`;
+
+        // Use Web Share API if available
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([pdfBlob], fileName, { type: 'application/pdf' })] })) {
+            const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+            await navigator.share({
+                title: 'Wellness Graphs Report',
+                text: 'My wellness progress graphs from GLRS Lighthouse',
+                files: [file]
+            });
+
+            console.log('✅ PDF shared successfully');
+        } else {
+            // Fallback: download the PDF
+            doc.save(fileName);
+            alert('✅ PDF downloaded! (File sharing not supported on this device)');
+        }
+
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('❌ PDF share error:', error);
+            alert('❌ Error sharing PDF. Please try again.\n\n' + error.message);
+        }
+    }
+};
+
+// ============================================================================
+// VIEW COMPONENTS - Ready for manual extraction to separate files
+// ============================================================================
+
+// Render the app
+ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>

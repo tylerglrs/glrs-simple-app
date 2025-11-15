@@ -1,0 +1,234 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user owns the document
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) || request.auth.uid == resource.data.assignedCoach;
+    }
+    
+    // Check-ins collection
+    match /checkins/{checkinId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.userId) || 
+        request.auth.uid == get(/databases/$(database)/documents/users/$(resource.data.userId)).data.assignedCoach
+      );
+      allow create: if isSignedIn() && isOwner(request.resource.data.userId);
+      allow update, delete: if isSignedIn() && isOwner(resource.data.userId);
+    }
+    
+    // Goals collection
+    match /goals/{goalId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.userId) || 
+        request.auth.uid == get(/databases/$(database)/documents/users/$(resource.data.userId)).data.assignedCoach
+      );
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (
+        isOwner(resource.data.userId) ||
+        request.auth.uid == get(/databases/$(database)/documents/users/$(resource.data.userId)).data.assignedCoach
+      );
+    }
+    
+    // Assignments collection
+    match /assignments/{assignmentId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.userId) || 
+        request.auth.uid == get(/databases/$(database)/documents/users/$(resource.data.userId)).data.assignedCoach ||
+        request.auth.uid == resource.data.createdBy
+      );
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (
+        isOwner(resource.data.userId) ||
+        request.auth.uid == resource.data.createdBy
+      );
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.createdBy;
+    }
+    
+    // Messages collection
+    match /messages/{messageId} {
+      allow read: if isSignedIn() && (
+        request.auth.uid == resource.data.senderId || 
+        request.auth.uid == resource.data.receiverId
+      );
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && request.auth.uid == resource.data.senderId;
+    }
+    
+    // Community messages collection
+    match /communityMessages/{messageId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && request.auth.uid == resource.data.userId;
+    }
+    
+    // Gratitude entries collection
+    match /gratitudes/{gratitudeId} {
+      allow read, write: if isSignedIn() && isOwner(resource.data.userId);
+    }
+    
+    // Reflections collection
+    match /reflections/{reflectionId} {
+      allow read, write: if isSignedIn() && isOwner(resource.data.userId);
+    }
+    
+    // Habits collection
+    match /habits/{habitId} {
+      allow read, write: if isSignedIn() && isOwner(resource.data.userId);
+    }
+    
+    // Habit completions collection
+    match /habitCompletions/{completionId} {
+      allow read, write: if isSignedIn() && isOwner(resource.data.userId);
+    }
+    
+    // Quick reflections collection
+    match /quickReflections/{reflectionId} {
+      allow read, write: if isSignedIn() && isOwner(resource.data.userId);
+    }
+    
+    // Today wins collection
+    match /todayWins/{winId} {
+      allow read, write: if isSignedIn() && isOwner(resource.data.userId);
+    }
+    
+    // Breakthroughs collection
+    match /breakthroughs/{breakthroughId} {
+      allow read, write: if isSignedIn() && isOwner(resource.data.userId);
+    }
+    
+    // Savings items collection
+    match /savingsItems/{itemId} {
+      allow read, write: if isSignedIn() && isOwner(resource.data.userId);
+    }
+    
+    // Savings goals collection
+    match /savingsGoals/{goalId} {
+      allow read, write: if isSignedIn() && isOwner(resource.data.userId);
+    }
+    
+    // Money map stops collection
+    match /moneyMapStops/{stopId} {
+      allow read, write: if isSignedIn() && isOwner(resource.data.userId);
+    }
+    
+    // Resources collection (read by all users, written by coaches/admins)
+    match /resources/{resourceId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn(); // In production, restrict to coaches/admins only
+    }
+    
+    // Topic rooms collection
+    match /topicRooms/{roomId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn(); // In production, restrict to moderators
+    }
+    
+    // Support groups collection
+    match /supportGroups/{groupId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn(); // In production, restrict to coaches/admins
+    }
+    
+    // Notifications collection
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && isOwner(resource.data.userId);
+      allow create: if isSignedIn();
+      allow delete: if isSignedIn() && isOwner(resource.data.userId);
+    }
+    
+    // Broadcasts collection
+    match /broadcasts/{broadcastId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn(); // In production, restrict to admins only
+    }
+
+    // Activities collection
+    match /activities/{activityId} {
+      allow read: if isSignedIn() && isOwner(resource.data.userId);
+      allow write: if isSignedIn() && isOwner(request.resource.data.userId);
+    }
+
+    // Alerts collection
+    match /alerts/{alertId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn(); // In production, restrict to admins/coaches
+    }
+
+    // Challenges tracking collection
+    match /challenges_tracking/{challengeId} {
+      allow read: if isSignedIn() && isOwner(resource.data.userId);
+      allow write: if isSignedIn() && isOwner(request.resource.data.userId);
+    }
+
+    // Coach notes collection
+    match /coachNotes/{noteId} {
+      allow read: if isSignedIn() && (
+        request.auth.uid == resource.data.coachId ||
+        request.auth.uid == resource.data.userId
+      );
+      allow write: if isSignedIn() && request.auth.uid == request.resource.data.coachId;
+    }
+
+    // Daily inspirations collection
+    match /dailyInspirations/{inspirationId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn(); // In production, restrict to admins
+    }
+
+    // Daily quotes collection
+    match /dailyQuotes/{quoteId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn(); // In production, restrict to admins
+    }
+
+    // Flagged content collection
+    match /flaggedContent/{flagId} {
+      allow read: if isSignedIn(); // In production, restrict to moderators
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn(); // In production, restrict to moderators
+    }
+
+    // Goals tracking collection
+    match /goals_tracking/{trackingId} {
+      allow read: if isSignedIn() && isOwner(resource.data.userId);
+      allow write: if isSignedIn() && isOwner(request.resource.data.userId);
+    }
+
+    // Meetings collection
+    match /meetings/{meetingId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn(); // In production, restrict to coaches/admins
+    }
+
+    // Milestones collection (global reference data)
+    match /milestones/{milestoneId} {
+      allow read: if isSignedIn();  // Any authenticated user can read global milestones
+      allow write: if false;  // Only admins via Admin SDK can write
+    }
+
+    // Pledges collection
+    match /pledges/{pledgeId} {
+      allow read: if isSignedIn() && isOwner(resource.data.userId);
+      allow write: if isSignedIn() && isOwner(request.resource.data.userId);
+    }
+
+    // Streaks collection (document ID is user ID)
+    match /streaks/{streakId} {
+      allow read: if isSignedIn() && streakId == request.auth.uid;
+      allow write: if isSignedIn() && streakId == request.auth.uid;
+    }
+  }
+}
