@@ -116,7 +116,8 @@ function TasksTab() {
     const [showPastReflectionsModal, setShowPastReflectionsModal] = React.useState(false);
     const [showGratitudeModal, setShowGratitudeModal] = React.useState(false);
 
-    // SIDEBAR MODAL VISIBILITY STATE (16 hooks)
+    // SIDEBAR MODAL VISIBILITY STATE (17 hooks)
+    const [showSidebar, setShowSidebar] = React.useState(false);
     const [showHabitTrackerModal, setShowHabitTrackerModal] = React.useState(false);
     const [showQuickReflectionModal, setShowQuickReflectionModal] = React.useState(false);
     const [showThisWeekTasksModal, setShowThisWeekTasksModal] = React.useState(false);
@@ -784,6 +785,31 @@ function TasksTab() {
                 zIndex: 99,
                 boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
             }}>
+                {/* Hamburger Menu Button - Opens Quick Tools Sidebar */}
+                <button
+                    onClick={() => {
+                        window.GLRSApp.utils.triggerHaptic('medium');
+                        setShowSidebar(true);
+                    }}
+                    style={{
+                        position: 'absolute',
+                        left: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: '#FFFFFF',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}
+                    title="Quick Tools"
+                >
+                    <i data-lucide="menu" style={{ width: '24px', height: '24px' }}></i>
+                </button>
+
                 <button
                     onClick={() => {
                         window.GLRSApp.utils.triggerHaptic('light');
@@ -2951,7 +2977,7 @@ function TasksTab() {
                 showHabitHistory: showHabitHistory,
                 showReflectionHistory: showReflectionHistory,
                 showWinsHistory: showWinsHistory,
-                showSidebar: false, // Sidebar rendered separately in TasksSidebarModals
+                showSidebar: showSidebar,
 
                 // Data props (10)
                 user: user,
@@ -2967,7 +2993,8 @@ function TasksTab() {
 
                 // Callback props (12)
                 onClose: (modalName) => {
-                    if (modalName === 'habitTrackerModal') setShowHabitTrackerModal(false);
+                    if (modalName === 'sidebar') setShowSidebar(false);
+                    else if (modalName === 'habitTrackerModal') setShowHabitTrackerModal(false);
                     else if (modalName === 'quickReflectionModal') setShowQuickReflectionModal(false);
                     else if (modalName === 'thisWeekTasksModal') setShowThisWeekTasksModal(false);
                     else if (modalName === 'overdueItemsModal') setShowOverdueItemsModal(false);
@@ -8076,24 +8103,20 @@ function GoalsTasksView({ user, goals = [], assignments = [], objectives = [], o
     const [showModal, setShowModal] = useState(false);
     const [showReflectionForm, setShowReflectionForm] = useState(false);
     const [currentReflection, setCurrentReflection] = useState('');
-    const [showIntentionsModal, setShowIntentionsModal] = useState(false);
-    const [showProgressSnapshotModal, setShowProgressSnapshotModal] = useState(false);
-    const [showPastIntentionsModal, setShowPastIntentionsModal] = useState(false);
     const [pastIntentions, setPastIntentions] = useState([]);
-    const [showSidebar, setShowSidebar] = useState(false);
 
     // ✅ PHASE 7: Objectives now received via props, no loading needed
 
-    // Reinitialize Lucide icons when modals or sidebar open
+    // Reinitialize Lucide icons when modals open
     useEffect(() => {
-        if (showIntentionsModal || showProgressSnapshotModal || showPastIntentionsModal || showSidebar) {
+        if (showModal || showReflectionForm) {
             setTimeout(() => {
                 if (typeof lucide !== 'undefined' && lucide.createIcons) {
                     lucide.createIcons();
                 }
             }, 100);
         }
-    }, [showIntentionsModal, showProgressSnapshotModal, showPastIntentionsModal, showSidebar]);
+    }, [showModal, showReflectionForm]);
 
     // Reinitialize icons when goals or objectives change
     useEffect(() => {
