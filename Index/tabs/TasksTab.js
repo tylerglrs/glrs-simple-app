@@ -142,6 +142,13 @@ function TasksTab() {
         gratitudeThemes: []
     });
 
+    // REFLECTION STREAK DATA STATE (1 hook)
+    const [reflectionStreakData, setReflectionStreakData] = React.useState({
+        currentStreak: 0,
+        longestStreak: 0,
+        allStreaks: []
+    });
+
     // ═══════════════════════════════════════════════════════════
     // STEP 3 COMPLETE: Firebase authentication listener
     // ═══════════════════════════════════════════════════════════
