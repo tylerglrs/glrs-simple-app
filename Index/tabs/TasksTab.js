@@ -134,6 +134,14 @@ function TasksTab() {
     const [showReflectionHistory, setShowReflectionHistory] = React.useState(false);
     const [showWinsHistory, setShowWinsHistory] = React.useState(false);
 
+    // REFLECTION STATS STATE (1 hook)
+    const [reflectionStats, setReflectionStats] = React.useState({
+        totalThisMonth: 0,
+        avgDailyScore: 0,
+        topGratitudeTheme: null,
+        gratitudeThemes: []
+    });
+
     // ═══════════════════════════════════════════════════════════
     // STEP 3 COMPLETE: Firebase authentication listener
     // ═══════════════════════════════════════════════════════════
