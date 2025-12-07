@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notification System Test - GLRS</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #058585;
+            border-bottom: 3px solid #058585;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-section h2 {
+            color: #333;
+            margin-top: 0;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border-left: 4px solid #28a745;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-left: 4px solid #17a2b8;
+        }
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border-left: 4px solid #ffc107;
+        }
+        button {
+            background: #058585;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 10px 10px 0;
+        }
+        button:hover {
+            background: #046d6d;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .summary {
+            background: #058585;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .summary h2 {
+            margin-top: 0;
+            color: white;
+        }
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .stat-box {
+            background: rgba(255,255,255,0.2);
+            padding: 15px;
+            border-radius: 4px;
+        }
+        .stat-number {
+            font-size: 32px;
+            font-weight: bold;
+        }
+        .stat-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        #output {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .login-section {
+            background: white;
+            padding: 30px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 500px;
+            margin: 20px auto;
+        }
+        .login-section h2 {
+            color: #058585;
+            margin-top: 0;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 500;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #058585;
+        }
+        .login-button {
+            width: 100%;
+            margin: 0;
+        }
+        .logout-button {
+            background: #dc3545;
+        }
+        .logout-button:hover {
+            background: #c82333;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔔 GLRS Notification System Test Suite</h1>
+
+    <!-- Login Section (shown when not authenticated) -->
+    <div id="loginSection" class="login-section" style="display: none;">
+        <h2>🔐 Login Required</h2>
+        <p>Please log in with your GLRS account to run notification tests.</p>
+        <div class="form-group">
+            <label for="emailInput">Email</label>
+            <input type="email" id="emailInput" placeholder="tyler.roberts97@outlook.com" value="tyler.roberts97@outlook.com">
+        </div>
+        <div class="form-group">
+            <label for="passwordInput">Password</label>
+            <input type="password" id="passwordInput" placeholder="Enter your password" onkeypress="if(event.key === 'Enter') loginUser()">
+        </div>
+        <button onclick="loginUser()" class="login-button">🔓 Login</button>
+        <div id="loginError" style="margin-top: 15px;"></div>
+    </div>
+
+    <!-- Test Interface (shown when authenticated) -->
+    <div id="testInterface" style="display: none;">
+
+    <div class="test-section">
+        <h2>Test Account Information</h2>
+        <div class="status info">
+            <strong>Name:</strong> Heinz Roberts<br>
+            <strong>Email:</strong> tyler.roberts97@outlook.com<br>
+            <strong>User ID:</strong> <span id="userId">Loading...</span><br>
+            <strong>Notification Preferences:</strong> <span id="prefs">Loading...</span>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test Controls</h2>
+        <button onclick="runAllTests()">🚀 Run All Tests</button>
+        <button onclick="runDailyReminderTests()">⏰ Daily Reminders</button>
+        <button onclick="runAssignmentTests()">📋 Assignments</button>
+        <button onclick="runMilestoneTests()">🎯 Milestones</button>
+        <button onclick="runMeetingTests()">👥 Meetings</button>
+        <button onclick="runCommunityTests()">💬 Community</button>
+        <button onclick="runMessageTests()">📧 Messages</button>
+        <button onclick="runEmergencyTests()">🆘 Emergency</button>
+        <button onclick="clearOutput()">🗑️ Clear Output</button>
+        <button onclick="logoutUser()" class="logout-button">🔓 Logout</button>
+    </div>
+
+    <div id="summarySection" style="display: none;">
+        <div class="summary">
+            <h2>Test Summary</h2>
+            <div class="summary-stats">
+                <div class="stat-box">
+                    <div class="stat-number" id="totalTests">0</div>
+                    <div class="stat-label">Total Tests</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number" id="passedTests">0</div>
+                    <div class="stat-label">Passed</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number" id="failedTests">0</div>
+                    <div class="stat-label">Failed</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number" id="successRate">0%</div>
+                    <div class="stat-label">Success Rate</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="output"></div>
+
+    </div> <!-- End testInterface -->
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-functions-compat.js"></script>
+
+    <script>
+        // Firebase configuration (same as main app)
+        const firebaseConfig = {
+            apiKey: "AIzaSyAufSTHtCTFSEIeZ9YzvrULCnji5I-SMi0",
+            authDomain: "glrs-pir-system.firebaseapp.com",
+            projectId: "glrs-pir-system",
+            storageBucket: "glrs-pir-system.firebasestorage.app",
+            messagingSenderId: "830378577655",
+            appId: "1:830378577655:web:ceb8e57c80f9b1cc028df2",
+            measurementId: "G-W5JDNQ9J1X"
+        };
+
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const functions = firebase.functions();
+
+        // Test state
+        let testResults = {
+            total: 0,
+            passed: 0,
+            failed: 0
+        };
+
+        let currentUserId = null;
+        let userPreferences = null;
+
+        // Login function
+        async function loginUser() {
+            const email = document.getElementById('emailInput').value;
+            const password = document.getElementById('passwordInput').value;
+            const errorDiv = document.getElementById('loginError');
+
+            if (!email || !password) {
+                errorDiv.innerHTML = '<div class="status error">Please enter both email and password</div>';
+                return;
+            }
+
+            try {
+                await auth.signInWithEmailAndPassword(email, password);
+                errorDiv.innerHTML = '<div class="status success">Login successful!</div>';
+            } catch (error) {
+                errorDiv.innerHTML = '<div class="status error">Login failed: ' + error.message + '</div>';
+            }
+        }
+
+        // Logout function
+        async function logoutUser() {
+            try {
+                await auth.signOut();
+            } catch (error) {
+                logError('Logout failed: ' + error.message);
+            }
+        }
+
+        // Initialize - get current user
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                currentUserId = user.uid;
+
+                // Show test interface, hide login
+                document.getElementById('loginSection').style.display = 'none';
+                document.getElementById('testInterface').style.display = 'block';
+
+                document.getElementById('userId').textContent = currentUserId;
+
+                // Load user preferences
+                try {
+                    const userDoc = await db.collection('users').doc(currentUserId).get();
+                    if (userDoc.exists) {
+                        userPreferences = userDoc.data().notificationPreferences || {};
+                        const enabledCount = Object.values(userPreferences).filter(v => v === true).length;
+                        document.getElementById('prefs').textContent = `${enabledCount} preferences enabled`;
+                    }
+                } catch (error) {
+                    console.error('Failed to load user preferences:', error);
+                }
+            } else {
+                currentUserId = null;
+                userPreferences = null;
+
+                // Show login, hide test interface
+                document.getElementById('loginSection').style.display = 'block';
+                document.getElementById('testInterface').style.display = 'none';
+            }
+        });
+
+        // Logging functions
+        function logSuccess(message) {
+            const div = document.createElement('div');
+            div.className = 'status success';
+            div.textContent = '✅ ' + message;
+            document.getElementById('output').appendChild(div);
+            testResults.passed++;
+            testResults.total++;
+        }
+
+        function logError(message) {
+            const div = document.createElement('div');
+            div.className = 'status error';
+            div.textContent = '❌ ' + message;
+            document.getElementById('output').appendChild(div);
+            testResults.failed++;
+            testResults.total++;
+        }
+
+        function logInfo(message) {
+            const div = document.createElement('div');
+            div.className = 'status info';
+            div.textContent = 'ℹ️ ' + message;
+            document.getElementById('output').appendChild(div);
+        }
+
+        function logWarning(message) {
+            const div = document.createElement('div');
+            div.className = 'status warning';
+            div.textContent = '⚠️ ' + message;
+            document.getElementById('output').appendChild(div);
+        }
+
+        function clearOutput() {
+            document.getElementById('output').innerHTML = '';
+            document.getElementById('summarySection').style.display = 'none';
+            testResults = { total: 0, passed: 0, failed: 0 };
+        }
+
+        function updateSummary() {
+            document.getElementById('summarySection').style.display = 'block';
+            document.getElementById('totalTests').textContent = testResults.total;
+            document.getElementById('passedTests').textContent = testResults.passed;
+            document.getElementById('failedTests').textContent = testResults.failed;
+            const rate = testResults.total > 0 ? Math.round((testResults.passed / testResults.total) * 100) : 0;
+            document.getElementById('successRate').textContent = rate + '%';
+        }
+
+        // Helper function to create notification
+        async function createNotification(type, title, body, data = {}) {
+            if (!currentUserId) {
+                logError('Cannot create notification - not authenticated');
+                return false;
+            }
+
+            try {
+                await db.collection('notifications').add({
+                    userId: currentUserId,
+                    type: type,
+                    title: title,
+                    body: body,
+                    data: data,
+                    read: false,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    timestamp: new Date().toISOString()
+                });
+                logSuccess(`Created ${type} notification: ${title}`);
+                return true;
+            } catch (error) {
+                logError(`Failed to create ${type} notification: ${error.message}`);
+                return false;
+            }
+        }
+
+        // Test functions
+        async function runDailyReminderTests() {
+            logInfo('📝 Starting Daily Reminder Tests...');
+
+            await createNotification(
+                'dailyReminder',
+                'Daily Check-In Reminder',
+                'Time for your morning check-in! Let us know how you are feeling today.',
+                { reminderType: 'morning', time: '08:00' }
+            );
+
+            await createNotification(
+                'dailyReminder',
+                'Evening Reflection Reminder',
+                'Take a moment to reflect on your day and complete your evening check-in.',
+                { reminderType: 'evening', time: '20:00' }
+            );
+
+            await createNotification(
+                'missedActivity',
+                'Missed Check-In',
+                'We noticed you missed your morning check-in. Would you like to complete it now?',
+                { activityType: 'checkin', missedDate: new Date().toISOString() }
+            );
+        }
+
+        async function runAssignmentTests() {
+            logInfo('📋 Starting Assignment Tests...');
+
+            await createNotification(
+                'assignment',
+                'New Assignment from Coach',
+                'Your coach has assigned you a new task: "Practice mindfulness meditation for 10 minutes"',
+                { assignmentId: 'test_' + Date.now(), dueDate: new Date(Date.now() + 86400000).toISOString() }
+            );
+
+            await createNotification(
+                'assignment',
+                'Assignment Due Today',
+                'Reminder: Your assignment "Daily gratitude journal" is due today.',
+                { assignmentId: 'test_' + Date.now(), dueDate: new Date().toISOString() }
+            );
+
+            await createNotification(
+                'assignment',
+                'Assignment Overdue',
+                'Your assignment "Attend support group meeting" is overdue. Please complete it soon.',
+                { assignmentId: 'test_' + Date.now(), overdueBy: '2 days' }
+            );
+        }
+
+        async function runMilestoneTests() {
+            logInfo('🎯 Starting Milestone Tests...');
+
+            await createNotification(
+                'milestone',
+                '30 Days Sober! 🎉',
+                'Congratulations on reaching 30 days of sobriety! This is a significant achievement.',
+                { milestoneType: '30day', sobrietyDays: 30, achievedDate: new Date().toISOString() }
+            );
+
+            await createNotification(
+                'milestone',
+                'Upcoming Milestone',
+                'You are 3 days away from your 60-day milestone! Keep up the great work!',
+                { milestoneType: '60day', daysUntil: 3, sobrietyDays: 57 }
+            );
+        }
+
+        async function runMeetingTests() {
+            logInfo('👥 Starting Meeting Tests...');
+
+            await createNotification(
+                'meeting',
+                'Meeting Starting Soon',
+                'Your AA meeting "Monday Night Recovery" starts in 1 hour at First Community Church.',
+                { meetingId: 'test_' + Date.now(), startTime: new Date(Date.now() + 3600000).toISOString(), location: 'First Community Church' }
+            );
+
+            await createNotification(
+                'meeting',
+                'Meeting Tomorrow',
+                'Reminder: You have a support group meeting tomorrow at 6:00 PM.',
+                { meetingId: 'test_' + Date.now(), startTime: new Date(Date.now() + 86400000).toISOString() }
+            );
+
+            await createNotification(
+                'meeting',
+                'New Meeting Added',
+                'A new meeting has been added to your calendar: "Wednesday Wellness Group"',
+                { meetingId: 'test_' + Date.now(), meetingName: 'Wednesday Wellness Group' }
+            );
+        }
+
+        async function runCommunityTests() {
+            logInfo('💬 Starting Community Tests...');
+
+            await createNotification(
+                'community',
+                'New Message in Recovery Warriors',
+                'Sarah posted: "Feeling grateful for this community today. You all inspire me!"',
+                { groupId: 'test_group', postId: 'test_' + Date.now(), authorName: 'Sarah' }
+            );
+
+            await createNotification(
+                'community',
+                'Someone Liked Your Post',
+                'Alex liked your post in the Sobriety Journey group.',
+                { groupId: 'test_group', postId: 'test_' + Date.now(), likerName: 'Alex' }
+            );
+
+            await createNotification(
+                'community',
+                'New Comment on Your Post',
+                'Michael commented on your post: "This really resonates with me. Thank you for sharing!"',
+                { groupId: 'test_group', postId: 'test_' + Date.now(), commenterName: 'Michael' }
+            );
+        }
+
+        async function runMessageTests() {
+            logInfo('📧 Starting Message Tests...');
+
+            await createNotification(
+                'message',
+                'New Message from Coach Johnson',
+                'I wanted to check in on your progress this week. How are you feeling about your goals?',
+                { messageId: 'test_' + Date.now(), senderId: 'coach123', senderName: 'Coach Johnson' }
+            );
+
+            await createNotification(
+                'message',
+                'Unread Messages',
+                'You have 3 unread messages from your coach.',
+                { unreadCount: 3 }
+            );
+        }
+
+        async function runEmergencyTests() {
+            logInfo('🆘 Starting Emergency Tests...');
+
+            await createNotification(
+                'emergency',
+                'Crisis Resources Available',
+                'If you are in crisis, help is available 24/7. Tap here to view emergency resources.',
+                { resourceType: 'crisis', priority: 'high' }
+            );
+
+            await createNotification(
+                'system',
+                'System Maintenance',
+                'The app will be undergoing scheduled maintenance tonight from 2-4 AM.',
+                { maintenanceStart: '2025-11-24T02:00:00Z', maintenanceEnd: '2025-11-24T04:00:00Z' }
+            );
+        }
+
+        async function testCloudFunction() {
+            logInfo('☁️ Testing Cloud Function: sendNotification...');
+
+            try {
+                const sendNotification = functions.httpsCallable('sendNotification');
+                const result = await sendNotification({
+                    userId: currentUserId,
+                    type: 'test',
+                    title: 'Cloud Function Test',
+                    body: 'This notification was created via Cloud Function',
+                    data: { testId: Date.now() }
+                });
+
+                if (result.data.success) {
+                    logSuccess('Cloud function executed successfully');
+                } else {
+                    logError('Cloud function returned error: ' + result.data.error);
+                }
+            } catch (error) {
+                logError('Cloud function failed: ' + error.message);
+            }
+        }
+
+        async function runAllTests() {
+            clearOutput();
+            logInfo('🚀 Starting Complete Notification Test Suite...');
+            logInfo('Testing all notification types for user: ' + currentUserId);
+
+            await runDailyReminderTests();
+            await new Promise(r => setTimeout(r, 500)); // Small delay between test sections
+
+            await runAssignmentTests();
+            await new Promise(r => setTimeout(r, 500));
+
+            await runMilestoneTests();
+            await new Promise(r => setTimeout(r, 500));
+
+            await runMeetingTests();
+            await new Promise(r => setTimeout(r, 500));
+
+            await runCommunityTests();
+            await new Promise(r => setTimeout(r, 500));
+
+            await runMessageTests();
+            await new Promise(r => setTimeout(r, 500));
+
+            await runEmergencyTests();
+            await new Promise(r => setTimeout(r, 500));
+
+            await testCloudFunction();
+
+            logInfo('✅ All tests completed!');
+            updateSummary();
+        }
+    </script>
+</body>
+</html>

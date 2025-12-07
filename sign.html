@@ -1,0 +1,3262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Document - GLRS</title>
+
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%230077CC' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10'/%3E%3C/svg%3E">
+
+    <!-- Google Fonts for signature -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400;700&display=swap" rel="stylesheet">
+
+    <!-- Firebase SDK (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+
+    <!-- Signature Pad -->
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+
+    <!-- PDF Generation Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- React -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #F8FAFC;
+            min-height: 100vh;
+        }
+
+        /* Pulse animation for current field */
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 0 0 2px #3B82F6, 0 0 20px rgba(59, 130, 246, 0.3);
+            }
+            50% {
+                box-shadow: 0 0 0 2px #3B82F6, 0 0 30px rgba(59, 130, 246, 0.5);
+            }
+        }
+
+        .field-pulse {
+            animation: pulse 2s infinite;
+        }
+
+        /* Signature font */
+        .signature-font {
+            font-family: 'Dancing Script', cursive;
+        }
+
+        /* Touch-friendly buttons */
+        button {
+            touch-action: manipulation;
+        }
+
+        /* Canvas for signature */
+        .signature-canvas {
+            touch-action: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script>
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyD8PuLTPgth-H-6oHFKJ5PuT_Z2wRN6l4c",
+            authDomain: "glrs-pir-system.firebaseapp.com",
+            projectId: "glrs-pir-system",
+            storageBucket: "glrs-pir-system.appspot.com",
+            messagingSenderId: "738027442270",
+            appId: "1:738027442270:web:6d84e3b3e6d5a6d9a0c2e0"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        window.db = db;
+        window.FIREBASE_READY = true;
+    </script>
+
+    <!-- SHARED DOCUMENT CONSTANTS - Single source of truth for WYSIWYG -->
+    <script src="/shared/document-constants.js"></script>
+    <script src="/shared/block-styles.js"></script>
+    <script src="/shared/block-renderer.js"></script>
+    <script src="/shared/pagination.js"></script>
+
+    <script type="text/babel">
+(function() {
+    const { useState, useEffect, useRef, useCallback } = React;
+    const { db } = window;
+
+    // ==========================================
+    // DESIGN CONSTANTS
+    // ==========================================
+    const DESIGN = {
+        primary: '#0077CC',
+        primaryDark: '#005A9C',
+        success: '#16A34A',
+        successDark: '#15803D',
+        error: '#DC2626',
+        gray50: '#F9FAFB',
+        gray100: '#F3F4F6',
+        gray200: '#E5E7EB',
+        gray300: '#D1D5DB',
+        gray400: '#9CA3AF',
+        gray500: '#6B7280',
+        gray600: '#4B5563',
+        gray700: '#374151',
+        gray800: '#1F2937',
+        gray900: '#111827',
+        gradient: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+        gradientSuccess: 'linear-gradient(135deg, #16A34A 0%, #15803D 100%)',
+        shadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+        shadowLg: '0 10px 25px rgba(0, 0, 0, 0.15)',
+        radiusSm: '6px',
+        radiusMd: '12px',
+        radiusLg: '16px'
+    };
+
+    // Signer role colors
+    const SIGNER_ROLES = {
+        pir: {
+            label: 'PIR',
+            fullLabel: 'Person in Recovery',
+            color: '#3B82F6',
+            bgLight: 'rgba(59, 130, 246, 0.1)',
+            borderColor: '#3B82F6'
+        },
+        family: {
+            label: 'Family',
+            fullLabel: 'Family Member',
+            color: '#22C55E',
+            bgLight: 'rgba(34, 197, 94, 0.1)',
+            borderColor: '#22C55E'
+        },
+        glrs: {
+            label: 'GLRS',
+            fullLabel: 'GLRS Representative',
+            color: '#F97316',
+            bgLight: 'rgba(249, 115, 22, 0.1)',
+            borderColor: '#F97316'
+        }
+    };
+
+    // ==========================================
+    // EMAIL NOTIFICATION SYSTEM
+    // ==========================================
+
+    // Generate HTML email template for signing notifications
+    function generateSigningEmailHTML(templateType, data) {
+        const { recipientName, documentTitle, signingLink, expirationDate, completedDate, signersList } = data;
+
+        // Common email styles
+        const styles = {
+            wrapper: 'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;',
+            header: 'background: linear-gradient(135deg, #0077CC 0%, #008B8B 100%); padding: 32px 24px; text-align: center;',
+            logo: 'font-size: 24px; font-weight: 700; color: white; margin: 0;',
+            tagline: 'color: rgba(255,255,255,0.9); font-size: 14px; margin: 8px 0 0 0;',
+            content: 'padding: 32px 24px;',
+            greeting: 'font-size: 18px; color: #1F2937; margin: 0 0 16px 0;',
+            text: 'font-size: 15px; color: #4B5563; line-height: 1.6; margin: 0 0 16px 0;',
+            docBox: 'background: #F3F4F6; border-radius: 8px; padding: 16px; margin: 24px 0;',
+            docTitle: 'font-size: 16px; font-weight: 600; color: #1F2937; margin: 0 0 4px 0;',
+            docMeta: 'font-size: 13px; color: #6B7280; margin: 0;',
+            button: 'display: inline-block; background: linear-gradient(135deg, #0077CC 0%, #008B8B 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px;',
+            buttonWrap: 'text-align: center; margin: 24px 0;',
+            footer: 'background: #F9FAFB; padding: 24px; border-top: 1px solid #E5E7EB;',
+            footerText: 'font-size: 12px; color: #9CA3AF; text-align: center; margin: 0;',
+            success: 'background: #D1FAE5; border-left: 4px solid #10B981; padding: 16px; margin: 16px 0; border-radius: 0 8px 8px 0;',
+            successText: 'font-size: 14px; color: #065F46; margin: 0;'
+        };
+
+        // Template content based on type
+        const templates = {
+            'signing-next-turn': {
+                subject: `It's your turn to sign: "${documentTitle}"`,
+                html: `
+                    <div style="${styles.wrapper}">
+                        <div style="${styles.header}">
+                            <h1 style="${styles.logo}">GLRS Lighthouse</h1>
+                            <p style="${styles.tagline}">Guiding Light Recovery Services</p>
+                        </div>
+                        <div style="${styles.content}">
+                            <h2 style="${styles.greeting}">Hello ${recipientName},</h2>
+                            <p style="${styles.text}">
+                                Good news! The previous signer has completed their portion, and it's now your turn to review and sign the document.
+                            </p>
+                            <div style="${styles.docBox}">
+                                <p style="${styles.docTitle}">${documentTitle}</p>
+                                <p style="${styles.docMeta}">Expires: ${expirationDate}</p>
+                            </div>
+                            <div style="${styles.buttonWrap}">
+                                <a href="${signingLink}" style="${styles.button}">Review & Sign Document</a>
+                            </div>
+                            <p style="${styles.text}">
+                                Please complete your signature at your earliest convenience to keep the process moving forward.
+                            </p>
+                        </div>
+                        <div style="${styles.footer}">
+                            <p style="${styles.footerText}">
+                                Guiding Light Recovery Services<br>
+                                Supporting your recovery journey
+                            </p>
+                        </div>
+                    </div>
+                `
+            },
+            'signing-complete': {
+                subject: `Completed: All signatures collected for "${documentTitle}"`,
+                html: `
+                    <div style="${styles.wrapper}">
+                        <div style="${styles.header}">
+                            <h1 style="${styles.logo}">GLRS Lighthouse</h1>
+                            <p style="${styles.tagline}">Guiding Light Recovery Services</p>
+                        </div>
+                        <div style="${styles.content}">
+                            <h2 style="${styles.greeting}">Hello ${recipientName},</h2>
+                            <div style="${styles.success}">
+                                <p style="${styles.successText}">
+                                    All parties have successfully signed the document. The agreement is now complete.
+                                </p>
+                            </div>
+                            <div style="${styles.docBox}">
+                                <p style="${styles.docTitle}">${documentTitle}</p>
+                                <p style="${styles.docMeta}">Completed: ${completedDate}</p>
+                            </div>
+                            <p style="${styles.text}">
+                                <strong>Signed by:</strong><br>
+                                ${signersList || 'All required parties'}
+                            </p>
+                            <p style="${styles.text}">
+                                A copy of the completed document has been saved to your GLRS account.
+                                You can access it anytime through the GLRS portal.
+                            </p>
+                        </div>
+                        <div style="${styles.footer}">
+                            <p style="${styles.footerText}">
+                                Guiding Light Recovery Services<br>
+                                Thank you for using GLRS Lighthouse
+                            </p>
+                        </div>
+                    </div>
+                `
+            },
+            'signing-portion-complete': {
+                subject: `Confirmed: You have completed your portion of "${documentTitle}"`,
+                html: `
+                    <div style="${styles.wrapper}">
+                        <div style="${styles.header}">
+                            <h1 style="${styles.logo}">GLRS Lighthouse</h1>
+                            <p style="${styles.tagline}">Guiding Light Recovery Services</p>
+                        </div>
+                        <div style="${styles.content}">
+                            <h2 style="${styles.greeting}">Hello ${recipientName},</h2>
+                            <div style="${styles.success}">
+                                <p style="${styles.successText}">
+                                    Your signature has been recorded successfully. You have completed your portion of this document.
+                                </p>
+                            </div>
+                            <div style="${styles.docBox}">
+                                <p style="${styles.docTitle}">${documentTitle}</p>
+                                <p style="${styles.docMeta}">Signed: ${completedDate}</p>
+                            </div>
+                            <p style="${styles.text}">
+                                <strong>What happens next?</strong><br>
+                                The remaining parties will be notified to complete their signatures.
+                                Once everyone has signed, you'll receive another email with a copy of the fully executed document.
+                            </p>
+                            <p style="${styles.text}">
+                                Thank you for completing your portion promptly.
+                            </p>
+                        </div>
+                        <div style="${styles.footer}">
+                            <p style="${styles.footerText}">
+                                Guiding Light Recovery Services<br>
+                                Supporting your recovery journey
+                            </p>
+                        </div>
+                    </div>
+                `
+            }
+        };
+
+        return templates[templateType] || templates['signing-next-turn'];
+    }
+
+    // Send signing email via Firebase mail collection
+    async function sendSigningEmail(templateType, recipientEmail, recipientName, data, agreementId = null) {
+        try {
+            const emailContent = generateSigningEmailHTML(templateType, {
+                recipientName,
+                ...data
+            });
+
+            // Add to Firebase mail collection (picked up by Trigger Email extension)
+            const mailDoc = {
+                to: recipientEmail,
+                message: {
+                    subject: emailContent.subject,
+                    html: emailContent.html
+                },
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+
+            await db.collection('mail').add(mailDoc);
+            console.log(`Email sent: ${templateType} to ${recipientEmail}`);
+
+            // Log to audit trail if agreementId provided
+            if (agreementId) {
+                await db.collection('agreements').doc(agreementId).update({
+                    auditTrail: firebase.firestore.FieldValue.arrayUnion({
+                        timestamp: new Date().toISOString(),
+                        action: 'email_sent',
+                        emailType: templateType,
+                        recipient: recipientEmail,
+                        actor: 'system'
+                    })
+                });
+            }
+
+            return true;
+        } catch (error) {
+            console.error('Error sending email:', error);
+            return false;
+        }
+    }
+
+    // ==========================================
+    // PDF GENERATION SYSTEM
+    // ==========================================
+
+    // Generate SHA-256 document hash for tamper detection
+    async function generateDocumentHash(agreement) {
+        const content = JSON.stringify({
+            agreementId: agreement.id,
+            templateId: agreement.templateId,
+            fieldValues: agreement.fieldValues,
+            signers: agreement.signers.map(s => ({
+                name: s.name,
+                email: s.email,
+                role: s.role,
+                signedAt: s.signedAt
+            }))
+        });
+
+        const encoder = new TextEncoder();
+        const data = encoder.encode(content);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Format date/time for PDF display
+    function formatDateTimeForPDF(timestamp) {
+        if (!timestamp) return 'N/A';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        return date.toLocaleString('en-US', {
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZoneName: 'short'
+        });
+    }
+
+    // Get IP address from audit trail for a signer
+    function getSignerIPFromAuditTrail(agreement, signer) {
+        const signingEvent = agreement.auditTrail?.find(e =>
+            e.action === 'signed' && e.actor === signer.name
+        );
+        return signingEvent?.ipAddress || 'N/A';
+    }
+
+    // Generate Certificate of Completion HTML
+    async function generateCertificateHTML(agreement) {
+        const documentHash = await generateDocumentHash(agreement);
+
+        return `
+            <div style="padding: 60px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: white; min-height: 100%;">
+                <div style="text-align: center; margin-bottom: 40px;">
+                    <div style="font-size: 32px; font-weight: 700; color: #0077CC; margin-bottom: 8px;">
+                        GLRS Lighthouse
+                    </div>
+                    <div style="font-size: 14px; color: #6B7280;">
+                        Guiding Light Recovery Services
+                    </div>
+                </div>
+
+                <h1 style="text-align: center; color: #1F2937; font-size: 28px; margin-bottom: 40px; border-bottom: 3px solid #0077CC; padding-bottom: 20px;">
+                    Certificate of Completion
+                </h1>
+
+                <div style="margin-bottom: 30px; background: #F9FAFB; padding: 20px; border-radius: 8px;">
+                    <p style="margin: 0 0 12px; font-size: 15px;"><strong>Document ID:</strong> ${agreement.id}</p>
+                    <p style="margin: 0 0 12px; font-size: 15px;"><strong>Document Title:</strong> ${agreement.documentTitle}</p>
+                    <p style="margin: 0; font-size: 15px;"><strong>Completed:</strong> ${formatDateTimeForPDF(agreement.completedAt || new Date())}</p>
+                </div>
+
+                <h2 style="margin-top: 40px; margin-bottom: 20px; font-size: 20px; color: #1F2937;">Signers</h2>
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+                    <thead>
+                        <tr style="background: #F3F4F6;">
+                            <th style="padding: 14px; text-align: left; border-bottom: 2px solid #D1D5DB; font-size: 13px; font-weight: 600; color: #374151;">Name</th>
+                            <th style="padding: 14px; text-align: left; border-bottom: 2px solid #D1D5DB; font-size: 13px; font-weight: 600; color: #374151;">Role</th>
+                            <th style="padding: 14px; text-align: left; border-bottom: 2px solid #D1D5DB; font-size: 13px; font-weight: 600; color: #374151;">Signed At</th>
+                            <th style="padding: 14px; text-align: left; border-bottom: 2px solid #D1D5DB; font-size: 13px; font-weight: 600; color: #374151;">IP Address</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${agreement.signers.map(s => `
+                            <tr>
+                                <td style="padding: 14px; border-bottom: 1px solid #E5E7EB; font-size: 14px;">${s.name}</td>
+                                <td style="padding: 14px; border-bottom: 1px solid #E5E7EB; font-size: 14px; text-transform: uppercase;">${SIGNER_ROLES[s.role]?.label || s.role}</td>
+                                <td style="padding: 14px; border-bottom: 1px solid #E5E7EB; font-size: 14px;">${formatDateTimeForPDF(s.signedAt)}</td>
+                                <td style="padding: 14px; border-bottom: 1px solid #E5E7EB; font-size: 14px;">${getSignerIPFromAuditTrail(agreement, s)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+
+                <div style="margin-top: 40px; padding: 20px; background: #F8FAFC; border-radius: 8px; border: 1px solid #E5E7EB;">
+                    <p style="margin: 0 0 12px; font-size: 13px; font-weight: 600; color: #374151;">Document Hash (SHA-256):</p>
+                    <p style="font-family: 'Courier New', monospace; font-size: 11px; word-break: break-all; margin: 0; color: #6B7280; line-height: 1.6;">
+                        ${documentHash}
+                    </p>
+                </div>
+
+                <p style="margin-top: 30px; font-size: 12px; color: #6B7280; line-height: 1.6;">
+                    This certificate confirms that the above document was electronically signed by all parties listed.
+                    The document hash can be used to verify that the document has not been tampered with since completion.
+                </p>
+
+                <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #E5E7EB; text-align: center;">
+                    <p style="font-size: 11px; color: #9CA3AF; margin: 0;">
+                        Generated by GLRS Lighthouse E-Signature System<br>
+                        ${new Date().toLocaleString()}
+                    </p>
+                </div>
+            </div>
+        `;
+    }
+
+    // Render document content to HTML for PDF generation
+    function renderDocumentToHTML(agreement) {
+        const blocks = agreement.content?.blocks || [];
+        const fieldValues = agreement.fieldValues || {};
+        const signers = agreement.signers || [];
+
+        let html = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; background: white;">`;
+        html += `<h1 style="text-align: center; color: #1F2937; font-size: 24px; margin-bottom: 30px;">${agreement.documentTitle}</h1>`;
+
+        blocks.forEach(block => {
+            switch (block.type) {
+                case 'heading':
+                    const headingSize = block.level === 1 ? '24px' : block.level === 2 ? '20px' : '18px';
+                    html += `<h${block.level || 2} style="font-size: ${headingSize}; color: #1F2937; margin: 24px 0 12px;">${block.content || ''}</h${block.level || 2}>`;
+                    break;
+                case 'paragraph':
+                    html += `<p style="font-size: 14px; line-height: 1.7; color: #374151; margin: 0 0 16px;">${block.content || ''}</p>`;
+                    break;
+                case 'section':
+                    html += `<div style="margin: 24px 0 16px; padding-bottom: 8px; border-bottom: 2px solid #E5E7EB;">
+                        <span style="font-size: 16px; font-weight: 600; color: #1F2937;">${block.number ? block.number + '. ' : ''}${block.title || ''}</span>
+                    </div>`;
+                    break;
+                case 'textField':
+                case 'dateField':
+                    const fieldValue = fieldValues[block.id] || '_________________';
+                    html += `<p style="font-size: 14px; margin: 12px 0;">
+                        <strong>${block.label || 'Field'}:</strong> <span style="border-bottom: 1px solid #000; padding: 0 20px;">${fieldValue}</span>
+                    </p>`;
+                    break;
+                case 'signatureField':
+                case 'signatureBlock':
+                    const sigValue = fieldValues[block.id];
+                    const roleName = SIGNER_ROLES[block.role]?.label || block.role?.toUpperCase() || 'SIGNER';
+                    const signerInfo = signers.find(s => s.role === block.role);
+                    html += `<div style="margin: 30px 0; padding: 20px; background: #F9FAFB; border-radius: 8px; border: 1px solid #E5E7EB;">`;
+                    if (sigValue) {
+                        if (sigValue.startsWith && sigValue.startsWith('data:image')) {
+                            html += `<img src="${sigValue}" style="max-width: 300px; max-height: 100px; display: block; margin-bottom: 10px;" />`;
+                        } else {
+                            html += `<div style="font-family: 'Dancing Script', cursive, Georgia, serif; font-size: 32px; color: #1F2937; margin-bottom: 10px;">${sigValue}</div>`;
+                        }
+                    } else {
+                        html += `<div style="border-bottom: 2px solid #000; width: 300px; height: 50px; margin-bottom: 10px;"></div>`;
+                    }
+                    html += `<div style="font-size: 12px; color: #6B7280;">
+                        <strong>${roleName} Signature</strong>
+                        ${signerInfo ? ` - ${signerInfo.name}` : ''}
+                        ${signerInfo?.signedAt ? ` (Signed: ${formatDateTimeForPDF(signerInfo.signedAt)})` : ''}
+                    </div></div>`;
+                    break;
+                case 'initialsField':
+                    const initValue = fieldValues[block.id];
+                    html += `<span style="display: inline-block; margin: 8px 16px 8px 0;">
+                        <span style="border: 1px solid #000; padding: 4px 12px; min-width: 50px; display: inline-block; text-align: center;">
+                            ${initValue || '____'}
+                        </span>
+                        <span style="font-size: 12px; color: #6B7280; margin-left: 8px;">${block.label || 'Initials'}</span>
+                    </span>`;
+                    break;
+                case 'acknowledgment':
+                    const ackValue = fieldValues[block.id];
+                    html += `<div style="margin: 12px 0; display: flex; align-items: flex-start; gap: 10px;">
+                        <span style="width: 18px; height: 18px; border: 2px solid #000; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                            ${ackValue ? '✓' : ''}
+                        </span>
+                        <span style="font-size: 14px; line-height: 1.5;">${block.text || ''}</span>
+                    </div>`;
+                    break;
+                case 'divider':
+                    html += `<hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />`;
+                    break;
+                default:
+                    if (block.content) {
+                        html += `<p style="font-size: 14px; margin: 12px 0;">${block.content}</p>`;
+                    }
+            }
+        });
+
+        html += `</div>`;
+        return html;
+    }
+
+    // Generate complete PDF with document and certificate
+    async function generateAgreementPDF(agreement) {
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'letter');
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+
+        const container = document.createElement('div');
+        container.style.width = '816px';
+        container.style.position = 'absolute';
+        container.style.left = '-9999px';
+        container.style.background = 'white';
+        document.body.appendChild(container);
+
+        try {
+            // Render main document
+            container.innerHTML = renderDocumentToHTML(agreement);
+            const docCanvas = await html2canvas(container, {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                backgroundColor: '#ffffff'
+            });
+
+            const imgWidth = pageWidth;
+            const imgHeight = (docCanvas.height * imgWidth) / docCanvas.width;
+            const docImgData = docCanvas.toDataURL('image/png');
+            let position = 0;
+            let pageNum = 1;
+
+            while (position < docCanvas.height) {
+                if (pageNum > 1) pdf.addPage();
+                pdf.addImage(docImgData, 'PNG', 0, -(position * imgWidth / docCanvas.width), imgWidth, imgHeight);
+                position += pageHeight * (docCanvas.width / imgWidth);
+                pageNum++;
+            }
+
+            // Add Certificate of Completion
+            pdf.addPage();
+            container.innerHTML = await generateCertificateHTML(agreement);
+            const certCanvas = await html2canvas(container, {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                backgroundColor: '#ffffff'
+            });
+            const certImgData = certCanvas.toDataURL('image/png');
+            const certImgHeight = (certCanvas.height * imgWidth) / certCanvas.width;
+            pdf.addImage(certImgData, 'PNG', 0, 0, imgWidth, Math.min(certImgHeight, pageHeight));
+
+            return pdf;
+        } finally {
+            document.body.removeChild(container);
+        }
+    }
+
+    // Generate PDF for uploaded documents (PDF/Word with overlay fields)
+    async function generateUploadedDocumentPDF(agreement) {
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'letter');
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+
+        const pages = agreement.uploadedFile?.pages || [];
+        const overlayFields = agreement.overlayFields || [];
+        const fieldValues = agreement.fieldValues || {};
+
+        // Role colors for visual distinction
+        const roleColors = {
+            pir: '#2563EB',      // Blue
+            family: '#059669',   // Green
+            glrs: '#7C3AED'      // Purple
+        };
+
+        // Create a container for rendering each page with overlays
+        const container = document.createElement('div');
+        container.style.width = '816px';
+        container.style.height = '1056px';
+        container.style.position = 'absolute';
+        container.style.left = '-9999px';
+        container.style.background = 'white';
+        document.body.appendChild(container);
+
+        try {
+            for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+                const page = pages[pageIndex];
+                if (pageIndex > 0) pdf.addPage();
+
+                // Get fields for this page
+                const pageFields = overlayFields.filter(f => f.pageIndex === pageIndex);
+
+                // Build HTML with page image and overlay fields
+                let html = `
+                    <div style="position: relative; width: 816px; height: 1056px; background: white;">
+                        <img src="${page.imageUrl}" style="width: 100%; height: 100%; object-fit: contain;" crossorigin="anonymous" />
+                `;
+
+                // Add field overlays with their values
+                for (const field of pageFields) {
+                    const value = fieldValues[field.id];
+                    if (!value) continue;
+
+                    const left = (field.x / 100) * 816;
+                    const top = (field.y / 100) * 1056;
+                    const width = (field.width / 100) * 816;
+                    const height = (field.height / 100) * 1056;
+
+                    if (field.type === 'signature' || field.type === 'initials') {
+                        // Signature/initials - render as image
+                        html += `
+                            <div style="position: absolute; left: ${left}px; top: ${top}px; width: ${width}px; height: ${height}px; display: flex; align-items: center; justify-content: center;">
+                                <img src="${value}" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
+                            </div>
+                        `;
+                    } else if (field.type === 'checkbox') {
+                        // Checkbox - render checkmark if true
+                        if (value === true || value === 'true') {
+                            html += `
+                                <div style="position: absolute; left: ${left}px; top: ${top}px; width: ${width}px; height: ${height}px; display: flex; align-items: center; justify-content: center; font-size: ${Math.min(width, height) * 0.8}px; color: #000;">
+                                    ✓
+                                </div>
+                            `;
+                        }
+                    } else if (field.type === 'date') {
+                        // Date field - render formatted date
+                        html += `
+                            <div style="position: absolute; left: ${left}px; top: ${top}px; width: ${width}px; height: ${height}px; display: flex; align-items: center; font-size: 12px; color: #000; font-family: Arial, sans-serif;">
+                                ${value}
+                            </div>
+                        `;
+                    } else {
+                        // Text field - render text value
+                        html += `
+                            <div style="position: absolute; left: ${left}px; top: ${top}px; width: ${width}px; height: ${height}px; display: flex; align-items: center; font-size: 12px; color: #000; font-family: Arial, sans-serif; overflow: hidden; padding: 2px;">
+                                ${value}
+                            </div>
+                        `;
+                    }
+                }
+
+                html += '</div>';
+                container.innerHTML = html;
+
+                // Wait for images to load
+                const images = container.querySelectorAll('img');
+                await Promise.all(Array.from(images).map(img => {
+                    if (img.complete) return Promise.resolve();
+                    return new Promise(resolve => {
+                        img.onload = resolve;
+                        img.onerror = resolve;
+                    });
+                }));
+
+                // Capture page as canvas
+                const pageCanvas = await html2canvas(container, {
+                    scale: 2,
+                    useCORS: true,
+                    allowTaint: true,
+                    backgroundColor: '#ffffff'
+                });
+
+                const imgData = pageCanvas.toDataURL('image/png');
+                pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight);
+            }
+
+            // Add Certificate of Completion
+            pdf.addPage();
+            container.innerHTML = await generateCertificateHTML(agreement);
+            const certCanvas = await html2canvas(container, {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                backgroundColor: '#ffffff'
+            });
+            const certImgData = certCanvas.toDataURL('image/png');
+            const certImgHeight = (certCanvas.height * pageWidth) / certCanvas.width;
+            pdf.addImage(certImgData, 'PNG', 0, 0, pageWidth, Math.min(certImgHeight, pageHeight));
+
+            return pdf;
+        } finally {
+            document.body.removeChild(container);
+        }
+    }
+
+    // Save PDF to Firebase Storage
+    async function savePDFToStorage(pdf, agreement) {
+        const storage = firebase.storage();
+        const pdfBlob = pdf.output('blob');
+        const storageRef = storage.ref();
+        const pdfRef = storageRef.child(`agreements/${agreement.id}/signed-agreement.pdf`);
+
+        await pdfRef.put(pdfBlob, { contentType: 'application/pdf' });
+        const downloadUrl = await pdfRef.getDownloadURL();
+
+        // Update agreement with PDF URL and log to audit trail
+        await db.collection('agreements').doc(agreement.id).update({
+            pdfUrl: downloadUrl,
+            auditTrail: firebase.firestore.FieldValue.arrayUnion({
+                timestamp: new Date().toISOString(),
+                action: 'pdf_generated',
+                actor: 'system',
+                pdfUrl: downloadUrl
+            })
+        });
+
+        return downloadUrl;
+    }
+
+    // Generate PDF and save when agreement is completed
+    async function generateAndSaveCompletedPDF(agreement) {
+        try {
+            console.log('Generating PDF for completed agreement...');
+            // Use appropriate PDF generator based on template type
+            const isUploadedTemplate = !!agreement.uploadedFile;
+            const pdf = isUploadedTemplate
+                ? await generateUploadedDocumentPDF(agreement)
+                : await generateAgreementPDF(agreement);
+            const pdfUrl = await savePDFToStorage(pdf, agreement);
+            console.log('PDF saved to:', pdfUrl);
+            return pdfUrl;
+        } catch (error) {
+            console.error('Error generating PDF:', error);
+            return null;
+        }
+    }
+
+    // ==========================================
+    // SVG ICONS
+    // ==========================================
+    const Icons = {
+        Check: ({ size = 20, color = 'currentColor' }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+        ),
+        ChevronLeft: ({ size = 20, color = 'currentColor' }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+        ),
+        ChevronRight: ({ size = 20, color = 'currentColor' }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+        ),
+        X: ({ size = 20, color = 'currentColor' }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+        ),
+        CheckCircle: ({ size = 20, color = 'currentColor' }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+        ),
+        AlertCircle: ({ size = 20, color = 'currentColor' }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+        ),
+        Clock: ({ size = 20, color = 'currentColor' }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+        ),
+        Download: ({ size = 20, color = 'currentColor' }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+        ),
+        Edit: ({ size = 20, color = 'currentColor' }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+        ),
+        Save: ({ size = 20, color = 'currentColor' }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+        ),
+        FileText: ({ size = 20, color = 'currentColor' }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+        )
+    };
+
+    // ==========================================
+    // ERROR SCREEN
+    // ==========================================
+    function ErrorScreen({ title, message, showContact = true }) {
+        return (
+            <div style={{
+                minHeight: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '24px',
+                background: DESIGN.gray50
+            }}>
+                <div style={{
+                    textAlign: 'center',
+                    maxWidth: '400px'
+                }}>
+                    <div style={{
+                        width: '80px',
+                        height: '80px',
+                        background: 'rgba(220, 38, 38, 0.1)',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        margin: '0 auto 24px'
+                    }}>
+                        <Icons.AlertCircle size={40} color={DESIGN.error} />
+                    </div>
+                    <h1 style={{
+                        fontSize: '24px',
+                        fontWeight: '700',
+                        color: DESIGN.gray900,
+                        marginBottom: '12px'
+                    }}>
+                        {title}
+                    </h1>
+                    <p style={{
+                        fontSize: '16px',
+                        color: DESIGN.gray500,
+                        lineHeight: '1.6',
+                        marginBottom: showContact ? '24px' : '0'
+                    }}>
+                        {message}
+                    </p>
+                    {showContact && (
+                        <p style={{ fontSize: '14px', color: DESIGN.gray400 }}>
+                            If you believe this is an error, please contact us at<br />
+                            <a href="mailto:support@glrecoveryservices.com" style={{ color: DESIGN.primary }}>
+                                support@glrecoveryservices.com
+                            </a>
+                        </p>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // ALREADY SIGNED SCREEN
+    // ==========================================
+    function AlreadySignedScreen({ agreement, signer }) {
+        return (
+            <div style={{
+                minHeight: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '24px',
+                background: DESIGN.gray50
+            }}>
+                <div style={{
+                    textAlign: 'center',
+                    maxWidth: '400px'
+                }}>
+                    <div style={{
+                        width: '80px',
+                        height: '80px',
+                        background: 'rgba(22, 163, 74, 0.1)',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        margin: '0 auto 24px'
+                    }}>
+                        <Icons.CheckCircle size={40} color={DESIGN.success} />
+                    </div>
+                    <h1 style={{
+                        fontSize: '24px',
+                        fontWeight: '700',
+                        color: DESIGN.gray900,
+                        marginBottom: '12px'
+                    }}>
+                        Already Signed
+                    </h1>
+                    <p style={{
+                        fontSize: '16px',
+                        color: DESIGN.gray500,
+                        lineHeight: '1.6',
+                        marginBottom: '24px'
+                    }}>
+                        You've already signed this document on<br />
+                        {signer.signedAt ? new Date(signer.signedAt.toDate()).toLocaleDateString('en-US', {
+                            weekday: 'long',
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
+                        }) : 'a previous date'}.
+                    </p>
+                    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                        <button
+                            onClick={() => {
+                                if (agreement.pdfUrl) {
+                                    window.open(agreement.pdfUrl, '_blank');
+                                } else {
+                                    alert('PDF not yet generated. Please try again in a moment.');
+                                }
+                            }}
+                            style={{
+                                padding: '14px 32px',
+                                background: DESIGN.gradient,
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: DESIGN.radiusMd,
+                                fontSize: '16px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }}
+                        >
+                            <Icons.Download size={20} />
+                            Download Signed Copy
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // WAITING FOR OTHERS SCREEN
+    // ==========================================
+    function WaitingScreen({ agreement, signer }) {
+        // Find who needs to sign before this signer
+        const signerIndex = agreement.signers.findIndex(s => s.token === signer.token);
+        const pendingBefore = agreement.signers.slice(0, signerIndex).filter(s => s.status !== 'signed');
+
+        return (
+            <div style={{
+                minHeight: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '24px',
+                background: DESIGN.gray50
+            }}>
+                <div style={{
+                    textAlign: 'center',
+                    maxWidth: '400px'
+                }}>
+                    <div style={{
+                        width: '80px',
+                        height: '80px',
+                        background: 'rgba(0, 119, 204, 0.1)',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        margin: '0 auto 24px'
+                    }}>
+                        <Icons.Clock size={40} color={DESIGN.primary} />
+                    </div>
+                    <h1 style={{
+                        fontSize: '24px',
+                        fontWeight: '700',
+                        color: DESIGN.gray900,
+                        marginBottom: '12px'
+                    }}>
+                        Waiting for Others
+                    </h1>
+                    <p style={{
+                        fontSize: '16px',
+                        color: DESIGN.gray500,
+                        lineHeight: '1.6',
+                        marginBottom: '24px'
+                    }}>
+                        This document requires signatures in order.<br />
+                        You'll be notified when it's your turn to sign.
+                    </p>
+                    {pendingBefore.length > 0 && (
+                        <div style={{
+                            background: 'white',
+                            borderRadius: DESIGN.radiusMd,
+                            padding: '16px',
+                            boxShadow: DESIGN.shadow
+                        }}>
+                            <p style={{ fontSize: '14px', color: DESIGN.gray500, marginBottom: '12px' }}>
+                                Waiting for:
+                            </p>
+                            {pendingBefore.map((s, i) => (
+                                <div key={i} style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '8px 0',
+                                    borderTop: i > 0 ? `1px solid ${DESIGN.gray100}` : 'none'
+                                }}>
+                                    <span style={{
+                                        width: '8px',
+                                        height: '8px',
+                                        borderRadius: '50%',
+                                        background: SIGNER_ROLES[s.role]?.borderColor || DESIGN.gray300
+                                    }} />
+                                    <span style={{ fontSize: '14px', color: DESIGN.gray700 }}>
+                                        {s.name} ({SIGNER_ROLES[s.role]?.label || s.role})
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // LOADING SCREEN
+    // ==========================================
+    function LoadingScreen() {
+        return (
+            <div style={{
+                minHeight: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: DESIGN.gray50
+            }}>
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{
+                        width: '48px',
+                        height: '48px',
+                        border: `4px solid ${DESIGN.gray200}`,
+                        borderTopColor: DESIGN.primary,
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite',
+                        margin: '0 auto 16px'
+                    }} />
+                    <p style={{ color: DESIGN.gray500 }}>Loading document...</p>
+                </div>
+                <style>{`
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
+                `}</style>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // WELCOME MODAL
+    // ==========================================
+    function WelcomeModal({ agreement, signer, onBeginSigning }) {
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(0,0,0,0.6)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+                padding: '24px'
+            }}>
+                <div style={{
+                    background: 'white',
+                    borderRadius: DESIGN.radiusLg,
+                    padding: '40px',
+                    maxWidth: '480px',
+                    width: '100%',
+                    textAlign: 'center',
+                    boxShadow: DESIGN.shadowLg
+                }}>
+                    {/* GLRS Logo */}
+                    <div style={{
+                        width: '80px',
+                        height: '80px',
+                        background: DESIGN.gradient,
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        margin: '0 auto 24px',
+                        color: 'white',
+                        fontSize: '24px',
+                        fontWeight: '700'
+                    }}>
+                        GLRS
+                    </div>
+
+                    <h1 style={{
+                        fontSize: '24px',
+                        fontWeight: '700',
+                        margin: '0 0 8px 0',
+                        color: DESIGN.gray900
+                    }}>
+                        Welcome, {signer.name}
+                    </h1>
+
+                    <p style={{
+                        fontSize: '16px',
+                        color: DESIGN.gray500,
+                        margin: '0 0 24px 0'
+                    }}>
+                        You've been asked to sign:
+                    </p>
+
+                    <div style={{
+                        background: DESIGN.gray50,
+                        borderRadius: DESIGN.radiusMd,
+                        padding: '20px',
+                        marginBottom: '24px'
+                    }}>
+                        <h2 style={{
+                            fontSize: '20px',
+                            fontWeight: '600',
+                            margin: '0 0 4px 0',
+                            color: DESIGN.gray900
+                        }}>
+                            {agreement.documentTitle || 'Service Agreement'}
+                        </h2>
+                        <p style={{
+                            fontSize: '14px',
+                            color: DESIGN.gray500,
+                            margin: 0
+                        }}>
+                            Sent by: Guiding Light Recovery Services
+                        </p>
+                    </div>
+
+                    <button
+                        onClick={onBeginSigning}
+                        style={{
+                            width: '100%',
+                            padding: '16px 32px',
+                            background: DESIGN.gradient,
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: DESIGN.radiusMd,
+                            fontSize: '18px',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        Begin Signing
+                        <Icons.ChevronRight size={20} />
+                    </button>
+
+                    <p style={{
+                        fontSize: '12px',
+                        color: DESIGN.gray400,
+                        marginTop: '16px'
+                    }}>
+                        By proceeding, you agree to sign this document electronically.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // SIGNATURE CAPTURE MODAL
+    // ==========================================
+    function SignatureCaptureModal({ field, onCapture, onClose, savedSignature }) {
+        const [activeTab, setActiveTab] = useState(savedSignature ? 'saved' : 'draw');
+        const [typedName, setTypedName] = useState('');
+        const [saveForFuture, setSaveForFuture] = useState(true);
+        const canvasRef = useRef(null);
+        const signaturePadRef = useRef(null);
+
+        // Initialize signature pad
+        useEffect(() => {
+            if (activeTab === 'draw' && canvasRef.current) {
+                // Clear previous instance
+                if (signaturePadRef.current) {
+                    signaturePadRef.current.off();
+                }
+
+                // Resize canvas
+                const canvas = canvasRef.current;
+                const ratio = Math.max(window.devicePixelRatio || 1, 1);
+                const rect = canvas.getBoundingClientRect();
+                canvas.width = rect.width * ratio;
+                canvas.height = rect.height * ratio;
+                canvas.getContext('2d').scale(ratio, ratio);
+
+                // Initialize SignaturePad
+                signaturePadRef.current = new SignaturePad(canvas, {
+                    backgroundColor: 'rgb(255, 255, 255)',
+                    penColor: 'rgb(0, 0, 0)',
+                    minWidth: 1,
+                    maxWidth: 2.5
+                });
+            }
+
+            return () => {
+                if (signaturePadRef.current) {
+                    signaturePadRef.current.off();
+                }
+            };
+        }, [activeTab]);
+
+        const handleClear = () => {
+            if (signaturePadRef.current) {
+                signaturePadRef.current.clear();
+            }
+        };
+
+        const generateTypedSignature = (name) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 400;
+            canvas.height = 100;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = 'black';
+            ctx.font = 'italic 48px "Dancing Script", cursive';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(name, canvas.width / 2, canvas.height / 2);
+
+            return canvas.toDataURL('image/png');
+        };
+
+        const handleApply = () => {
+            let signatureData;
+
+            if (activeTab === 'saved' && savedSignature) {
+                signatureData = savedSignature;
+            } else if (activeTab === 'draw') {
+                if (signaturePadRef.current?.isEmpty()) {
+                    alert('Please draw your signature');
+                    return;
+                }
+                signatureData = signaturePadRef.current.toDataURL('image/png');
+            } else if (activeTab === 'type') {
+                if (!typedName.trim()) {
+                    alert('Please enter your name');
+                    return;
+                }
+                signatureData = generateTypedSignature(typedName);
+            }
+
+            onCapture(signatureData, saveForFuture && activeTab !== 'saved');
+        };
+
+        const isInitials = field?.type === 'initialsField' || field?.fieldType === 'initials';
+
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(0,0,0,0.6)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1001,
+                padding: '24px'
+            }}>
+                <div style={{
+                    background: 'white',
+                    borderRadius: DESIGN.radiusLg,
+                    padding: '24px',
+                    width: '100%',
+                    maxWidth: '500px',
+                    maxHeight: '90vh',
+                    overflow: 'auto'
+                }}>
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '20px'
+                    }}>
+                        <h2 style={{ fontSize: '20px', fontWeight: '600', margin: 0 }}>
+                            {isInitials ? 'Add Your Initials' : 'Add Your Signature'}
+                        </h2>
+                        <button
+                            onClick={onClose}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: '8px'
+                            }}
+                        >
+                            <Icons.X size={24} color={DESIGN.gray500} />
+                        </button>
+                    </div>
+
+                    {/* Tabs */}
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+                        {(savedSignature ? ['saved', 'type', 'draw'] : ['type', 'draw']).map(tab => (
+                            <button
+                                key={tab}
+                                onClick={() => setActiveTab(tab)}
+                                style={{
+                                    flex: 1,
+                                    padding: '12px',
+                                    background: activeTab === tab ? DESIGN.primary : DESIGN.gray100,
+                                    color: activeTab === tab ? 'white' : DESIGN.gray600,
+                                    border: 'none',
+                                    borderRadius: DESIGN.radiusSm,
+                                    cursor: 'pointer',
+                                    fontWeight: '500',
+                                    fontSize: '14px'
+                                }}
+                            >
+                                {tab === 'saved' ? 'Saved' : tab === 'type' ? 'Type' : 'Draw'}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Tab content */}
+                    <div style={{ marginBottom: '20px' }}>
+                        {activeTab === 'saved' && savedSignature && (
+                            <div style={{
+                                padding: '24px',
+                                background: DESIGN.gray50,
+                                borderRadius: DESIGN.radiusSm,
+                                textAlign: 'center'
+                            }}>
+                                <p style={{ fontSize: '14px', color: DESIGN.gray500, marginBottom: '16px' }}>
+                                    Your previously saved signature:
+                                </p>
+                                <img
+                                    src={savedSignature}
+                                    alt="Saved signature"
+                                    style={{ maxHeight: '80px', maxWidth: '100%' }}
+                                />
+                            </div>
+                        )}
+
+                        {activeTab === 'type' && (
+                            <div>
+                                <input
+                                    type="text"
+                                    value={typedName}
+                                    onChange={(e) => setTypedName(e.target.value)}
+                                    placeholder={isInitials ? "Type your initials" : "Type your full name"}
+                                    style={{
+                                        width: '100%',
+                                        padding: '14px',
+                                        fontSize: '16px',
+                                        border: `1px solid ${DESIGN.gray300}`,
+                                        borderRadius: DESIGN.radiusSm,
+                                        marginBottom: '12px',
+                                        outline: 'none'
+                                    }}
+                                />
+                                {typedName && (
+                                    <div style={{
+                                        padding: '24px',
+                                        background: DESIGN.gray50,
+                                        borderRadius: DESIGN.radiusSm,
+                                        textAlign: 'center'
+                                    }}>
+                                        <span className="signature-font" style={{
+                                            fontSize: isInitials ? '36px' : '40px',
+                                            fontStyle: 'italic',
+                                            color: DESIGN.gray900
+                                        }}>
+                                            {typedName}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {activeTab === 'draw' && (
+                            <div>
+                                <canvas
+                                    ref={canvasRef}
+                                    className="signature-canvas"
+                                    style={{
+                                        width: '100%',
+                                        height: '150px',
+                                        border: `2px dashed ${DESIGN.gray300}`,
+                                        borderRadius: DESIGN.radiusSm,
+                                        cursor: 'crosshair',
+                                        display: 'block'
+                                    }}
+                                />
+                                <button
+                                    onClick={handleClear}
+                                    style={{
+                                        marginTop: '12px',
+                                        padding: '10px 20px',
+                                        background: 'none',
+                                        border: `1px solid ${DESIGN.gray300}`,
+                                        borderRadius: DESIGN.radiusSm,
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        color: DESIGN.gray600
+                                    }}
+                                >
+                                    Clear
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Save for future checkbox */}
+                    {activeTab !== 'saved' && (
+                        <label style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            marginBottom: '16px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            color: DESIGN.gray600
+                        }}>
+                            <input
+                                type="checkbox"
+                                checked={saveForFuture}
+                                onChange={(e) => setSaveForFuture(e.target.checked)}
+                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                            />
+                            Save this signature for future documents
+                        </label>
+                    )}
+
+                    {/* Apply button */}
+                    <button
+                        onClick={handleApply}
+                        style={{
+                            width: '100%',
+                            padding: '14px',
+                            background: DESIGN.gradient,
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: DESIGN.radiusSm,
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        {activeTab === 'saved' ? 'Use Saved Signature' : `Apply ${isInitials ? 'Initials' : 'Signature'}`}
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // COMPLETION MODAL
+    // ==========================================
+    function CompletionModal({ agreement, pdfUrl, onClose }) {
+        const downloadUrl = pdfUrl || agreement.pdfUrl;
+
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(0,0,0,0.6)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+                padding: '24px'
+            }}>
+                <div style={{
+                    background: 'white',
+                    borderRadius: DESIGN.radiusLg,
+                    padding: '40px',
+                    maxWidth: '400px',
+                    width: '100%',
+                    textAlign: 'center'
+                }}>
+                    <div style={{
+                        width: '80px',
+                        height: '80px',
+                        background: 'rgba(22, 163, 74, 0.1)',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        margin: '0 auto 24px'
+                    }}>
+                        <Icons.CheckCircle size={48} color={DESIGN.success} />
+                    </div>
+
+                    <h1 style={{
+                        fontSize: '24px',
+                        fontWeight: '700',
+                        margin: '0 0 12px 0',
+                        color: DESIGN.gray900
+                    }}>
+                        Document Signed Successfully
+                    </h1>
+
+                    <p style={{
+                        fontSize: '16px',
+                        color: DESIGN.gray500,
+                        margin: '0 0 24px 0',
+                        lineHeight: '1.6'
+                    }}>
+                        A copy has been sent to your email.
+                    </p>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <button
+                            onClick={() => {
+                                if (downloadUrl) {
+                                    window.open(downloadUrl, '_blank');
+                                } else {
+                                    alert('PDF is being generated. Please check your email or try again in a moment.');
+                                }
+                            }}
+                            style={{
+                                width: '100%',
+                                padding: '14px',
+                                background: DESIGN.gradient,
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: DESIGN.radiusMd,
+                                fontSize: '16px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                            }}
+                        >
+                            <Icons.Download size={20} />
+                            Download PDF
+                        </button>
+
+                        <button
+                            onClick={onClose}
+                            style={{
+                                width: '100%',
+                                padding: '14px',
+                                background: 'transparent',
+                                color: DESIGN.gray500,
+                                border: 'none',
+                                borderRadius: DESIGN.radiusMd,
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // SAVE PROGRESS MODAL
+    // ==========================================
+    function SaveProgressModal({ onClose }) {
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(0,0,0,0.6)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+                padding: '24px'
+            }}>
+                <div style={{
+                    background: 'white',
+                    borderRadius: DESIGN.radiusLg,
+                    padding: '40px',
+                    maxWidth: '400px',
+                    width: '100%',
+                    textAlign: 'center'
+                }}>
+                    <div style={{
+                        width: '60px',
+                        height: '60px',
+                        background: 'rgba(0, 119, 204, 0.1)',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        margin: '0 auto 20px'
+                    }}>
+                        <Icons.Save size={32} color={DESIGN.primary} />
+                    </div>
+
+                    <h2 style={{
+                        fontSize: '20px',
+                        fontWeight: '600',
+                        margin: '0 0 12px 0',
+                        color: DESIGN.gray900
+                    }}>
+                        Progress Saved
+                    </h2>
+
+                    <p style={{
+                        fontSize: '14px',
+                        color: DESIGN.gray500,
+                        margin: '0 0 24px 0',
+                        lineHeight: '1.6'
+                    }}>
+                        Your progress has been saved. Return to this page using the same link from your email to continue signing.
+                    </p>
+
+                    <button
+                        onClick={onClose}
+                        style={{
+                            width: '100%',
+                            padding: '14px',
+                            background: DESIGN.gradient,
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: DESIGN.radiusMd,
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Got It
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // FIELD RENDERER
+    // ==========================================
+    function FieldRenderer({ field, isCurrentField, signerRole, value, onChange, onClick }) {
+        const isEditable = field.role === signerRole;
+        const isCompleted = !!value;
+        const roleData = SIGNER_ROLES[field.role] || SIGNER_ROLES.pir;
+
+        const baseStyle = {
+            position: 'relative',
+            padding: '12px 16px',
+            borderLeft: `4px solid ${roleData.borderColor}`,
+            background: isEditable ? roleData.bgLight : DESIGN.gray50,
+            borderRadius: '0 8px 8px 0',
+            cursor: isEditable ? 'pointer' : 'default',
+            opacity: isEditable ? 1 : 0.7,
+            marginBottom: '12px',
+            transition: 'all 200ms ease'
+        };
+
+        // Handle signature/initials field and signatureBlock
+        if (field.type === 'signatureField' || field.type === 'initialsField' || field.type === 'signatureBlock') {
+            return (
+                <div
+                    id={`field-${field.id}`}
+                    onClick={() => isEditable && onClick?.(field)}
+                    className={isCurrentField && isEditable ? 'field-pulse' : ''}
+                    style={baseStyle}
+                >
+                    <div style={{
+                        fontSize: '12px',
+                        color: DESIGN.gray500,
+                        marginBottom: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                    }}>
+                        {field.label}
+                        {field.required && <span style={{ color: DESIGN.error }}>*</span>}
+                    </div>
+                    <div style={{
+                        height: field.type === 'initialsField' ? '50px' : '60px',
+                        border: `2px dashed ${isCompleted ? roleData.borderColor : DESIGN.gray300}`,
+                        borderRadius: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: isCompleted ? 'white' : 'transparent'
+                    }}>
+                        {isCompleted ? (
+                            <img src={value} alt="Signature" style={{ maxHeight: '45px' }} />
+                        ) : (
+                            <span style={{ color: DESIGN.gray400, fontSize: '14px' }}>
+                                {isEditable ? 'Click to sign' : `Awaiting ${roleData.label}`}
+                            </span>
+                        )}
+                    </div>
+
+                    {!isEditable && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '8px',
+                            padding: '2px 8px',
+                            background: roleData.bgLight,
+                            color: roleData.color,
+                            borderRadius: '4px',
+                            fontSize: '10px',
+                            fontWeight: '600'
+                        }}>
+                            {roleData.label}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Handle date field
+        if (field.type === 'dateField') {
+            return (
+                <div
+                    id={`field-${field.id}`}
+                    className={isCurrentField && isEditable ? 'field-pulse' : ''}
+                    style={baseStyle}
+                >
+                    <div style={{
+                        fontSize: '12px',
+                        color: DESIGN.gray500,
+                        marginBottom: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                    }}>
+                        {field.label}
+                        {field.required && <span style={{ color: DESIGN.error }}>*</span>}
+                    </div>
+                    <input
+                        type="date"
+                        value={value || (field.autoFill ? new Date().toISOString().split('T')[0] : '')}
+                        onChange={(e) => isEditable && onChange?.(field.id, e.target.value)}
+                        disabled={!isEditable}
+                        style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: `1px solid ${DESIGN.gray300}`,
+                            borderRadius: '4px',
+                            fontSize: '14px',
+                            background: isEditable ? 'white' : DESIGN.gray100
+                        }}
+                    />
+
+                    {!isEditable && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '8px',
+                            padding: '2px 8px',
+                            background: roleData.bgLight,
+                            color: roleData.color,
+                            borderRadius: '4px',
+                            fontSize: '10px',
+                            fontWeight: '600'
+                        }}>
+                            {roleData.label}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Handle text input field and textField
+        if (field.type === 'textInputField' || field.type === 'textField') {
+            return (
+                <div
+                    id={`field-${field.id}`}
+                    className={isCurrentField && isEditable ? 'field-pulse' : ''}
+                    style={baseStyle}
+                >
+                    <div style={{
+                        fontSize: '12px',
+                        color: DESIGN.gray500,
+                        marginBottom: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                    }}>
+                        {field.label}
+                        {field.required && <span style={{ color: DESIGN.error }}>*</span>}
+                    </div>
+                    <input
+                        type="text"
+                        value={value || ''}
+                        onChange={(e) => isEditable && onChange?.(field.id, e.target.value)}
+                        placeholder={field.placeholder || ''}
+                        maxLength={field.maxLength || 100}
+                        disabled={!isEditable}
+                        style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: `1px solid ${DESIGN.gray300}`,
+                            borderRadius: '4px',
+                            fontSize: '14px',
+                            background: isEditable ? 'white' : DESIGN.gray100
+                        }}
+                    />
+
+                    {!isEditable && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '8px',
+                            padding: '2px 8px',
+                            background: roleData.bgLight,
+                            color: roleData.color,
+                            borderRadius: '4px',
+                            fontSize: '10px',
+                            fontWeight: '600'
+                        }}>
+                            {roleData.label}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Handle checkbox field and acknowledgment
+        if (field.type === 'checkboxField' || field.type === 'acknowledgment') {
+            return (
+                <div
+                    id={`field-${field.id}`}
+                    onClick={() => isEditable && onChange?.(field.id, !value)}
+                    className={isCurrentField && isEditable ? 'field-pulse' : ''}
+                    style={{
+                        ...baseStyle,
+                        display: 'flex',
+                        gap: '12px',
+                        alignItems: 'flex-start'
+                    }}
+                >
+                    <div style={{
+                        width: '20px',
+                        height: '20px',
+                        border: `2px solid ${value ? roleData.borderColor : DESIGN.gray300}`,
+                        borderRadius: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: value ? roleData.borderColor : 'white',
+                        flexShrink: 0
+                    }}>
+                        {value && <Icons.Check size={14} color="white" />}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <span style={{ fontSize: '14px', color: DESIGN.gray700, lineHeight: '1.5' }}>
+                            {field.label}
+                        </span>
+                        {field.required && <span style={{ color: DESIGN.error }}> *</span>}
+                    </div>
+
+                    {!isEditable && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '8px',
+                            padding: '2px 8px',
+                            background: roleData.bgLight,
+                            color: roleData.color,
+                            borderRadius: '4px',
+                            fontSize: '10px',
+                            fontWeight: '600'
+                        }}>
+                            {roleData.label}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Handle dropdown field
+        if (field.type === 'dropdownField') {
+            return (
+                <div
+                    id={`field-${field.id}`}
+                    className={isCurrentField && isEditable ? 'field-pulse' : ''}
+                    style={baseStyle}
+                >
+                    <div style={{
+                        fontSize: '12px',
+                        color: DESIGN.gray500,
+                        marginBottom: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                    }}>
+                        {field.label}
+                        {field.required && <span style={{ color: DESIGN.error }}>*</span>}
+                    </div>
+                    <select
+                        value={value || ''}
+                        onChange={(e) => isEditable && onChange?.(field.id, e.target.value)}
+                        disabled={!isEditable}
+                        style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: `1px solid ${DESIGN.gray300}`,
+                            borderRadius: '4px',
+                            fontSize: '14px',
+                            background: isEditable ? 'white' : DESIGN.gray100
+                        }}
+                    >
+                        <option value="">Select an option</option>
+                        {(field.options || []).map((opt, i) => (
+                            <option key={i} value={opt}>{opt}</option>
+                        ))}
+                    </select>
+
+                    {!isEditable && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '8px',
+                            right: '8px',
+                            padding: '2px 8px',
+                            background: roleData.bgLight,
+                            color: roleData.color,
+                            borderRadius: '4px',
+                            fontSize: '10px',
+                            fontWeight: '600'
+                        }}>
+                            {roleData.label}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Default render for unknown types
+        return (
+            <div style={baseStyle}>
+                <span style={{ color: DESIGN.gray400 }}>Unknown field type: {field.type}</span>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // DOCUMENT RENDERER (Paginated White Pages)
+    // ==========================================
+    function DocumentRenderer({ content, fieldValues, currentFieldId, signerRole, onFieldClick, onFieldChange, documentTitle, agreement }) {
+        const blocks = content?.blocks || [];
+        const components = agreement?.components || {};
+
+        // Page dimensions - FROM SHARED CONSTANTS (single source of truth)
+        // See /shared/document-constants.js for all values
+        const PAGE_WIDTH = GLRS_DOC.PAGE_WIDTH;
+        const PAGE_HEIGHT = GLRS_DOC.PAGE_HEIGHT;
+        const PAGE_MARGIN = GLRS_DOC.PAGE_MARGIN;
+        const HEADER_HEIGHT = GLRS_DOC.HEADER_HEIGHT;
+        const FOOTER_HEIGHT = GLRS_DOC.FOOTER_HEIGHT;
+        const CONTENT_HEIGHT_PER_PAGE = GLRS_DOC.CONTENT_HEIGHT;
+        const BLOCK_HEIGHTS = GLRS_DOC.BLOCKS;
+        const SAFETY_MARGIN = GLRS_DOC.SAFETY_MARGIN;
+        const USABLE_CONTENT_HEIGHT = GLRS_DOC.USABLE_HEIGHT;
+
+        // Pagination functions from shared GLRS_PAGINATION module
+        const getUsableContentHeight = GLRS_PAGINATION.getUsableContentHeight;
+        const getParagraphHeight = GLRS_PAGINATION.getParagraphHeight;
+        const getBulletListHeight = GLRS_PAGINATION.getBulletListHeight;
+        const getBlockHeight = GLRS_PAGINATION.getBlockHeight;
+        const paginateBlocks = GLRS_PAGINATION.paginateBlocks;
+
+        // Split blocks into pages based on actual heights
+        const pages = paginateBlocks(blocks);
+
+        // Calculate total pages (including cover and end pages)
+        const hasCoverPage = !!components.coverPageId;
+        const hasEndPage = !!components.endPageId;
+        const contentPages = pages.length;
+        const totalPages = (hasCoverPage ? 1 : 0) + contentPages + (hasEndPage ? 1 : 0);
+
+        // Field type checkers
+        const isInputField = (type) => [
+            'signatureField', 'initialsField', 'dateField',
+            'textInputField', 'textField', 'checkboxField', 'dropdownField',
+            'signatureBlock', 'acknowledgment'
+        ].includes(type);
+
+        // Render a single block - uses GLRS_REACT for content, FieldRenderer for interactive fields
+        const renderBlock = (block, index) => {
+            // Interactive fields use FieldRenderer for full interactivity
+            if (isInputField(block.type)) {
+                return (
+                    <FieldRenderer
+                        key={block.id}
+                        field={block}
+                        isCurrentField={block.id === currentFieldId}
+                        signerRole={signerRole}
+                        value={fieldValues[block.id]}
+                        onChange={onFieldChange}
+                        onClick={onFieldClick}
+                    />
+                );
+            }
+
+            // Content blocks use shared GLRS_REACT renderer for WYSIWYG consistency
+            if (GLRS_REACT.isContentType(block.type)) {
+                return GLRS_REACT.renderBlock(block, index, {});
+            }
+
+            return null;
+        };
+
+        // Page Header component (uses template header or default)
+        const PageHeader = ({ pageNum, totalPages, headerTemplate }) => {
+            // If there's a custom header template, render it
+            if (headerTemplate?.content?.blocks?.length > 0) {
+                const hBlock = headerTemplate.content.blocks[0];
+                return (
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '12px 0',
+                        borderBottom: `1px solid ${DESIGN.gray200}`,
+                        marginBottom: '20px',
+                        minHeight: HEADER_HEIGHT - 20
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            {hBlock.logoUrl && (
+                                <img src={hBlock.logoUrl} alt="Logo" style={{ height: '36px', maxWidth: '120px', objectFit: 'contain' }} />
+                            )}
+                            <div>
+                                <div style={{ fontSize: '13px', fontWeight: '600', color: DESIGN.gray900 }}>
+                                    {hBlock.companyName || documentTitle || 'Service Agreement'}
+                                </div>
+                                {hBlock.tagline && (
+                                    <div style={{ fontSize: '10px', color: DESIGN.gray500 }}>{hBlock.tagline}</div>
+                                )}
+                            </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '11px', color: DESIGN.gray500 }}>Page {pageNum} of {totalPages}</div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Default header
+            return (
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '12px 0',
+                    borderBottom: `1px solid ${DESIGN.gray200}`,
+                    marginBottom: '20px',
+                    minHeight: HEADER_HEIGHT - 20
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                            width: '28px',
+                            height: '28px',
+                            background: DESIGN.gradient,
+                            borderRadius: '6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}>
+                            <Icons.FileText size={16} color="white" />
+                        </div>
+                        <div>
+                            <div style={{ fontSize: '13px', fontWeight: '600', color: DESIGN.gray900 }}>
+                                {documentTitle || 'Service Agreement'}
+                            </div>
+                            <div style={{ fontSize: '10px', color: DESIGN.gray500 }}>
+                                Guiding Light Recovery Services LLC
+                            </div>
+                        </div>
+                    </div>
+                    <div style={{ fontSize: '11px', color: DESIGN.gray500 }}>
+                        Page {pageNum} of {totalPages}
+                    </div>
+                </div>
+            );
+        };
+
+        // Page Footer component (uses template footer or default)
+        const PageFooter = ({ pageNum, totalPages, footerTemplate }) => {
+            if (footerTemplate?.content?.blocks?.length > 0) {
+                const fBlock = footerTemplate.content.blocks[0];
+                return (
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '12px 0',
+                        borderTop: `1px solid ${DESIGN.gray200}`,
+                        marginTop: 'auto',
+                        minHeight: FOOTER_HEIGHT - 12,
+                        fontSize: '10px',
+                        color: DESIGN.gray500
+                    }}>
+                        <div>{fBlock.leftText || 'Guiding Light Recovery Services'}</div>
+                        <div>{fBlock.centerText || 'CONFIDENTIAL'}</div>
+                        <div style={{ fontWeight: '500' }}>Page {pageNum}</div>
+                    </div>
+                );
+            }
+
+            return (
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '12px 0',
+                    borderTop: `1px solid ${DESIGN.gray200}`,
+                    marginTop: 'auto',
+                    minHeight: FOOTER_HEIGHT - 12,
+                    fontSize: '10px',
+                    color: DESIGN.gray500
+                }}>
+                    <div>
+                        {agreement?.createdAt?.toDate ?
+                            agreement.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) :
+                            'Guiding Light Recovery Services'
+                        }
+                    </div>
+                    <div>CONFIDENTIAL</div>
+                    <div style={{ fontWeight: '500' }}>Page {pageNum}</div>
+                </div>
+            );
+        };
+
+        // Cover Page component
+        const CoverPage = ({ coverTemplate }) => {
+            const cBlock = coverTemplate?.content?.blocks?.[0] || {};
+            return (
+                <div style={{
+                    background: 'white',
+                    width: PAGE_WIDTH,
+                    minHeight: PAGE_HEIGHT,
+                    margin: '0 auto 24px',
+                    padding: PAGE_MARGIN,
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+                    borderRadius: '4px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center'
+                }}>
+                    {cBlock.logoUrl && (
+                        <img src={cBlock.logoUrl} alt="Logo" style={{ height: '80px', marginBottom: '32px', objectFit: 'contain' }} />
+                    )}
+                    <h1 style={{ fontSize: '28px', fontWeight: '700', color: DESIGN.gray900, marginBottom: '16px' }}>
+                        {documentTitle || 'Service Agreement'}
+                    </h1>
+                    {cBlock.subtitle && (
+                        <p style={{ fontSize: '16px', color: DESIGN.gray600, marginBottom: '24px' }}>{cBlock.subtitle}</p>
+                    )}
+                    <div style={{ width: '60px', height: '3px', background: DESIGN.primary, marginBottom: '32px' }} />
+                    <p style={{ fontSize: '14px', color: DESIGN.gray500, marginBottom: '8px' }}>
+                        {cBlock.companyName || 'Guiding Light Recovery Services LLC'}
+                    </p>
+                    {cBlock.address && (
+                        <p style={{ fontSize: '12px', color: DESIGN.gray400 }}>{cBlock.address}</p>
+                    )}
+                    <div style={{ marginTop: 'auto', paddingTop: '48px' }}>
+                        <p style={{ fontSize: '12px', color: DESIGN.gray400 }}>
+                            Prepared for: {agreement?.signers?.find(s => s.role === 'pir')?.name || 'Client'}
+                        </p>
+                        <p style={{ fontSize: '11px', color: DESIGN.gray400 }}>
+                            Date: {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                        </p>
+                    </div>
+                </div>
+            );
+        };
+
+        // End Page component
+        const EndPage = ({ endTemplate, pageNum }) => {
+            const eBlock = endTemplate?.content?.blocks?.[0] || {};
+            return (
+                <div style={{
+                    background: 'white',
+                    width: PAGE_WIDTH,
+                    minHeight: PAGE_HEIGHT,
+                    margin: '0 auto',
+                    padding: PAGE_MARGIN,
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+                    borderRadius: '4px',
+                    display: 'flex',
+                    flexDirection: 'column'
+                }}>
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+                        <Icons.CheckCircle size={64} color={DESIGN.success} style={{ marginBottom: '24px' }} />
+                        <h2 style={{ fontSize: '24px', fontWeight: '700', color: DESIGN.gray900, marginBottom: '16px' }}>
+                            {eBlock.title || 'Thank You'}
+                        </h2>
+                        <p style={{ fontSize: '14px', color: DESIGN.gray600, maxWidth: '400px', lineHeight: '1.6' }}>
+                            {eBlock.message || 'Thank you for completing this agreement. A copy will be sent to all parties upon completion.'}
+                        </p>
+                        {eBlock.contactInfo && (
+                            <div style={{ marginTop: '32px', padding: '16px', background: DESIGN.gray50, borderRadius: '8px' }}>
+                                <p style={{ fontSize: '12px', color: DESIGN.gray500 }}>{eBlock.contactInfo}</p>
+                            </div>
+                        )}
+                    </div>
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        padding: '12px 0',
+                        borderTop: `1px solid ${DESIGN.gray200}`,
+                        fontSize: '10px',
+                        color: DESIGN.gray500
+                    }}>
+                        <div style={{ fontWeight: '500' }}>Page {pageNum}</div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Content Page component
+        const ContentPage = ({ pageBlocks, pageNum, totalPages, headerTemplate, footerTemplate }) => (
+            <div style={{
+                background: 'white',
+                width: PAGE_WIDTH,
+                minHeight: PAGE_HEIGHT,
+                margin: '0 auto 24px',
+                padding: PAGE_MARGIN,
+                boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+                borderRadius: '4px',
+                display: 'flex',
+                flexDirection: 'column'
+            }}>
+                <PageHeader pageNum={pageNum} totalPages={totalPages} headerTemplate={headerTemplate} />
+                <div style={{ flex: 1, minHeight: CONTENT_HEIGHT_PER_PAGE }}>
+                    {pageBlocks.map((block, index) => renderBlock(block, index))}
+                </div>
+                <PageFooter pageNum={pageNum} totalPages={totalPages} footerTemplate={footerTemplate} />
+            </div>
+        );
+
+        // Render all pages
+        return (
+            <div style={{
+                background: DESIGN.gray100,
+                padding: '24px',
+                minHeight: '100%'
+            }}>
+                <div style={{ maxWidth: PAGE_WIDTH + 48, margin: '0 auto' }}>
+                    {/* Cover Page (if enabled) */}
+                    {hasCoverPage && <CoverPage coverTemplate={components.coverPage} />}
+
+                    {/* Content Pages */}
+                    {pages.map((pageBlocks, idx) => (
+                        <ContentPage
+                            key={idx}
+                            pageBlocks={pageBlocks}
+                            pageNum={(hasCoverPage ? 1 : 0) + idx + 1}
+                            totalPages={totalPages}
+                            headerTemplate={components.header}
+                            footerTemplate={components.footer}
+                        />
+                    ))}
+
+                    {/* End Page (if enabled) */}
+                    {hasEndPage && <EndPage endTemplate={components.endPage} pageNum={totalPages} />}
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // UPLOADED DOCUMENT RENDERER (for PDF/Word uploads)
+    // ==========================================
+    function UploadedDocumentRenderer({ uploadedFile, overlayFields, fieldValues, currentFieldId, signerRole, onFieldClick, onFieldChange, documentTitle }) {
+        const isMobile = window.innerWidth < 768;
+        const pages = uploadedFile?.pages || [];
+
+        // Calculate display dimensions
+        const getPageDisplayStyle = (page) => {
+            const maxWidth = isMobile ? window.innerWidth - 32 : 700;
+            const aspectRatio = page.width / page.height;
+            const displayWidth = Math.min(maxWidth, 700);
+            const displayHeight = displayWidth / aspectRatio;
+            return { width: displayWidth, height: displayHeight };
+        };
+
+        // Render an overlay field on the page
+        const renderOverlayField = (field, pageDimensions) => {
+            const roleData = {
+                pir: { color: '#3B82F6', bgLight: 'rgba(59, 130, 246, 0.1)', borderColor: '#3B82F6', label: 'PIR' },
+                family: { color: '#22C55E', bgLight: 'rgba(34, 197, 94, 0.1)', borderColor: '#22C55E', label: 'Family' },
+                glrs: { color: '#F97316', bgLight: 'rgba(249, 115, 22, 0.1)', borderColor: '#F97316', label: 'GLRS' }
+            }[field.role] || { color: '#3B82F6', bgLight: 'rgba(59, 130, 246, 0.1)', borderColor: '#3B82F6', label: 'Signer' };
+
+            const isEditable = field.role === signerRole;
+            const isCurrent = field.id === currentFieldId;
+            const value = fieldValues[field.id];
+
+            // Convert percentage to pixels
+            const left = (field.position.x / 100) * pageDimensions.width;
+            const top = (field.position.y / 100) * pageDimensions.height;
+            const width = (field.size.width / 100) * pageDimensions.width;
+            const height = (field.size.height / 100) * pageDimensions.height;
+
+            return (
+                <div
+                    key={field.id}
+                    id={`field-${field.id}`}
+                    onClick={() => isEditable && onFieldClick && onFieldClick(field)}
+                    style={{
+                        position: 'absolute',
+                        left,
+                        top,
+                        width,
+                        height,
+                        border: `2px solid ${isEditable ? roleData.borderColor : DESIGN.gray300}`,
+                        borderRadius: '4px',
+                        background: value ? roleData.bgLight : (isEditable ? 'rgba(255,255,255,0.9)' : DESIGN.gray100),
+                        cursor: isEditable ? 'pointer' : 'default',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                        boxShadow: isCurrent && isEditable ? `0 0 0 3px ${roleData.color}40` : 'none',
+                        animation: isCurrent && isEditable ? 'fieldPulse 2s infinite' : 'none'
+                    }}
+                >
+                    {/* Signature/Initials display */}
+                    {(field.type === 'signature' || field.type === 'initials') && value && (
+                        <img src={value} alt={field.type} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                    )}
+                    {(field.type === 'signature' || field.type === 'initials') && !value && isEditable && (
+                        <span style={{ fontSize: '11px', color: roleData.color, fontWeight: '500' }}>
+                            Click to {field.type === 'signature' ? 'Sign' : 'Initial'}
+                        </span>
+                    )}
+
+                    {/* Date display */}
+                    {field.type === 'date' && (
+                        <input
+                            type="date"
+                            value={value || ''}
+                            onChange={(e) => isEditable && onFieldChange && onFieldChange(field.id, e.target.value)}
+                            disabled={!isEditable}
+                            style={{
+                                width: '100%',
+                                height: '100%',
+                                border: 'none',
+                                background: 'transparent',
+                                fontSize: '12px',
+                                textAlign: 'center',
+                                cursor: isEditable ? 'pointer' : 'default'
+                            }}
+                        />
+                    )}
+
+                    {/* Text input */}
+                    {field.type === 'text' && (
+                        <input
+                            type="text"
+                            value={value || ''}
+                            onChange={(e) => isEditable && onFieldChange && onFieldChange(field.id, e.target.value)}
+                            disabled={!isEditable}
+                            placeholder={field.label}
+                            style={{
+                                width: '100%',
+                                height: '100%',
+                                border: 'none',
+                                background: 'transparent',
+                                fontSize: '12px',
+                                textAlign: 'center',
+                                cursor: isEditable ? 'text' : 'default'
+                            }}
+                        />
+                    )}
+
+                    {/* Checkbox */}
+                    {field.type === 'checkbox' && (
+                        <div
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (isEditable && onFieldChange) {
+                                    onFieldChange(field.id, !value);
+                                }
+                            }}
+                            style={{
+                                width: '20px',
+                                height: '20px',
+                                border: `2px solid ${value ? roleData.borderColor : DESIGN.gray400}`,
+                                borderRadius: '4px',
+                                background: value ? roleData.borderColor : 'white',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: isEditable ? 'pointer' : 'default'
+                            }}
+                        >
+                            {value && <Icons.Check size={14} color="white" />}
+                        </div>
+                    )}
+
+                    {/* Role badge for non-editable fields */}
+                    {!isEditable && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '-8px',
+                            right: '-8px',
+                            padding: '2px 6px',
+                            background: roleData.bgLight,
+                            color: roleData.color,
+                            borderRadius: '4px',
+                            fontSize: '9px',
+                            fontWeight: '600'
+                        }}>
+                            {roleData.label}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        return (
+            <div style={{
+                maxWidth: '900px',
+                width: '100%',
+                margin: '0 auto'
+            }}>
+                {/* Document Title */}
+                {documentTitle && (
+                    <div style={{
+                        textAlign: 'center',
+                        marginBottom: '24px',
+                        padding: '16px',
+                        background: 'linear-gradient(135deg, rgba(0,119,204,0.1) 0%, rgba(0,139,139,0.1) 100%)',
+                        borderRadius: DESIGN.radiusMd
+                    }}>
+                        <h1 style={{ margin: 0, fontSize: '24px', color: DESIGN.gray800 }}>{documentTitle}</h1>
+                    </div>
+                )}
+
+                {/* Pages */}
+                {pages.map((page, pageIndex) => {
+                    const dimensions = getPageDisplayStyle(page);
+                    const pageFields = overlayFields.filter(f => f.pageIndex === pageIndex);
+
+                    return (
+                        <div key={pageIndex} style={{
+                            position: 'relative',
+                            width: dimensions.width,
+                            height: dimensions.height,
+                            margin: '0 auto 24px',
+                            boxShadow: DESIGN.shadowLg,
+                            background: 'white'
+                        }}>
+                            {/* Page Image */}
+                            <img
+                                src={page.imageUrl}
+                                alt={`Page ${pageIndex + 1}`}
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'contain'
+                                }}
+                            />
+
+                            {/* Overlay Fields */}
+                            {pageFields.map(field => renderOverlayField(field, dimensions))}
+
+                            {/* Page Number */}
+                            <div style={{
+                                position: 'absolute',
+                                bottom: '8px',
+                                right: '12px',
+                                fontSize: '11px',
+                                color: DESIGN.gray400,
+                                background: 'rgba(255,255,255,0.8)',
+                                padding: '2px 6px',
+                                borderRadius: '4px'
+                            }}>
+                                Page {pageIndex + 1} of {pages.length}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+
+    // ==========================================
+    // SIGNING INTERFACE
+    // ==========================================
+    function SigningInterface({ agreement, signer, onComplete, onSaveProgress }) {
+        const [currentFieldIndex, setCurrentFieldIndex] = useState(0);
+        const [fieldValues, setFieldValues] = useState(() => {
+            // Start with existing values
+            const existing = agreement.fieldValues || {};
+            const autoFilled = { ...existing };
+            const blocks = agreement.content?.blocks || [];
+
+            // Auto-populate name fields for this signer
+            blocks.forEach(block => {
+                const isNameField = (block.type === 'textField' || block.type === 'textInputField') &&
+                    block.role === signer.role &&
+                    block.label?.toLowerCase().includes('name');
+                if (isNameField && !existing[block.id]) {
+                    autoFilled[block.id] = signer.name || '';
+                }
+            });
+
+            // Auto-populate date fields with autoFill enabled for this signer
+            blocks.forEach(block => {
+                if (block.type === 'dateField' &&
+                    block.role === signer.role &&
+                    block.autoFill &&
+                    !existing[block.id]) {
+                    autoFilled[block.id] = new Date().toISOString().split('T')[0];
+                }
+            });
+
+            return autoFilled;
+        });
+        const [showSignatureModal, setShowSignatureModal] = useState(false);
+        const [currentSignatureField, setCurrentSignatureField] = useState(null);
+        const [showSaveModal, setShowSaveModal] = useState(false);
+        const [isSaving, setIsSaving] = useState(false);
+
+        // Save signature to localStorage for reuse
+        const [savedSignature, setSavedSignature] = useState(() => {
+            try {
+                return localStorage.getItem(`glrs_signature_${signer.email}`) || null;
+            } catch { return null; }
+        });
+
+        // Get all signature fields for this signer (defined early for useEffect)
+        // Handle both regular templates (blocks) and uploaded templates (overlayFields)
+        const isUploadedTemplate = !!agreement.uploadedFile;
+        const allFields = isUploadedTemplate
+            ? (agreement.overlayFields || [])
+            : (agreement.content?.blocks || []);
+
+        const signerFields = allFields.filter(field => {
+            // Uploaded templates use shorter type names (signature, initials, date, text, checkbox)
+            // Regular templates use longer names (signatureField, initialsField, dateField, etc.)
+            const isSignatureField = isUploadedTemplate
+                ? ['signature', 'initials', 'date', 'text', 'checkbox'].includes(field.type)
+                : ['signatureField', 'initialsField', 'dateField',
+                   'textInputField', 'textField', 'checkboxField', 'dropdownField',
+                   'signatureBlock', 'acknowledgment'].includes(field.type);
+            return isSignatureField && field.role === signer.role;
+        });
+
+        // Scroll to current field when index changes (DocuSign-style navigation)
+        useEffect(() => {
+            if (signerFields.length > 0 && currentFieldIndex >= 0) {
+                const currentField = signerFields[currentFieldIndex];
+                if (currentField) {
+                    const fieldElement = document.getElementById(`field-${currentField.id}`);
+                    if (fieldElement) {
+                        // Smooth scroll with field centered in viewport
+                        fieldElement.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'center'
+                        });
+                    }
+                }
+            }
+        }, [currentFieldIndex, signerFields]);
+
+        const requiredFields = signerFields.filter(f => f.required);
+        const completedFields = requiredFields.filter(f => fieldValues[f.id]);
+
+        const currentField = signerFields[currentFieldIndex];
+        const progress = requiredFields.length > 0
+            ? Math.round((completedFields.length / requiredFields.length) * 100)
+            : 0;
+
+        const canSubmit = completedFields.length === requiredFields.length;
+
+        // Handle field value change
+        const handleFieldChange = useCallback((fieldId, value) => {
+            setFieldValues(prev => ({ ...prev, [fieldId]: value }));
+        }, []);
+
+        // Handle signature field click
+        const handleFieldClick = useCallback((field) => {
+            // Handle both regular templates and uploaded template field types
+            const signatureTypes = ['signatureField', 'initialsField', 'signatureBlock', 'signature', 'initials'];
+            if (signatureTypes.includes(field.type)) {
+                setCurrentSignatureField(field);
+                setShowSignatureModal(true);
+            }
+        }, []);
+
+        // Handle signature capture
+        const handleSignatureCapture = useCallback((signatureData, saveForFuture = false) => {
+            if (currentSignatureField) {
+                setFieldValues(prev => ({ ...prev, [currentSignatureField.id]: signatureData }));
+
+                // Save signature for future use if requested
+                if (saveForFuture && signer.email) {
+                    try {
+                        localStorage.setItem(`glrs_signature_${signer.email}`, signatureData);
+                        setSavedSignature(signatureData);
+                    } catch (e) {
+                        console.warn('Could not save signature to localStorage');
+                    }
+                }
+
+                // Log audit trail
+                logAuditEvent(agreement.id, 'field_signed', signer, {
+                    fieldId: currentSignatureField.id,
+                    fieldType: currentSignatureField.type,
+                    signatureMethod: saveForFuture ? 'draw_or_type_saved' : 'draw_or_type'
+                });
+            }
+            setShowSignatureModal(false);
+            setCurrentSignatureField(null);
+        }, [currentSignatureField, agreement.id, signer]);
+
+        // Save progress
+        const handleSaveProgress = async () => {
+            setIsSaving(true);
+            try {
+                await db.collection('agreements').doc(agreement.id).update({
+                    fieldValues: fieldValues,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                logAuditEvent(agreement.id, 'progress_saved', signer, {
+                    completedFields: completedFields.length,
+                    totalRequired: requiredFields.length
+                });
+
+                setShowSaveModal(true);
+            } catch (error) {
+                console.error('Error saving progress:', error);
+                alert('Failed to save progress. Please try again.');
+            }
+            setIsSaving(false);
+        };
+
+        // Submit signature
+        const handleSubmit = async () => {
+            if (!canSubmit) {
+                alert('Please complete all required fields before submitting.');
+                return;
+            }
+
+            setIsSaving(true);
+            try {
+                // Update signer status
+                const updatedSigners = agreement.signers.map(s => {
+                    if (s.token === signer.token) {
+                        return {
+                            ...s,
+                            status: 'signed',
+                            signedAt: new Date(),
+                            signedFields: Object.keys(fieldValues).filter(k => fieldValues[k])
+                        };
+                    }
+                    return s;
+                });
+
+                // Check if all signers are done
+                const allSigned = updatedSigners.every(s => s.status === 'signed');
+                const newStatus = allSigned ? 'completed' : 'partial';
+
+                await db.collection('agreements').doc(agreement.id).update({
+                    fieldValues: fieldValues,
+                    signers: updatedSigners,
+                    status: newStatus,
+                    completedAt: allSigned ? firebase.firestore.FieldValue.serverTimestamp() : null,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                logAuditEvent(agreement.id, 'signed', signer, {
+                    signedFields: Object.keys(fieldValues).filter(k => fieldValues[k]),
+                    allComplete: allSigned
+                });
+
+                // Send email notifications
+                const expirationDate = agreement.expiresAt?.toDate ?
+                    agreement.expiresAt.toDate().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) :
+                    'Soon';
+                const completedDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+                if (allSigned) {
+                    // Send completion email to all signers with emails
+                    const signersList = updatedSigners.map(s =>
+                        `${s.name} (${SIGNER_ROLES[s.role]?.label || s.role})`
+                    ).join('<br>');
+
+                    for (const s of updatedSigners) {
+                        if (s.email) {
+                            await sendSigningEmail(
+                                'signing-complete',
+                                s.email,
+                                s.name,
+                                {
+                                    documentTitle: agreement.documentTitle,
+                                    completedDate,
+                                    signersList
+                                },
+                                agreement.id
+                            );
+                        }
+                    }
+
+                    // Generate and save PDF for completed agreement
+                    const completedAgreement = {
+                        ...agreement,
+                        signers: updatedSigners,
+                        fieldValues: fieldValues,
+                        status: 'completed',
+                        completedAt: new Date()
+                    };
+
+                    let generatedPdfUrl = null;
+                    try {
+                        generatedPdfUrl = await generateAndSaveCompletedPDF(completedAgreement);
+                        if (generatedPdfUrl) {
+                            console.log('PDF generated and saved:', generatedPdfUrl);
+                        }
+                    } catch (pdfError) {
+                        console.error('PDF generation failed (non-blocking):', pdfError);
+                        // Don't block completion if PDF fails - it can be regenerated later
+                    }
+                    onComplete(generatedPdfUrl);
+                    return;
+                } else {
+                    // Send confirmation to current signer that their portion is complete
+                    if (signer.email) {
+                        await sendSigningEmail(
+                            'signing-portion-complete',
+                            signer.email,
+                            signer.name,
+                            {
+                                documentTitle: agreement.documentTitle,
+                                completedDate
+                            },
+                            agreement.id
+                        );
+                    }
+
+                    // Find next pending signer and notify them
+                    const sortedSigners = updatedSigners.sort((a, b) => a.order - b.order);
+                    const nextSigner = sortedSigners.find(s => s.status === 'pending');
+
+                    if (nextSigner && nextSigner.email) {
+                        const signingLink = `https://app.glrecoveryservices.com/sign.html#${nextSigner.token}`;
+                        await sendSigningEmail(
+                            'signing-next-turn',
+                            nextSigner.email,
+                            nextSigner.name,
+                            {
+                                documentTitle: agreement.documentTitle,
+                                signingLink,
+                                expirationDate
+                            },
+                            agreement.id
+                        );
+                    }
+                }
+
+                onComplete();
+            } catch (error) {
+                console.error('Error submitting signature:', error);
+                alert('Failed to submit. Please try again.');
+            }
+            setIsSaving(false);
+        };
+
+        const isMobile = window.innerWidth < 768;
+
+        return (
+            <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100vh',
+                background: DESIGN.gray100
+            }}>
+                {/* Top bar */}
+                <div style={{
+                    padding: isMobile ? '12px 16px' : '16px 24px',
+                    background: 'white',
+                    borderBottom: `1px solid ${DESIGN.gray200}`,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '12px'
+                }}>
+                    <h1 style={{
+                        fontSize: isMobile ? '16px' : '18px',
+                        fontWeight: '600',
+                        margin: 0,
+                        color: DESIGN.gray800
+                    }}>
+                        {agreement.documentTitle || 'Service Agreement'}
+                    </h1>
+
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        flexWrap: 'wrap'
+                    }}>
+                        <span style={{ fontSize: '14px', color: DESIGN.gray500 }}>
+                            {completedFields.length} of {requiredFields.length} fields
+                        </span>
+                        <div style={{
+                            width: isMobile ? '80px' : '120px',
+                            height: '8px',
+                            background: DESIGN.gray200,
+                            borderRadius: '4px',
+                            overflow: 'hidden'
+                        }}>
+                            <div style={{
+                                width: `${progress}%`,
+                                height: '100%',
+                                background: DESIGN.gradient,
+                                transition: '300ms ease-out'
+                            }} />
+                        </div>
+
+                        {!isMobile && requiredFields.length <= 10 && (
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                                {requiredFields.map((field, i) => (
+                                    <div
+                                        key={field.id}
+                                        style={{
+                                            width: '8px',
+                                            height: '8px',
+                                            borderRadius: '50%',
+                                            background: fieldValues[field.id] ? DESIGN.success :
+                                                       signerFields.indexOf(field) === currentFieldIndex ? DESIGN.primary : DESIGN.gray300
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Document content */}
+                <div style={{
+                    flex: 1,
+                    overflow: 'auto',
+                    padding: isMobile ? '16px' : '32px',
+                    display: 'flex',
+                    justifyContent: 'center'
+                }}>
+                    {/* Use UploadedDocumentRenderer for uploaded templates */}
+                    {agreement.uploadedFile ? (
+                        <UploadedDocumentRenderer
+                            uploadedFile={agreement.uploadedFile}
+                            overlayFields={agreement.overlayFields || []}
+                            fieldValues={fieldValues}
+                            currentFieldId={currentField?.id}
+                            signerRole={signer.role}
+                            onFieldClick={handleFieldClick}
+                            onFieldChange={handleFieldChange}
+                            documentTitle={agreement.documentTitle}
+                        />
+                    ) : (
+                        <DocumentRenderer
+                            content={agreement.content}
+                            fieldValues={fieldValues}
+                            currentFieldId={currentField?.id}
+                            signerRole={signer.role}
+                            onFieldClick={handleFieldClick}
+                            onFieldChange={handleFieldChange}
+                            documentTitle={agreement.documentTitle}
+                            agreement={agreement}
+                        />
+                    )}
+                </div>
+
+                {/* Bottom navigation */}
+                <div style={{
+                    padding: isMobile ? '12px 16px' : '16px 24px',
+                    background: 'white',
+                    borderTop: `1px solid ${DESIGN.gray200}`,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '12px'
+                }}>
+                    <button
+                        onClick={() => setCurrentFieldIndex(i => Math.max(0, i - 1))}
+                        disabled={currentFieldIndex === 0}
+                        style={{
+                            padding: isMobile ? '10px 16px' : '12px 24px',
+                            background: currentFieldIndex === 0 ? DESIGN.gray100 : 'white',
+                            border: `1px solid ${DESIGN.gray200}`,
+                            borderRadius: DESIGN.radiusSm,
+                            cursor: currentFieldIndex === 0 ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            color: currentFieldIndex === 0 ? DESIGN.gray400 : DESIGN.gray700,
+                            fontSize: '14px',
+                            fontWeight: '500'
+                        }}
+                    >
+                        <Icons.ChevronLeft size={18} />
+                        {!isMobile && 'Previous'}
+                    </button>
+
+                    <button
+                        onClick={handleSaveProgress}
+                        disabled={isSaving}
+                        style={{
+                            padding: isMobile ? '10px 16px' : '12px 24px',
+                            background: 'white',
+                            border: `1px solid ${DESIGN.gray200}`,
+                            borderRadius: DESIGN.radiusSm,
+                            cursor: isSaving ? 'not-allowed' : 'pointer',
+                            color: DESIGN.gray600,
+                            fontSize: '14px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}
+                    >
+                        <Icons.Save size={16} />
+                        {isSaving ? 'Saving...' : 'Save'}
+                    </button>
+
+                    {/* Next button - only show if there are more fields */}
+                    {currentFieldIndex < signerFields.length - 1 && (
+                        <button
+                            onClick={() => setCurrentFieldIndex(i => Math.min(signerFields.length - 1, i + 1))}
+                            style={{
+                                padding: isMobile ? '10px 16px' : '12px 24px',
+                                background: DESIGN.gradient,
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: DESIGN.radiusSm,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                fontSize: '14px',
+                                fontWeight: '500'
+                            }}
+                        >
+                            {!isMobile && 'Next'}
+                            <Icons.ChevronRight size={18} />
+                        </button>
+                    )}
+
+                    {/* Submit button - always visible */}
+                    <button
+                        onClick={handleSubmit}
+                        disabled={!canSubmit || isSaving}
+                        style={{
+                            padding: isMobile ? '10px 16px' : '12px 24px',
+                            background: canSubmit ? DESIGN.gradientSuccess : DESIGN.gray200,
+                            color: canSubmit ? 'white' : DESIGN.gray400,
+                            border: 'none',
+                            borderRadius: DESIGN.radiusSm,
+                            cursor: canSubmit && !isSaving ? 'pointer' : 'not-allowed',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            fontSize: '14px',
+                            fontWeight: '600'
+                        }}
+                    >
+                        {isSaving ? 'Submitting...' : 'Submit'}
+                        <Icons.Check size={18} />
+                    </button>
+                </div>
+
+                {/* Signature modal */}
+                {showSignatureModal && currentSignatureField && (
+                    <SignatureCaptureModal
+                        field={currentSignatureField}
+                        onCapture={handleSignatureCapture}
+                        onClose={() => {
+                            setShowSignatureModal(false);
+                            setCurrentSignatureField(null);
+                        }}
+                        savedSignature={savedSignature}
+                    />
+                )}
+
+                {/* Save progress modal */}
+                {showSaveModal && (
+                    <SaveProgressModal onClose={() => setShowSaveModal(false)} />
+                )}
+            </div>
+        );
+    }
+
+    // ==========================================
+    // AUDIT TRAIL LOGGING
+    // ==========================================
+    async function logAuditEvent(agreementId, action, signer, metadata = {}) {
+        try {
+            // Get IP address
+            let ipAddress = 'unknown';
+            try {
+                const response = await fetch('https://api.ipify.org?format=json');
+                const data = await response.json();
+                ipAddress = data.ip;
+            } catch (e) {
+                console.warn('Could not get IP address');
+            }
+
+            const auditEntry = {
+                action,
+                timestamp: new Date().toISOString(),
+                actor: signer.name,
+                actorRole: signer.role,
+                actorEmail: signer.email,
+                ipAddress,
+                userAgent: navigator.userAgent,
+                ...metadata
+            };
+
+            await db.collection('agreements').doc(agreementId).update({
+                auditTrail: firebase.firestore.FieldValue.arrayUnion(auditEntry)
+            });
+        } catch (error) {
+            console.error('Error logging audit event:', error);
+        }
+    }
+
+    // ==========================================
+    // MAIN APP
+    // ==========================================
+    function SigningApp() {
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        const [agreement, setAgreement] = useState(null);
+        const [signer, setSigner] = useState(null);
+        const [showWelcome, setShowWelcome] = useState(true);
+        const [showCompletion, setShowCompletion] = useState(false);
+        const [completedPdfUrl, setCompletedPdfUrl] = useState(null);
+        const [signerState, setSignerState] = useState('loading'); // loading, valid, already_signed, waiting, invalid
+
+        // Load agreement on mount
+        useEffect(() => {
+            loadAgreement();
+        }, []);
+
+        const loadAgreement = async () => {
+            try {
+                // Get token from URL hash
+                const token = window.location.hash.replace('#', '');
+
+                if (!token) {
+                    setError({ title: 'Invalid Link', message: 'No signing token found in the URL.' });
+                    setSignerState('invalid');
+                    setLoading(false);
+                    return;
+                }
+
+                // Query for agreement with this token
+                const snapshot = await db.collection('agreements')
+                    .where('signerTokens', 'array-contains', token)
+                    .limit(1)
+                    .get();
+
+                if (snapshot.empty) {
+                    setError({ title: 'Invalid Link', message: 'This signing link is not valid or has expired.' });
+                    setSignerState('invalid');
+                    setLoading(false);
+                    return;
+                }
+
+                const agreementDoc = snapshot.docs[0];
+                const agreementData = { id: agreementDoc.id, ...agreementDoc.data() };
+
+                // Find the signer by token
+                const signerData = agreementData.signers.find(s => s.token === token);
+
+                if (!signerData) {
+                    setError({ title: 'Invalid Link', message: 'Signer not found for this token.' });
+                    setSignerState('invalid');
+                    setLoading(false);
+                    return;
+                }
+
+                // Check agreement status
+                if (agreementData.status === 'expired') {
+                    setError({ title: 'Link Expired', message: 'This signing link has expired.' });
+                    setSignerState('invalid');
+                    setLoading(false);
+                    return;
+                }
+
+                // Check if already signed
+                if (signerData.status === 'signed') {
+                    setAgreement(agreementData);
+                    setSigner(signerData);
+                    setSignerState('already_signed');
+                    setLoading(false);
+                    return;
+                }
+
+                // Check if it's this signer's turn (sequential signing)
+                const signerIndex = agreementData.signers.findIndex(s => s.token === token);
+                const hasPendingBefore = agreementData.signers.slice(0, signerIndex).some(s => s.status !== 'signed');
+
+                if (hasPendingBefore) {
+                    setAgreement(agreementData);
+                    setSigner(signerData);
+                    setSignerState('waiting');
+                    setLoading(false);
+                    return;
+                }
+
+                // All good - ready to sign
+                setAgreement(agreementData);
+                setSigner(signerData);
+                setSignerState('valid');
+
+                // Log view event
+                if (signerData.status !== 'viewed') {
+                    await db.collection('agreements').doc(agreementDoc.id).update({
+                        'signers': agreementData.signers.map(s =>
+                            s.token === token ? { ...s, status: 'viewed' } : s
+                        ),
+                        status: agreementData.status === 'sent' ? 'viewed' : agreementData.status
+                    });
+                }
+
+                logAuditEvent(agreementDoc.id, 'viewed', signerData, {});
+
+                setLoading(false);
+            } catch (error) {
+                console.error('Error loading agreement:', error);
+                setError({
+                    title: 'Error',
+                    message: 'Failed to load the document. Please try again later.'
+                });
+                setSignerState('invalid');
+                setLoading(false);
+            }
+        };
+
+        // Handle begin signing
+        const handleBeginSigning = () => {
+            setShowWelcome(false);
+        };
+
+        // Handle completion
+        const handleComplete = (pdfUrl = null) => {
+            if (pdfUrl) {
+                setCompletedPdfUrl(pdfUrl);
+            }
+            setShowCompletion(true);
+        };
+
+        // Render based on state
+        if (loading) {
+            return <LoadingScreen />;
+        }
+
+        if (signerState === 'invalid' || error) {
+            return <ErrorScreen title={error?.title} message={error?.message} />;
+        }
+
+        if (signerState === 'already_signed') {
+            return <AlreadySignedScreen agreement={agreement} signer={signer} />;
+        }
+
+        if (signerState === 'waiting') {
+            return <WaitingScreen agreement={agreement} signer={signer} />;
+        }
+
+        if (showCompletion) {
+            return (
+                <CompletionModal
+                    agreement={agreement}
+                    pdfUrl={completedPdfUrl}
+                    onClose={() => {
+                        // Refresh the page to show already signed state
+                        window.location.reload();
+                    }}
+                />
+            );
+        }
+
+        if (showWelcome) {
+            return (
+                <WelcomeModal
+                    agreement={agreement}
+                    signer={signer}
+                    onBeginSigning={handleBeginSigning}
+                />
+            );
+        }
+
+        return (
+            <SigningInterface
+                agreement={agreement}
+                signer={signer}
+                onComplete={handleComplete}
+                onSaveProgress={() => {}}
+            />
+        );
+    }
+
+    // Render app
+    ReactDOM.render(<SigningApp />, document.getElementById('root'));
+})();
+    </script>
+</body>
+</html>

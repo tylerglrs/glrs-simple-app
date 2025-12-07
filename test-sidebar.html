@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sidebar Test - Isolated</title>
+
+    <!-- React -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        .test-container {
+            padding: 20px;
+        }
+        .test-button {
+            padding: 12px 24px;
+            background: #058585;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .debug-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>TasksTab Sidebar - Isolated Test</h1>
+        <p>This tests ONLY the sidebar with 8 buttons, isolated from the rest of the app.</p>
+
+        <button class="test-button" onclick="openTestSidebar()">Open Sidebar</button>
+
+        <div class="debug-info">
+            <div><strong>Debug Info:</strong></div>
+            <div id="debug-output">Waiting for test...</div>
+        </div>
+    </div>
+
+    <div id="sidebar-root"></div>
+
+    <script type="text/babel">
+        function TestSidebar() {
+            const [showSidebar, setShowSidebar] = React.useState(false);
+            const [activeModal, setActiveModal] = React.useState(null);
+            const [debugInfo, setDebugInfo] = React.useState([]);
+
+            // Initialize Lucide icons when sidebar opens
+            React.useEffect(() => {
+                if (showSidebar) {
+                    setTimeout(() => {
+                        if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                            lucide.createIcons();
+                            addDebug('✅ Lucide icons initialized');
+                        } else {
+                            addDebug('❌ Lucide not available');
+                        }
+                    }, 100);
+                }
+            }, [showSidebar]);
+
+            // Update debug display
+            React.useEffect(() => {
+                document.getElementById('debug-output').innerHTML = debugInfo.join('<br>');
+            }, [debugInfo]);
+
+            const addDebug = (msg) => {
+                setDebugInfo(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+            };
+
+            // Expose function globally for button
+            React.useEffect(() => {
+                window.openTestSidebar = () => {
+                    setShowSidebar(true);
+                    addDebug('Opening sidebar...');
+                };
+            }, []);
+
+            const handleButtonClick = (buttonName, modalValue) => {
+                addDebug(`Clicked: ${buttonName}`);
+                setShowSidebar(false);
+                setActiveModal(modalValue);
+            };
+
+            return (
+                <>
+                    {/* Sidebar */}
+                    {showSidebar && (
+                        <>
+                            {/* Backdrop */}
+                            <div
+                                onClick={() => {
+                                    setShowSidebar(false);
+                                    addDebug('Sidebar closed (backdrop click)');
+                                }}
+                                style={{
+                                    position: 'fixed',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    background: 'rgba(0, 0, 0, 0.5)',
+                                    zIndex: 9998
+                                }}
+                            />
+
+                            {/* Sidebar Panel */}
+                            <div style={{
+                                position: 'fixed',
+                                top: 0,
+                                left: 0,
+                                bottom: 0,
+                                width: '280px',
+                                background: '#FFFFFF',
+                                boxShadow: '4px 0 12px rgba(0, 0, 0, 0.15)',
+                                zIndex: 9999,
+                                padding: '20px',
+                                overflowY: 'auto'
+                            }}>
+                                {/* Header */}
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    marginBottom: '25px',
+                                    paddingBottom: '15px',
+                                    borderBottom: '2px solid #f0f0f0'
+                                }}>
+                                    <h2 style={{
+                                        margin: 0,
+                                        fontSize: '20px',
+                                        fontWeight: 'bold',
+                                        color: '#058585'
+                                    }}>
+                                        Quick Tools
+                                    </h2>
+                                    <div
+                                        onClick={() => {
+                                            setShowSidebar(false);
+                                            addDebug('Sidebar closed (X button)');
+                                        }}
+                                        style={{
+                                            cursor: 'pointer',
+                                            padding: '4px'
+                                        }}
+                                    >
+                                        <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
+                                    </div>
+                                </div>
+
+                                {/* Menu Items */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                    {/* Button 1: Habit Tracker */}
+                                    <div
+                                        onClick={() => handleButtonClick('Habit Tracker', 'habit')}
+                                        style={{
+                                            padding: '15px',
+                                            background: '#f8f9fa',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '12px',
+                                            border: '1px solid #e9ecef'
+                                        }}
+                                    >
+                                        <i data-lucide="repeat" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
+                                        <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                            1. Habit Tracker
+                                        </span>
+                                    </div>
+
+                                    {/* Button 2: Quick Reflection */}
+                                    <div
+                                        onClick={() => handleButtonClick('Quick Reflection', 'reflection')}
+                                        style={{
+                                            padding: '15px',
+                                            background: '#f8f9fa',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '12px',
+                                            border: '1px solid #e9ecef'
+                                        }}
+                                    >
+                                        <i data-lucide="message-circle" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
+                                        <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                            2. Quick Reflection
+                                        </span>
+                                    </div>
+
+                                    {/* Button 3: This Week's Tasks */}
+                                    <div
+                                        onClick={() => handleButtonClick("This Week's Tasks", 'thisWeek')}
+                                        style={{
+                                            padding: '15px',
+                                            background: '#f8f9fa',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '12px',
+                                            border: '1px solid #e9ecef'
+                                        }}
+                                    >
+                                        <i data-lucide="calendar-days" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
+                                        <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                            3. This Week's Tasks
+                                        </span>
+                                    </div>
+
+                                    {/* Button 4: Overdue Items */}
+                                    <div
+                                        onClick={() => handleButtonClick('Overdue Items', 'overdue')}
+                                        style={{
+                                            padding: '15px',
+                                            background: '#f8f9fa',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '12px',
+                                            border: '1px solid #e9ecef'
+                                        }}
+                                    >
+                                        <i data-lucide="alert-circle" style={{ width: '20px', height: '20px', color: '#DC143C' }}></i>
+                                        <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                            4. Overdue Items
+                                        </span>
+                                    </div>
+
+                                    {/* Button 5: Mark Complete */}
+                                    <div
+                                        onClick={() => handleButtonClick('Mark Complete', 'complete')}
+                                        style={{
+                                            padding: '15px',
+                                            background: '#f8f9fa',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '12px',
+                                            border: '1px solid #e9ecef'
+                                        }}
+                                    >
+                                        <i data-lucide="check-circle" style={{ width: '20px', height: '20px', color: '#00A86B' }}></i>
+                                        <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                            5. Mark Complete
+                                        </span>
+                                    </div>
+
+                                    {/* Button 6: Progress Stats */}
+                                    <div
+                                        onClick={() => handleButtonClick('Progress Stats', 'stats')}
+                                        style={{
+                                            padding: '15px',
+                                            background: '#f8f9fa',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '12px',
+                                            border: '1px solid #e9ecef'
+                                        }}
+                                    >
+                                        <i data-lucide="trending-up" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
+                                        <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                            6. Progress Stats
+                                        </span>
+                                    </div>
+
+                                    {/* Button 7: Goal Progress */}
+                                    <div
+                                        onClick={() => handleButtonClick('Goal Progress', 'goalProgress')}
+                                        style={{
+                                            padding: '15px',
+                                            background: '#f8f9fa',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '12px',
+                                            border: '1px solid #e9ecef'
+                                        }}
+                                    >
+                                        <i data-lucide="target" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
+                                        <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                            7. Goal Progress
+                                        </span>
+                                    </div>
+
+                                    {/* Button 8: Today's Wins */}
+                                    <div
+                                        onClick={() => handleButtonClick("Today's Wins", 'wins')}
+                                        style={{
+                                            padding: '15px',
+                                            background: '#f8f9fa',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '12px',
+                                            border: '1px solid #e9ecef'
+                                        }}
+                                    >
+                                        <i data-lucide="star" style={{ width: '20px', height: '20px', color: '#FFA500' }}></i>
+                                        <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                            8. Today's Wins
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </>
+                    )}
+
+                    {/* Modal Indicator */}
+                    {activeModal && (
+                        <div style={{
+                            position: 'fixed',
+                            top: '20px',
+                            right: '20px',
+                            padding: '15px 20px',
+                            background: '#00A86B',
+                            color: 'white',
+                            borderRadius: '8px',
+                            zIndex: 10001
+                        }}>
+                            ✅ Modal: {activeModal}
+                            <button
+                                onClick={() => setActiveModal(null)}
+                                style={{
+                                    marginLeft: '10px',
+                                    padding: '5px 10px',
+                                    background: 'white',
+                                    color: '#00A86B',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    )}
+                </>
+            );
+        }
+
+        // Render the component
+        ReactDOM.render(<TestSidebar />, document.getElementById('sidebar-root'));
+    </script>
+</body>
+</html>

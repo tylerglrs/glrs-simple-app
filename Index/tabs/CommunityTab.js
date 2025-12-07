@@ -1,5 +1,57 @@
-// Destructure React hooks for use in components
+// Destructure React hooks for use in components (updated timestamp: 2025-11-19-05:20)
 const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+/**
+ * Image Compression Utility (PHASE 1)
+ * @description Compresses images before upload to prevent "file too large" errors
+ * @param {File} file - Image file to compress
+ * @param {number} maxWidth - Maximum width (default 1920px)
+ * @param {number} quality - JPEG quality 0-1 (default 0.8)
+ * @returns {Promise<Blob>} Compressed image blob
+ */
+async function compressImage(file, maxWidth = 1920, quality = 0.8) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+
+                // Resize if width exceeds max
+                if (width > maxWidth) {
+                    height = (height * maxWidth) / width;
+                    width = maxWidth;
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Convert to blob (JPEG for better compression)
+                canvas.toBlob(
+                    (blob) => {
+                        if (blob) {
+                            console.log(`📦 Image compressed: ${(file.size / 1024).toFixed(1)}KB → ${(blob.size / 1024).toFixed(1)}KB`);
+                            resolve(blob);
+                        } else {
+                            reject(new Error('Image compression failed'));
+                        }
+                    },
+                    'image/jpeg',
+                    quality
+                );
+            };
+            img.onerror = () => reject(new Error('Failed to load image'));
+            img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsDataURL(file);
+    });
+}
 
 /**
  * @file CommunityTab.js - Community features and peer-to-peer support
@@ -102,10 +154,115 @@ function CommunityTab({
     const [communityMessages, setCommunityMessages] = useState([]);
     const [topicRooms, setTopicRooms] = useState([]);
     const [supportGroups, setSupportGroups] = useState([]);
-    const [meetings, setMeetings] = useState([]);
     const [emergencyResources, setEmergencyResources] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+
+    // Phase 6: Removed meetings state - functionality moved to MeetingsTab
+    const [showSidebar, setShowSidebar] = useState(false); // Connect tools sidebar
+
+    // My Day feature state
+    const [showMyDayModal, setShowMyDayModal] = useState(false);
+    const [myDayPostType, setMyDayPostType] = useState('reflection');
+    const [myDayContent, setMyDayContent] = useState('');
+    const [myDayAnonymous, setMyDayAnonymous] = useState(false);
+    const [myDaySubmitting, setMyDaySubmitting] = useState(false);
+
+    // My Day feed state
+    const [myDayPosts, setMyDayPosts] = useState([]);
+    const [myDayLoading, setMyDayLoading] = useState(true);
+    const [myDayFilter, setMyDayFilter] = useState('all');
+    const [currentUserData, setCurrentUserData] = useState(null);
+
+    // Post menu state (three-dot menu)
+    const [openPostMenu, setOpenPostMenu] = useState(null); // postId or null
+
+    // Comments state
+    const [showComments, setShowComments] = useState({});
+    const [commentText, setCommentText] = useState({});
+    const [postComments, setPostComments] = useState({});
+    const [submittingComment, setSubmittingComment] = useState(false);
+    const [loadingComments, setLoadingComments] = useState({});
+
+    // Reply functionality state (nested comments)
+    const [replyingTo, setReplyingTo] = useState(null); // commentId being replied to, or null
+    const [replyText, setReplyText] = useState('');
+    const [expandedReplies, setExpandedReplies] = useState({}); // { commentId: boolean }
+    const [commentReplies, setCommentReplies] = useState({}); // { commentId: [replies] }
+    const [loadingReplies, setLoadingReplies] = useState({}); // { commentId: boolean }
+
+    // Image upload state
+    const [myDayImage, setMyDayImage] = useState(null);
+    const [myDayImagePreview, setMyDayImagePreview] = useState(null);
+    const [uploadProgress, setUploadProgress] = useState(0); // PHASE 5: Upload progress (0-100)
+
+    // Responsive state
+    const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+    // Responsive resize listener
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const [viewingImage, setViewingImage] = useState(null);
+
+    // Community message comments state (same as My Day)
+    const [communityShowComments, setCommunityShowComments] = useState({});
+    const [communityCommentText, setCommunityCommentText] = useState({});
+    const [communityComments, setCommunityComments] = useState({});
+    const [communitySubmittingComment, setCommunitySubmittingComment] = useState(false);
+    const [communityLoadingComments, setCommunityLoadingComments] = useState({});
+
+    // Community anonymous posting state
+    const [communityAnonymous, setCommunityAnonymous] = useState(false);
+
+    // Blocked users state (PHASE 3)
+    const [blockedUserIds, setBlockedUserIds] = useState([]);
+
+    // Profile modal state (PHASE 2 & 4) - Shared across My Day and Community Chat
+    const [showProfileModal, setShowProfileModal] = useState(false);
+    const [selectedUserId, setSelectedUserId] = useState(null);
+    const [profileData, setProfileData] = useState(null);
+    const [profileLoading, setProfileLoading] = useState(false);
+    const [profileError, setProfileError] = useState(null);
+
+    // UserProfileView state (PHASE 4 - Integration)
+    const [viewingUserProfile, setViewingUserProfile] = useState(null);
+
+    // Calendar navigation for single-day mobile view (Phase 5)
+    const [selectedCalendarDate, setSelectedCalendarDate] = useState(new Date());
+
+    // Upcoming meetings time filter
+    const [upcomingFilter, setUpcomingFilter] = useState('7days'); // 'today' | '7days' | '14days' | '30days' | 'all'
+
+    // Phase 6: Meeting type codes, normalizeCode, and getTypeName removed - moved to MeetingsTab
+
+    // Scroll to top when component mounts (when tab is opened)
+    useEffect(() => {
+        window.scrollTo(0, 0);
+    }, []);
+
+    // Close post menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            // If a menu is open and click is outside, close it
+            if (openPostMenu) {
+                // Check if click is on a menu button or menu content
+                const menuButton = event.target.closest('[data-post-menu-button]');
+                const menuDropdown = event.target.closest('[data-post-menu-dropdown]');
+
+                if (!menuButton && !menuDropdown) {
+                    setOpenPostMenu(null);
+                }
+            }
+        };
+
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, [openPostMenu]);
 
     // Load current user from Firebase auth
     useEffect(() => {
@@ -119,6 +276,172 @@ function CommunityTab({
 
         return () => unsubscribeAuth();
     }, []);
+
+    // Initialize Lucide icons on component mount (for always-visible icons)
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
+                console.log('✅ CommunityTab: Initial Lucide icons initialized');
+            }
+        }, 100);
+
+        return () => clearTimeout(timer);
+    }, []);
+
+    // Initialize Lucide icons when My Day modal opens
+    useEffect(() => {
+        if (showMyDayModal) {
+            const timer = setTimeout(() => {
+                if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                    lucide.createIcons();
+                    console.log('✅ CommunityTab: My Day modal icons initialized');
+                }
+            }, 100);
+
+            return () => clearTimeout(timer);
+        }
+    }, [showMyDayModal]);
+
+    // Initialize Lucide icons when sidebar opens
+    useEffect(() => {
+        if (showSidebar) {
+            const timer = setTimeout(() => {
+                if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                    lucide.createIcons();
+                    console.log('✅ CommunityTab: Sidebar icons initialized');
+                }
+            }, 100);
+
+            return () => clearTimeout(timer);
+        }
+    }, [showSidebar]);
+
+    // Load current user data (for coach role check)
+    useEffect(() => {
+        if (!user) return;
+
+        const loadUserData = async () => {
+            try {
+                const userDoc = await db.collection('users').doc(user.uid).get();
+                if (userDoc.exists) {
+                    setCurrentUserData(userDoc.data());
+                }
+            } catch (error) {
+                console.error('Error loading user data:', error);
+                window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.loadUserData');
+            }
+        };
+
+        loadUserData();
+    }, [user]);
+
+    // Load blocked users (PHASE 3)
+    useEffect(() => {
+        if (!user) return;
+
+        console.log('📛 Loading blocked users for current user...');
+
+        const unsubscribe = db.collection('blockedUsers')
+            .where('blockedBy', '==', user.uid)
+            .onSnapshot((snapshot) => {
+                const blockedIds = snapshot.docs.map(doc => doc.data().blockedUserId);
+                setBlockedUserIds(blockedIds);
+                console.log(`📛 Blocked users loaded: ${blockedIds.length} blocked`);
+            }, (error) => {
+                console.error('❌ Error loading blocked users:', error);
+                window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.loadBlockedUsers');
+            });
+
+        return () => unsubscribe();
+    }, [user]);
+
+    // Real-time listener for My Day posts
+    useEffect(() => {
+        if (!user || activeChat !== 'myday') return;
+
+        setMyDayLoading(true);
+
+        const unsubscribe = db.collection('dailyPosts')
+            .where('hidden', '==', false)
+            .orderBy('createdAt', 'desc')
+            .limit(50)
+            .onSnapshot((snapshot) => {
+                const posts = window.snapshotToArray(snapshot);
+                setMyDayPosts(posts);
+                setMyDayLoading(false);
+            }, (error) => {
+                console.error('Error loading My Day posts:', error);
+                window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.loadMyDayPosts');
+                setMyDayLoading(false);
+            });
+
+        return () => unsubscribe();
+    }, [user, activeChat]);
+
+    // Real-time listener for comments (per expanded post)
+    useEffect(() => {
+        const unsubscribers = [];
+
+        Object.keys(showComments).forEach(postId => {
+            if (showComments[postId] && !postComments[postId]) {
+                setLoadingComments(prev => ({ ...prev, [postId]: true }));
+
+                const unsubscribe = db.collection('dailyPosts')
+                    .doc(postId)
+                    .collection('comments')
+                    .orderBy('createdAt', 'asc')
+                    .limit(50)
+                    .onSnapshot((snapshot) => {
+                        const comments = window.snapshotToArray(snapshot);
+                        setPostComments(prev => ({ ...prev, [postId]: comments }));
+                        setLoadingComments(prev => ({ ...prev, [postId]: false }));
+                    }, (error) => {
+                        console.error('Error loading comments:', error);
+                        window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.loadComments');
+                        setLoadingComments(prev => ({ ...prev, [postId]: false }));
+                    });
+
+                unsubscribers.push(unsubscribe);
+            }
+        });
+
+        return () => {
+            unsubscribers.forEach(unsub => unsub());
+        };
+    }, [showComments]);
+
+    // Real-time listener for community message comments (per expanded message)
+    useEffect(() => {
+        const unsubscribers = [];
+
+        Object.keys(communityShowComments).forEach(messageId => {
+            if (communityShowComments[messageId] && !communityComments[messageId]) {
+                setCommunityLoadingComments(prev => ({ ...prev, [messageId]: true }));
+
+                const unsubscribe = db.collection('messages')
+                    .doc(messageId)
+                    .collection('comments')
+                    .orderBy('createdAt', 'asc')
+                    .limit(50)
+                    .onSnapshot((snapshot) => {
+                        const comments = window.snapshotToArray(snapshot);
+                        setCommunityComments(prev => ({ ...prev, [messageId]: comments }));
+                        setCommunityLoadingComments(prev => ({ ...prev, [messageId]: false }));
+                    }, (error) => {
+                        console.error('Error loading community comments:', error);
+                        window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.loadCommunityComments');
+                        setCommunityLoadingComments(prev => ({ ...prev, [messageId]: false }));
+                    });
+
+                unsubscribers.push(unsubscribe);
+            }
+        });
+
+        return () => {
+            unsubscribers.forEach(unsub => unsub());
+        };
+    }, [communityShowComments]);
 
     // Real-time listener for community messages
     useEffect(() => {
@@ -189,31 +512,7 @@ function CommunityTab({
         loadSupportGroups();
     }, [user]);
 
-    // Load scheduled meetings
-    useEffect(() => {
-        if (!user) return;
-
-        const loadMeetings = async () => {
-            try {
-                const meetingsSnap = await db.collection('meetings')
-                    .where('status', 'in', ['scheduled', 'completed'])
-                    .orderBy('scheduledTime', 'desc')
-                    .limit(10)
-                    .get();
-
-                const mtgs = window.snapshotToArray(meetingsSnap);
-                setMeetings(mtgs);
-            } catch (error) {
-                console.error('Error loading meetings:', error);
-                // Non-critical error - meetings are optional, don't show error UI
-                window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.loadMeetings');
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        loadMeetings();
-    }, [user]);
+    // Phase 6: Meeting load functions, handlers, and filters removed - moved to MeetingsTab
 
     // Load emergency resources
     useEffect(() => {
@@ -237,19 +536,31 @@ function CommunityTab({
     }, []);
 
     // Send community message function
-    const sendCommunityMessage = async (messageText, imageUrl = null) => {
+    const sendCommunityMessage = async (messageText, imageUrl = null, isAnonymous = false) => {
         if (!user) return;
 
         try {
+            // Get user's full name from userData
+            const displayName = currentUserData?.firstName
+                ? `${currentUserData.firstName} ${currentUserData.lastName || ''}`.trim()
+                : user.displayName || user.email;
+
             await db.collection('messages').add({
                 type: 'community',
                 content: messageText,
                 imageUrl: imageUrl,
                 senderId: user.uid,
-                senderName: user.displayName || user.email,
+                senderName: isAnonymous ? 'Anonymous' : displayName,
+                senderProfileImageUrl: isAnonymous ? null : (currentUserData?.profileImageUrl || null),
+                isAnonymous: isAnonymous,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                likes: 0,
-                comments: []
+                reactions: {
+                    heart: [],
+                    support: [],
+                    celebrate: []
+                },
+                reactedBy: {},
+                commentCount: 0
             });
         } catch (error) {
             console.error('Error sending community message:', error);
@@ -258,13 +569,86 @@ function CommunityTab({
         }
     };
 
-    // Upload chat image function
+    // Upload chat image function (Community Chat & Topic Rooms)
     const uploadChatImage = async (file, type, roomId) => {
-        if (onUploadChatImage) {
-            return await onUploadChatImage(file, type, roomId);
-        } else {
-            console.warn('Upload chat image: No callback provided. Pass onUploadChatImage prop to CommunityTab.');
+        if (!file || !user) {
+            console.warn('Upload chat image: No file or user provided');
             return null;
+        }
+
+        try {
+            // STEP 1: Compress image
+            console.log(`📦 Compressing chat image: ${file.name} (${(file.size / 1024).toFixed(1)}KB)`);
+            const compressedBlob = await compressImage(file);
+
+            // STEP 2: Convert Blob to File (workaround for Firebase SDK)
+            const timestamp = Date.now();
+            const filename = `${timestamp}_${file.name}`;
+            const compressedFile = new File([compressedBlob], filename, {
+                type: 'image/jpeg',
+                lastModified: Date.now()
+            });
+
+            console.log(`📦 Converted blob to file: ${compressedFile.name}, size: ${(compressedFile.size / 1024).toFixed(1)}KB, type: ${compressedFile.type}`);
+
+            // STEP 3: Choose storage path based on type
+            let storagePath;
+            if (type === 'community') {
+                storagePath = `communityImages/${user.uid}/${filename}`;
+            } else if (type === 'topic') {
+                storagePath = `topicRoomImages/${user.uid}/${filename}`;
+            } else {
+                storagePath = `communityImages/${user.uid}/${filename}`; // Default
+            }
+
+            const storageRef = firebase.storage().ref();
+            const imageRef = storageRef.child(storagePath);
+
+            console.log(`📤 Uploading chat image to: ${storagePath}`);
+
+            // STEP 4: Upload with resumable upload
+            const uploadTask = imageRef.put(compressedFile, {
+                contentType: 'image/jpeg',
+                cacheControl: 'public, max-age=31536000'
+            });
+
+            return new Promise((resolve, reject) => {
+                uploadTask.on('state_changed',
+                    // Progress callback (optional for chat)
+                    (snapshot) => {
+                        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                        console.log(`📊 Chat image upload: ${Math.round(progress)}%`);
+                    },
+
+                    // Error callback
+                    (error) => {
+                        console.error('❌ Chat image upload error:', error);
+                        if (error.code === 'storage/unauthorized') {
+                            reject(new Error('Permission denied. Storage rules may not be configured.'));
+                        } else if (error.code === 'storage/quota-exceeded') {
+                            reject(new Error('Storage quota exceeded.'));
+                        } else {
+                            reject(new Error(`Upload failed: ${error.message}`));
+                        }
+                    },
+
+                    // Success callback
+                    async () => {
+                        try {
+                            const downloadURL = await uploadTask.snapshot.ref.getDownloadURL();
+                            console.log(`✅ Chat image upload complete: ${downloadURL}`);
+                            resolve(downloadURL);
+                        } catch (error) {
+                            console.error('❌ Failed to get download URL:', error);
+                            reject(new Error(`Failed to get download URL: ${error.message}`));
+                        }
+                    }
+                );
+            });
+
+        } catch (error) {
+            console.error('❌ Error in uploadChatImage:', error);
+            throw error;
         }
     };
 
@@ -302,6 +686,1099 @@ function CommunityTab({
         } else {
             console.warn('Trigger SOS: No callback provided. Pass onTriggerSOS prop to CommunityTab.');
             alert('SOS alert sent! Your coach has been notified.');
+        }
+    };
+
+    // Format timestamp for My Day posts
+    const formatMyDayTimestamp = (timestamp) => {
+        if (!timestamp?.toDate) return 'Just now';
+
+        const date = timestamp.toDate();
+        const seconds = Math.floor((new Date() - date) / 1000);
+
+        if (seconds < 60) return 'Just now';
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+        if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+
+        // Format as "Nov 16, 2025"
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    };
+
+    // ============================================================
+    // PROFILE MODAL HANDLERS (PHASE 2 & 4)
+    // ============================================================
+
+    // Smart avatar click handler (PHASE 2)
+    const handleAvatarClick = async (userId, isAnonymous) => {
+        // Don't open for anonymous posts
+        if (isAnonymous || !userId) {
+            return;
+        }
+
+        // PHASE 4: Open UserProfileView component instead of modal
+        setViewingUserProfile(userId);
+    };
+
+    // Open user profile modal
+    const handleOpenProfile = async (userId, isAnonymous) => {
+        // Don't open profile for anonymous posts
+        if (isAnonymous || !userId) {
+            return;
+        }
+
+        // Don't open if already loading
+        if (profileLoading) {
+            return;
+        }
+
+        setSelectedUserId(userId);
+        setShowProfileModal(true);
+        setProfileLoading(true);
+        setProfileError(null);
+        setProfileData(null);
+
+        try {
+            console.log(`📖 Loading profile for user: ${userId}`);
+
+            // Fetch user data from Firestore
+            const userDoc = await db.collection('users').doc(userId).get();
+
+            if (!userDoc.exists) {
+                throw new Error('User not found');
+            }
+
+            const userData = userDoc.data();
+
+            // Check if current user is coach or admin
+            const isCoach = currentUserData?.role === 'coach' || currentUserData?.role === 'admin' || currentUserData?.role === 'superadmin';
+
+            // Check if viewing own profile
+            const isOwnProfile = userId === user?.uid;
+
+            // Get profile visibility settings (default all true if not set)
+            const visibility = userData.profileVisibility || {
+                memberSince: true,
+                sobrietyDate: true,
+                recoveryGoals: true,
+                completedGoals: true,
+                timezone: true
+            };
+
+            // Build profile data respecting visibility (coaches override, own profile shows all)
+            const profile = {
+                userId: userId,
+                displayName: userData.firstName ? `${userData.firstName} ${userData.lastName || ''}`.trim() : 'User',
+                firstName: userData.firstName,
+                lastName: userData.lastName,
+                email: userData.email,
+                role: userData.role || 'pir',
+                isOwnProfile: isOwnProfile,
+
+                // Conditional fields based on visibility, coach override, or own profile
+                memberSince: (visibility.memberSince || isCoach || isOwnProfile) ? userData.createdAt : null,
+                sobrietyDate: (visibility.sobrietyDate || isCoach || isOwnProfile) ? userData.sobrietyDate : null,
+                recoveryGoals: (visibility.recoveryGoals || isCoach || isOwnProfile) ? userData.recoveryGoals : null,
+                completedGoals: (visibility.completedGoals || isCoach || isOwnProfile) ? userData.completedGoals : null,
+                timezone: (visibility.timezone || isCoach || isOwnProfile) ? userData.timezone : null,
+
+                // Always show these
+                profilePhoto: userData.profilePhoto || null
+            };
+
+            console.log('✅ Profile loaded successfully');
+            setProfileData(profile);
+
+        } catch (error) {
+            console.error('❌ Error loading profile:', error);
+            setProfileError(error.message || 'Failed to load profile');
+        } finally {
+            setProfileLoading(false);
+        }
+    };
+
+    // Close profile modal
+    const handleCloseProfile = () => {
+        setShowProfileModal(false);
+        setSelectedUserId(null);
+        setProfileData(null);
+        setProfileError(null);
+    };
+
+    // Filter My Day posts based on current filter
+    const getFilteredPosts = () => {
+        if (!myDayPosts) return [];
+
+        // First, filter by type based on selected filter
+        let filtered;
+        switch (myDayFilter) {
+            case 'reflections':
+                filtered = myDayPosts.filter(post => post.type === 'reflection');
+                break;
+            case 'wins':
+                filtered = myDayPosts.filter(post => post.type === 'win');
+                break;
+            case 'mine':
+                filtered = myDayPosts.filter(post => post.userId === user?.uid);
+                break;
+            default: // 'all'
+                filtered = myDayPosts;
+        }
+
+        // Then, filter out blocked users (PHASE 3)
+        if (blockedUserIds.length > 0) {
+            filtered = filtered.filter(post => !blockedUserIds.includes(post.userId));
+        }
+
+        return filtered;
+    };
+
+    // Check if current user is coach or admin
+    const isCoachOrAdmin = () => {
+        return currentUserData?.role === 'coach' || currentUserData?.role === 'admin';
+    };
+
+    // Toggle comments section
+    const toggleComments = (postId) => {
+        setShowComments(prev => ({
+            ...prev,
+            [postId]: !prev[postId]
+        }));
+    };
+
+    // Add comment to post
+    const handleAddComment = async (postId) => {
+        const content = commentText[postId]?.trim();
+
+        if (!user || !content || submittingComment) return;
+
+        // Validate length
+        if (content.length > 280) {
+            alert('Comment must be 280 characters or less.');
+            return;
+        }
+
+        setSubmittingComment(true);
+
+        try {
+            // Get user data for display name
+            const userDoc = await db.collection('users').doc(user.uid).get();
+            const userData = userDoc.data();
+            const displayName = userData?.firstName ?
+                `${userData.firstName} ${userData.lastName || ''}`.trim() :
+                user.displayName || user.email;
+
+            // Add comment to subcollection
+            await db.collection('dailyPosts').doc(postId).collection('comments').add({
+                userId: user.uid,
+                userDisplayName: displayName,
+                userAvatar: null,
+                content: content,
+                isAnonymous: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                reactions: { heart: 0 },
+                flagged: false
+            });
+
+            // Increment comment count on post
+            await db.collection('dailyPosts').doc(postId).update({
+                commentCount: firebase.firestore.FieldValue.increment(1)
+            });
+
+            // Clear input
+            setCommentText(prev => ({ ...prev, [postId]: '' }));
+
+            // Haptic feedback
+            if (window.GLRSApp?.utils?.triggerHaptic) {
+                window.GLRSApp.utils.triggerHaptic('light');
+            }
+
+        } catch (error) {
+            console.error('Error adding comment:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.handleAddComment');
+            alert('Failed to add comment. Please try again.');
+        } finally {
+            setSubmittingComment(false);
+        }
+    };
+
+    // Delete comment
+    const handleDeleteComment = async (postId, commentId, commentUserId) => {
+        // Verify ownership or coach/admin
+        if (commentUserId !== user?.uid && !isCoachOrAdmin()) {
+            alert('You can only delete your own comments.');
+            return;
+        }
+
+        if (!confirm('Delete this comment?')) return;
+
+        try {
+            // Delete comment document
+            await db.collection('dailyPosts').doc(postId).collection('comments').doc(commentId).delete();
+
+            // Decrement comment count on post
+            await db.collection('dailyPosts').doc(postId).update({
+                commentCount: firebase.firestore.FieldValue.increment(-1)
+            });
+
+            // Haptic feedback
+            if (window.GLRSApp?.utils?.triggerHaptic) {
+                window.GLRSApp.utils.triggerHaptic('light');
+            }
+
+        } catch (error) {
+            console.error('Error deleting comment:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.handleDeleteComment');
+            alert('Failed to delete comment. Please try again.');
+        }
+    };
+
+    // ============================================================
+    // POST MENU HANDLERS (Delete, Report, Block)
+    // ============================================================
+
+    // Handle delete post
+    const handleDeletePost = async (postId, post) => {
+        // Determine if this is a dailyPost or message
+        const isMessage = post.senderId || post.type === 'community';
+        const collection = isMessage ? 'messages' : 'dailyPosts';
+        const userIdField = isMessage ? post.senderId : post.userId;
+
+        // Debug logging
+        console.log('🔍 Delete post debug:', {
+            postId,
+            isMessage,
+            collection,
+            userIdField,
+            currentUserId: user?.uid,
+            isCoach: isCoachOrAdmin(),
+            post
+        });
+
+        // Verify ownership or coach/admin
+        if (userIdField !== user?.uid && !isCoachOrAdmin()) {
+            console.error('❌ Permission denied:', {
+                userIdField,
+                currentUserId: user?.uid,
+                match: userIdField === user?.uid
+            });
+            alert('You can only delete your own posts.');
+            return;
+        }
+
+        if (!confirm('Delete this post? This cannot be undone.')) return;
+
+        try {
+            // Close menu first
+            setOpenPostMenu(null);
+
+            // Delete image from storage if exists
+            if (post.imageUrl && post.imageName) {
+                try {
+                    const storageRef = firebase.storage().ref();
+                    // Determine storage path based on collection
+                    const storagePath = isMessage
+                        ? `communityImages/${userIdField}/${post.imageName}`
+                        : `dailyPosts/${userIdField}/${post.imageName}`;
+                    const imageRef = storageRef.child(storagePath);
+                    await imageRef.delete();
+                    console.log('🗑️ Image deleted from storage');
+                } catch (storageError) {
+                    console.warn('⚠️ Could not delete image from storage:', storageError);
+                    // Continue with post deletion even if image delete fails
+                }
+            }
+
+            // Delete all comments (subcollection)
+            const commentsSnapshot = await db.collection(collection).doc(postId).collection('comments').get();
+            const batch = db.batch();
+            commentsSnapshot.docs.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            await batch.commit();
+
+            // Delete post document
+            await db.collection(collection).doc(postId).delete();
+
+            console.log(`✅ Post deleted successfully from ${collection}`);
+
+            // Show success notification
+            if (window.GLRSApp?.utils?.showNotification) {
+                window.GLRSApp.utils.showNotification('Post deleted successfully', 'success');
+            }
+
+        } catch (error) {
+            console.error('❌ Error deleting post:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.handleDeletePost');
+            alert('Failed to delete post. Please try again.');
+        }
+    };
+
+    // Handle report post
+    const handleReportPost = async (postId, post) => {
+        setOpenPostMenu(null);
+
+        // Show reason selection
+        const reasons = [
+            '1. Spam or misleading',
+            '2. Harassment or hate speech',
+            '3. Violence or dangerous content',
+            '4. Inappropriate content',
+            '5. Other'
+        ];
+
+        const reasonChoice = prompt(
+            'Please select a reason for reporting this post:\n\n' + reasons.join('\n') + '\n\nEnter the number (1-5):'
+        );
+
+        if (!reasonChoice) return; // User cancelled
+
+        const reasonIndex = parseInt(reasonChoice) - 1;
+        if (reasonIndex < 0 || reasonIndex > 4) {
+            alert('Invalid selection. Please enter a number between 1 and 5.');
+            return;
+        }
+
+        const selectedReason = reasons[reasonIndex].split('. ')[1];
+
+        // Optional: Ask for additional details
+        const details = prompt('Optional: Provide additional details about this report:');
+
+        try {
+            // Create report document
+            await db.collection('reportedContent').add({
+                reportedBy: user.uid,
+                reportedByName: currentUserData?.firstName
+                    ? `${currentUserData.firstName} ${currentUserData.lastName || ''}`.trim()
+                    : user.displayName || user.email,
+                contentType: 'post',
+                contentId: postId,
+                postId: postId,
+                authorId: post.userId,
+                authorName: post.displayName,
+                content: post.content.substring(0, 200), // First 200 chars
+                reason: selectedReason,
+                details: details || null,
+                status: 'pending',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                reviewedAt: null,
+                reviewedBy: null,
+                actionTaken: null
+            });
+
+            alert('Thank you for your report. Our team will review it shortly.');
+
+        } catch (error) {
+            console.error('❌ Error reporting post:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.handleReportPost');
+            alert('Failed to submit report. Please try again.');
+        }
+    };
+
+    // Handle block user
+    const handleBlockUser = async (post) => {
+        setOpenPostMenu(null);
+
+        // Can't block yourself or anonymous posts
+        if (post.userId === user.uid) {
+            alert('You cannot block yourself.');
+            return;
+        }
+
+        if (post.anonymous) {
+            alert('Cannot block anonymous users.');
+            return;
+        }
+
+        const userName = post.displayName || 'this user';
+
+        if (!confirm(`Block ${userName}? You won't see their posts or comments anymore.`)) return;
+
+        try {
+            // Check if already blocked (prevent duplicates) - PHASE 3
+            const existingBlock = await db.collection('blockedUsers')
+                .where('blockedBy', '==', user.uid)
+                .where('blockedUserId', '==', post.userId)
+                .get();
+
+            if (!existingBlock.empty) {
+                alert('You have already blocked this user.');
+                return;
+            }
+
+            // Create block document (PHASE 3)
+            await db.collection('blockedUsers').add({
+                blockedBy: user.uid, // Changed from userId to match listener query
+                blockedUserId: post.userId,
+                blockedUserName: userName,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            alert(`${userName} has been blocked. Their posts will no longer appear in your feed.`);
+
+            // Feed will automatically update via blockedUsers real-time listener (PHASE 3)
+
+        } catch (error) {
+            console.error('❌ Error blocking user:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.handleBlockUser');
+            alert('Failed to block user. Please try again.');
+        }
+    };
+
+    // ============================================================
+    // NESTED COMMENT REPLY HANDLERS
+    // ============================================================
+
+    // Start replying to a comment
+    const handleStartReply = (commentId, userDisplayName) => {
+        setReplyingTo(commentId);
+        setReplyText('');
+        // Auto-focus will happen in UI with useEffect
+    };
+
+    // Cancel reply
+    const handleCancelReply = () => {
+        setReplyingTo(null);
+        setReplyText('');
+    };
+
+    // Submit reply to a comment
+    const handleAddReply = async (postId, parentCommentId, parentComment) => {
+        const content = replyText.trim();
+
+        if (!user || !content || submittingComment) return;
+
+        // Validate length
+        if (content.length > 280) {
+            alert('Reply must be 280 characters or less.');
+            return;
+        }
+
+        setSubmittingComment(true);
+
+        try {
+            // Get user data for display name
+            const userDoc = await db.collection('users').doc(user.uid).get();
+            const userData = userDoc.data();
+            const displayName = userData?.firstName ?
+                `${userData.firstName} ${userData.lastName || ''}`.trim() :
+                user.displayName || user.email;
+
+            // Add reply to comments subcollection with parent reference
+            await db.collection('dailyPosts').doc(postId).collection('comments').add({
+                userId: user.uid,
+                userDisplayName: displayName,
+                userAvatar: null,
+                content: content,
+                isAnonymous: false,
+                parentCommentId: parentCommentId, // Link to parent comment
+                replyToUserId: parentComment.userId,
+                replyToDisplayName: parentComment.userDisplayName,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                reactions: { heart: 0 },
+                flagged: false
+            });
+
+            // Increment comment count AND reply count on post
+            await db.collection('dailyPosts').doc(postId).update({
+                commentCount: firebase.firestore.FieldValue.increment(1),
+                replyCount: firebase.firestore.FieldValue.increment(1)
+            });
+
+            // Clear reply state
+            setReplyingTo(null);
+            setReplyText('');
+
+            // Ensure replies are expanded for this comment
+            setExpandedReplies(prev => ({ ...prev, [parentCommentId]: true }));
+
+            // Haptic feedback
+            if (window.GLRSApp?.utils?.triggerHaptic) {
+                window.GLRSApp.utils.triggerHaptic('light');
+            }
+
+        } catch (error) {
+            console.error('Error adding reply:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.handleAddReply');
+            alert('Failed to add reply. Please try again.');
+        } finally {
+            setSubmittingComment(false);
+        }
+    };
+
+    // Toggle replies visibility and load if needed
+    const handleToggleReplies = (postId, commentId) => {
+        const isCurrentlyExpanded = expandedReplies[commentId];
+
+        // Toggle expanded state
+        setExpandedReplies(prev => ({
+            ...prev,
+            [commentId]: !isCurrentlyExpanded
+        }));
+
+        // If expanding and replies not loaded yet, load them
+        if (!isCurrentlyExpanded && !commentReplies[commentId]) {
+            handleLoadReplies(postId, commentId);
+        }
+    };
+
+    // Load replies for a comment
+    const handleLoadReplies = (postId, commentId) => {
+        setLoadingReplies(prev => ({ ...prev, [commentId]: true }));
+
+        // Set up real-time listener for replies
+        const unsubscribe = db.collection('dailyPosts')
+            .doc(postId)
+            .collection('comments')
+            .where('parentCommentId', '==', commentId)
+            .orderBy('createdAt', 'asc')
+            .onSnapshot((snapshot) => {
+                const replies = window.snapshotToArray(snapshot);
+                setCommentReplies(prev => ({ ...prev, [commentId]: replies }));
+                setLoadingReplies(prev => ({ ...prev, [commentId]: false }));
+            }, (error) => {
+                console.error('Error loading replies:', error);
+                window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.handleLoadReplies');
+                setLoadingReplies(prev => ({ ...prev, [commentId]: false }));
+            });
+
+        // Store unsubscribe function (we'll clean up when replies collapse - TODO: implement cleanup)
+        // For now, listener stays active (will be cleaned up on component unmount via existing listeners)
+    };
+
+    // Calculate depth of a comment (for indentation)
+    const getCommentDepth = (comment, allComments) => {
+        let depth = 0;
+        let current = comment;
+
+        while (current.parentCommentId && depth < 3) {
+            const parent = allComments.find(c => c.id === current.parentCommentId);
+            if (!parent) break;
+            depth++;
+            current = parent;
+        }
+
+        return Math.min(depth, 3); // Max depth 3
+    };
+
+    // Handle image selection
+    const handleImageSelect = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // Validate file type
+        const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        if (!validTypes.includes(file.type)) {
+            alert('Please select a valid image file (JPG, PNG, GIF, or WebP).');
+            return;
+        }
+
+        // Validate file size (5MB max)
+        const maxSize = 5 * 1024 * 1024; // 5MB in bytes
+        if (file.size > maxSize) {
+            alert('Image must be less than 5MB. Please select a smaller file.');
+            return;
+        }
+
+        // Create preview
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setMyDayImagePreview(reader.result);
+            setMyDayImage(file);
+        };
+        reader.readAsDataURL(file);
+    };
+
+    // Remove selected image
+    const handleRemoveImage = () => {
+        setMyDayImage(null);
+        setMyDayImagePreview(null);
+        // Reset file input
+        const fileInput = document.getElementById('myday-image-input');
+        if (fileInput) fileInput.value = '';
+    };
+
+    // Toggle community message comments
+    const toggleCommunityComments = (messageId) => {
+        setCommunityShowComments(prev => ({
+            ...prev,
+            [messageId]: !prev[messageId]
+        }));
+    };
+
+    // Add comment to community message
+    const handleAddCommunityComment = async (messageId) => {
+        const content = communityCommentText[messageId]?.trim();
+
+        if (!user || !content || communitySubmittingComment) return;
+
+        if (content.length > 280) {
+            alert('Comment must be 280 characters or less.');
+            return;
+        }
+
+        setCommunitySubmittingComment(true);
+
+        try {
+            const userDoc = await db.collection('users').doc(user.uid).get();
+            const userData = userDoc.data();
+            const displayName = userData?.firstName ?
+                `${userData.firstName} ${userData.lastName || ''}`.trim() :
+                user.displayName || user.email;
+
+            await db.collection('messages').doc(messageId).collection('comments').add({
+                userId: user.uid,
+                userDisplayName: displayName,
+                userAvatar: null,
+                content: content,
+                isAnonymous: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                reactions: { heart: 0 },
+                flagged: false
+            });
+
+            await db.collection('messages').doc(messageId).update({
+                commentCount: firebase.firestore.FieldValue.increment(1)
+            });
+
+            setCommunityCommentText(prev => ({ ...prev, [messageId]: '' }));
+
+            if (window.GLRSApp?.utils?.triggerHaptic) {
+                window.GLRSApp.utils.triggerHaptic('light');
+            }
+
+        } catch (error) {
+            console.error('Error adding community comment:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.handleAddCommunityComment');
+            alert('Failed to add comment. Please try again.');
+        } finally {
+            setCommunitySubmittingComment(false);
+        }
+    };
+
+    // Delete community message comment
+    const handleDeleteCommunityComment = async (messageId, commentId, commentUserId) => {
+        if (commentUserId !== user?.uid && !isCoachOrAdmin()) {
+            alert('You can only delete your own comments.');
+            return;
+        }
+
+        if (!confirm('Delete this comment?')) return;
+
+        try {
+            await db.collection('messages').doc(messageId).collection('comments').doc(commentId).delete();
+            await db.collection('messages').doc(messageId).update({
+                commentCount: firebase.firestore.FieldValue.increment(-1)
+            });
+
+            if (window.GLRSApp?.utils?.triggerHaptic) {
+                window.GLRSApp.utils.triggerHaptic('light');
+            }
+
+        } catch (error) {
+            console.error('Error deleting community comment:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.handleDeleteCommunityComment');
+            alert('Failed to delete comment. Please try again.');
+        }
+    };
+
+    // Upload image with automatic retry logic (PHASE 4)
+    const uploadImageWithRetry = async (file, onProgress, maxRetries = 3) => {
+        let lastError;
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                if (attempt > 0) {
+                    console.log(`🔄 Retry attempt ${attempt + 1}/${maxRetries}...`);
+                }
+
+                // Attempt upload
+                const result = await uploadImage(file, onProgress);
+
+                // Success!
+                if (attempt > 0) {
+                    console.log(`✅ Upload succeeded on retry ${attempt + 1}`);
+                }
+                return result;
+
+            } catch (error) {
+                lastError = error;
+                console.error(`❌ Upload attempt ${attempt + 1} failed:`, error.message);
+
+                // Don't retry on certain errors (fatal errors)
+                if (error.message.includes('Permission denied') ||
+                    error.message.includes('canceled') ||
+                    error.message.includes('unauthorized') ||
+                    error.message.includes('quota')) {
+                    console.log('⛔ Fatal error - not retrying');
+                    throw error;
+                }
+
+                // If not last attempt, wait before retry
+                if (attempt < maxRetries - 1) {
+                    // Exponential backoff: 1s → 2s → 4s (with random jitter)
+                    const baseDelay = 1000; // 1 second
+                    const exponentialDelay = baseDelay * Math.pow(2, attempt);
+                    const jitter = Math.random() * 1000; // 0-1 second random
+                    const totalDelay = exponentialDelay + jitter;
+
+                    console.log(`⏳ Waiting ${Math.round(totalDelay / 1000)}s before retry...`);
+                    await new Promise(resolve => setTimeout(resolve, totalDelay));
+                }
+            }
+        }
+
+        // All retries failed
+        console.error(`❌ Upload failed after ${maxRetries} attempts`);
+        throw new Error(`Upload failed after ${maxRetries} attempts: ${lastError.message}`);
+    };
+
+    // Upload image to Firebase Storage with progress tracking (PHASE 3)
+    const uploadImage = async (file, onProgress) => {
+        if (!file || !user) {
+            return { url: null, name: null };
+        }
+
+        try {
+            // STEP 1: Compress image
+            console.log(`📦 Compressing image: ${file.name}...`);
+            const compressedBlob = await compressImage(file);
+
+            // STEP 2: Convert Blob to File (workaround for Firebase SDK)
+            const timestamp = Date.now();
+            const filename = `${timestamp}_${file.name}`;
+            const compressedFile = new File([compressedBlob], filename, {
+                type: 'image/jpeg',
+                lastModified: Date.now()
+            });
+
+            console.log(`📦 Converted blob to file: ${compressedFile.name}, size: ${(compressedFile.size / 1024).toFixed(1)}KB, type: ${compressedFile.type}`);
+
+            // STEP 3: Prepare Firebase Storage reference
+            const storageRef = firebase.storage().ref();
+            const imageRef = storageRef.child(`dailyPosts/${user.uid}/${filename}`);
+
+            console.log(`📤 Uploading compressed file: ${filename}`);
+
+            // STEP 4: Upload with progress tracking (resumable)
+            const uploadTask = imageRef.put(compressedFile, {
+                contentType: 'image/jpeg',
+                cacheControl: 'public, max-age=31536000' // 1 year CDN cache
+            });
+
+            // STEP 4: Track progress and handle completion
+            return new Promise((resolve, reject) => {
+                uploadTask.on('state_changed',
+                    // Progress callback
+                    (snapshot) => {
+                        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                        console.log(`📊 Upload progress: ${Math.round(progress)}%`);
+                        if (onProgress) onProgress(progress);
+                    },
+
+                    // Error callback
+                    (error) => {
+                        console.error('❌ Upload error:', error);
+                        console.error('Error code:', error.code);
+                        console.error('Error message:', error.message);
+                        console.error('Full error object:', JSON.stringify(error, null, 2));
+
+                        // Try to get server response details
+                        if (error.serverResponse) {
+                            console.error('Server response:', error.serverResponse);
+                        }
+                        if (error.customData) {
+                            console.error('Custom data:', error.customData);
+                        }
+
+                        // Handle specific Firebase Storage errors
+                        if (error.code === 'storage/unauthorized') {
+                            reject(new Error('Permission denied. Firebase Storage rules may not be configured correctly.'));
+                        } else if (error.code === 'storage/canceled') {
+                            reject(new Error('Upload was canceled'));
+                        } else if (error.code === 'storage/quota-exceeded') {
+                            reject(new Error('Storage quota exceeded. Please contact support.'));
+                        } else if (error.code === 'storage/retry-limit-exceeded') {
+                            reject(new Error('Upload failed after multiple retries. Please check your connection.'));
+                        } else {
+                            reject(new Error(`Upload failed: ${error.message}`));
+                        }
+                    },
+
+                    // Success callback
+                    async () => {
+                        try {
+                            const downloadURL = await uploadTask.snapshot.ref.getDownloadURL();
+                            console.log(`✅ Upload complete!`);
+                            console.log(`🔗 Download URL: ${downloadURL}`);
+                            resolve({ url: downloadURL, name: file.name });
+                        } catch (error) {
+                            console.error('❌ Failed to get download URL:', error);
+                            reject(new Error(`Failed to get download URL: ${error.message}`));
+                        }
+                    }
+                );
+            });
+
+        } catch (error) {
+            console.error('❌ Error in uploadImage function:', error);
+            throw error;
+        }
+    };
+
+    // Handle reaction to My Day post (with Firestore transaction)
+    const handleReaction = async (postId, reactionType) => {
+        if (!user) {
+            alert('Please sign in to react to posts.');
+            return;
+        }
+
+        try {
+            const postRef = db.collection('dailyPosts').doc(postId);
+
+            await db.runTransaction(async (transaction) => {
+                const postDoc = await transaction.get(postRef);
+
+                if (!postDoc.exists) {
+                    throw new Error('Post not found');
+                }
+
+                const postData = postDoc.data();
+                const currentReaction = postData.reactedBy?.[user.uid];
+
+                // Initialize reactions object if it doesn't exist
+                const reactions = postData.reactions || { heart: [], support: [], celebrate: [] };
+                const reactedBy = postData.reactedBy || {};
+
+                if (currentReaction === reactionType) {
+                    // Scenario 2: Remove reaction (toggle off)
+                    // Remove user from reaction array
+                    reactions[reactionType] = (reactions[reactionType] || []).filter(uid => uid !== user.uid);
+                    delete reactedBy[user.uid];
+                } else if (currentReaction) {
+                    // Scenario 3: Change reaction
+                    // Remove from old reaction array
+                    reactions[currentReaction] = (reactions[currentReaction] || []).filter(uid => uid !== user.uid);
+                    // Add to new reaction array
+                    if (!reactions[reactionType].includes(user.uid)) {
+                        reactions[reactionType].push(user.uid);
+                    }
+                    reactedBy[user.uid] = reactionType;
+                } else {
+                    // Scenario 1: Add new reaction
+                    if (!reactions[reactionType].includes(user.uid)) {
+                        reactions[reactionType].push(user.uid);
+                    }
+                    reactedBy[user.uid] = reactionType;
+                }
+
+                // Update post with new reactions
+                transaction.update(postRef, {
+                    reactions,
+                    reactedBy
+                });
+            });
+
+            // Haptic feedback (utility function handles Safari iOS detection)
+            if (window.GLRSApp?.utils?.triggerHaptic) {
+                window.GLRSApp.utils.triggerHaptic('light');
+            }
+
+        } catch (error) {
+            console.error('Error handling reaction:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.handleReaction');
+            alert('Failed to update reaction. Please try again.');
+        }
+    };
+
+    // Handle reaction to Community message (same logic as My Day)
+    const handleCommunityReaction = async (messageId, reactionType) => {
+        if (!user) {
+            alert('Please sign in to react to messages.');
+            return;
+        }
+
+        try {
+            const messageRef = db.collection('messages').doc(messageId);
+
+            await db.runTransaction(async (transaction) => {
+                const messageDoc = await transaction.get(messageRef);
+
+                if (!messageDoc.exists) {
+                    throw new Error('Message not found');
+                }
+
+                const messageData = messageDoc.data();
+                const currentReaction = messageData.reactedBy?.[user.uid];
+
+                const reactions = messageData.reactions || { heart: [], support: [], celebrate: [] };
+                const reactedBy = messageData.reactedBy || {};
+
+                if (currentReaction === reactionType) {
+                    reactions[reactionType] = (reactions[reactionType] || []).filter(uid => uid !== user.uid);
+                    delete reactedBy[user.uid];
+                } else if (currentReaction) {
+                    reactions[currentReaction] = (reactions[currentReaction] || []).filter(uid => uid !== user.uid);
+                    if (!reactions[reactionType].includes(user.uid)) {
+                        reactions[reactionType].push(user.uid);
+                    }
+                    reactedBy[user.uid] = reactionType;
+                } else {
+                    if (!reactions[reactionType].includes(user.uid)) {
+                        reactions[reactionType].push(user.uid);
+                    }
+                    reactedBy[user.uid] = reactionType;
+                }
+
+                transaction.update(messageRef, {
+                    reactions,
+                    reactedBy
+                });
+            });
+
+            if (window.GLRSApp?.utils?.triggerHaptic) {
+                window.GLRSApp.utils.triggerHaptic('light');
+            }
+
+        } catch (error) {
+            console.error('Error handling community reaction:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.handleCommunityReaction');
+            alert('Failed to update reaction. Please try again.');
+        }
+    };
+
+    // Submit My Day post
+    const handleMyDaySubmit = async () => {
+        if (!user || !myDayContent.trim() || myDaySubmitting) return;
+
+        // Validate content length
+        if (myDayContent.length > 500) {
+            alert('Post content must be 500 characters or less.');
+            return;
+        }
+
+        setMyDaySubmitting(true);
+        let uploadedImageRef = null; // PHASE 6: Track uploaded file for cleanup
+
+        try {
+            // STEP 1: Get user data for display name
+            console.log('📝 Step 1: Loading user data...');
+            const userDoc = await db.collection('users').doc(user.uid).get();
+            const userData = userDoc.data();
+
+            // STEP 2: Upload image FIRST (if present) - CRITICAL: Must complete before post creation
+            let imageData = { url: null, name: null };
+            if (myDayImage) {
+                console.log('📤 Step 2: Uploading image...');
+                setUploadingImage(true);
+
+                try {
+                    // PHASE 5: Use retry logic with progress tracking
+                    imageData = await uploadImageWithRetry(
+                        myDayImage,
+                        (progress) => {
+                            setUploadProgress(progress);
+                        },
+                        3 // maxRetries
+                    );
+
+                    // PHASE 6: Store Firebase Storage reference for potential cleanup
+                    uploadedImageRef = firebase.storage().refFromURL(imageData.url);
+
+                    console.log('✅ Image upload complete:', imageData);
+                } catch (uploadError) {
+                    // If image upload fails, abort post creation
+                    console.error('❌ Image upload failed:', uploadError);
+                    setUploadingImage(false);
+                    setMyDaySubmitting(false);
+                    setUploadProgress(0); // PHASE 5: Reset progress on error
+
+                    // PHASE 6: User-friendly error messages based on error type
+                    let errorMessage = 'Image upload failed. ';
+                    if (uploadError.message.includes('Permission denied')) {
+                        errorMessage += 'Storage permissions are not configured. Please contact support.';
+                    } else if (uploadError.message.includes('quota')) {
+                        errorMessage += 'Storage limit reached. Please try a smaller image.';
+                    } else if (uploadError.message.includes('canceled')) {
+                        errorMessage += 'Upload was canceled.';
+                    } else {
+                        errorMessage += 'Please check your connection and try again.';
+                    }
+
+                    alert(errorMessage);
+                    return; // ABORT - don't create post without image
+                }
+
+                setUploadingImage(false);
+            }
+
+            // STEP 3: Create post document (with cleanup on failure) - PHASE 6
+            console.log('💾 Step 3: Creating post document...');
+
+            try {
+                await db.collection('dailyPosts').add({
+                    userId: user.uid,
+                    displayName: myDayAnonymous ? 'Anonymous' : (userData?.firstName ? `${userData.firstName} ${userData.lastName || ''}`.trim() : user.displayName || user.email),
+                    content: myDayContent.trim(),
+                    type: myDayPostType,
+                    anonymous: myDayAnonymous,
+                    hidden: false,
+                    imageUrl: imageData.url,
+                    imageName: imageData.name,
+                    reactions: {
+                        heart: [],
+                        support: [],
+                        celebrate: []
+                    },
+                    reactedBy: {},
+                    commentCount: 0,
+                    replyCount: 0,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+            console.log('✅ Post created successfully');
+
+            // STEP 4: Success - reset form and close modal
+            setMyDayContent('');
+            setMyDayPostType('reflection');
+            setMyDayAnonymous(false);
+            setMyDayImage(null);
+            setMyDayImagePreview(null);
+            setShowMyDayModal(false);
+
+            // Show success notification
+            if (window.GLRSApp?.utils?.showNotification) {
+                window.GLRSApp.utils.showNotification('Post shared successfully!', 'success');
+            }
+
+            } catch (firestoreError) {
+                // PHASE 6: CLEANUP - Delete uploaded image if post creation failed
+                console.error('❌ Firestore write failed:', firestoreError);
+
+                if (uploadedImageRef) {
+                    console.log('🗑️ Attempting to clean up orphaned image...');
+                    try {
+                        await uploadedImageRef.delete();
+                        console.log('✅ Cleaned up orphaned image successfully');
+                    } catch (cleanupError) {
+                        console.error('⚠️ Cleanup failed - image orphaned in Storage:', cleanupError);
+                        console.error('Orphaned file path:', uploadedImageRef.fullPath);
+                        console.error('Orphaned file URL:', await uploadedImageRef.getDownloadURL().catch(() => 'URL unavailable'));
+                    }
+                }
+
+                // Re-throw to hit outer catch block for user notification
+                throw new Error(`Failed to create post: ${firestoreError.message}`);
+            }
+
+        } catch (error) {
+            console.error('❌ Error creating My Day post:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'CommunityTab.handleMyDaySubmit');
+            alert(`Failed to create post: ${error.message}`);
+        } finally {
+            setMyDaySubmitting(false);
+            setUploadingImage(false);
+            setUploadProgress(0); // PHASE 5: Reset progress
         }
     };
 
@@ -362,36 +1839,255 @@ function CommunityTab({
         );
     }
 
+    // PHASE 4: Show UserProfileView if viewing a user's profile
+    if (viewingUserProfile) {
+        const UserProfileView = window.UserProfileView;
+
+        if (!UserProfileView) {
+            console.error('❌ UserProfileView component not loaded');
+            setViewingUserProfile(null);
+            return null;
+        }
+
+        return (
+            <UserProfileView
+                userId={viewingUserProfile}
+                currentUser={user}
+                userData={currentUserData}
+                onBack={() => setViewingUserProfile(null)}
+            />
+        );
+    }
+
     return (
         <div className="section-content">
-            <h2 style={{color: 'white', marginBottom: '20px'}}>Community Connect</h2>
-            
-            <div className="chat-tabs">
+            {/* Connect Header - Fixed at top */}
+            <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: isMobile ? '48px' : '56px',
+                background: '#058585',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: isMobile ? '0 8px' : '0 12px',
+                zIndex: 100,
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                {/* LEFT: Hamburger Menu + Connect Title */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px' }}>
+                    <button
+                        onClick={() => {
+                            if (window.GLRSApp?.utils?.triggerHaptic) window.GLRSApp.utils.triggerHaptic('light');
+                            setShowSidebar(true);
+                        }}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: isMobile ? '6px' : '8px',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'background 0.2s',
+                            minWidth: isMobile ? '44px' : '40px',
+                            minHeight: isMobile ? '44px' : '40px'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                        <i data-lucide="menu" style={{ width: isMobile ? '22px' : '24px', height: isMobile ? '22px' : '24px', color: '#FFFFFF' }}></i>
+                    </button>
+
+                    <h1 style={{
+                        color: '#FFFFFF',
+                        fontSize: isMobile ? '16px' : '18px',
+                        fontWeight: 'bold',
+                        margin: 0
+                    }}>
+                        Connect
+                    </h1>
+                </div>
+
+                {/* RIGHT: Search Icon + Profile Icon */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '8px' }}>
+                    {/* Search Button - Phase 7: Fixed broken reference (meetings browser removed) */}
+                    <button
+                        onClick={() => {
+                            if (window.GLRSApp?.utils?.triggerHaptic) window.GLRSApp.utils.triggerHaptic('light');
+                            if (window.showNotification) {
+                                window.showNotification('Search coming soon!', 'info');
+                            }
+                        }}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: isMobile ? '6px' : '8px',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'background 0.2s',
+                            minWidth: isMobile ? '44px' : '40px',
+                            minHeight: isMobile ? '44px' : '40px'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                        <i data-lucide="search" style={{ width: isMobile ? '22px' : '24px', height: isMobile ? '22px' : '24px', color: '#FFFFFF' }}></i>
+                    </button>
+
+                    {/* Profile Button */}
+                    <button
+                        onClick={() => {
+                            if (window.GLRSApp?.utils?.triggerHaptic) window.GLRSApp.utils.triggerHaptic('light');
+                            if (window.navigateToTab) {
+                                window.navigateToTab('profile');
+                            }
+                        }}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: isMobile ? '6px' : '8px',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'background 0.2s',
+                            minWidth: isMobile ? '44px' : '40px',
+                            minHeight: isMobile ? '44px' : '40px'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                        onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                        <i data-lucide="user" style={{ width: isMobile ? '22px' : '24px', height: isMobile ? '22px' : '24px', color: '#FFFFFF' }}></i>
+                    </button>
+                </div>
+            </div>
+
+            {/* Tab Navigation - Fixed position, below Community header */}
+            <div style={{
+                background: '#058585',
+                display: 'flex',
+                justifyContent: 'space-around',
+                alignItems: 'center',
+                height: isMobile ? '48px' : '52px',
+                position: 'fixed',
+                top: isMobile ? '48px' : '56px',
+                left: 0,
+                right: 0,
+                zIndex: 99,
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
                 <button
-                    className={`tab-btn ${activeChat === 'main' ? 'active' : ''}`}
-                    onClick={() => setActiveChat('main')}
+                    onClick={() => {
+                        if (window.GLRSApp?.utils?.triggerHaptic) window.GLRSApp.utils.triggerHaptic('light');
+                        setActiveChat('main');
+                    }}
+                    style={{
+                        flex: 1,
+                        height: '100%',
+                        background: 'none',
+                        border: 'none',
+                        color: activeChat === 'main' ? '#FFFFFF' : 'rgba(255,255,255,0.7)',
+                        fontSize: isMobile ? '13px' : '14px',
+                        fontWeight: activeChat === 'main' ? 'bold' : '400',
+                        cursor: 'pointer',
+                        position: 'relative',
+                        transition: 'all 0.2s',
+                        minHeight: isMobile ? '44px' : 'auto'
+                    }}
                 >
                     GLRS Community
+                    {activeChat === 'main' && (
+                        <div style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            width: '60%',
+                            height: '2px',
+                            background: '#FFFFFF'
+                        }} />
+                    )}
                 </button>
+
                 <button
-                    className={`tab-btn ${activeChat === 'rooms' ? 'active' : ''}`}
-                    onClick={() => setActiveChat('rooms')}
+                    onClick={() => {
+                        if (window.GLRSApp?.utils?.triggerHaptic) window.GLRSApp.utils.triggerHaptic('light');
+                        setActiveChat('myday');
+                    }}
+                    style={{
+                        flex: 1,
+                        height: '100%',
+                        background: 'none',
+                        border: 'none',
+                        color: activeChat === 'myday' ? '#FFFFFF' : 'rgba(255,255,255,0.7)',
+                        fontSize: isMobile ? '13px' : '14px',
+                        fontWeight: activeChat === 'myday' ? 'bold' : '400',
+                        cursor: 'pointer',
+                        position: 'relative',
+                        transition: 'all 0.2s',
+                        minHeight: isMobile ? '44px' : 'auto'
+                    }}
                 >
-                    Topic Rooms
+                    My Day
+                    {activeChat === 'myday' && (
+                        <div style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            width: '60%',
+                            height: '2px',
+                            background: '#FFFFFF'
+                        }} />
+                    )}
                 </button>
+
                 <button
-                    className={`tab-btn ${activeChat === 'groups' ? 'active' : ''}`}
-                    onClick={() => setActiveChat('groups')}
+                    onClick={() => {
+                        if (window.GLRSApp?.utils?.triggerHaptic) window.GLRSApp.utils.triggerHaptic('light');
+                        setActiveChat('groups');
+                    }}
+                    style={{
+                        flex: 1,
+                        height: '100%',
+                        background: 'none',
+                        border: 'none',
+                        color: activeChat === 'groups' ? '#FFFFFF' : 'rgba(255,255,255,0.7)',
+                        fontSize: isMobile ? '13px' : '14px',
+                        fontWeight: activeChat === 'groups' ? 'bold' : '400',
+                        cursor: 'pointer',
+                        position: 'relative',
+                        transition: 'all 0.2s',
+                        minHeight: isMobile ? '44px' : 'auto'
+                    }}
                 >
                     Support Groups
+                    {activeChat === 'groups' && (
+                        <div style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            width: '60%',
+                            height: '2px',
+                            background: '#FFFFFF'
+                        }} />
+                    )}
                 </button>
-                <button
-                    className={`tab-btn ${activeChat === 'meetings' ? 'active' : ''}`}
-                    onClick={() => setActiveChat('meetings')}
-                >
-                    Meetings
-                </button>
+
+                {/* Phase 6: Meetings button removed - functionality moved to MeetingsTab */}
             </div>
+
+            {/* Content wrapper with top padding to account for fixed header */}
+            <div style={{paddingTop: isMobile ? '96px' : '108px'}}>
 
             {activeChat === 'main' && (
                 <CommunityChat
@@ -401,228 +2097,1222 @@ function CommunityTab({
                     uploadChatImage={uploadChatImage}
                     flagContent={flagContent}
                     setModalImage={setModalImage}
+                    onReaction={handleCommunityReaction}
+                    currentUser={user}
+                    currentUserData={currentUserData}
+                    showComments={communityShowComments}
+                    toggleComments={toggleCommunityComments}
+                    commentText={communityCommentText}
+                    setCommentText={setCommunityCommentText}
+                    postComments={communityComments}
+                    loadingComments={communityLoadingComments}
+                    submittingComment={communitySubmittingComment}
+                    handleAddComment={handleAddCommunityComment}
+                    handleDeleteComment={handleDeleteCommunityComment}
+                    handleDeletePost={handleDeletePost}
+                    handleReportPost={handleReportPost}
+                    isCoachOrAdmin={isCoachOrAdmin}
+                    formatMyDayTimestamp={formatMyDayTimestamp}
+                    isAnonymous={communityAnonymous}
+                    setIsAnonymous={setCommunityAnonymous}
+                    handleAvatarClick={handleAvatarClick}
+                    isMobile={isMobile}
                 />
             )}
 
-            {activeChat === 'rooms' && (
-                <>
-                    <h3 style={{color: '#f4c430', marginBottom: '20px'}}>Recovery Topic Rooms</h3>
-                    {topicRooms?.length > 0 ? (
-                        topicRooms.map(room => (
-                            <div
-                                key={room.id}
-                                className="room-card"
-                                onClick={() => enterTopicRoom(room)}
-                            >
-                                <div className="room-icon">
-                                    {room.icon ? room.icon : <i data-lucide="message-circle" style={{width: '24px', height: '24px'}}></i>}
-                                </div>
-                                <h4>{room.name}</h4>
-                                <p style={{color: 'rgba(255,255,255,0.7)'}}>{room.description}</p>
-                            </div>
-                        ))
-                    ) : (
-                        <div className="empty-state">
-                            <div className="empty-state-icon">
-                                <i data-lucide="message-square" style={{width: '48px', height: '48px', color: 'var(--color-text-secondary)'}}></i>
-                            </div>
-                            <div className="empty-state-text">No topic rooms available yet.</div>
+            {activeChat === 'myday' && (
+                <div style={{ background: '#F0F2F5', padding: isMobile ? '0 12px' : '0 20px', minHeight: 'calc(100vh - 140px)' }}>
+                    {/* Create Post Card */}
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: isMobile ? '6px' : '8px',
+                        padding: isMobile ? '12px' : '16px',
+                        marginBottom: '12px',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                        textAlign: 'center'
+                    }}>
+                        <h3 style={{ color: '#333', marginBottom: isMobile ? '6px' : '8px', fontSize: isMobile ? '15px' : '16px', fontWeight: 'bold' }}>Share Your Day</h3>
+                        <p style={{ color: '#666', fontSize: isMobile ? '12px' : '13px', marginBottom: isMobile ? '12px' : '16px', lineHeight: '1.4' }}>
+                            Share reflections on your recovery journey or celebrate daily wins with the community.
+                        </p>
+                        <button
+                            onClick={() => setShowMyDayModal(true)}
+                            style={{
+                                padding: isMobile ? '10px 16px' : '10px 24px',
+                                background: 'linear-gradient(135deg, #058585, #069494)',
+                                border: 'none',
+                                borderRadius: isMobile ? '6px' : '8px',
+                                color: '#fff',
+                                fontSize: isMobile ? '13px' : '14px',
+                                fontWeight: 'bold',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: isMobile ? '6px' : '8px',
+                                boxShadow: '0 2px 8px rgba(5,133,133,0.3)',
+                                transition: 'transform 0.2s ease',
+                                minHeight: isMobile ? '44px' : 'auto'
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-1px)'}
+                            onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            <i data-lucide="plus-circle" style={{ width: isMobile ? '16px' : '18px', height: isMobile ? '16px' : '18px' }}></i>
+                            Create Post
+                        </button>
+                    </div>
+
+                    {/* Filter Chips */}
+                    <div style={{
+                        display: 'flex',
+                        gap: isMobile ? '8px' : '12px',
+                        marginBottom: '12px',
+                        overflowX: 'auto',
+                        paddingBottom: '4px'
+                    }}>
+                        <button
+                            onClick={() => setMyDayFilter('all')}
+                            style={{
+                                padding: isMobile ? '8px 12px' : '8px 16px',
+                                background: myDayFilter === 'all' ? '#069494' : '#FFFFFF',
+                                color: myDayFilter === 'all' ? '#FFFFFF' : '#65676B',
+                                border: myDayFilter === 'all' ? 'none' : '1px solid #CCD0D5',
+                                borderRadius: isMobile ? '16px' : '20px',
+                                fontSize: isMobile ? '12px' : '13px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.2s ease',
+                                boxShadow: myDayFilter === 'all' ? '0 2px 4px rgba(6,148,148,0.3)' : 'none',
+                                minHeight: isMobile ? '36px' : 'auto'
+                            }}
+                        >
+                            Show All
+                        </button>
+                        <button
+                            onClick={() => setMyDayFilter('reflections')}
+                            style={{
+                                padding: isMobile ? '8px 12px' : '8px 16px',
+                                background: myDayFilter === 'reflections' ? '#069494' : '#FFFFFF',
+                                color: myDayFilter === 'reflections' ? '#FFFFFF' : '#65676B',
+                                border: myDayFilter === 'reflections' ? 'none' : '1px solid #CCD0D5',
+                                borderRadius: isMobile ? '16px' : '20px',
+                                fontSize: isMobile ? '12px' : '13px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.2s ease',
+                                boxShadow: myDayFilter === 'reflections' ? '0 2px 4px rgba(6,148,148,0.3)' : 'none',
+                                minHeight: isMobile ? '36px' : 'auto'
+                            }}
+                        >
+                            💭 Reflections
+                        </button>
+                        <button
+                            onClick={() => setMyDayFilter('wins')}
+                            style={{
+                                padding: isMobile ? '8px 12px' : '8px 16px',
+                                background: myDayFilter === 'wins' ? '#069494' : '#FFFFFF',
+                                color: myDayFilter === 'wins' ? '#FFFFFF' : '#65676B',
+                                border: myDayFilter === 'wins' ? 'none' : '1px solid #CCD0D5',
+                                borderRadius: isMobile ? '16px' : '20px',
+                                fontSize: isMobile ? '12px' : '13px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.2s ease',
+                                boxShadow: myDayFilter === 'wins' ? '0 2px 4px rgba(6,148,148,0.3)' : 'none',
+                                minHeight: isMobile ? '36px' : 'auto'
+                            }}
+                        >
+                            🎉 Wins
+                        </button>
+                        <button
+                            onClick={() => setMyDayFilter('mine')}
+                            style={{
+                                padding: isMobile ? '8px 12px' : '8px 16px',
+                                background: myDayFilter === 'mine' ? '#069494' : '#FFFFFF',
+                                color: myDayFilter === 'mine' ? '#FFFFFF' : '#65676B',
+                                border: myDayFilter === 'mine' ? 'none' : '1px solid #CCD0D5',
+                                borderRadius: isMobile ? '16px' : '20px',
+                                fontSize: isMobile ? '12px' : '13px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.2s ease',
+                                boxShadow: myDayFilter === 'mine' ? '0 2px 4px rgba(6,148,148,0.3)' : 'none',
+                                minHeight: isMobile ? '36px' : 'auto'
+                            }}
+                        >
+                            My Posts
+                        </button>
+                    </div>
+
+                    {/* Loading State */}
+                    {myDayLoading && (
+                        <div style={{
+                            background: '#FFFFFF',
+                            borderRadius: isMobile ? '6px' : '8px',
+                            padding: isMobile ? '24px' : '40px',
+                            textAlign: 'center',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                        }}>
+                            <div style={{
+                                width: isMobile ? '32px' : '40px',
+                                height: isMobile ? '32px' : '40px',
+                                border: '4px solid #f3f3f3',
+                                borderTop: '4px solid #069494',
+                                borderRadius: '50%',
+                                animation: 'spin 1s linear infinite',
+                                margin: isMobile ? '0 auto 12px' : '0 auto 16px'
+                            }}></div>
+                            <p style={{ color: '#65676B', fontSize: isMobile ? '13px' : '14px', margin: 0 }}>Loading posts...</p>
                         </div>
                     )}
-                </>
+
+                    {/* Feed - Empty State */}
+                    {!myDayLoading && getFilteredPosts().length === 0 && (
+                        <div style={{
+                            background: '#FFFFFF',
+                            borderRadius: isMobile ? '6px' : '8px',
+                            padding: isMobile ? '24px' : '40px',
+                            textAlign: 'center',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                        }}>
+                            <div style={{ fontSize: isMobile ? '40px' : '48px', marginBottom: isMobile ? '8px' : '12px' }}>💭</div>
+                            <h4 style={{ color: '#333', fontSize: isMobile ? '15px' : '16px', fontWeight: 'bold', marginBottom: isMobile ? '6px' : '8px' }}>
+                                No posts yet
+                            </h4>
+                            <p style={{ color: '#65676B', fontSize: isMobile ? '12px' : '13px', margin: 0 }}>
+                                Be the first to share your reflection or win!
+                            </p>
+                        </div>
+                    )}
+
+                    {/* Feed - Post Cards */}
+                    {!myDayLoading && getFilteredPosts().map(post => {
+                        const isAnonymous = post.anonymous;
+                        const showRealName = isCoachOrAdmin();
+                        const displayName = (isAnonymous && !showRealName) ? 'Anonymous' : post.displayName;
+                        const isOwnPost = post.userId === user?.uid;
+
+                        return (
+                            <div
+                                key={post.id}
+                                style={{
+                                    background: '#FFFFFF',
+                                    borderRadius: '8px',
+                                    padding: isMobile ? '12px' : '16px',
+                                    marginBottom: '12px',
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                                }}
+                            >
+                                {/* Post Header */}
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: isMobile ? 'flex-start' : 'center',
+                                    flexDirection: isMobile ? 'column' : 'row',
+                                    gap: isMobile ? '8px' : '0',
+                                    marginBottom: '12px'
+                                }}>
+                                    {/* Left: Avatar + User Info */}
+                                    <div style={{
+                                        display: 'flex',
+                                        alignItems: 'flex-start',
+                                        gap: isMobile ? '8px' : '12px',
+                                        flex: isMobile ? 1 : 'unset',
+                                        width: isMobile ? '100%' : 'auto',
+                                        minWidth: 0
+                                    }}>
+                                        {/* Avatar - CLICKABLE (PHASE 4) */}
+                                        <div
+                                            onClick={() => handleAvatarClick(post.userId, isAnonymous && !showRealName)}
+                                            style={{
+                                                width: isMobile ? '36px' : '40px',
+                                                height: isMobile ? '36px' : '40px',
+                                                borderRadius: '50%',
+                                                background: isAnonymous && !showRealName
+                                                    ? '#CCD0D5'
+                                                    : 'linear-gradient(135deg, #069494, #058585)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                color: '#fff',
+                                                fontSize: isMobile ? '16px' : '18px',
+                                                fontWeight: 'bold',
+                                                flexShrink: 0,
+                                                cursor: (isAnonymous && !showRealName) ? 'default' : 'pointer',
+                                                transition: 'transform 0.2s ease'
+                                            }}
+                                            onMouseEnter={(e) => {
+                                                if (!(isAnonymous && !showRealName)) {
+                                                    e.currentTarget.style.transform = 'scale(1.05)';
+                                                }
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.transform = 'scale(1)';
+                                            }}
+                                        >
+                                            {isAnonymous && !showRealName ? '👤' : (displayName?.[0] || '?').toUpperCase()}
+                                        </div>
+
+                                        {/* User Info */}
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                            {/* Display Name - CLICKABLE (PHASE 4) */}
+                                            <span
+                                                onClick={() => handleAvatarClick(post.userId, isAnonymous && !showRealName)}
+                                                style={{
+                                                    color: '#050505',
+                                                    fontSize: '15px',
+                                                    fontWeight: '600',
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    whiteSpace: 'nowrap',
+                                                    cursor: (isAnonymous && !showRealName) ? 'default' : 'pointer',
+                                                    transition: 'color 0.2s ease'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    if (!(isAnonymous && !showRealName)) {
+                                                        e.currentTarget.style.color = '#069494';
+                                                    }
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.color = '#050505';
+                                                }}
+                                            >
+                                                {displayName}
+                                            </span>
+                                            {isAnonymous && showRealName && (
+                                                <span style={{
+                                                    fontSize: '11px',
+                                                    color: '#65676B',
+                                                    background: '#F0F2F5',
+                                                    padding: '2px 6px',
+                                                    borderRadius: '4px',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px'
+                                                }}>
+                                                    🔒 Real: {post.displayName}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            {/* Type Badge */}
+                                            <span style={{
+                                                fontSize: '12px',
+                                                fontWeight: '600',
+                                                padding: '2px 6px',
+                                                borderRadius: '12px',
+                                                background: post.type === 'reflection' ? '#E7F3FF' : '#FFF4E6',
+                                                color: post.type === 'reflection' ? '#1877F2' : '#E67E22',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '4px'
+                                            }}>
+                                                {post.type === 'reflection' ? '💭' : '🎉'}
+                                                {post.type === 'reflection' ? 'Reflection' : 'Win'}
+                                            </span>
+                                            {/* Timestamp */}
+                                            <span style={{ fontSize: '12px', color: '#65676B' }}>
+                                                {formatMyDayTimestamp(post.createdAt)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    </div>
+
+                                    {/* Three-Dot Menu */}
+                                    <div style={{ position: 'relative' }}>
+                                        <button
+                                            data-post-menu-button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setOpenPostMenu(openPostMenu === post.id ? null : post.id);
+                                            }}
+                                            style={{
+                                                background: 'transparent',
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                padding: '8px',
+                                                color: '#65676B',
+                                                fontSize: '20px',
+                                                lineHeight: 1,
+                                                alignSelf: isMobile ? 'flex-end' : 'auto'
+                                            }}
+                                            title="More options"
+                                        >
+                                            ⋯
+                                        </button>
+
+                                        {/* Dropdown Menu */}
+                                        {openPostMenu === post.id && (
+                                            <div
+                                                data-post-menu-dropdown
+                                                style={{
+                                                    position: 'absolute',
+                                                    top: '100%',
+                                                    right: 0,
+                                                    background: '#FFFFFF',
+                                                    border: '1px solid #CCD0D5',
+                                                    borderRadius: '8px',
+                                                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                                    minWidth: '180px',
+                                                    zIndex: 1000,
+                                                    overflow: 'hidden'
+                                                }}
+                                            >
+                                                {/* Delete Post - Show if own post OR coach/admin */}
+                                                {(post.userId === user?.uid || isCoachOrAdmin()) && (
+                                                    <button
+                                                        onClick={() => handleDeletePost(post.id, post)}
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '12px 16px',
+                                                            background: 'transparent',
+                                                            border: 'none',
+                                                            textAlign: 'left',
+                                                            cursor: 'pointer',
+                                                            color: '#F02849',
+                                                            fontSize: '15px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '12px'
+                                                        }}
+                                                        onMouseEnter={(e) => e.target.style.background = '#F0F2F5'}
+                                                        onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                                                    >
+                                                        <i data-lucide="trash-2" style={{width: '18px', height: '18px'}}></i>
+                                                        Delete Post
+                                                    </button>
+                                                )}
+
+                                                {/* Report Post - Show for everyone */}
+                                                <button
+                                                    onClick={() => handleReportPost(post.id, post)}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '12px 16px',
+                                                        background: 'transparent',
+                                                        border: 'none',
+                                                        textAlign: 'left',
+                                                        cursor: 'pointer',
+                                                        color: '#050505',
+                                                        fontSize: '15px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '12px'
+                                                    }}
+                                                    onMouseEnter={(e) => e.target.style.background = '#F0F2F5'}
+                                                    onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                                                >
+                                                    <i data-lucide="alert-triangle" style={{width: '18px', height: '18px'}}></i>
+                                                    Report Post
+                                                </button>
+
+                                                {/* Block User - Show if not own post AND not anonymous */}
+                                                {post.userId !== user?.uid && !post.anonymous && (
+                                                    <button
+                                                        onClick={() => handleBlockUser(post)}
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '12px 16px',
+                                                            background: 'transparent',
+                                                            border: 'none',
+                                                            textAlign: 'left',
+                                                            cursor: 'pointer',
+                                                            color: '#F02849',
+                                                            fontSize: '15px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '12px'
+                                                        }}
+                                                        onMouseEnter={(e) => e.target.style.background = '#F0F2F5'}
+                                                        onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                                                    >
+                                                        <i data-lucide="ban" style={{width: '18px', height: '18px'}}></i>
+                                                        Block User
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Post Content */}
+                                <div style={{
+                                    color: '#050505',
+                                    fontSize: '15px',
+                                    lineHeight: '20px',
+                                    marginBottom: post.imageUrl ? '12px' : '12px',
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-word'
+                                }}>
+                                    {post.content}
+                                </div>
+
+                                {/* Post Image */}
+                                {post.imageUrl && (
+                                    <div style={{ marginBottom: '12px' }}>
+                                        <img
+                                            src={post.imageUrl}
+                                            alt="Post image"
+                                            onClick={() => setViewingImage(post.imageUrl)}
+                                            style={{
+                                                width: '100%',
+                                                maxWidth: isMobile ? 'none' : '600px',
+                                                maxHeight: '500px',
+                                                objectFit: 'contain',
+                                                borderRadius: '8px',
+                                                cursor: 'pointer',
+                                                transition: 'opacity 0.2s ease',
+                                                display: 'block'
+                                            }}
+                                            onMouseOver={(e) => { e.currentTarget.style.opacity = '0.9'; }}
+                                            onMouseOut={(e) => { e.currentTarget.style.opacity = '1'; }}
+                                        />
+                                    </div>
+                                )}
+
+                                {/* Reactions Section */}
+                                <div style={{
+                                    paddingTop: '12px',
+                                    borderTop: '1px solid #E4E6EB'
+                                }}>
+                                    {/* Reaction Buttons */}
+                                    <div style={{
+                                        display: 'flex',
+                                        gap: '8px',
+                                        marginBottom: '8px'
+                                    }}>
+                                        {/* Heart Button */}
+                                        <button
+                                            onClick={() => handleReaction(post.id, 'heart')}
+                                            style={{
+                                                flex: 1,
+                                                padding: '8px',
+                                                background: post.reactedBy?.[user?.uid] === 'heart' ? '#F0F2F5' : 'transparent',
+                                                color: post.reactedBy?.[user?.uid] === 'heart' ? '#F02849' : '#65676B',
+                                                border: 'none',
+                                                borderRadius: '6px',
+                                                fontSize: '15px',
+                                                fontWeight: post.reactedBy?.[user?.uid] === 'heart' ? '600' : '400',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '6px',
+                                                transition: 'all 0.2s ease',
+                                                minHeight: '36px'
+                                            }}
+                                            onMouseOver={(e) => { e.currentTarget.style.background = '#F0F2F5'; }}
+                                            onMouseOut={(e) => {
+                                                e.currentTarget.style.background = post.reactedBy?.[user?.uid] === 'heart' ? '#F0F2F5' : 'transparent';
+                                            }}
+                                        >
+                                            <span>❤️</span>
+                                            <span>Heart</span>
+                                            {(post.reactions?.heart?.length || 0) > 0 && (
+                                                <span style={{ fontSize: '13px', opacity: 0.8 }}>
+                                                    ({post.reactions.heart.length})
+                                                </span>
+                                            )}
+                                        </button>
+
+                                        {/* Support Button */}
+                                        <button
+                                            onClick={() => handleReaction(post.id, 'support')}
+                                            style={{
+                                                flex: 1,
+                                                padding: '8px',
+                                                background: post.reactedBy?.[user?.uid] === 'support' ? '#F0F2F5' : 'transparent',
+                                                color: post.reactedBy?.[user?.uid] === 'support' ? '#069494' : '#65676B',
+                                                border: 'none',
+                                                borderRadius: '6px',
+                                                fontSize: '15px',
+                                                fontWeight: post.reactedBy?.[user?.uid] === 'support' ? '600' : '400',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '6px',
+                                                transition: 'all 0.2s ease',
+                                                minHeight: '36px'
+                                            }}
+                                            onMouseOver={(e) => { e.currentTarget.style.background = '#F0F2F5'; }}
+                                            onMouseOut={(e) => {
+                                                e.currentTarget.style.background = post.reactedBy?.[user?.uid] === 'support' ? '#F0F2F5' : 'transparent';
+                                            }}
+                                        >
+                                            <span>🤝</span>
+                                            <span>Support</span>
+                                            {(post.reactions?.support?.length || 0) > 0 && (
+                                                <span style={{ fontSize: '13px', opacity: 0.8 }}>
+                                                    ({post.reactions.support.length})
+                                                </span>
+                                            )}
+                                        </button>
+
+                                        {/* Celebrate Button */}
+                                        <button
+                                            onClick={() => handleReaction(post.id, 'celebrate')}
+                                            style={{
+                                                flex: 1,
+                                                padding: '8px',
+                                                background: post.reactedBy?.[user?.uid] === 'celebrate' ? '#F0F2F5' : 'transparent',
+                                                color: post.reactedBy?.[user?.uid] === 'celebrate' ? '#FFA500' : '#65676B',
+                                                border: 'none',
+                                                borderRadius: '6px',
+                                                fontSize: '15px',
+                                                fontWeight: post.reactedBy?.[user?.uid] === 'celebrate' ? '600' : '400',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '6px',
+                                                transition: 'all 0.2s ease',
+                                                minHeight: '36px'
+                                            }}
+                                            onMouseOver={(e) => { e.currentTarget.style.background = '#F0F2F5'; }}
+                                            onMouseOut={(e) => {
+                                                e.currentTarget.style.background = post.reactedBy?.[user?.uid] === 'celebrate' ? '#F0F2F5' : 'transparent';
+                                            }}
+                                        >
+                                            <span>🎉</span>
+                                            <span>Celebrate</span>
+                                            {(post.reactions?.celebrate?.length || 0) > 0 && (
+                                                <span style={{ fontSize: '13px', opacity: 0.8 }}>
+                                                    ({post.reactions.celebrate.length})
+                                                </span>
+                                            )}
+                                        </button>
+                                    </div>
+
+                                    {/* Comment Count - Clickable */}
+                                    <div
+                                        onClick={() => toggleComments(post.id)}
+                                        style={{
+                                            fontSize: '13px',
+                                            color: '#069494',
+                                            paddingTop: '8px',
+                                            cursor: 'pointer',
+                                            fontWeight: '500',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                        }}
+                                    >
+                                        💬 {post.commentCount || 0} comments
+                                        {showComments[post.id] ? ' ▲' : ' ▼'}
+                                    </div>
+                                </div>
+
+                                {/* Comments Section (Expandable) */}
+                                {showComments[post.id] && (
+                                    <div style={{
+                                        paddingTop: '12px',
+                                        borderTop: '1px solid #E4E6EB',
+                                        marginTop: '8px'
+                                    }}>
+                                        {/* Comments List - TikTok-Style Threading */}
+                                        {loadingComments[post.id] ? (
+                                            <div style={{ padding: '20px', textAlign: 'center', color: '#65676B', fontSize: '13px' }}>
+                                                Loading comments...
+                                            </div>
+                                        ) : (postComments[post.id] || []).length === 0 ? (
+                                            <div style={{ padding: '20px', textAlign: 'center', color: '#65676B', fontSize: '13px' }}>
+                                                No comments yet. Be the first to comment!
+                                            </div>
+                                        ) : (
+                                            // Filter to show only TOP-LEVEL comments (no parent)
+                                            (postComments[post.id] || [])
+                                                .filter(comment => !comment.parentCommentId)
+                                                .map(comment => {
+                                                    const depth = 0; // Top-level = depth 0
+                                                    const indentPx = depth * 32; // 32px per level
+                                                    const replies = commentReplies[comment.id] || [];
+                                                    const replyCount = replies.length;
+
+                                                    return (
+                                                        <div key={comment.id}>
+                                                            {/* Top-Level Comment */}
+                                                            <div style={{
+                                                                background: '#F0F2F5',
+                                                                borderRadius: '16px',
+                                                                padding: '8px 12px',
+                                                                marginBottom: '8px',
+                                                                marginLeft: `${indentPx}px`
+                                                            }}>
+                                                                {/* Comment Header */}
+                                                                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                                                                    {/* Avatar - CLICKABLE (PHASE 4) */}
+                                                                    <div
+                                                                        onClick={() => handleAvatarClick(comment.userId, comment.isAnonymous)}
+                                                                        style={{
+                                                                            width: '24px',
+                                                                            height: '24px',
+                                                                            borderRadius: '50%',
+                                                                            background: 'linear-gradient(135deg, #069494, #058585)',
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            color: '#fff',
+                                                                            fontSize: '12px',
+                                                                            fontWeight: 'bold',
+                                                                            marginRight: '8px',
+                                                                            cursor: comment.isAnonymous ? 'default' : 'pointer',
+                                                                            transition: 'transform 0.2s ease'
+                                                                        }}
+                                                                        onMouseEnter={(e) => {
+                                                                            if (!comment.isAnonymous) {
+                                                                                e.currentTarget.style.transform = 'scale(1.1)';
+                                                                            }
+                                                                        }}
+                                                                        onMouseLeave={(e) => {
+                                                                            e.currentTarget.style.transform = 'scale(1)';
+                                                                        }}
+                                                                    >
+                                                                        {(comment.userDisplayName?.[0] || '?').toUpperCase()}
+                                                                    </div>
+                                                                    <div style={{ flex: 1 }}>
+                                                                        {/* Display Name - CLICKABLE (PHASE 4) */}
+                                                                        <span
+                                                                            onClick={() => handleAvatarClick(comment.userId, comment.isAnonymous)}
+                                                                            style={{
+                                                                                fontSize: '13px',
+                                                                                fontWeight: '600',
+                                                                                color: '#050505',
+                                                                                cursor: comment.isAnonymous ? 'default' : 'pointer',
+                                                                                transition: 'color 0.2s ease'
+                                                                            }}
+                                                                            onMouseEnter={(e) => {
+                                                                                if (!comment.isAnonymous) {
+                                                                                    e.currentTarget.style.color = '#069494';
+                                                                                }
+                                                                            }}
+                                                                            onMouseLeave={(e) => {
+                                                                                e.currentTarget.style.color = '#050505';
+                                                                            }}
+                                                                        >
+                                                                            {comment.userDisplayName}
+                                                                        </span>
+                                                                        <span style={{ fontSize: '11px', color: '#65676B', marginLeft: '8px' }}>
+                                                                            {formatMyDayTimestamp(comment.createdAt)}
+                                                                        </span>
+                                                                    </div>
+                                                                    {(comment.userId === user?.uid || isCoachOrAdmin()) && (
+                                                                        <button
+                                                                            onClick={() => handleDeleteComment(post.id, comment.id, comment.userId)}
+                                                                            style={{
+                                                                                background: 'transparent',
+                                                                                border: 'none',
+                                                                                color: '#65676B',
+                                                                                fontSize: '16px',
+                                                                                cursor: 'pointer',
+                                                                                padding: '0 4px'
+                                                                            }}
+                                                                            title="Delete comment"
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+
+                                                                {/* Comment Content */}
+                                                                <div style={{
+                                                                    fontSize: '14px',
+                                                                    lineHeight: '18px',
+                                                                    color: '#050505',
+                                                                    whiteSpace: 'pre-wrap',
+                                                                    wordBreak: 'break-word',
+                                                                    paddingLeft: '32px',
+                                                                    marginBottom: '4px'
+                                                                }}>
+                                                                    {comment.content}
+                                                                </div>
+
+                                                                {/* Reply Button */}
+                                                                <div style={{ paddingLeft: '32px' }}>
+                                                                    <button
+                                                                        onClick={() => handleStartReply(comment.id, comment.userDisplayName)}
+                                                                        style={{
+                                                                            background: 'transparent',
+                                                                            border: 'none',
+                                                                            color: '#65676B',
+                                                                            fontSize: '12px',
+                                                                            fontWeight: '600',
+                                                                            cursor: 'pointer',
+                                                                            padding: '4px 0'
+                                                                        }}
+                                                                    >
+                                                                        Reply
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Inline Reply Input */}
+                                                            {replyingTo === comment.id && (
+                                                                <div style={{
+                                                                    marginLeft: `${indentPx + 32}px`,
+                                                                    marginBottom: '8px',
+                                                                    display: 'flex',
+                                                                    gap: '8px',
+                                                                    alignItems: 'center'
+                                                                }}>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={replyText}
+                                                                        onChange={(e) => setReplyText(e.target.value)}
+                                                                        onKeyPress={(e) => {
+                                                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                                                                e.preventDefault();
+                                                                                handleAddReply(post.id, comment.id, comment);
+                                                                            }
+                                                                        }}
+                                                                        placeholder={`Reply to ${comment.userDisplayName}...`}
+                                                                        autoFocus
+                                                                        style={{
+                                                                            flex: 1,
+                                                                            padding: '8px 12px',
+                                                                            borderRadius: '16px',
+                                                                            border: '1px solid #CCD0D5',
+                                                                            fontSize: '14px',
+                                                                            outline: 'none'
+                                                                        }}
+                                                                    />
+                                                                    <button
+                                                                        onClick={() => handleAddReply(post.id, comment.id, comment)}
+                                                                        disabled={!replyText.trim() || submittingComment}
+                                                                        style={{
+                                                                            padding: '8px 16px',
+                                                                            background: replyText.trim() && !submittingComment ? '#069494' : '#CCD0D5',
+                                                                            color: '#fff',
+                                                                            border: 'none',
+                                                                            borderRadius: '16px',
+                                                                            fontSize: '13px',
+                                                                            fontWeight: '600',
+                                                                            cursor: replyText.trim() && !submittingComment ? 'pointer' : 'not-allowed'
+                                                                        }}
+                                                                    >
+                                                                        Post
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={handleCancelReply}
+                                                                        style={{
+                                                                            padding: '8px 16px',
+                                                                            background: 'transparent',
+                                                                            color: '#65676B',
+                                                                            border: 'none',
+                                                                            borderRadius: '16px',
+                                                                            fontSize: '13px',
+                                                                            fontWeight: '600',
+                                                                            cursor: 'pointer'
+                                                                        }}
+                                                                    >
+                                                                        Cancel
+                                                                    </button>
+                                                                </div>
+                                                            )}
+
+                                                            {/* View Replies Toggle */}
+                                                            {replyCount > 0 && (
+                                                                <div style={{ marginLeft: `${indentPx + 32}px`, marginBottom: '8px' }}>
+                                                                    <button
+                                                                        onClick={() => handleToggleReplies(post.id, comment.id)}
+                                                                        style={{
+                                                                            background: 'transparent',
+                                                                            border: 'none',
+                                                                            color: '#069494',
+                                                                            fontSize: '13px',
+                                                                            fontWeight: '600',
+                                                                            cursor: 'pointer',
+                                                                            padding: '4px 0'
+                                                                        }}
+                                                                    >
+                                                                        {expandedReplies[comment.id] ? '▲' : '▼'} {replyCount} {replyCount === 1 ? 'reply' : 'replies'}
+                                                                    </button>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Nested Replies */}
+                                                            {expandedReplies[comment.id] && (
+                                                                <div>
+                                                                    {loadingReplies[comment.id] ? (
+                                                                        <div style={{ marginLeft: `${indentPx + 32}px`, padding: '8px', color: '#65676B', fontSize: '13px' }}>
+                                                                            Loading replies...
+                                                                        </div>
+                                                                    ) : (
+                                                                        replies.map(reply => (
+                                                                            <div key={reply.id} style={{
+                                                                                marginLeft: `${indentPx + 32}px`,
+                                                                                marginBottom: '8px',
+                                                                                paddingLeft: '12px',
+                                                                                borderLeft: '2px solid #E4E6EB'
+                                                                            }}>
+                                                                                <div style={{
+                                                                                    background: '#F0F2F5',
+                                                                                    borderRadius: '16px',
+                                                                                    padding: '8px 12px'
+                                                                                }}>
+                                                                                    {/* Reply Header */}
+                                                                                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                                                                                        {/* Avatar - CLICKABLE (PHASE 4) */}
+                                                                                        <div
+                                                                                            onClick={() => handleAvatarClick(reply.userId, reply.isAnonymous)}
+                                                                                            style={{
+                                                                                                width: '20px',
+                                                                                                height: '20px',
+                                                                                                borderRadius: '50%',
+                                                                                                background: 'linear-gradient(135deg, #069494, #058585)',
+                                                                                                display: 'flex',
+                                                                                                alignItems: 'center',
+                                                                                                justifyContent: 'center',
+                                                                                                color: '#fff',
+                                                                                                fontSize: '10px',
+                                                                                                fontWeight: 'bold',
+                                                                                                marginRight: '6px',
+                                                                                                cursor: reply.isAnonymous ? 'default' : 'pointer',
+                                                                                                transition: 'transform 0.2s ease'
+                                                                                            }}
+                                                                                            onMouseEnter={(e) => {
+                                                                                                if (!reply.isAnonymous) {
+                                                                                                    e.currentTarget.style.transform = 'scale(1.1)';
+                                                                                                }
+                                                                                            }}
+                                                                                            onMouseLeave={(e) => {
+                                                                                                e.currentTarget.style.transform = 'scale(1)';
+                                                                                            }}
+                                                                                        >
+                                                                                            {(reply.userDisplayName?.[0] || '?').toUpperCase()}
+                                                                                        </div>
+                                                                                        <div style={{ flex: 1 }}>
+                                                                                            {/* Display Name - CLICKABLE (PHASE 4) */}
+                                                                                            <span
+                                                                                                onClick={() => handleAvatarClick(reply.userId, reply.isAnonymous)}
+                                                                                                style={{
+                                                                                                    fontSize: '12px',
+                                                                                                    fontWeight: '600',
+                                                                                                    color: '#050505',
+                                                                                                    cursor: reply.isAnonymous ? 'default' : 'pointer',
+                                                                                                    transition: 'color 0.2s ease'
+                                                                                                }}
+                                                                                                onMouseEnter={(e) => {
+                                                                                                    if (!reply.isAnonymous) {
+                                                                                                        e.currentTarget.style.color = '#069494';
+                                                                                                    }
+                                                                                                }}
+                                                                                                onMouseLeave={(e) => {
+                                                                                                    e.currentTarget.style.color = '#050505';
+                                                                                                }}
+                                                                                            >
+                                                                                                {reply.userDisplayName}
+                                                                                            </span>
+                                                                                            <span style={{ fontSize: '10px', color: '#65676B', marginLeft: '6px' }}>
+                                                                                                {formatMyDayTimestamp(reply.createdAt)}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                        {(reply.userId === user?.uid || isCoachOrAdmin()) && (
+                                                                                            <button
+                                                                                                onClick={() => handleDeleteComment(post.id, reply.id, reply.userId)}
+                                                                                                style={{
+                                                                                                    background: 'transparent',
+                                                                                                    border: 'none',
+                                                                                                    color: '#65676B',
+                                                                                                    fontSize: '14px',
+                                                                                                    cursor: 'pointer',
+                                                                                                    padding: '0 4px'
+                                                                                                }}
+                                                                                                title="Delete reply"
+                                                                                            >
+                                                                                                ×
+                                                                                            </button>
+                                                                                        )}
+                                                                                    </div>
+
+                                                                                    {/* Reply Content */}
+                                                                                    <div style={{
+                                                                                        fontSize: '13px',
+                                                                                        lineHeight: '16px',
+                                                                                        color: '#050505',
+                                                                                        whiteSpace: 'pre-wrap',
+                                                                                        wordBreak: 'break-word',
+                                                                                        paddingLeft: '26px'
+                                                                                    }}>
+                                                                                        {reply.content}
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })
+                                        )}
+
+                                        {/* Comment Input */}
+                                        <div style={{
+                                            display: 'flex',
+                                            gap: '8px',
+                                            marginTop: '12px',
+                                            alignItems: 'flex-start'
+                                        }}>
+                                            {/* Current User Avatar */}
+                                            <div style={{
+                                                width: '32px',
+                                                height: '32px',
+                                                borderRadius: '50%',
+                                                background: 'linear-gradient(135deg, #069494, #058585)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                color: '#fff',
+                                                fontSize: '14px',
+                                                fontWeight: 'bold',
+                                                flexShrink: 0
+                                            }}>
+                                                {(currentUserData?.firstName?.[0] || user?.displayName?.[0] || '?').toUpperCase()}
+                                            </div>
+                                            {/* Input & Submit */}
+                                            <div style={{ flex: 1 }}>
+                                                <input
+                                                    type="text"
+                                                    value={commentText[post.id] || ''}
+                                                    onChange={(e) => setCommentText(prev => ({ ...prev, [post.id]: e.target.value }))}
+                                                    onKeyPress={(e) => {
+                                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                                            e.preventDefault();
+                                                            handleAddComment(post.id);
+                                                        }
+                                                    }}
+                                                    disabled={submittingComment}
+                                                    placeholder="Write a comment..."
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '8px 12px',
+                                                        border: '1px solid #CCD0D5',
+                                                        borderRadius: '20px',
+                                                        fontSize: '14px',
+                                                        outline: 'none',
+                                                        fontFamily: 'inherit'
+                                                    }}
+                                                />
+                                                {/* Character counter */}
+                                                {(commentText[post.id]?.length || 0) > 250 && (
+                                                    <div style={{
+                                                        fontSize: '11px',
+                                                        color: (commentText[post.id]?.length || 0) > 280 ? '#F02849' : '#65676B',
+                                                        textAlign: 'right',
+                                                        marginTop: '4px',
+                                                        marginRight: '4px'
+                                                    }}>
+                                                        {commentText[post.id]?.length || 0}/280
+                                                    </div>
+                                                )}
+                                                {/* Submit button (shows when text entered) */}
+                                                {(commentText[post.id]?.trim()?.length || 0) > 0 && (
+                                                    <button
+                                                        onClick={() => handleAddComment(post.id)}
+                                                        disabled={submittingComment || (commentText[post.id]?.length || 0) > 280}
+                                                        style={{
+                                                            marginTop: '4px',
+                                                            padding: '6px 16px',
+                                                            background: (submittingComment || (commentText[post.id]?.length || 0) > 280)
+                                                                ? '#CCD0D5'
+                                                                : '#069494',
+                                                            color: '#fff',
+                                                            border: 'none',
+                                                            borderRadius: '16px',
+                                                            fontSize: '13px',
+                                                            fontWeight: '600',
+                                                            cursor: (submittingComment || (commentText[post.id]?.length || 0) > 280)
+                                                                ? 'not-allowed'
+                                                                : 'pointer',
+                                                            float: 'right'
+                                                        }}
+                                                    >
+                                                        {submittingComment ? 'Posting...' : 'Post'}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Full-Size Image Modal */}
+            {viewingImage && (
+                <div
+                    onClick={() => setViewingImage(null)}
+                    style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: 'rgba(0,0,0,0.9)',
+                        zIndex: 9999,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '20px'
+                    }}
+                >
+                    {/* Close Button */}
+                    <button
+                        onClick={() => setViewingImage(null)}
+                        style={{
+                            position: 'absolute',
+                            top: '20px',
+                            right: '20px',
+                            width: '40px',
+                            height: '40px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#fff',
+                            fontSize: '40px',
+                            cursor: 'pointer',
+                            lineHeight: '40px',
+                            fontWeight: '300'
+                        }}
+                    >
+                        ×
+                    </button>
+                    {/* Image */}
+                    <img
+                        src={viewingImage}
+                        alt="Full size"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            maxWidth: '90vw',
+                            maxHeight: '90vh',
+                            objectFit: 'contain'
+                        }}
+                    />
+                </div>
             )}
 
             {activeChat === 'groups' && (
-                <>
-                    <h3 style={{color: '#f4c430', marginBottom: '20px'}}>Support Groups</h3>
+                <div style={{ background: '#F0F2F5', padding: isMobile ? '12px' : '20px', minHeight: 'calc(100vh - 140px)' }}>
+                    <h3 style={{ color: '#333', marginBottom: '20px', fontSize: '20px', fontWeight: 'bold' }}>Support Groups</h3>
                     {supportGroups?.length > 0 ? (
                         supportGroups.map(group => (
-                            <div key={group.id} className="support-group-card">
-                                <div className="group-header">
-                                    <h4 style={{color: 'white'}}>{group.name}</h4>
-                                    <span className={`badge ${
-                                        group.type === 'AA' ? 'badge-primary' :
-                                        group.type === 'NA' ? 'badge-warning' :
-                                        group.type === 'SMART' ? 'badge-success' :
-                                        'badge-secondary'
-                                    }`}>
+                            <div key={group.id} style={{
+                                background: '#FFFFFF',
+                                borderRadius: '8px',
+                                padding: isMobile ? '12px' : '16px',
+                                marginBottom: '12px',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                            }}>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'flex-start',
+                                    marginBottom: '12px'
+                                }}>
+                                    <h4 style={{ color: '#333', margin: 0, fontSize: '16px', fontWeight: 'bold' }}>{group.name}</h4>
+                                    <span style={{
+                                        padding: '4px 12px',
+                                        borderRadius: '20px',
+                                        fontSize: '12px',
+                                        fontWeight: '600',
+                                        background: group.type === 'AA' ? '#E7F3FF' :
+                                                   group.type === 'NA' ? '#FFF4E6' :
+                                                   group.type === 'SMART' ? '#E8F5E9' :
+                                                   '#F0F2F5',
+                                        color: group.type === 'AA' ? '#1877F2' :
+                                               group.type === 'NA' ? '#E67E22' :
+                                               group.type === 'SMART' ? '#43A047' :
+                                               '#65676B'
+                                    }}>
                                         {group.type}
                                     </span>
                                 </div>
-                                
+
                                 {group.description && (
-                                    <p style={{color: 'rgba(255,255,255,0.7)', marginBottom: '10px'}}>
+                                    <p style={{ color: '#65676B', marginBottom: '12px', fontSize: '14px', lineHeight: '1.5' }}>
                                         {group.description}
                                     </p>
                                 )}
-                                
-                                <div style={{fontSize: '14px', opacity: 0.8}}>
-                                    <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-                                        <i data-lucide="calendar" style={{width: '14px', height: '14px'}}></i>
-                                        {group.day}
+
+                                <div style={{ fontSize: '14px', color: '#65676B', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i data-lucide="calendar" style={{ width: '16px', height: '16px', color: '#058585' }}></i>
+                                        <span>{group.day}</span>
                                     </div>
-                                    <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-                                        <i data-lucide="clock" style={{width: '14px', height: '14px'}}></i>
-                                        {group.time}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i data-lucide="clock" style={{ width: '16px', height: '16px', color: '#058585' }}></i>
+                                        <span>{group.time}</span>
                                     </div>
                                     {group.location && (
-                                        <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-                                            <i data-lucide="map-pin" style={{width: '14px', height: '14px'}}></i>
-                                            {group.location}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i data-lucide="map-pin" style={{ width: '16px', height: '16px', color: '#058585' }}></i>
+                                            <span>{group.location}</span>
                                         </div>
                                     )}
                                     {!group.location && group.link && (
-                                        <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-                                            <i data-lucide="video" style={{width: '14px', height: '14px'}}></i>
-                                            Virtual Meeting
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i data-lucide="video" style={{ width: '16px', height: '16px', color: '#058585' }}></i>
+                                            <span>Virtual Meeting</span>
                                         </div>
                                     )}
                                 </div>
-                                
+
                                 {group.link && (
-                                    <button 
-                                        className="join-btn" 
+                                    <button
                                         onClick={() => window.open(group.link, '_blank')}
-                                        style={{marginTop: '10px'}}
+                                        style={{
+                                            marginTop: '12px',
+                                            padding: '10px 20px',
+                                            background: 'linear-gradient(135deg, #058585, #069494)',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            color: '#fff',
+                                            fontSize: '14px',
+                                            fontWeight: 'bold',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            boxShadow: '0 2px 8px rgba(5,133,133,0.3)',
+                                            transition: 'transform 0.2s ease'
+                                        }}
+                                        onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-1px)'}
+                                        onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
                                     >
+                                        <i data-lucide="video" style={{ width: '16px', height: '16px' }}></i>
                                         Join Virtual Meeting
                                     </button>
                                 )}
                             </div>
                         ))
                     ) : (
-                        <div className="empty-state">
-                            <div className="empty-state-icon">
-                                <i data-lucide="users" style={{width: '48px', height: '48px', color: 'var(--color-primary)'}}></i>
-                            </div>
-                            <div className="empty-state-text">
+                        <div style={{
+                            textAlign: 'center',
+                            padding: '60px 20px',
+                            background: '#FFFFFF',
+                            borderRadius: '8px',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                        }}>
+                            <i data-lucide="users" style={{ width: '48px', height: '48px', color: '#058585', marginBottom: '16px' }}></i>
+                            <div style={{ color: '#65676B', fontSize: '15px' }}>
                                 No support groups available yet.
                             </div>
                         </div>
                     )}
-                </>
-            )}
-
-            {activeChat === 'meetings' && (
-                <>
-                    <h3 style={{color: '#f4c430', marginBottom: '20px'}}>Scheduled Group Meetings</h3>
-                    {meetings?.length > 0 ? (
-                        meetings.map(meeting => {
-                            const meetingDate = meeting.scheduledTime?.toDate ? 
-                                meeting.scheduledTime.toDate() : 
-                                new Date(meeting.scheduledTime);
-                            
-                            return (
-                                <div key={meeting.id} className="meeting-card">
-                                    <div className="meeting-header">
-                                        <h4>{meeting.meetingTitle || 'Group Recovery Session'}</h4>
-                                        <span className={`status-badge ${
-                                            meeting.status === 'scheduled' ? 'scheduled' : 
-                                            meeting.status === 'completed' ? 'completed' : 'cancelled'
-                                        }`}>
-                                            {meeting.status}
-                                        </span>
-                                    </div>
-                                    
-                                    <div className="meeting-type">{meeting.type || 'Group Session'}</div>
-                                    
-                                    <div className="meeting-details">
-                                        <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-                                            <i data-lucide="calendar" style={{width: '14px', height: '14px'}}></i>
-                                            {meetingDate.toLocaleDateString()}
-                                        </div>
-                                        <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-                                            <i data-lucide="clock" style={{width: '14px', height: '14px'}}></i>
-                                            {meetingDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                        </div>
-                                        <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-                                            <i data-lucide="timer" style={{width: '14px', height: '14px'}}></i>
-                                            Duration: {meeting.duration || '60'} minutes
-                                        </div>
-
-                                        {meeting.isGlobal && (
-                                            <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-                                                <i data-lucide="globe" style={{width: '14px', height: '14px'}}></i>
-                                                All PIRs Invited
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {meeting.notes && (
-                                        <div className="meeting-notes" style={{display: 'flex', alignItems: 'flex-start', gap: '6px'}}>
-                                            <i data-lucide="file-text" style={{width: '14px', height: '14px', marginTop: '2px'}}></i>
-                                            {meeting.notes}
-                                        </div>
-                                    )}
-                                    
-                                    {meeting.meetingLink && (
-                                        <button 
-                                            className="join-btn" 
-                                            onClick={() => window.open(meeting.meetingLink, '_blank')}
-                                        >
-                                            Join Virtual Meeting
-                                        </button>
-                                    )}
-                                </div>
-                            );
-                        })
-                    ) : (
-                        <div className="empty-state">
-                            <div className="empty-state-icon">
-                                <i data-lucide="calendar" style={{width: '48px', height: '48px', color: 'var(--color-primary)'}}></i>
-                            </div>
-                            <div className="empty-state-text">No group meetings scheduled.</div>
-                        </div>
-                    )}
-                </>
-            )}
-            
-            <div className="crisis-resources">
-                <div className="crisis-title">
-                    <i data-lucide="alert-octagon" style={{width: '20px', height: '20px', marginRight: '8px', color: '#DC143C'}}></i>
-                    Crisis Resources
                 </div>
-                {emergencyResources?.length > 0 ? (
-                    emergencyResources.map(resource => (
-                        <div key={resource.id} style={{marginBottom: '15px'}}>
-                            <div className="crisis-number">
-                                {resource.phone && (
-                                    <a href={`tel:${resource.phone}`}>
-                                        {resource.phone}
-                                    </a>
-                                )}
-                            </div>
-                            <div className="crisis-description">{resource.title}</div>
-                            <small style={{opacity: 0.7}}>{resource.available || '24/7'}</small>
-                        </div>
-                    ))
-                ) : (
-                    <>
-                        <div style={{marginBottom: '15px'}}>
-                            <div className="crisis-number">
-                                <a href="tel:988">988</a>
-                            </div>
-                            <div className="crisis-description">Suicide & Crisis Lifeline</div>
-                        </div>
-                        <div>
-                            <div className="crisis-number">
-                                <a href="tel:1-800-662-4357">1-800-662-HELP</a>
-                            </div>
-                            <div className="crisis-description">SAMHSA National Helpline</div>
-                        </div>
-                    </>
-                )}
-                <button className="sos-btn" onClick={() => {
-                    if (window.GLRSApp?.utils?.triggerHaptic) {
-                        window.GLRSApp.utils.triggerHaptic('error');
-                    }
-                    triggerSOS();
-                }}>
-                    <i data-lucide="alert-octagon" style={{width: '18px', height: '18px', marginRight: '8px'}}></i>
-                    SOS - I Need Help Now
-                </button>
-            </div>
+            )}
+
+
+            {/* Phase 6: Meetings section removed - functionality moved to MeetingsTab */}
+
         </div>
+</div>
     );
 }
 
@@ -661,17 +3351,46 @@ function CommunityTab({
  *
  * @returns {React.Element} Chat feed UI with message list and input
  */
-function CommunityChat({ messages, onSendMessage, currentUserId, uploadChatImage, flagContent, setModalImage }) {
+function CommunityChat({
+    messages, onSendMessage, currentUserId, uploadChatImage, flagContent, setModalImage, onReaction, currentUser, currentUserData,
+    showComments, toggleComments, commentText, setCommentText, postComments, loadingComments, submittingComment,
+    handleAddComment, handleDeleteComment, handleDeletePost, handleReportPost, isCoachOrAdmin, formatMyDayTimestamp, isAnonymous, setIsAnonymous,
+    handleAvatarClick, isMobile
+}) {
+    // PHASE 2: Profile modal props from parent
     const [message, setMessage] = useState('');
     const [selectedImage, setSelectedImage] = useState(null);
     const [uploading, setUploading] = useState(false);
-    const [likes, setLikes] = useState({});
-    const [showComments, setShowComments] = useState({});
     const messagesEndRef = useRef(null);
+
+    // PHASE 3: Three-dot menu state
+    const [openPostMenu, setOpenPostMenu] = useState(null);
+
+    // PHASE 3: Nested reply state
+    const [replyingTo, setReplyingTo] = useState(null);
+    const [replyText, setReplyText] = useState('');
+    const [expandedReplies, setExpandedReplies] = useState({});
+    const [commentReplies, setCommentReplies] = useState({});
+    const [loadingReplies, setLoadingReplies] = useState({});
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
+
+    // PHASE 3: Click-outside handler for three-dot menu
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (openPostMenu) {
+                const menuButton = event.target.closest('[data-post-menu-button]');
+                const menuDropdown = event.target.closest('[data-post-menu-dropdown]');
+                if (!menuButton && !menuDropdown) {
+                    setOpenPostMenu(null);
+                }
+            }
+        };
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, [openPostMenu]);
 
     const handleImageSelect = (e) => {
         const file = e.target.files[0];
@@ -681,6 +3400,22 @@ function CommunityChat({ messages, onSendMessage, currentUserId, uploadChatImage
     };
 
     const handleSend = async () => {
+        // Check if community participation is enabled in privacy settings
+        if (currentUserData?.privacy?.communityParticipation === false) {
+            if (window.confirm('Community participation is disabled in your Privacy Settings.\n\nWould you like to enable it now?')) {
+                if (window.changeTab) {
+                    window.changeTab('profile');
+                    setTimeout(() => {
+                        const event = new CustomEvent('openProfileModal', {
+                            detail: { modalType: 'privacySettings' }
+                        });
+                        window.dispatchEvent(event);
+                    }, 150);
+                }
+            }
+            return;
+        }
+
         if ((message.trim() || selectedImage) && !uploading) {
             setUploading(true);
 
@@ -691,7 +3426,9 @@ function CommunityChat({ messages, onSendMessage, currentUserId, uploadChatImage
                     imageUrl = await uploadChatImage(selectedImage, 'community', 'main');
                 }
 
-                await onSendMessage(message, imageUrl);
+                // Use privacy setting from currentUserData instead of local state
+                const useAnonymous = currentUserData?.privacy?.anonymousPosting || false;
+                await onSendMessage(message, imageUrl, useAnonymous);
 
                 setMessage('');
                 setSelectedImage(null);
@@ -706,11 +3443,47 @@ function CommunityChat({ messages, onSendMessage, currentUserId, uploadChatImage
         }
     };
 
-    const handleLike = (msgId) => {
-        setLikes(prev => ({
-            ...prev,
-            [msgId]: !prev[msgId]
-        }));
+    // PHASE 3: Three-dot menu handlers (Delete/Report/Block)
+    // handleDeletePost and handleReportPost are now passed as props from parent
+
+    const handleBlockUser = async (msg) => {
+        setOpenPostMenu(null);
+        if (msg.senderId === currentUserId) {
+            alert('You cannot block yourself.');
+            return;
+        }
+        if (msg.isAnonymous) {
+            alert('Cannot block anonymous users.');
+            return;
+        }
+
+        if (!confirm(`Block ${msg.senderName}? Their posts will no longer appear in your feed.`)) return;
+
+        alert(`${msg.senderName} has been blocked.`);
+        // TODO: Add actual block implementation
+    };
+
+    // PHASE 3: Reply handlers (simplified for Community Chat)
+    const handleStartReply = (commentId, userDisplayName) => {
+        setReplyingTo(commentId);
+        setReplyText(`@${userDisplayName} `);
+    };
+
+    const handleCancelReply = () => {
+        setReplyingTo(null);
+        setReplyText('');
+    };
+
+    const handleAddReply = async (messageId, parentCommentId, parentComment) => {
+        const content = replyText.trim();
+        if (!currentUser || !content) return;
+
+        alert('Reply functionality coming soon');
+        handleCancelReply();
+    };
+
+    const handleToggleReplies = (commentId) => {
+        setExpandedReplies(prev => ({ ...prev, [commentId]: !prev[commentId] }));
     };
 
     const getInitials = (name) => {
@@ -732,31 +3505,89 @@ function CommunityChat({ messages, onSendMessage, currentUserId, uploadChatImage
         return `${Math.floor(seconds / 86400)}d ago`;
     };
 
+    const isParticipationDisabled = currentUserData?.privacy?.communityParticipation === false;
+
     return (
         <div style={{marginBottom: 'var(--space-4)'}}>
             {/* Create Post Card */}
             <div style={{
+                position: 'relative',
                 background: 'rgba(255,255,255,0.95)',
                 borderRadius: 'var(--radius-lg)',
                 padding: 'var(--space-4)',
                 marginBottom: 'var(--space-4)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                opacity: isParticipationDisabled ? 0.6 : 1,
+                pointerEvents: isParticipationDisabled ? 'none' : 'auto'
             }}>
+                {/* Disabled Overlay - Show when participation is off */}
+                {isParticipationDisabled && (
+                    <div
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm('Community participation is disabled in your Privacy Settings.\n\nWould you like to enable it now?')) {
+                                if (window.changeTab) {
+                                    window.changeTab('profile');
+                                    setTimeout(() => {
+                                        const event = new CustomEvent('openProfileModal', {
+                                            detail: { modalType: 'privacySettings' }
+                                        });
+                                        window.dispatchEvent(event);
+                                    }, 150);
+                                }
+                            }
+                        }}
+                        style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            background: 'rgba(255, 255, 255, 0.95)',
+                            borderRadius: 'var(--radius-lg)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '12px',
+                            cursor: 'pointer',
+                            pointerEvents: 'auto',
+                            zIndex: 10,
+                            padding: 'var(--space-4)'
+                        }}
+                    >
+                        <i data-lucide="lock" style={{width: '32px', height: '32px', color: '#6b7280'}}></i>
+                        <div style={{textAlign: 'center', color: '#374151'}}>
+                            <div style={{fontSize: '16px', fontWeight: '600', marginBottom: '4px'}}>
+                                Community Participation Disabled
+                            </div>
+                            <div style={{fontSize: '13px', color: '#6b7280'}}>
+                                Click here to enable in Privacy Settings
+                            </div>
+                        </div>
+                    </div>
+                )}
                 <div style={{display: 'flex', gap: 'var(--space-3)', alignItems: 'flex-start'}}>
                     <div style={{
-                        width: '40px',
-                        height: '40px',
+                        width: isMobile ? '36px' : '40px',
+                        height: isMobile ? '36px' : '40px',
                         borderRadius: '50%',
-                        background: 'linear-gradient(135deg, var(--color-primary), var(--color-secondary))',
+                        background: currentUserData?.profileImageUrl ? 'transparent' : 'linear-gradient(135deg, var(--color-primary), var(--color-secondary))',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         color: '#fff',
-                        fontSize: 'var(--font-sm)',
+                        fontSize: isMobile ? '13px' : 'var(--font-sm)',
                         fontWeight: 'bold',
-                        flexShrink: 0
+                        flexShrink: 0,
+                        overflow: 'hidden'
                     }}>
-                        {getInitials('You')}
+                        {currentUserData?.profileImageUrl ? (
+                            <img src={currentUserData.profileImageUrl} alt="Profile"
+                                 style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+                        ) : (
+                            getInitials('You')
+                        )}
                     </div>
                     <div style={{flex: 1}}>
                         <input
@@ -802,6 +3633,60 @@ function CommunityChat({ messages, onSendMessage, currentUserId, uploadChatImage
                                 </button>
                             </div>
                         )}
+                        {/* Anonymous posting checkbox - Controlled by Privacy Settings */}
+                        <div
+                            onClick={() => {
+                                if (window.confirm('Anonymous posting is controlled in Privacy Settings.\n\nWould you like to go there now to change it?')) {
+                                    // Navigate to Profile tab and open Privacy Settings
+                                    if (window.changeTab) {
+                                        window.changeTab('profile');
+                                        setTimeout(() => {
+                                            const event = new CustomEvent('openProfileModal', {
+                                                detail: { modalType: 'privacySettings' }
+                                            });
+                                            window.dispatchEvent(event);
+                                        }, 150);
+                                    }
+                                }
+                            }}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 'var(--space-2)',
+                                marginTop: 'var(--space-3)',
+                                fontSize: 'var(--font-sm)',
+                                color: '#666',
+                                cursor: 'pointer',
+                                padding: '8px',
+                                borderRadius: '6px',
+                                background: currentUserData?.privacy?.anonymousPosting ? 'rgba(5, 133, 133, 0.1)' : 'transparent',
+                                border: '1px solid',
+                                borderColor: currentUserData?.privacy?.anonymousPosting ? '#058585' : '#e5e7eb',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            <input
+                                type="checkbox"
+                                id="community-anonymous"
+                                checked={currentUserData?.privacy?.anonymousPosting || false}
+                                readOnly
+                                style={{
+                                    width: '16px',
+                                    height: '16px',
+                                    cursor: 'pointer',
+                                    accentColor: '#058585'
+                                }}
+                            />
+                            <div style={{flex: 1}}>
+                                <label htmlFor="community-anonymous" style={{cursor: 'pointer', fontWeight: '500'}}>
+                                    Post anonymously
+                                </label>
+                                <div style={{fontSize: '11px', color: '#6b7280', marginTop: '2px'}}>
+                                    {currentUserData?.privacy?.anonymousPosting ? '✓ Enabled in Privacy Settings' : 'Click to change in Privacy Settings'}
+                                </div>
+                            </div>
+                            <i data-lucide="settings" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                        </div>
                         <div style={{
                             display: 'flex',
                             gap: 'var(--space-2)',
@@ -886,48 +3771,171 @@ function CommunityChat({ messages, onSendMessage, currentUserId, uploadChatImage
                         }}>
                             {/* Post Header */}
                             <div style={{display: 'flex', alignItems: 'center', marginBottom: 'var(--space-3)'}}>
-                                <div style={{
-                                    width: '40px',
-                                    height: '40px',
-                                    borderRadius: '50%',
-                                    background: 'linear-gradient(135deg, var(--color-secondary), var(--color-accent))',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: '#fff',
-                                    fontSize: 'var(--font-sm)',
-                                    fontWeight: 'bold',
-                                    marginRight: 'var(--space-3)'
-                                }}>
-                                    {getInitials(msg.senderName)}
+                                {/* Avatar - CLICKABLE (PHASE 3) */}
+                                <div
+                                    onClick={() => handleAvatarClick && handleAvatarClick(msg.senderId, msg.isAnonymous)}
+                                    style={{
+                                        width: isMobile ? '36px' : '40px',
+                                        height: isMobile ? '36px' : '40px',
+                                        borderRadius: '50%',
+                                        background: (msg.isAnonymous || !msg.senderProfileImageUrl) ? 'linear-gradient(135deg, var(--color-secondary), var(--color-accent))' : 'transparent',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: '#fff',
+                                        fontSize: isMobile ? '13px' : 'var(--font-sm)',
+                                        fontWeight: 'bold',
+                                        marginRight: 'var(--space-3)',
+                                        overflow: 'hidden',
+                                        cursor: msg.isAnonymous ? 'default' : 'pointer',
+                                        transition: 'transform 0.2s ease'
+                                    }}
+                                    onMouseEnter={(e) => { if (!msg.isAnonymous) e.currentTarget.style.transform = 'scale(1.05)'; }}
+                                    onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+                                >
+                                    {msg.isAnonymous ? (
+                                        'A'
+                                    ) : msg.senderProfileImageUrl ? (
+                                        <img src={msg.senderProfileImageUrl} alt="Profile"
+                                             style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+                                    ) : (
+                                        getInitials(msg.senderName)
+                                    )}
                                 </div>
                                 <div style={{flex: 1}}>
-                                    <div style={{fontWeight: '600', color: '#333', fontSize: 'var(--font-base)'}}>
+                                    {/* Display Name - CLICKABLE (PHASE 3) */}
+                                    <div
+                                        onClick={() => handleAvatarClick && handleAvatarClick(msg.senderId, msg.isAnonymous)}
+                                        style={{
+                                            fontWeight: '600',
+                                            color: '#333',
+                                            fontSize: 'var(--font-base)',
+                                            cursor: msg.isAnonymous ? 'default' : 'pointer',
+                                            transition: 'color 0.2s ease',
+                                            display: 'inline-block'
+                                        }}
+                                        onMouseEnter={(e) => { if (!msg.isAnonymous) e.currentTarget.style.color = '#069494'; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.color = '#333'; }}
+                                    >
                                         {msg.senderName || 'Anonymous'}
                                     </div>
                                     <div style={{fontSize: 'var(--font-xs)', color: '#666'}}>
                                         {formatTimeAgo(msg.createdAt)}
                                     </div>
                                 </div>
-                                {msg.senderId !== currentUserId && flagContent && (
+
+                                {/* Three-Dot Menu (PHASE 3) */}
+                                <div style={{ position: 'relative' }}>
                                     <button
-                                        onClick={() => flagContent('community_message', {
-                                            messageId: msg.id,
-                                            messageContent: msg.content,
-                                            messageImageUrl: msg.imageUrl || null,
-                                            authorId: msg.senderId,
-                                            authorName: msg.senderName
-                                        })}
+                                        data-post-menu-button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setOpenPostMenu(openPostMenu === msg.id ? null : msg.id);
+                                        }}
                                         style={{
                                             background: 'transparent',
                                             border: 'none',
                                             cursor: 'pointer',
-                                            padding: 'var(--space-2)'
+                                            padding: '8px',
+                                            color: '#65676B',
+                                            fontSize: '20px',
+                                            lineHeight: 1
                                         }}
+                                        title="More options"
                                     >
-                                        <i data-lucide="flag" style={{width: '16px', height: '16px', color: '#999'}}></i>
+                                        ⋯
                                     </button>
-                                )}
+
+                                    {/* Dropdown Menu (PHASE 3 & 4) */}
+                                    {openPostMenu === msg.id && (
+                                        <div
+                                            data-post-menu-dropdown
+                                            style={{
+                                                position: 'absolute',
+                                                top: '100%',
+                                                right: 0,
+                                                background: '#FFFFFF',
+                                                border: '1px solid #CCD0D5',
+                                                borderRadius: '8px',
+                                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                                minWidth: '180px',
+                                                zIndex: 1000,
+                                                overflow: 'hidden'
+                                            }}
+                                        >
+                                            {(msg.senderId === currentUserId || isCoachOrAdmin()) && (
+                                                <button
+                                                    onClick={() => handleDeletePost(msg.id, msg)}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '12px 16px',
+                                                        background: 'transparent',
+                                                        border: 'none',
+                                                        textAlign: 'left',
+                                                        cursor: 'pointer',
+                                                        fontSize: '15px',
+                                                        color: '#E4405F',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '12px',
+                                                        transition: 'background 0.2s ease'
+                                                    }}
+                                                    onMouseOver={(e) => { e.currentTarget.style.background = '#F0F2F5'; }}
+                                                    onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                                                >
+                                                    <i data-lucide="trash-2" style={{width: '18px', height: '18px'}}></i>
+                                                    Delete Post
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => handleReportPost(msg.id, msg)}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '12px 16px',
+                                                    background: 'transparent',
+                                                    border: 'none',
+                                                    textAlign: 'left',
+                                                    cursor: 'pointer',
+                                                    fontSize: '15px',
+                                                    color: '#050505',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '12px',
+                                                    transition: 'background 0.2s ease'
+                                                }}
+                                                onMouseOver={(e) => { e.currentTarget.style.background = '#F0F2F5'; }}
+                                                onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                                            >
+                                                <i data-lucide="alert-triangle" style={{width: '18px', height: '18px'}}></i>
+                                                Report Post
+                                            </button>
+                                            {msg.senderId !== currentUserId && !msg.isAnonymous && (
+                                                <button
+                                                    onClick={() => handleBlockUser(msg)}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '12px 16px',
+                                                        background: 'transparent',
+                                                        border: 'none',
+                                                        textAlign: 'left',
+                                                        cursor: 'pointer',
+                                                        fontSize: '15px',
+                                                        color: '#E4405F',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '12px',
+                                                        transition: 'background 0.2s ease'
+                                                    }}
+                                                    onMouseOver={(e) => { e.currentTarget.style.background = '#F0F2F5'; }}
+                                                    onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                                                >
+                                                    <i data-lucide="ban" style={{width: '18px', height: '18px'}}></i>
+                                                    Block User
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Post Content */}
@@ -949,62 +3957,320 @@ function CommunityChat({ messages, onSendMessage, currentUserId, uploadChatImage
                                     alt="Post content"
                                     style={{
                                         width: '100%',
+                                        maxWidth: isMobile ? 'none' : '500px',
                                         borderRadius: 'var(--radius-md)',
-                                        cursor: 'pointer'
+                                        cursor: 'pointer',
+                                        display: 'block'
                                     }}
                                     onClick={() => setModalImage(msg.imageUrl)}
                                 />
                             )}
 
-                            {/* Post Actions */}
+                            {/* Reactions Section */}
                             <div style={{
-                                display: 'flex',
-                                gap: 'var(--space-4)',
-                                marginTop: 'var(--space-3)',
-                                paddingTop: 'var(--space-3)',
-                                borderTop: '1px solid #eee'
+                                paddingTop: '12px',
+                                borderTop: '1px solid #E4E6EB'
                             }}>
-                                <button
-                                    onClick={() => handleLike(msg.id)}
+                                {/* Reaction Buttons */}
+                                <div style={{
+                                    display: 'flex',
+                                    gap: '8px',
+                                    marginBottom: '8px'
+                                }}>
+                                    {/* Heart Button */}
+                                    <button
+                                        onClick={() => onReaction && onReaction(msg.id, 'heart')}
+                                        style={{
+                                            flex: 1,
+                                            padding: '8px',
+                                            background: msg.reactedBy?.[currentUserId] === 'heart' ? '#F0F2F5' : 'transparent',
+                                            color: msg.reactedBy?.[currentUserId] === 'heart' ? '#F02849' : '#65676B',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            fontSize: '15px',
+                                            fontWeight: msg.reactedBy?.[currentUserId] === 'heart' ? '600' : '400',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px',
+                                            transition: 'all 0.2s ease',
+                                            minHeight: '36px'
+                                        }}
+                                        onMouseOver={(e) => { e.currentTarget.style.background = '#F0F2F5'; }}
+                                        onMouseOut={(e) => {
+                                            e.currentTarget.style.background = msg.reactedBy?.[currentUserId] === 'heart' ? '#F0F2F5' : 'transparent';
+                                        }}
+                                    >
+                                        <span>❤️</span>
+                                        <span>Heart</span>
+                                        {(msg.reactions?.heart?.length || 0) > 0 && (
+                                            <span style={{ fontSize: '13px', opacity: 0.8 }}>
+                                                ({msg.reactions.heart.length})
+                                            </span>
+                                        )}
+                                    </button>
+
+                                    {/* Support Button */}
+                                    <button
+                                        onClick={() => onReaction && onReaction(msg.id, 'support')}
+                                        style={{
+                                            flex: 1,
+                                            padding: '8px',
+                                            background: msg.reactedBy?.[currentUserId] === 'support' ? '#F0F2F5' : 'transparent',
+                                            color: msg.reactedBy?.[currentUserId] === 'support' ? '#1877F2' : '#65676B',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            fontSize: '15px',
+                                            fontWeight: msg.reactedBy?.[currentUserId] === 'support' ? '600' : '400',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px',
+                                            transition: 'all 0.2s ease',
+                                            minHeight: '36px'
+                                        }}
+                                        onMouseOver={(e) => { e.currentTarget.style.background = '#F0F2F5'; }}
+                                        onMouseOut={(e) => {
+                                            e.currentTarget.style.background = msg.reactedBy?.[currentUserId] === 'support' ? '#F0F2F5' : 'transparent';
+                                        }}
+                                    >
+                                        <span>🤝</span>
+                                        <span>Support</span>
+                                        {(msg.reactions?.support?.length || 0) > 0 && (
+                                            <span style={{ fontSize: '13px', opacity: 0.8 }}>
+                                                ({msg.reactions.support.length})
+                                            </span>
+                                        )}
+                                    </button>
+
+                                    {/* Celebrate Button */}
+                                    <button
+                                        onClick={() => onReaction && onReaction(msg.id, 'celebrate')}
+                                        style={{
+                                            flex: 1,
+                                            padding: '8px',
+                                            background: msg.reactedBy?.[currentUserId] === 'celebrate' ? '#F0F2F5' : 'transparent',
+                                            color: msg.reactedBy?.[currentUserId] === 'celebrate' ? '#FFA500' : '#65676B',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            fontSize: '15px',
+                                            fontWeight: msg.reactedBy?.[currentUserId] === 'celebrate' ? '600' : '400',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px',
+                                            transition: 'all 0.2s ease',
+                                            minHeight: '36px'
+                                        }}
+                                        onMouseOver={(e) => { e.currentTarget.style.background = '#F0F2F5'; }}
+                                        onMouseOut={(e) => {
+                                            e.currentTarget.style.background = msg.reactedBy?.[currentUserId] === 'celebrate' ? '#F0F2F5' : 'transparent';
+                                        }}
+                                    >
+                                        <span>🎉</span>
+                                        <span>Celebrate</span>
+                                        {(msg.reactions?.celebrate?.length || 0) > 0 && (
+                                            <span style={{ fontSize: '13px', opacity: 0.8 }}>
+                                                ({msg.reactions.celebrate.length})
+                                            </span>
+                                        )}
+                                    </button>
+                                </div>
+
+                                {/* Comment Count - Clickable (Copied from My Day) */}
+                                <div
+                                    onClick={() => toggleComments(msg.id)}
                                     style={{
-                                        background: 'transparent',
-                                        border: 'none',
+                                        fontSize: '13px',
+                                        color: '#069494',
+                                        paddingTop: '8px',
                                         cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 'var(--space-1)',
-                                        fontSize: 'var(--font-sm)',
                                         fontWeight: '500',
-                                        color: likes[msg.id] ? 'var(--color-danger)' : '#666',
-                                        padding: 'var(--space-2)'
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
                                     }}
                                 >
-                                    <i data-lucide="heart" style={{
-                                        width: '18px',
-                                        height: '18px',
-                                        fill: likes[msg.id] ? 'var(--color-danger)' : 'none'
-                                    }}></i>
-                                    Like
-                                </button>
-                                <button
-                                    onClick={() => setShowComments(prev => ({...prev, [msg.id]: !prev[msg.id]}))}
-                                    style={{
-                                        background: 'transparent',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 'var(--space-1)',
-                                        fontSize: 'var(--font-sm)',
-                                        fontWeight: '500',
-                                        color: '#666',
-                                        padding: 'var(--space-2)'
-                                    }}
-                                >
-                                    <i data-lucide="message-circle" style={{width: '18px', height: '18px'}}></i>
-                                    Comment
-                                </button>
+                                    💬 {msg.commentCount || 0} comments
+                                    {showComments[msg.id] ? ' ▲' : ' ▼'}
+                                </div>
                             </div>
+
+                            {/* Comments Section (Expandable) - Copied from My Day */}
+                            {showComments[msg.id] && (
+                                <div style={{
+                                    paddingTop: '12px',
+                                    borderTop: '1px solid #E4E6EB',
+                                    marginTop: '8px'
+                                }}>
+                                    {/* Comments List */}
+                                    {loadingComments[msg.id] ? (
+                                        <div style={{ padding: '20px', textAlign: 'center', color: '#65676B', fontSize: '13px' }}>
+                                            Loading comments...
+                                        </div>
+                                    ) : (postComments[msg.id] || []).length === 0 ? (
+                                        <div style={{ padding: '20px', textAlign: 'center', color: '#65676B', fontSize: '13px' }}>
+                                            No comments yet. Be the first to comment!
+                                        </div>
+                                    ) : (
+                                        (postComments[msg.id] || []).map(comment => (
+                                            <div key={comment.id} style={{
+                                                background: '#F0F2F5',
+                                                borderRadius: '16px',
+                                                padding: '8px 12px',
+                                                marginBottom: '8px'
+                                            }}>
+                                                {/* Comment Header */}
+                                                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                                                    {/* Avatar */}
+                                                    <div style={{
+                                                        width: '24px',
+                                                        height: '24px',
+                                                        borderRadius: '50%',
+                                                        background: 'linear-gradient(135deg, #069494, #058585)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        color: '#fff',
+                                                        fontSize: '12px',
+                                                        fontWeight: 'bold',
+                                                        marginRight: '8px'
+                                                    }}>
+                                                        {(comment.userDisplayName?.[0] || '?').toUpperCase()}
+                                                    </div>
+                                                    {/* Name & Time */}
+                                                    <div style={{ flex: 1 }}>
+                                                        <span style={{ fontSize: '13px', fontWeight: '600', color: '#050505' }}>
+                                                            {comment.userDisplayName}
+                                                        </span>
+                                                        <span style={{ fontSize: '11px', color: '#65676B', marginLeft: '8px' }}>
+                                                            {formatMyDayTimestamp(comment.createdAt)}
+                                                        </span>
+                                                    </div>
+                                                    {/* Delete Button (own comments only) */}
+                                                    {(comment.userId === currentUserId || isCoachOrAdmin()) && (
+                                                        <button
+                                                            onClick={() => handleDeleteComment(msg.id, comment.id, comment.userId)}
+                                                            style={{
+                                                                background: 'transparent',
+                                                                border: 'none',
+                                                                color: '#65676B',
+                                                                fontSize: '16px',
+                                                                cursor: 'pointer',
+                                                                padding: '0 4px'
+                                                            }}
+                                                            title="Delete comment"
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                {/* Comment Content */}
+                                                <div style={{
+                                                    fontSize: '14px',
+                                                    lineHeight: '18px',
+                                                    color: '#050505',
+                                                    whiteSpace: 'pre-wrap',
+                                                    wordBreak: 'break-word',
+                                                    paddingLeft: '32px'
+                                                }}>
+                                                    {comment.content}
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+
+                                    {/* Comment Input */}
+                                    <div style={{
+                                        display: 'flex',
+                                        gap: '8px',
+                                        marginTop: '12px',
+                                        alignItems: 'flex-start'
+                                    }}>
+                                        {/* Current User Avatar */}
+                                        <div style={{
+                                            width: '32px',
+                                            height: '32px',
+                                            borderRadius: '50%',
+                                            background: 'linear-gradient(135deg, #069494, #058585)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            color: '#fff',
+                                            fontSize: '14px',
+                                            fontWeight: 'bold',
+                                            flexShrink: 0
+                                        }}>
+                                            {(currentUserData?.firstName?.[0] || currentUser?.displayName?.[0] || '?').toUpperCase()}
+                                        </div>
+                                        {/* Input & Submit */}
+                                        <div style={{ flex: 1 }}>
+                                            <input
+                                                type="text"
+                                                value={commentText[msg.id] || ''}
+                                                onChange={(e) => setCommentText(prev => ({ ...prev, [msg.id]: e.target.value }))}
+                                                onKeyPress={(e) => {
+                                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                                        e.preventDefault();
+                                                        handleAddComment(msg.id);
+                                                    }
+                                                }}
+                                                disabled={submittingComment}
+                                                placeholder="Write a comment..."
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '8px 12px',
+                                                    border: '1px solid #CCD0D5',
+                                                    borderRadius: '20px',
+                                                    fontSize: '14px',
+                                                    outline: 'none',
+                                                    fontFamily: 'inherit'
+                                                }}
+                                            />
+                                            {/* Character counter */}
+                                            {(commentText[msg.id]?.length || 0) > 250 && (
+                                                <div style={{
+                                                    fontSize: '11px',
+                                                    color: (commentText[msg.id]?.length || 0) > 280 ? '#F02849' : '#65676B',
+                                                    textAlign: 'right',
+                                                    marginTop: '4px',
+                                                    marginRight: '4px'
+                                                }}>
+                                                    {commentText[msg.id]?.length || 0}/280
+                                                </div>
+                                            )}
+                                            {/* Submit button (shows when text entered) */}
+                                            {(commentText[msg.id]?.trim()?.length || 0) > 0 && (
+                                                <button
+                                                    onClick={() => handleAddComment(msg.id)}
+                                                    disabled={submittingComment || (commentText[msg.id]?.length || 0) > 280}
+                                                    style={{
+                                                        marginTop: '4px',
+                                                        padding: '6px 16px',
+                                                        background: (submittingComment || (commentText[msg.id]?.length || 0) > 280)
+                                                            ? '#CCD0D5'
+                                                            : '#069494',
+                                                        color: '#fff',
+                                                        border: 'none',
+                                                        borderRadius: '16px',
+                                                        fontSize: '13px',
+                                                        fontWeight: '600',
+                                                        cursor: (submittingComment || (commentText[msg.id]?.length || 0) > 280)
+                                                            ? 'not-allowed'
+                                                            : 'pointer',
+                                                        float: 'right'
+                                                    }}
+                                                >
+                                                    {submittingComment ? 'Posting...' : 'Post'}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     ))
                 ) : (
@@ -1026,6 +4292,7 @@ function CommunityChat({ messages, onSendMessage, currentUserId, uploadChatImage
         </div>
     );
 }
+
 
 // Register components
 window.GLRSApp.components.CommunityTab = CommunityTab;

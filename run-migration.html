@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>GLRS Historical Migration - Full Schema</title>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-functions-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee; }
+    h1 { color: #069494; margin-bottom: 5px; }
+    h2 { color: #888; font-weight: normal; margin-top: 0; }
+    .section { background: #16213e; padding: 15px; border-radius: 8px; margin: 15px 0; }
+    .section h3 { margin-top: 0; color: #4ecca3; }
+    button { background: #069494; color: white; border: none; padding: 12px 24px;
+             border-radius: 6px; cursor: pointer; font-size: 14px; margin: 5px; font-family: monospace; }
+    button:hover { background: #057a7a; }
+    button:disabled { background: #444; cursor: not-allowed; }
+    button.danger { background: #e74c3c; }
+    button.danger:hover { background: #c0392b; }
+    .log-container { display: flex; gap: 20px; }
+    .log-box { flex: 1; background: #0f0f23; padding: 15px; border-radius: 8px;
+               max-height: 600px; overflow-y: auto; border: 2px solid #333; }
+    .log-box h4 { margin-top: 0; padding-bottom: 10px; border-bottom: 1px solid #333; }
+    .log-box.weekly { border-color: #4ecca3; }
+    .log-box.weekly h4 { color: #4ecca3; }
+    .log-box.monthly { border-color: #f39c12; }
+    .log-box.monthly h4 { color: #f39c12; }
+    .log-entry { padding: 4px 0; font-size: 12px; border-bottom: 1px solid #222; }
+    .log-entry.success { color: #4ecca3; }
+    .log-entry.error { color: #e74c3c; background: #2c1515; padding: 5px; border-radius: 4px; }
+    .log-entry.info { color: #3498db; }
+    .log-entry.data { color: #9b59b6; }
+    .log-entry.write { color: #f39c12; font-weight: bold; }
+    .log-entry.header { color: #fff; background: #333; padding: 8px; margin: 8px 0; border-radius: 4px; font-weight: bold; }
+    .log-entry.detail { color: #888; padding-left: 20px; font-size: 11px; }
+    .status { padding: 10px; border-radius: 4px; margin: 10px 0; text-align: center; font-weight: bold; }
+    .status.success { background: #1d4a3a; color: #4ecca3; }
+    .status.error { background: #4a1d1d; color: #e74c3c; }
+    .status.info { background: #1d3a4a; color: #3498db; }
+    .stats { display: flex; gap: 15px; margin: 20px 0; flex-wrap: wrap; }
+    .stat-box { flex: 1; min-width: 150px; background: #16213e; padding: 15px; border-radius: 8px; text-align: center; }
+    .stat-box .number { font-size: 36px; font-weight: bold; }
+    .stat-box.weekly .number { color: #4ecca3; }
+    .stat-box.monthly .number { color: #f39c12; }
+    .stat-box.data .number { color: #9b59b6; }
+    .stat-box .label { color: #888; margin-top: 5px; font-size: 12px; }
+    .schema-preview { background: #0f0f23; padding: 15px; border-radius: 8px; margin: 15px 0; font-size: 11px; }
+    .schema-preview h4 { color: #4ecca3; margin-top: 0; }
+    .schema-preview code { color: #f39c12; }
+    .spinner { display: inline-block; width: 20px; height: 20px; border: 3px solid #333;
+               border-top: 3px solid #4ecca3; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <h1>GLRS Historical Migration - Full Schema</h1>
+  <h2>Calls Cloud Function: migrateHistoricalSummaries</h2>
+
+  <div class="section">
+    <h3>Migration Target</h3>
+    <p>This migration uses the Cloud Function to create <strong>FULL weekly summaries</strong> with:</p>
+    <ul>
+      <li><strong>Check-ins:</strong> Daily breakdown (morning/evening) with mood, craving, anxiety, sleep, energy</li>
+      <li><strong>Reflections:</strong> Daily breakdown with dayRating, gratitude, challenge, tomorrowGoal</li>
+      <li><strong>Gratitudes:</strong> All entries with text, category, date</li>
+      <li><strong>Habits:</strong> Per-habit daily grid (true/false for each day)</li>
+      <li><strong>Meetings:</strong> Entries with name, type, format, day, date</li>
+      <li><strong>Community:</strong> Posts created with text, date</li>
+      <li><strong>Resources:</strong> Viewed/completed with entries</li>
+      <li><strong>Messages:</strong> Sent count</li>
+      <li><strong>Journey:</strong> Sobriety days start/end</li>
+    </ul>
+    <p>Subcollections created: <code style="color:#4ecca3">users/{userId}/weeklySummaries/</code> and <code style="color:#f39c12">users/{userId}/monthlySummaries/</code></p>
+  </div>
+
+  <div id="auth-status" class="status info">Checking authentication...</div>
+
+  <div style="margin: 20px 0;">
+    <button id="login-btn" onclick="login()" style="display:none;">Login</button>
+    <button id="migrate-btn" onclick="runMigration(false)" disabled>Migrate My Data</button>
+    <button id="migrate-all-btn" onclick="runMigration(true)" disabled class="danger">Migrate ALL Users (Admin)</button>
+    <button onclick="verifyResults()" style="background:#6366f1;">Verify Results</button>
+    <button onclick="clearLogs()" style="background:#666;">Clear Logs</button>
+  </div>
+
+  <div class="stats">
+    <div class="stat-box weekly">
+      <div class="number" id="weekly-count">0</div>
+      <div class="label">Weekly Summaries</div>
+    </div>
+    <div class="stat-box monthly">
+      <div class="number" id="monthly-count">0</div>
+      <div class="label">Monthly Summaries</div>
+    </div>
+    <div class="stat-box data">
+      <div class="number" id="checkin-count">0</div>
+      <div class="label">Check-ins Found</div>
+    </div>
+    <div class="stat-box data">
+      <div class="number" id="reflection-count">0</div>
+      <div class="label">Reflections Found</div>
+    </div>
+    <div class="stat-box data">
+      <div class="number" id="gratitude-count">0</div>
+      <div class="label">Gratitudes Found</div>
+    </div>
+  </div>
+
+  <div class="log-container">
+    <div class="log-box weekly">
+      <h4>WEEKLY SUMMARIES (users/{userId}/weeklySummaries/)</h4>
+      <div id="weekly-log"></div>
+    </div>
+    <div class="log-box monthly">
+      <h4>MONTHLY SUMMARIES (users/{userId}/monthlySummaries/)</h4>
+      <div id="monthly-log"></div>
+    </div>
+  </div>
+
+  <div class="schema-preview">
+    <h4>Expected Weekly Schema</h4>
+    <pre>
+{
+  weekId: "2025-W48",
+  startDate: "2025-11-25",
+  endDate: "2025-12-01",
+  checkIns: {
+    completed: 10, total: 14, rate: 0.71,
+    moodAvg: 3.8, moodHigh: 5, moodLow: 2,
+    cravingAvg: 4.2, cravingHigh: 7, cravingSpikes: 2,
+    anxietyAvg: 3.5, sleepAvg: 3.8, energyAvg: 3.6,
+    <code>daily: { monday: { morning: {...}, evening: {...} }, ... }</code>
+  },
+  reflections: {
+    completed: 5, total: 7, rate: 0.71,
+    avgDayRating: 3.5,
+    <code>daily: { monday: { completed: true, dayRating: 4, gratitude: "...", ... }, ... }</code>
+  },
+  gratitudes: {
+    count: 8,
+    <code>entries: [{ text: "...", category: "...", date: "..." }, ...]</code>
+  },
+  habits: {
+    tracked: 3, overallCompletionRate: 0.68,
+    <code>breakdown: { habitId: { name: "...", daily: { monday: true, ... } }, ... }</code>
+  },
+  meetings: {
+    attended: 3, byType: { AA: 2, NA: 1, GLRS: 0 }, byFormat: { inPerson: 2, virtual: 1 },
+    <code>entries: [{ name: "...", type: "AA", day: "monday", ... }, ...]</code>
+  },
+  community: { postsCreated: 2, <code>posts: [...]</code> },
+  resources: { viewed: 5, completed: 2, <code>entries: [...]</code> },
+  messages: { sent: 8 },
+  journey: { sobrietyDaysStart: 45, sobrietyDaysEnd: 52 },
+  aiSummary: "Week of 2025-11-25: 10 check-ins, 5 reflections."
+}
+    </pre>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyAufSTHtCTFSEIeZ9YzvrULCnji5I-SMi0",
+      authDomain: "glrs-pir-system.firebaseapp.com",
+      projectId: "glrs-pir-system",
+      storageBucket: "glrs-pir-system.firebasestorage.app",
+      messagingSenderId: "830378577655",
+      appId: "1:830378577655:web:ceb8e57c80f9b1cc028df2"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const functions = firebase.functions();
+
+    let currentUser = null;
+
+    // Stats counters
+    let stats = {
+      weekly: 0,
+      monthly: 0,
+      checkIns: 0,
+      reflections: 0,
+      gratitudes: 0
+    };
+
+    function logWeekly(msg, type = '') {
+      const el = document.getElementById('weekly-log');
+      const div = document.createElement('div');
+      div.className = 'log-entry ' + type;
+      div.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      el.appendChild(div);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function logMonthly(msg, type = '') {
+      const el = document.getElementById('monthly-log');
+      const div = document.createElement('div');
+      div.className = 'log-entry ' + type;
+      div.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      el.appendChild(div);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function updateStats() {
+      document.getElementById('weekly-count').textContent = stats.weekly;
+      document.getElementById('monthly-count').textContent = stats.monthly;
+      document.getElementById('checkin-count').textContent = stats.checkIns;
+      document.getElementById('reflection-count').textContent = stats.reflections;
+      document.getElementById('gratitude-count').textContent = stats.gratitudes;
+    }
+
+    function setStatus(msg, type) {
+      const el = document.getElementById('auth-status');
+      el.innerHTML = msg;
+      el.className = 'status ' + type;
+    }
+
+    function clearLogs() {
+      document.getElementById('weekly-log').innerHTML = '';
+      document.getElementById('monthly-log').innerHTML = '';
+      stats = { weekly: 0, monthly: 0, checkIns: 0, reflections: 0, gratitudes: 0 };
+      updateStats();
+    }
+
+    auth.onAuthStateChanged(user => {
+      currentUser = user;
+      if (user) {
+        setStatus(`Authenticated: ${user.email} | UID: ${user.uid}`, 'success');
+        document.getElementById('login-btn').style.display = 'none';
+        document.getElementById('migrate-btn').disabled = false;
+        document.getElementById('migrate-all-btn').disabled = false;
+        logWeekly('Ready to migrate', 'success');
+        logMonthly('Ready to migrate', 'success');
+      } else {
+        setStatus('Not logged in - please login first', 'error');
+        document.getElementById('login-btn').style.display = 'inline-block';
+        document.getElementById('migrate-btn').disabled = true;
+        document.getElementById('migrate-all-btn').disabled = true;
+      }
+    });
+
+    async function login() {
+      const email = prompt('Enter email:');
+      const password = prompt('Enter password:');
+      try {
+        await auth.signInWithEmailAndPassword(email, password);
+      } catch (err) {
+        setStatus('Login failed: ' + err.message, 'error');
+      }
+    }
+
+    async function runMigration(migrateAll = false) {
+      if (!currentUser) return;
+
+      clearLogs();
+      document.getElementById('migrate-btn').disabled = true;
+      document.getElementById('migrate-all-btn').disabled = true;
+
+      const mode = migrateAll ? 'ALL USERS' : 'current user';
+      setStatus(`<span class="spinner"></span> Migration in progress (${mode})...`, 'info');
+
+      logWeekly('Calling Cloud Function: migrateHistoricalSummaries', 'info');
+      logWeekly(`Mode: ${mode}`, 'info');
+      logWeekly('─'.repeat(50), 'info');
+
+      logMonthly('Waiting for Cloud Function response...', 'info');
+
+      try {
+        const migrateHistoricalSummaries = functions.httpsCallable('migrateHistoricalSummaries');
+
+        const result = await migrateHistoricalSummaries({
+          userId: currentUser.uid,
+          migrateAll: migrateAll
+        });
+
+        const data = result.data;
+        console.log('Migration result:', data);
+
+        if (data.success) {
+          // Process weekly summaries
+          if (data.weeklySummaries && data.weeklySummaries.length > 0) {
+            logWeekly('WEEKLY SUMMARIES CREATED', 'header');
+
+            data.weeklySummaries.forEach(weekId => {
+              stats.weekly++;
+              logWeekly(`Saved: ${weekId}`, 'success');
+            });
+          }
+
+          // Process monthly summaries
+          if (data.monthlySummaries && data.monthlySummaries.length > 0) {
+            logMonthly('MONTHLY SUMMARIES CREATED', 'header');
+
+            data.monthlySummaries.forEach(monthId => {
+              stats.monthly++;
+              logMonthly(`Saved: ${monthId}`, 'success');
+            });
+          }
+
+          // Show errors if any
+          if (data.errors && data.errors.length > 0) {
+            logWeekly('─'.repeat(50), 'info');
+            logWeekly('ERRORS ENCOUNTERED', 'error');
+            data.errors.forEach(err => {
+              logWeekly(`${err.type || 'unknown'}: ${err.error}`, 'error');
+            });
+          }
+
+          // Final summary
+          logWeekly('─'.repeat(50), 'info');
+          logWeekly(`COMPLETE: ${stats.weekly} weekly summaries`, 'success');
+
+          logMonthly('─'.repeat(50), 'info');
+          logMonthly(`COMPLETE: ${stats.monthly} monthly summaries`, 'success');
+
+          if (migrateAll && data.totalUsers) {
+            setStatus(`Migration complete! ${data.successfulUsers}/${data.totalUsers} users processed. Weekly: ${stats.weekly}, Monthly: ${stats.monthly}`, 'success');
+          } else {
+            setStatus(`Migration complete! Weekly: ${stats.weekly}, Monthly: ${stats.monthly}`, 'success');
+          }
+
+          updateStats();
+
+          // Auto-verify after short delay
+          setTimeout(() => verifyResults(), 1000);
+
+        } else {
+          throw new Error('Migration returned success: false');
+        }
+
+      } catch (error) {
+        console.error('Migration error:', error);
+        logWeekly(`ERROR: ${error.message}`, 'error');
+        logMonthly(`ERROR: ${error.message}`, 'error');
+        setStatus(`Migration failed: ${error.message}`, 'error');
+      }
+
+      document.getElementById('migrate-btn').disabled = false;
+      document.getElementById('migrate-all-btn').disabled = false;
+    }
+
+    async function verifyResults() {
+      if (!currentUser) {
+        alert('Please login first');
+        return;
+      }
+
+      const userId = currentUser.uid;
+      const userRef = db.collection('users').doc(userId);
+
+      logWeekly('─'.repeat(50), 'info');
+      logWeekly('VERIFICATION: Reading from Firestore', 'info');
+      logMonthly('─'.repeat(50), 'info');
+      logMonthly('VERIFICATION: Reading from Firestore', 'info');
+
+      try {
+        // Verify weekly summaries
+        const weeklySnap = await userRef.collection('weeklySummaries').orderBy('weekId').get();
+        stats.weekly = weeklySnap.size;
+
+        logWeekly(`Found ${weeklySnap.size} weekly summaries:`, 'success');
+
+        let totalCheckIns = 0;
+        let totalReflections = 0;
+        let totalGratitudes = 0;
+
+        weeklySnap.docs.forEach(doc => {
+          const data = doc.data();
+
+          // Count data
+          const checkInCount = data.checkIns?.completed || 0;
+          const reflectionCount = data.reflections?.completed || 0;
+          const gratitudeCount = data.gratitudes?.count || 0;
+
+          totalCheckIns += checkInCount;
+          totalReflections += reflectionCount;
+          totalGratitudes += gratitudeCount;
+
+          logWeekly(`${doc.id}`, 'data');
+          logWeekly(`  Check-ins: ${checkInCount}/14 (${Math.round((data.checkIns?.rate || 0) * 100)}%)`, 'detail');
+          logWeekly(`  Reflections: ${reflectionCount}/7 (${Math.round((data.reflections?.rate || 0) * 100)}%)`, 'detail');
+          logWeekly(`  Gratitudes: ${gratitudeCount}`, 'detail');
+          logWeekly(`  Habits tracked: ${data.habits?.tracked || 0}`, 'detail');
+          logWeekly(`  Meetings: ${data.meetings?.attended || 0}`, 'detail');
+          logWeekly(`  Community posts: ${data.community?.postsCreated || 0}`, 'detail');
+          logWeekly(`  Resources viewed: ${data.resources?.viewed || 0}`, 'detail');
+          logWeekly(`  Messages sent: ${data.messages?.sent || 0}`, 'detail');
+
+          // Check for daily breakdowns
+          const hasCheckInDaily = data.checkIns?.daily && Object.keys(data.checkIns.daily).length === 7;
+          const hasReflectionDaily = data.reflections?.daily && Object.keys(data.reflections.daily).length === 7;
+          const hasHabitBreakdown = data.habits?.breakdown && Object.keys(data.habits.breakdown).length > 0;
+
+          if (hasCheckInDaily) {
+            logWeekly(`  Daily check-in breakdown: YES`, 'detail');
+          } else {
+            logWeekly(`  Daily check-in breakdown: MISSING`, 'error');
+          }
+
+          if (hasReflectionDaily) {
+            logWeekly(`  Daily reflection breakdown: YES`, 'detail');
+          } else {
+            logWeekly(`  Daily reflection breakdown: MISSING`, 'error');
+          }
+
+          if (hasHabitBreakdown) {
+            logWeekly(`  Habit breakdown: ${Object.keys(data.habits.breakdown).length} habits`, 'detail');
+          }
+        });
+
+        stats.checkIns = totalCheckIns;
+        stats.reflections = totalReflections;
+        stats.gratitudes = totalGratitudes;
+
+      } catch (e) {
+        logWeekly('ERROR reading weekly: ' + e.message, 'error');
+      }
+
+      try {
+        // Verify monthly summaries
+        const monthlySnap = await userRef.collection('monthlySummaries').orderBy('monthId').get();
+        stats.monthly = monthlySnap.size;
+
+        logMonthly(`Found ${monthlySnap.size} monthly summaries:`, 'success');
+
+        monthlySnap.docs.forEach(doc => {
+          const data = doc.data();
+
+          logMonthly(`${doc.id}`, 'data');
+          logMonthly(`  Weeks included: ${(data.weeksIncluded || []).join(', ')}`, 'detail');
+          logMonthly(`  Check-ins: ${data.checkIns?.completed || 0}/${data.checkIns?.total || 0}`, 'detail');
+          logMonthly(`  Reflections: ${data.reflections?.completed || 0}/${data.reflections?.total || 0}`, 'detail');
+          logMonthly(`  Meetings: ${data.meetings?.total || 0} (avg ${data.meetings?.avgPerWeek || 0}/week)`, 'detail');
+          logMonthly(`  Sobriety: Day ${data.sobrietyDaysStart || 0} to Day ${data.sobrietyDaysEnd || 0}`, 'detail');
+        });
+
+      } catch (e) {
+        logMonthly('ERROR reading monthly: ' + e.message, 'error');
+      }
+
+      updateStats();
+      logWeekly('─'.repeat(50), 'info');
+      logWeekly('Verification complete', 'success');
+      logMonthly('─'.repeat(50), 'info');
+      logMonthly('Verification complete', 'success');
+    }
+  </script>
+</body>
+</html>

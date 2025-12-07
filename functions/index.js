@@ -1,6 +1,10 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const nlp = require('compromise');
+const { syncMeetings } = require('./syncMeetings');
+const { syncAAMeetings } = require('./syncAAMeetings');
+const { scheduledMeetingSync, manualMeetingSync } = require('./scheduledSync');
+const { exchangeGoogleCalendarToken, syncMeetingToCalendar, syncCalendarSettings, manualSyncMeetings } = require('./calendarSync');
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -646,3 +650,516 @@ exports.detectBreakthroughs = functions.pubsub.schedule('0 3 * * *')
       return null;
     }
   });
+exports.syncMeetings = syncMeetings;
+exports.syncAAMeetings = syncAAMeetings;
+
+// ============================================================================
+// SCHEDULED MEETING SYNC - Phase 3 Feature 1
+// Automated sync every 6 hours with change detection and error monitoring
+// ============================================================================
+exports.scheduledMeetingSync = scheduledMeetingSync;
+exports.manualMeetingSync = manualMeetingSync;
+
+// ============================================================================
+// GOOGLE CALENDAR INTEGRATION - Phase 1 Step 1.5
+// OAuth token exchange and meeting sync
+// ============================================================================
+exports.exchangeGoogleCalendarToken = exchangeGoogleCalendarToken;
+exports.syncMeetingToCalendar = syncMeetingToCalendar;
+// Step 2.1D: Manual sync functions
+exports.syncCalendarSettings = syncCalendarSettings;
+exports.manualSyncMeetings = manualSyncMeetings;
+
+// ============================================================================
+// ADDRESS MIGRATION - HTTPS Callable Function
+// Phase 2 Fix #2: Migrate plain text addresses to structured format
+// ============================================================================
+
+exports.migrateAddresses = functions
+  .runWith({
+    timeoutSeconds: 540, // 9 minutes max
+    memory: '1GB',
+    invoker: 'public'
+  })
+  .https.onRequest(async (req, res) => {
+    console.log('========================================');
+    console.log('ADDRESS MIGRATION CLOUD FUNCTION');
+    console.log('Phase 2 Fix #2: Structured Address Format');
+    console.log('========================================\n');
+
+    // Mapbox API configuration
+    const MAPBOX_TOKEN = functions.config().mapbox?.token || process.env.MAPBOX_TOKEN;
+
+    if (!MAPBOX_TOKEN) {
+      console.error('❌ MAPBOX_TOKEN not configured');
+      return res.status(500).json({
+        error: 'Mapbox token not configured. Run: firebase functions:config:set mapbox.token="YOUR_TOKEN"'
+      });
+    }
+
+    const stats = {
+      total: 0,
+      processed: 0,
+      successful: 0,
+      failed: 0,
+      skipped: 0,
+      errors: []
+    };
+
+    try {
+      // Fetch all external meetings
+      console.log('📥 Fetching meetings from Firestore...');
+      const snapshot = await db.collection('externalMeetings').get();
+
+      stats.total = snapshot.size;
+      console.log(`✓ Found ${stats.total} meetings\n`);
+
+      if (stats.total === 0) {
+        return res.json({ success: true, message: 'No meetings found', stats });
+      }
+
+      // Helper function to geocode address
+      const geocodeAddress = async (addressString) => {
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(addressString)}.json?access_token=${MAPBOX_TOKEN}&limit=1&country=US`;
+
+        const fetch = (await import('node-fetch')).default;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+          throw new Error(`Mapbox API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (!data.features || data.features.length === 0) {
+          throw new Error('No geocoding results');
+        }
+
+        const feature = data.features[0];
+        const [lng, lat] = feature.center;
+        const context = feature.context || [];
+
+        return {
+          formatted: feature.place_name,
+          city: context.find(c => c.id.includes('place'))?.text || '',
+          state: context.find(c => c.id.includes('region'))?.short_code?.replace('US-', '') || '',
+          zipCode: context.find(c => c.id.includes('postcode'))?.text || '',
+          country: 'US',
+          coordinates: new admin.firestore.GeoPoint(lat, lng)
+        };
+      };
+
+      // Process meetings in batches of 10
+      const batchSize = 10;
+      const meetings = snapshot.docs;
+
+      for (let i = 0; i < meetings.length; i += batchSize) {
+        const batch = meetings.slice(i, i + batchSize);
+        console.log(`\nProcessing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(meetings.length/batchSize)}`);
+
+        for (const meetingDoc of batch) {
+          const meeting = meetingDoc.data();
+          stats.processed++;
+
+          try {
+            // Skip if already migrated
+            if (meeting.location && meeting.location.coordinates) {
+              stats.skipped++;
+              continue;
+            }
+
+            // Build address string
+            const parts = [];
+            if (meeting.address) parts.push(meeting.address);
+            if (meeting.city) parts.push(meeting.city);
+            if (meeting.state && meeting.zip) parts.push(`${meeting.state} ${meeting.zip}`);
+
+            const fullAddress = parts.join(', ');
+
+            if (!fullAddress) {
+              stats.failed++;
+              stats.errors.push({ id: meetingDoc.id, error: 'No address' });
+              continue;
+            }
+
+            // Geocode
+            console.log(`  Geocoding: ${fullAddress}`);
+            const geocoded = await geocodeAddress(fullAddress);
+
+            // Parse street components
+            const streetMatch = (meeting.address || '').match(/^(\d+)\s+(.+)$/);
+
+            // Build structured location
+            const newLocation = {
+              formatted: geocoded.formatted,
+              streetNumber: streetMatch ? streetMatch[1] : '',
+              streetName: streetMatch ? streetMatch[2] : meeting.address || '',
+              city: geocoded.city || meeting.city || '',
+              state: geocoded.state || meeting.state || '',
+              zipCode: geocoded.zipCode || meeting.zip || '',
+              country: geocoded.country,
+              coordinates: geocoded.coordinates
+            };
+
+            // Update Firestore
+            await meetingDoc.ref.update({
+              location: newLocation,
+              _migrated: true,
+              _migratedAt: admin.firestore.FieldValue.serverTimestamp(),
+              _originalAddress: meeting.address || '',
+              _originalCity: meeting.city || '',
+              _originalState: meeting.state || '',
+              _originalZip: meeting.zip || ''
+            });
+
+            stats.successful++;
+            console.log(`  ✓ ${meetingDoc.id}`);
+
+          } catch (error) {
+            stats.failed++;
+            stats.errors.push({ id: meetingDoc.id, error: error.message });
+            console.error(`  ✗ ${meetingDoc.id}: ${error.message}`);
+          }
+        }
+
+        // Small delay between batches to avoid rate limits
+        if (i + batchSize < meetings.length) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+
+      // Final stats
+      console.log('\n========================================');
+      console.log('MIGRATION COMPLETE');
+      console.log('========================================');
+      console.log(`Total: ${stats.total}`);
+      console.log(`Successful: ${stats.successful}`);
+      console.log(`Skipped: ${stats.skipped}`);
+      console.log(`Failed: ${stats.failed}`);
+      console.log(`Success Rate: ${((stats.successful / stats.total) * 100).toFixed(1)}%`);
+
+      return res.json({
+        success: true,
+        message: 'Migration complete',
+        stats
+      });
+
+    } catch (error) {
+      console.error('❌ Migration failed:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        stats
+      });
+    }
+  });
+
+// ============================================================================
+// PHASE 1: DAILY REMINDER NOTIFICATIONS
+// ============================================================================
+
+// Import daily reminder functions
+const {
+  morningCheckInReminder,
+  eveningReflectionReminder
+  // dailyPledgeReminder DELETED - November 23, 2025 - See NOTIFICATION_OPTIMIZATION_REPORT.md
+} = require('./notifications/types/dailyReminders');
+
+// Missed activity alert functions DELETED - November 23, 2025
+// missedCheckInAlert and missedReflectionAlert removed to reduce alarm fatigue
+// See NOTIFICATION_OPTIMIZATION_REPORT.md for rationale
+
+// Export notification functions
+exports.morningCheckInReminder = morningCheckInReminder;
+exports.eveningReflectionReminder = eveningReflectionReminder;
+// DELETED: dailyPledgeReminder, missedCheckInAlert, missedReflectionAlert
+
+// ============================================================================
+// PHASE 2: ASSIGNMENT & MILESTONE NOTIFICATIONS
+// ============================================================================
+
+// Import assignment reminder functions
+const {
+  assignmentDue1DayReminder,
+  assignmentDueTodayReminder,
+  assignmentOverdueAlert,
+  assignmentCompletedNotification,
+  assignmentCreatedNotification
+} = require('./notifications/types/assignmentReminders');
+
+// Import milestone notification functions
+const {
+  milestoneApproachingNotification,
+  milestoneReachedNotification,
+  customGoalCompletedNotification
+} = require('./notifications/types/milestoneNotifications');
+
+// Export Phase 2 functions
+exports.assignmentDue1DayReminder = assignmentDue1DayReminder;
+exports.assignmentDueTodayReminder = assignmentDueTodayReminder;
+exports.assignmentOverdueAlert = assignmentOverdueAlert;
+exports.assignmentCompletedNotification = assignmentCompletedNotification;
+exports.assignmentCreatedNotification = assignmentCreatedNotification;
+exports.milestoneApproachingNotification = milestoneApproachingNotification;
+exports.milestoneReachedNotification = milestoneReachedNotification;
+exports.customGoalCompletedNotification = customGoalCompletedNotification;
+
+// ============================================================================
+// PHASE 3: MEETING & COMMUNITY NOTIFICATIONS
+// ============================================================================
+
+// Import meeting reminder functions
+const {
+  todaysMeetingsSummary,
+  meeting24HourReminder,
+  meeting1HourReminder,
+  meetingStartingNow,
+  meetingAddedNotification,
+  meetingAttendedNotification
+} = require('./notifications/types/meetingReminders');
+
+// Import community notification functions
+const {
+  newCommentNotification,
+  newLikeNotification,
+  userMentionedNotification,
+  userMentionedInCommentNotification,
+  newPostInTopicRoomNotification
+} = require('./notifications/types/communityNotifications');
+
+// Export Phase 3 functions
+exports.todaysMeetingsSummary = todaysMeetingsSummary;
+exports.meeting24HourReminder = meeting24HourReminder;
+exports.meeting1HourReminder = meeting1HourReminder;
+exports.meetingStartingNow = meetingStartingNow;
+exports.meetingAddedNotification = meetingAddedNotification;
+exports.meetingAttendedNotification = meetingAttendedNotification;
+exports.newCommentNotification = newCommentNotification;
+exports.newLikeNotification = newLikeNotification;
+exports.userMentionedNotification = userMentionedNotification;
+exports.userMentionedInCommentNotification = userMentionedInCommentNotification;
+exports.newPostInTopicRoomNotification = newPostInTopicRoomNotification;
+
+// ============================================================================
+// PHASE 4: EMAIL REPORTS & DIGESTS
+// ============================================================================
+
+// Import email report functions
+const {
+  dailyEmailDigest,
+  weeklyEmailDigest,
+  monthlyEmailDigest,
+  weeklyProgressReport
+} = require('./notifications/types/emailReports');
+
+// Export Phase 4 functions
+exports.dailyEmailDigest = dailyEmailDigest;
+exports.weeklyEmailDigest = weeklyEmailDigest;
+exports.monthlyEmailDigest = monthlyEmailDigest;
+exports.weeklyProgressReport = weeklyProgressReport;
+
+// ============================================================================
+// PHASE 5: MESSAGING NOTIFICATIONS
+// ============================================================================
+
+// Import messaging notification functions
+const {
+  newMessageNotification,
+  messageReadNotification,
+  unreadMessageReminder,
+  updateConversationMetadata,
+  decrementUnreadCount
+} = require('./notifications/types/messagingNotifications');
+
+// Export Phase 5 functions
+exports.newMessageNotification = newMessageNotification;
+exports.messageReadNotification = messageReadNotification;
+exports.unreadMessageReminder = unreadMessageReminder;
+exports.updateConversationMetadata = updateConversationMetadata;
+exports.decrementUnreadCount = decrementUnreadCount;
+
+// ============================================================================
+// PHASE 7: OPENAI AI INSIGHTS HUB
+// Chat completions, TTS, Whisper, and Assistants API for Anchor tab
+// ============================================================================
+
+// Import OpenAI functions
+const {
+  openaiChat,
+  openaiTTS,
+  openaiWhisper
+} = require('./openai/chat');
+
+const {
+  anchorSendMessage,
+  anchorGetHistory,
+  anchorClearHistory,
+  anchorUpdateInstructions
+} = require('./openai/assistants');
+
+// Export Phase 7 functions - Chat (Tabs 1-5: Stateless)
+exports.openaiChat = openaiChat;
+exports.openaiTTS = openaiTTS;
+exports.openaiWhisper = openaiWhisper;
+
+// Export Phase 7 functions - Anchor (Assistants API: Persistent threads)
+exports.anchorSendMessage = anchorSendMessage;
+exports.anchorGetHistory = anchorGetHistory;
+exports.anchorClearHistory = anchorClearHistory;
+exports.anchorUpdateInstructions = anchorUpdateInstructions; // Phase 8B: Admin function to update safety instructions
+
+// ============================================================================
+// PHASE 8B: SAFETY & CRISIS RESPONSE SYSTEM
+// Crisis detection, alerting, and response management
+// ============================================================================
+
+// Import Safety functions (Phase 8B)
+const {
+  detectCrisis,
+  acknowledgeAlert,
+  resolveAlert,
+  addAlertNote,
+  // Phase 8C: Notification system
+  dailyCrisisDigest,
+  triggerCrisisDigest,
+} = require('./safety');
+
+// Export Phase 8B functions - Crisis Detection & Response
+exports.detectCrisis = detectCrisis;
+exports.acknowledgeAlert = acknowledgeAlert;
+exports.resolveAlert = resolveAlert;
+exports.addAlertNote = addAlertNote;
+
+// Export Phase 8C functions - Crisis Notifications
+exports.dailyCrisisDigest = dailyCrisisDigest; // Scheduled: 8 PM PT daily
+exports.triggerCrisisDigest = triggerCrisisDigest; // Callable: Manual trigger for admins
+
+// ============================================================================
+// PHASE 10: AI INSIGHTS SUMMARY SYSTEM
+// Weekly/Monthly summaries, Check-in/Reflection insights
+// ============================================================================
+
+// Import Summary functions
+const {
+  onCheckInCreate: summaryOnCheckInCreate,
+  onReflectionCreate: summaryOnReflectionCreate,
+  generateWeeklySummaries,
+  generateMonthlySummaries,
+  generateWeeklySummaryManual,
+  generateMonthlySummaryManual,
+  migrateHistoricalSummaries,
+} = require('./summaries');
+
+// Export Phase 10 functions - Firestore Triggers
+// Note: Using aliased names to avoid conflict with existing analyzeGratitude/analyzeChallenge
+exports.summaryOnCheckInCreate = summaryOnCheckInCreate;
+exports.summaryOnReflectionCreate = summaryOnReflectionCreate;
+
+// Export Phase 10 functions - Scheduled Summaries
+exports.generateWeeklySummaries = generateWeeklySummaries;
+exports.generateMonthlySummaries = generateMonthlySummaries;
+
+// Export Phase 10 functions - Manual Triggers (for testing)
+exports.generateWeeklySummaryManual = generateWeeklySummaryManual;
+exports.generateMonthlySummaryManual = generateMonthlySummaryManual;
+
+// Export Phase 10 functions - Migration (for backfilling historical summaries)
+exports.migrateHistoricalSummaries = migrateHistoricalSummaries;
+
+// ============================================================================
+// PHASE 6.2: BEACON AI - DAILY CONTENT GENERATION
+// Daily AI insights, oracles, proactive cards, and technique selection
+// Scheduled: 6 AM Pacific daily
+// ============================================================================
+
+// Import Beacon AI Daily functions
+const {
+  generateDailyContent,
+  generateDailyContentManual,
+} = require('./ai/generateDailyContent');
+
+// Export Phase 6.2 functions - Beacon AI Daily Content
+exports.generateDailyContent = generateDailyContent;          // Scheduled: 6 AM PT daily
+exports.generateDailyContentManual = generateDailyContentManual;  // Callable: Manual trigger for testing
+
+// ============================================================================
+// PHASE 6.3: BEACON AI - WEEKLY CONTENT GENERATION
+// Weekly pattern analysis, correlations, reflection themes, habit coach, goal coach
+// Scheduled: Sunday 6 AM Pacific
+// ============================================================================
+
+// Import Beacon AI Weekly functions
+const {
+  generateWeeklyContent,
+  generateWeeklyContentManual,
+} = require('./ai/generateWeeklyContent');
+
+// Export Phase 6.3 functions - Beacon AI Weekly Content
+exports.generateWeeklyContent = generateWeeklyContent;          // Scheduled: Sunday 6 AM PT
+exports.generateWeeklyContentManual = generateWeeklyContentManual;  // Callable: Manual trigger for testing
+
+// ============================================================================
+// PROJECT LIGHTHOUSE: AI PATTERN INSIGHTS
+// GPT-generated 15 insight cards with AI-chosen actions
+// Scheduled: Sunday 6 AM Pacific (alongside existing weekly content)
+// ============================================================================
+
+// Import AI Pattern Insights functions
+const {
+  generateAIPatternInsights,
+  generateAIPatternInsightsManual,
+} = require('./ai/generateAIPatternInsights');
+
+// Export Project Lighthouse functions - AI Pattern Insights
+exports.generateAIPatternInsights = generateAIPatternInsights;          // Scheduled: Sunday 6 AM PT
+exports.generateAIPatternInsightsManual = generateAIPatternInsightsManual;  // Callable: Manual trigger for testing
+
+// ============================================================================
+// AI CONTEXT RECALCULATION
+// Nightly recalculation of aiContext averages, trends, and patterns
+// Scheduled: 8 PM Pacific daily
+// ============================================================================
+
+// Import AI Context Recalculation functions
+const {
+  recalculateAIContextNightly,
+  recalculateAIContextManual,
+} = require('./scheduled/recalculateAIContext');
+
+// Export AI Context Recalculation functions
+exports.recalculateAIContextNightly = recalculateAIContextNightly;      // Scheduled: 8 PM PT daily
+exports.recalculateAIContextManual = recalculateAIContextManual;        // Callable: Manual trigger for testing
+
+// ============================================================================
+// PHASE 2: WEEKLY INSIGHTS - Reflection, Habit, Goal Coaches
+// Write to weeklyInsights subcollection for frontend hooks to read
+// Scheduled: Monday 6 AM Pacific
+// ============================================================================
+
+// Import Weekly Insight functions
+const {
+  generateWeeklyReflectionInsights,
+  generateReflectionInsightsManual,
+} = require('./ai/generateAIReflectionInsights');
+
+const {
+  generateWeeklyHabitInsights,
+  generateHabitInsightsManual,
+} = require('./ai/generateAIHabitInsights');
+
+const {
+  generateWeeklyGoalInsights,
+  generateGoalInsightsManual,
+} = require('./ai/generateAIGoalInsights');
+
+// Export Reflection Insights
+exports.generateWeeklyReflectionInsights = generateWeeklyReflectionInsights;  // Scheduled: Monday 6 AM PT
+exports.generateReflectionInsightsManual = generateReflectionInsightsManual;  // Callable: Manual trigger
+
+// Export Habit Insights
+exports.generateWeeklyHabitInsights = generateWeeklyHabitInsights;            // Scheduled: Monday 6 AM PT
+exports.generateHabitInsightsManual = generateHabitInsightsManual;            // Callable: Manual trigger
+
+// Export Goal Insights
+exports.generateWeeklyGoalInsights = generateWeeklyGoalInsights;              // Scheduled: Monday 6 AM PT
+exports.generateGoalInsightsManual = generateGoalInsightsManual;              // Callable: Manual trigger

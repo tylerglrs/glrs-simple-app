@@ -48,22 +48,22 @@ const getRecoveryMilestones = (sobrietyDate) => {
     // Icon emoji mapping
     const iconEmoji = {
         'star': 'P',
-        'calendar': '=Å',
-        'award': '<Æ',
-        'trending-up': '=È',
-        'target': '<¯',
+        'calendar': '=ï¿½',
+        'award': '<ï¿½',
+        'trending-up': '=ï¿½',
+        'target': '<ï¿½',
         'check-circle': '',
         'sunrise': '<',
-        'zap': '¡',
+        'zap': 'ï¿½',
         'sparkles': '(',
-        'medal': '<Å',
-        'gem': '=Ž',
+        'medal': '<ï¿½',
+        'gem': '=ï¿½',
         'flower': '<8',
-        'gift': '<',
-        'cake': '<‚',
+        'gift': '<ï¿½',
+        'cake': '<ï¿½',
         'crown': '=Q',
-        'trophy': '<Æ',
-        'diamond': '=Ž'
+        'trophy': '<ï¿½',
+        'diamond': '=ï¿½'
     };
 
     const milestones = [
@@ -262,6 +262,120 @@ const decryptToken = (encryptedToken, userId) => {
 };
 
 // ============================================================
+// TIMEZONE-AWARE TIMESTAMP FORMATTING
+// ============================================================
+
+/**
+ * Format a Firestore Timestamp in the user's timezone
+ * @param {firebase.firestore.Timestamp} timestamp - Firestore timestamp (UTC)
+ * @param {string} timezone - IANA timezone (e.g., "America/Los_Angeles")
+ * @param {string} format - Format type: "relative", "time", "date", "datetime", "full"
+ * @returns {string} Formatted timestamp
+ */
+const formatTimestamp = (timestamp, timezone = null, format = 'relative') => {
+    if (!timestamp) return '';
+
+    // Get user's timezone (default to browser timezone)
+    const userTimezone = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Los_Angeles';
+
+    // Convert Firestore Timestamp to Date object
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const now = new Date();
+
+    // Calculate time difference for relative formatting
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    // Relative format (for recent timestamps)
+    if (format === 'relative') {
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+        if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+        if (diffDays === 1) return 'Yesterday';
+        if (diffDays < 7) return `${diffDays} days ago`;
+
+        // Fall through to date format for older timestamps
+        format = 'date';
+    }
+
+    // Time only (e.g., "9:30 AM")
+    if (format === 'time') {
+        return new Intl.DateTimeFormat('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: userTimezone
+        }).format(date);
+    }
+
+    // Date only (e.g., "Nov 21, 2025")
+    if (format === 'date') {
+        return new Intl.DateTimeFormat('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            timeZone: userTimezone
+        }).format(date);
+    }
+
+    // DateTime (e.g., "Nov 21 at 9:30 AM")
+    if (format === 'datetime') {
+        const dateStr = new Intl.DateTimeFormat('en-US', {
+            month: 'short',
+            day: 'numeric',
+            timeZone: userTimezone
+        }).format(date);
+
+        const timeStr = new Intl.DateTimeFormat('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: userTimezone
+        }).format(date);
+
+        return `${dateStr} at ${timeStr}`;
+    }
+
+    // Full format (e.g., "Friday, Nov 21, 2025 at 9:30 AM")
+    if (format === 'full') {
+        return new Intl.DateTimeFormat('en-US', {
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: userTimezone
+        }).format(date);
+    }
+
+    // Default: relative
+    return formatTimestamp(timestamp, timezone, 'relative');
+};
+
+/**
+ * Get user's current timezone
+ * @returns {string} IANA timezone (e.g., "America/Los_Angeles")
+ */
+const getUserTimezone = () => {
+    // Try to get from current user's profile
+    if (window.GLRSApp?.currentUser?.timezone) {
+        return window.GLRSApp.currentUser.timezone;
+    }
+
+    // Fall back to browser detection
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch (error) {
+        console.warn('Could not detect timezone, using Pacific Time');
+        return 'America/Los_Angeles';
+    }
+};
+
+// ============================================================
 // HAPTIC FEEDBACK
 // ============================================================
 
@@ -302,7 +416,9 @@ window.GLRSApp.utils = {
     showNotification,
     encryptToken,
     decryptToken,
-    triggerHaptic
+    triggerHaptic,
+    formatTimestamp,
+    getUserTimezone
 };
 
-console.log('âœ… utils.js loaded - 6 utility functions available');
+console.log('âœ… utils.js loaded - 8 utility functions available');

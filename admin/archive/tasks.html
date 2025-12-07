@@ -1,0 +1,2414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Management - GLRS Admin</title>
+
+    <!-- Favicon - Lucide ClipboardList Icon -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%230077CC' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='8' height='4' x='8' y='2' rx='1' ry='1'/%3E%3Cpath d='M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2'/%3E%3Cpath d='M12 11h4'/%3E%3Cpath d='M12 16h4'/%3E%3Cpath d='M8 11h.01'/%3E%3Cpath d='M8 16h.01'/%3E%3C/svg%3E">
+
+    <!-- Shared Styles -->
+    <link rel="stylesheet" href="/admin/shared/styles.css">
+
+    <!-- Firebase SDK (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+
+    <!-- React -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Chart.js for analytics -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+
+    <!-- jsPDF for exports -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Shared Components -->
+    <script src="/admin/shared/firebase.js"></script>
+    <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/permissions.js?v=1"></script>
+    <script src="/admin/shared/utils.js"></script>
+    <script src="/admin/shared/state.js?v=2"></script>
+    <script src="/admin/shared/icons.js"></script>
+    <script type="text/babel" src="/admin/shared/navigation.js?v=8"></script>
+    <script type="text/babel" src="/admin/shared/header.js?v=1"></script>
+
+    <script type="text/babel">
+(function initPage() {
+    if (!window.FIREBASE_READY || !window.auth || !window.db) {
+        console.log('Waiting for Firebase to initialize...');
+        setTimeout(initPage, 50);
+        return;
+    }
+
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+    const { auth, db, storage, CURRENT_TENANT, logAudit } = window;
+
+    // ==========================================
+    // HELPER FUNCTIONS
+    // ==========================================
+
+    const formatDate = (timestamp) => {
+        if (!timestamp) return 'N/A';
+        const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    };
+
+    const formatDateTime = (timestamp) => {
+        if (!timestamp) return 'N/A';
+        const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+        return date.toLocaleString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric',
+            hour: 'numeric', minute: '2-digit', hour12: true
+        });
+    };
+
+    const exportToCSV = (data, filename) => {
+        if (!data || data.length === 0) return;
+        const headers = Object.keys(data[0]);
+        const csvContent = [
+            headers.join(','),
+            ...data.map(row => headers.map(h => `"${(row[h] || '').toString().replace(/"/g, '""')}"`).join(','))
+        ].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+    };
+
+    const exportToJSON = (data, filename) => {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${filename}_${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+    };
+
+    // ==========================================
+    // PAGINATION COMPONENT
+    // ==========================================
+    function Pagination({ currentPage, totalPages, onPageChange }) {
+        const renderPageNumbers = () => {
+            const pages = [];
+            const showPages = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(showPages / 2));
+            let endPage = Math.min(totalPages, startPage + showPages - 1);
+            if (endPage - startPage < showPages - 1) {
+                startPage = Math.max(1, endPage - showPages + 1);
+            }
+            for (let i = startPage; i <= endPage; i++) {
+                pages.push(
+                    <button
+                        key={i}
+                        onClick={() => onPageChange(i)}
+                        style={{
+                            padding: '8px 12px',
+                            margin: '0 2px',
+                            background: currentPage === i ? '#0077CC' : 'white',
+                            color: currentPage === i ? 'white' : '#333',
+                            border: currentPage === i ? 'none' : '1px solid #ddd',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontWeight: currentPage === i ? '600' : 'normal',
+                            fontSize: '14px'
+                        }}
+                    >
+                        {i}
+                    </button>
+                );
+            }
+            return pages;
+        };
+
+        if (totalPages <= 1) return null;
+
+        return (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', padding: '20px' }}>
+                <button
+                    onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                    style={{
+                        padding: '8px 16px',
+                        background: currentPage === 1 ? '#f0f0f0' : 'white',
+                        color: currentPage === 1 ? '#999' : '#333',
+                        border: '1px solid #ddd',
+                        borderRadius: '6px',
+                        cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                        fontSize: '14px'
+                    }}
+                >
+                    Previous
+                </button>
+                {renderPageNumbers()}
+                <button
+                    onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                    style={{
+                        padding: '8px 16px',
+                        background: currentPage === totalPages ? '#f0f0f0' : 'white',
+                        color: currentPage === totalPages ? '#999' : '#333',
+                        border: '1px solid #ddd',
+                        borderRadius: '6px',
+                        cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                        fontSize: '14px'
+                    }}
+                >
+                    Next
+                </button>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // ASSIGNMENTS TAB
+    // ==========================================
+    function AssignmentsTab({ searchQuery, user }) {
+        const [assignments, setAssignments] = useState([]);
+        const [users, setUsers] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [filterStatus, setFilterStatus] = useState('all');
+        const [filterPIR, setFilterPIR] = useState('all');
+        const [filterPriority, setFilterPriority] = useState('all');
+        const [currentPage, setCurrentPage] = useState(1);
+        const [selectedAssignment, setSelectedAssignment] = useState(null);
+        const [showCreateModal, setShowCreateModal] = useState(false);
+        const itemsPerPage = 20;
+
+        useEffect(() => {
+            loadData();
+        }, []);
+
+        const loadData = async () => {
+            try {
+                // Load PIRs based on scope
+                let pirQuery = db.collection('users').where('role', '==', 'pir');
+                pirQuery = window.applyScopeToPIRQuery(pirQuery, user, CURRENT_TENANT);
+                const usersSnap = await pirQuery.get();
+                const usersData = [];
+                const userMap = {};
+                const allowedPIRIds = new Set();
+
+                usersSnap.forEach(doc => {
+                    const userData = { id: doc.id, ...doc.data() };
+                    usersData.push(userData);
+                    userMap[doc.id] = userData.displayName || userData.email;
+                    allowedPIRIds.add(doc.id);
+                });
+                setUsers(usersData);
+
+                // Load assignments
+                const assignmentsSnap = await db.collection('assignments')
+                    .orderBy('createdAt', 'desc')
+                    .limit(500)
+                    .get();
+
+                const assignmentsData = [];
+                assignmentsSnap.forEach(doc => {
+                    const assignment = { id: doc.id, ...doc.data() };
+                    if (assignment.pirId && allowedPIRIds.has(assignment.pirId)) {
+                        assignment.pirName = userMap[assignment.pirId] || 'Unknown';
+                        assignmentsData.push(assignment);
+                    }
+                });
+                setAssignments(assignmentsData);
+            } catch (error) {
+                console.error('Error loading assignments:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const filteredAssignments = useMemo(() => {
+            let filtered = assignments;
+
+            if (filterStatus !== 'all') {
+                filtered = filtered.filter(a => a.status === filterStatus);
+            }
+            if (filterPIR !== 'all') {
+                filtered = filtered.filter(a => a.pirId === filterPIR);
+            }
+            if (filterPriority !== 'all') {
+                filtered = filtered.filter(a => a.priority === filterPriority);
+            }
+            if (searchQuery) {
+                const query = searchQuery.toLowerCase();
+                filtered = filtered.filter(a =>
+                    a.title?.toLowerCase().includes(query) ||
+                    a.description?.toLowerCase().includes(query) ||
+                    a.pirName?.toLowerCase().includes(query)
+                );
+            }
+            return filtered;
+        }, [assignments, filterStatus, filterPIR, filterPriority, searchQuery]);
+
+        const paginatedAssignments = useMemo(() => {
+            const start = (currentPage - 1) * itemsPerPage;
+            return filteredAssignments.slice(start, start + itemsPerPage);
+        }, [filteredAssignments, currentPage]);
+
+        const totalPages = Math.ceil(filteredAssignments.length / itemsPerPage);
+
+        const getStatusBadge = (status) => {
+            const styles = {
+                pending: { bg: '#FFC107', color: '#333', label: 'Pending' },
+                'in-progress': { bg: '#0077CC', color: 'white', label: 'In Progress' },
+                completed: { bg: '#00A86B', color: 'white', label: 'Completed' },
+                overdue: { bg: '#DC143C', color: 'white', label: 'Overdue' }
+            };
+            const s = styles[status] || styles.pending;
+            return (
+                <span style={{
+                    padding: '4px 10px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    background: s.bg,
+                    color: s.color
+                }}>
+                    {s.label}
+                </span>
+            );
+        };
+
+        const getPriorityBadge = (priority) => {
+            const styles = {
+                high: { bg: '#DC143C', color: 'white', label: 'High' },
+                medium: { bg: '#FFA500', color: 'white', label: 'Medium' },
+                low: { bg: '#6c757d', color: 'white', label: 'Low' }
+            };
+            const s = styles[priority] || styles.medium;
+            return (
+                <span style={{
+                    padding: '3px 8px',
+                    borderRadius: '10px',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    background: s.bg,
+                    color: s.color
+                }}>
+                    {s.label}
+                </span>
+            );
+        };
+
+        const handleStatusChange = async (assignmentId, newStatus) => {
+            try {
+                await db.collection('assignments').doc(assignmentId).update({
+                    status: newStatus,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    ...(newStatus === 'completed' ? { completedAt: firebase.firestore.FieldValue.serverTimestamp() } : {})
+                });
+                setAssignments(prev => prev.map(a =>
+                    a.id === assignmentId ? { ...a, status: newStatus } : a
+                ));
+            } catch (error) {
+                console.error('Error updating status:', error);
+                alert('Failed to update status');
+            }
+        };
+
+        if (loading) {
+            return (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+                    <div style={{
+                        width: '50px', height: '50px',
+                        border: '4px solid #f3f3f3',
+                        borderTop: '4px solid #0077CC',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                    }}></div>
+                </div>
+            );
+        }
+
+        return (
+            <div>
+                {/* Stats Row */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px', marginBottom: '20px' }}>
+                    {[
+                        { label: 'Total', count: assignments.length, color: '#0077CC' },
+                        { label: 'Pending', count: assignments.filter(a => a.status === 'pending').length, color: '#FFC107' },
+                        { label: 'In Progress', count: assignments.filter(a => a.status === 'in-progress').length, color: '#17a2b8' },
+                        { label: 'Completed', count: assignments.filter(a => a.status === 'completed').length, color: '#00A86B' },
+                        { label: 'Overdue', count: assignments.filter(a => a.status === 'overdue').length, color: '#DC143C' }
+                    ].map((stat, idx) => (
+                        <div key={idx} style={{
+                            background: 'white',
+                            borderRadius: '12px',
+                            padding: '15px',
+                            textAlign: 'center',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                            borderLeft: `4px solid ${stat.color}`
+                        }}>
+                            <div style={{ fontSize: '24px', fontWeight: '700', color: stat.color }}>{stat.count}</div>
+                            <div style={{ fontSize: '13px', color: '#666' }}>{stat.label}</div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Filters */}
+                <div style={{
+                    background: 'white',
+                    borderRadius: '12px',
+                    padding: '15px 20px',
+                    marginBottom: '20px',
+                    display: 'flex',
+                    gap: '15px',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+                }}>
+                    <select
+                        value={filterStatus}
+                        onChange={(e) => { setFilterStatus(e.target.value); setCurrentPage(1); }}
+                        style={{ padding: '8px 12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}
+                    >
+                        <option value="all">All Status</option>
+                        <option value="pending">Pending</option>
+                        <option value="in-progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                        <option value="overdue">Overdue</option>
+                    </select>
+                    <select
+                        value={filterPIR}
+                        onChange={(e) => { setFilterPIR(e.target.value); setCurrentPage(1); }}
+                        style={{ padding: '8px 12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}
+                    >
+                        <option value="all">All PIRs</option>
+                        {users.map(u => (
+                            <option key={u.id} value={u.id}>{u.displayName || u.email}</option>
+                        ))}
+                    </select>
+                    <select
+                        value={filterPriority}
+                        onChange={(e) => { setFilterPriority(e.target.value); setCurrentPage(1); }}
+                        style={{ padding: '8px 12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}
+                    >
+                        <option value="all">All Priorities</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                    </select>
+                    <button
+                        onClick={() => setShowCreateModal(true)}
+                        style={{
+                            marginLeft: 'auto',
+                            padding: '10px 20px',
+                            background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: '600',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        <AdminIcons.Plus size={18} />
+                        New Assignment
+                    </button>
+                </div>
+
+                {/* Table */}
+                <div style={{ background: 'white', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                            <tr style={{ background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)', color: 'white' }}>
+                                <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600' }}>Assignment</th>
+                                <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600' }}>PIR</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600' }}>Priority</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600' }}>Status</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600' }}>Due Date</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600' }}>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {paginatedAssignments.map((assignment, idx) => (
+                                <tr key={assignment.id} style={{
+                                    borderBottom: '1px solid #f0f0f0',
+                                    background: idx % 2 === 0 ? 'white' : '#fafafa'
+                                }}>
+                                    <td style={{ padding: '15px' }}>
+                                        <div style={{ fontWeight: '500', color: '#333' }}>{assignment.title}</div>
+                                        {assignment.description && (
+                                            <div style={{ fontSize: '13px', color: '#666', marginTop: '4px' }}>
+                                                {assignment.description.substring(0, 60)}...
+                                            </div>
+                                        )}
+                                    </td>
+                                    <td style={{ padding: '15px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <div style={{
+                                                width: '32px', height: '32px',
+                                                borderRadius: '50%',
+                                                background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                color: 'white',
+                                                fontWeight: '600',
+                                                fontSize: '14px'
+                                            }}>
+                                                {(assignment.pirName || 'U').charAt(0).toUpperCase()}
+                                            </div>
+                                            {assignment.pirName}
+                                        </div>
+                                    </td>
+                                    <td style={{ padding: '15px', textAlign: 'center' }}>
+                                        {getPriorityBadge(assignment.priority)}
+                                    </td>
+                                    <td style={{ padding: '15px', textAlign: 'center' }}>
+                                        {getStatusBadge(assignment.status)}
+                                    </td>
+                                    <td style={{ padding: '15px', textAlign: 'center', fontSize: '14px' }}>
+                                        {formatDate(assignment.dueDate)}
+                                    </td>
+                                    <td style={{ padding: '15px', textAlign: 'center' }}>
+                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                            <button
+                                                onClick={() => setSelectedAssignment(assignment)}
+                                                style={{
+                                                    padding: '6px 12px',
+                                                    background: '#0077CC',
+                                                    color: 'white',
+                                                    border: 'none',
+                                                    borderRadius: '6px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '13px'
+                                                }}
+                                            >
+                                                View
+                                            </button>
+                                            {assignment.status !== 'completed' && (
+                                                <button
+                                                    onClick={() => handleStatusChange(assignment.id, 'completed')}
+                                                    style={{
+                                                        padding: '6px 12px',
+                                                        background: '#00A86B',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        borderRadius: '6px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '13px'
+                                                    }}
+                                                >
+                                                    Complete
+                                                </button>
+                                            )}
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+
+                    {filteredAssignments.length === 0 && (
+                        <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
+                            <AdminIcons.ClipboardList size={48} style={{ opacity: 0.3, marginBottom: '15px' }} />
+                            <div>No assignments found</div>
+                        </div>
+                    )}
+                </div>
+
+                <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+
+                {/* Assignment Detail Modal */}
+                {selectedAssignment && (
+                    <div style={{
+                        position: 'fixed',
+                        top: 0, left: 0, right: 0, bottom: 0,
+                        background: 'rgba(0,0,0,0.5)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1000
+                    }} onClick={() => setSelectedAssignment(null)}>
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '16px',
+                            padding: '30px',
+                            maxWidth: '600px',
+                            width: '90%',
+                            maxHeight: '80vh',
+                            overflow: 'auto'
+                        }} onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <h3 style={{ margin: 0, color: '#333' }}>Assignment Details</h3>
+                                <button
+                                    onClick={() => setSelectedAssignment(null)}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px' }}
+                                >
+                                    <AdminIcons.X size={24} />
+                                </button>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                <div>
+                                    <label style={{ fontWeight: '600', color: '#666', fontSize: '13px' }}>Title</label>
+                                    <div style={{ fontSize: '16px', color: '#333' }}>{selectedAssignment.title}</div>
+                                </div>
+                                <div>
+                                    <label style={{ fontWeight: '600', color: '#666', fontSize: '13px' }}>Description</label>
+                                    <div style={{ fontSize: '14px', color: '#333' }}>{selectedAssignment.description || 'No description'}</div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                                    <div>
+                                        <label style={{ fontWeight: '600', color: '#666', fontSize: '13px' }}>PIR</label>
+                                        <div>{selectedAssignment.pirName}</div>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontWeight: '600', color: '#666', fontSize: '13px' }}>Due Date</label>
+                                        <div>{formatDate(selectedAssignment.dueDate)}</div>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontWeight: '600', color: '#666', fontSize: '13px' }}>Status</label>
+                                        <div>{getStatusBadge(selectedAssignment.status)}</div>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontWeight: '600', color: '#666', fontSize: '13px' }}>Priority</label>
+                                        <div>{getPriorityBadge(selectedAssignment.priority)}</div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label style={{ fontWeight: '600', color: '#666', fontSize: '13px' }}>Created</label>
+                                    <div style={{ fontSize: '14px' }}>{formatDateTime(selectedAssignment.createdAt)}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Create Assignment Modal */}
+                {showCreateModal && (
+                    <CreateAssignmentModal
+                        users={users}
+                        onClose={() => setShowCreateModal(false)}
+                        onCreated={() => { setShowCreateModal(false); loadData(); }}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    // ==========================================
+    // CREATE ASSIGNMENT MODAL
+    // ==========================================
+    function CreateAssignmentModal({ users, onClose, onCreated }) {
+        const [title, setTitle] = useState('');
+        const [description, setDescription] = useState('');
+        const [pirId, setPirId] = useState('');
+        const [priority, setPriority] = useState('medium');
+        const [dueDate, setDueDate] = useState('');
+        const [saving, setSaving] = useState(false);
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            if (!title || !pirId) {
+                alert('Please fill in required fields');
+                return;
+            }
+
+            setSaving(true);
+            try {
+                await db.collection('assignments').add({
+                    title,
+                    description,
+                    pirId,
+                    priority,
+                    dueDate: dueDate ? firebase.firestore.Timestamp.fromDate(new Date(dueDate)) : null,
+                    status: 'pending',
+                    createdBy: auth.currentUser.uid,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    tenantId: CURRENT_TENANT
+                });
+                onCreated();
+            } catch (error) {
+                console.error('Error creating assignment:', error);
+                alert('Failed to create assignment');
+            } finally {
+                setSaving(false);
+            }
+        };
+
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(0,0,0,0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000
+            }} onClick={onClose}>
+                <div style={{
+                    background: 'white',
+                    borderRadius: '16px',
+                    padding: '30px',
+                    maxWidth: '500px',
+                    width: '90%'
+                }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                        <h3 style={{ margin: 0 }}>New Assignment</h3>
+                        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                            <AdminIcons.X size={24} />
+                        </button>
+                    </div>
+                    <form onSubmit={handleSubmit}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '600', fontSize: '14px' }}>
+                                    Title *
+                                </label>
+                                <input
+                                    type="text"
+                                    value={title}
+                                    onChange={(e) => setTitle(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '2px solid #e0e0e0',
+                                        borderRadius: '8px',
+                                        fontSize: '14px'
+                                    }}
+                                    placeholder="Assignment title"
+                                />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '600', fontSize: '14px' }}>
+                                    Description
+                                </label>
+                                <textarea
+                                    value={description}
+                                    onChange={(e) => setDescription(e.target.value)}
+                                    rows={3}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '2px solid #e0e0e0',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        resize: 'vertical'
+                                    }}
+                                    placeholder="Assignment description"
+                                />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '600', fontSize: '14px' }}>
+                                    Assign to PIR *
+                                </label>
+                                <select
+                                    value={pirId}
+                                    onChange={(e) => setPirId(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '2px solid #e0e0e0',
+                                        borderRadius: '8px',
+                                        fontSize: '14px'
+                                    }}
+                                >
+                                    <option value="">Select PIR</option>
+                                    {users.map(u => (
+                                        <option key={u.id} value={u.id}>{u.displayName || u.email}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: '600', fontSize: '14px' }}>
+                                        Priority
+                                    </label>
+                                    <select
+                                        value={priority}
+                                        onChange={(e) => setPriority(e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px 12px',
+                                            border: '2px solid #e0e0e0',
+                                            borderRadius: '8px',
+                                            fontSize: '14px'
+                                        }}
+                                    >
+                                        <option value="low">Low</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="high">High</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: '600', fontSize: '14px' }}>
+                                        Due Date
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={dueDate}
+                                        onChange={(e) => setDueDate(e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px 12px',
+                                            border: '2px solid #e0e0e0',
+                                            borderRadius: '8px',
+                                            fontSize: '14px'
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                            <button
+                                type="submit"
+                                disabled={saving}
+                                style={{
+                                    padding: '12px 24px',
+                                    background: saving ? '#ccc' : 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: saving ? 'not-allowed' : 'pointer',
+                                    fontWeight: '600',
+                                    fontSize: '14px',
+                                    marginTop: '10px'
+                                }}
+                            >
+                                {saving ? 'Creating...' : 'Create Assignment'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // GOALS TAB
+    // ==========================================
+    function GoalsTab({ searchQuery, user }) {
+        const [goals, setGoals] = useState([]);
+        const [users, setUsers] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [filterPIR, setFilterPIR] = useState('all');
+        const [filterStatus, setFilterStatus] = useState('all');
+        const [expandedGoals, setExpandedGoals] = useState(new Set());
+        const [showCreateModal, setShowCreateModal] = useState(false);
+        const [selectedGoal, setSelectedGoal] = useState(null);
+
+        useEffect(() => {
+            loadData();
+        }, []);
+
+        const loadData = async () => {
+            try {
+                // Load PIRs
+                let pirQuery = db.collection('users').where('role', '==', 'pir');
+                pirQuery = window.applyScopeToPIRQuery(pirQuery, user, CURRENT_TENANT);
+                const usersSnap = await pirQuery.get();
+                const usersData = [];
+                const userMap = {};
+                const allowedPIRIds = new Set();
+
+                usersSnap.forEach(doc => {
+                    const userData = { id: doc.id, ...doc.data() };
+                    usersData.push(userData);
+                    userMap[doc.id] = userData.displayName || userData.email;
+                    allowedPIRIds.add(doc.id);
+                });
+                setUsers(usersData);
+
+                // Load goals
+                const goalsSnap = await db.collection('goals')
+                    .orderBy('createdAt', 'desc')
+                    .get();
+
+                const goalsData = [];
+                for (const doc of goalsSnap.docs) {
+                    const goal = { id: doc.id, ...doc.data() };
+                    if (goal.pirId && allowedPIRIds.has(goal.pirId)) {
+                        goal.pirName = userMap[goal.pirId] || 'Unknown';
+
+                        // Load objectives for this goal
+                        const objectivesSnap = await db.collection('goals').doc(doc.id)
+                            .collection('objectives').get();
+                        goal.objectives = [];
+                        for (const objDoc of objectivesSnap.docs) {
+                            const obj = { id: objDoc.id, ...objDoc.data() };
+                            // Load assignments for this objective
+                            const assignmentsSnap = await db.collection('assignments')
+                                .where('objectiveId', '==', objDoc.id)
+                                .get();
+                            obj.assignments = assignmentsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                            goal.objectives.push(obj);
+                        }
+                        goalsData.push(goal);
+                    }
+                }
+                setGoals(goalsData);
+            } catch (error) {
+                console.error('Error loading goals:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const filteredGoals = useMemo(() => {
+            let filtered = goals;
+            if (filterPIR !== 'all') {
+                filtered = filtered.filter(g => g.pirId === filterPIR);
+            }
+            if (filterStatus !== 'all') {
+                filtered = filtered.filter(g => g.status === filterStatus);
+            }
+            if (searchQuery) {
+                const query = searchQuery.toLowerCase();
+                filtered = filtered.filter(g =>
+                    g.title?.toLowerCase().includes(query) ||
+                    g.description?.toLowerCase().includes(query) ||
+                    g.pirName?.toLowerCase().includes(query)
+                );
+            }
+            return filtered;
+        }, [goals, filterPIR, filterStatus, searchQuery]);
+
+        const toggleExpand = (goalId) => {
+            const newExpanded = new Set(expandedGoals);
+            if (newExpanded.has(goalId)) {
+                newExpanded.delete(goalId);
+            } else {
+                newExpanded.add(goalId);
+            }
+            setExpandedGoals(newExpanded);
+        };
+
+        const getProgressPercent = (goal) => {
+            if (!goal.objectives || goal.objectives.length === 0) return 0;
+            let total = 0;
+            let completed = 0;
+            goal.objectives.forEach(obj => {
+                if (obj.assignments) {
+                    total += obj.assignments.length;
+                    completed += obj.assignments.filter(a => a.status === 'completed').length;
+                }
+            });
+            return total > 0 ? Math.round((completed / total) * 100) : 0;
+        };
+
+        if (loading) {
+            return (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+                    <div style={{
+                        width: '50px', height: '50px',
+                        border: '4px solid #f3f3f3',
+                        borderTop: '4px solid #0077CC',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                    }}></div>
+                </div>
+            );
+        }
+
+        return (
+            <div>
+                {/* Header with filters */}
+                <div style={{
+                    background: 'white',
+                    borderRadius: '12px',
+                    padding: '15px 20px',
+                    marginBottom: '20px',
+                    display: 'flex',
+                    gap: '15px',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+                }}>
+                    <select
+                        value={filterPIR}
+                        onChange={(e) => setFilterPIR(e.target.value)}
+                        style={{ padding: '8px 12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}
+                    >
+                        <option value="all">All PIRs</option>
+                        {users.map(u => (
+                            <option key={u.id} value={u.id}>{u.displayName || u.email}</option>
+                        ))}
+                    </select>
+                    <select
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                        style={{ padding: '8px 12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}
+                    >
+                        <option value="all">All Status</option>
+                        <option value="active">Active</option>
+                        <option value="completed">Completed</option>
+                        <option value="paused">Paused</option>
+                    </select>
+                    <button
+                        onClick={() => setShowCreateModal(true)}
+                        style={{
+                            marginLeft: 'auto',
+                            padding: '10px 20px',
+                            background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: '600',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        <AdminIcons.Plus size={18} />
+                        New Goal
+                    </button>
+                </div>
+
+                {/* Goals List - Golden Thread View */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    {filteredGoals.map(goal => (
+                        <div key={goal.id} style={{
+                            background: 'white',
+                            borderRadius: '12px',
+                            overflow: 'hidden',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+                        }}>
+                            {/* Goal Header */}
+                            <div
+                                onClick={() => toggleExpand(goal.id)}
+                                style={{
+                                    padding: '20px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '15px',
+                                    borderLeft: '4px solid #0077CC'
+                                }}
+                            >
+                                <div style={{
+                                    width: '40px', height: '40px',
+                                    borderRadius: '10px',
+                                    background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: 'white'
+                                }}>
+                                    <AdminIcons.Target size={20} />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontWeight: '600', fontSize: '16px', color: '#333' }}>{goal.title}</div>
+                                    <div style={{ fontSize: '13px', color: '#666', marginTop: '2px' }}>
+                                        {goal.pirName} | {goal.objectives?.length || 0} objectives
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                    <div style={{ textAlign: 'right' }}>
+                                        <div style={{ fontSize: '20px', fontWeight: '700', color: '#0077CC' }}>
+                                            {getProgressPercent(goal)}%
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: '#666' }}>Progress</div>
+                                    </div>
+                                    <div style={{
+                                        transform: expandedGoals.has(goal.id) ? 'rotate(180deg)' : 'rotate(0deg)',
+                                        transition: 'transform 0.2s'
+                                    }}>
+                                        <AdminIcons.ChevronDown size={24} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Expanded Content - Objectives & Assignments */}
+                            {expandedGoals.has(goal.id) && (
+                                <div style={{ borderTop: '1px solid #f0f0f0', padding: '20px', background: '#fafafa' }}>
+                                    {goal.objectives?.length > 0 ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                            {goal.objectives.map(obj => (
+                                                <div key={obj.id} style={{
+                                                    background: 'white',
+                                                    borderRadius: '10px',
+                                                    padding: '15px',
+                                                    borderLeft: '3px solid #FFA500'
+                                                }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                                                        <AdminIcons.Flag size={18} style={{ color: '#FFA500' }} />
+                                                        <span style={{ fontWeight: '600', color: '#333' }}>{obj.title}</span>
+                                                    </div>
+                                                    {obj.assignments?.length > 0 ? (
+                                                        <div style={{ marginLeft: '28px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                            {obj.assignments.map(assignment => (
+                                                                <div key={assignment.id} style={{
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '10px',
+                                                                    padding: '8px 12px',
+                                                                    background: '#f8f9fa',
+                                                                    borderRadius: '6px'
+                                                                }}>
+                                                                    {assignment.status === 'completed' ? (
+                                                                        <AdminIcons.CheckCircle size={16} style={{ color: '#00A86B' }} />
+                                                                    ) : (
+                                                                        <AdminIcons.Circle size={16} style={{ color: '#999' }} />
+                                                                    )}
+                                                                    <span style={{
+                                                                        flex: 1,
+                                                                        fontSize: '14px',
+                                                                        color: assignment.status === 'completed' ? '#666' : '#333',
+                                                                        textDecoration: assignment.status === 'completed' ? 'line-through' : 'none'
+                                                                    }}>
+                                                                        {assignment.title}
+                                                                    </span>
+                                                                    <span style={{
+                                                                        fontSize: '12px',
+                                                                        padding: '2px 8px',
+                                                                        borderRadius: '10px',
+                                                                        background: assignment.status === 'completed' ? '#e8f5e9' : '#fff3e0',
+                                                                        color: assignment.status === 'completed' ? '#2e7d32' : '#e65100'
+                                                                    }}>
+                                                                        {assignment.status}
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <div style={{ marginLeft: '28px', fontSize: '13px', color: '#999' }}>
+                                                            No assignments yet
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
+                                            No objectives defined for this goal
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+
+                    {filteredGoals.length === 0 && (
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '12px',
+                            padding: '40px',
+                            textAlign: 'center',
+                            color: '#666'
+                        }}>
+                            <AdminIcons.Target size={48} style={{ opacity: 0.3, marginBottom: '15px' }} />
+                            <div>No goals found</div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Create Goal Modal */}
+                {showCreateModal && (
+                    <CreateGoalModal
+                        users={users}
+                        onClose={() => setShowCreateModal(false)}
+                        onCreated={() => { setShowCreateModal(false); loadData(); }}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    // ==========================================
+    // CREATE GOAL MODAL
+    // ==========================================
+    function CreateGoalModal({ users, onClose, onCreated }) {
+        const [title, setTitle] = useState('');
+        const [description, setDescription] = useState('');
+        const [pirId, setPirId] = useState('');
+        const [targetDate, setTargetDate] = useState('');
+        const [saving, setSaving] = useState(false);
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            if (!title || !pirId) {
+                alert('Please fill in required fields');
+                return;
+            }
+
+            setSaving(true);
+            try {
+                await db.collection('goals').add({
+                    title,
+                    description,
+                    pirId,
+                    targetDate: targetDate ? firebase.firestore.Timestamp.fromDate(new Date(targetDate)) : null,
+                    status: 'active',
+                    createdBy: auth.currentUser.uid,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    tenantId: CURRENT_TENANT
+                });
+                onCreated();
+            } catch (error) {
+                console.error('Error creating goal:', error);
+                alert('Failed to create goal');
+            } finally {
+                setSaving(false);
+            }
+        };
+
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(0,0,0,0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000
+            }} onClick={onClose}>
+                <div style={{
+                    background: 'white',
+                    borderRadius: '16px',
+                    padding: '30px',
+                    maxWidth: '500px',
+                    width: '90%'
+                }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                        <h3 style={{ margin: 0 }}>New Goal</h3>
+                        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                            <AdminIcons.X size={24} />
+                        </button>
+                    </div>
+                    <form onSubmit={handleSubmit}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '600', fontSize: '14px' }}>
+                                    Goal Title *
+                                </label>
+                                <input
+                                    type="text"
+                                    value={title}
+                                    onChange={(e) => setTitle(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '2px solid #e0e0e0',
+                                        borderRadius: '8px',
+                                        fontSize: '14px'
+                                    }}
+                                    placeholder="e.g., Maintain 90 days sobriety"
+                                />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '600', fontSize: '14px' }}>
+                                    Description
+                                </label>
+                                <textarea
+                                    value={description}
+                                    onChange={(e) => setDescription(e.target.value)}
+                                    rows={3}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '2px solid #e0e0e0',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        resize: 'vertical'
+                                    }}
+                                    placeholder="Goal description and context"
+                                />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '600', fontSize: '14px' }}>
+                                    PIR *
+                                </label>
+                                <select
+                                    value={pirId}
+                                    onChange={(e) => setPirId(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '2px solid #e0e0e0',
+                                        borderRadius: '8px',
+                                        fontSize: '14px'
+                                    }}
+                                >
+                                    <option value="">Select PIR</option>
+                                    {users.map(u => (
+                                        <option key={u.id} value={u.id}>{u.displayName || u.email}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '600', fontSize: '14px' }}>
+                                    Target Date
+                                </label>
+                                <input
+                                    type="date"
+                                    value={targetDate}
+                                    onChange={(e) => setTargetDate(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '2px solid #e0e0e0',
+                                        borderRadius: '8px',
+                                        fontSize: '14px'
+                                    }}
+                                />
+                            </div>
+                            <button
+                                type="submit"
+                                disabled={saving}
+                                style={{
+                                    padding: '12px 24px',
+                                    background: saving ? '#ccc' : 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: saving ? 'not-allowed' : 'pointer',
+                                    fontWeight: '600',
+                                    fontSize: '14px',
+                                    marginTop: '10px'
+                                }}
+                            >
+                                {saving ? 'Creating...' : 'Create Goal'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // CHECK-INS TAB
+    // ==========================================
+    function CheckInsTab({ searchQuery, user }) {
+        const [checkIns, setCheckIns] = useState([]);
+        const [users, setUsers] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [filterPIR, setFilterPIR] = useState('all');
+        const [filterRisk, setFilterRisk] = useState('all');
+        const [filterCompletion, setFilterCompletion] = useState('all');
+        const [filterDate, setFilterDate] = useState('all');
+        const [currentPage, setCurrentPage] = useState(1);
+        const [selectedCheckIn, setSelectedCheckIn] = useState(null);
+        const [reviewedCheckIns, setReviewedCheckIns] = useState(new Set());
+        const itemsPerPage = 20;
+
+        useEffect(() => {
+            loadData();
+        }, []);
+
+        const loadData = async () => {
+            try {
+                // Load PIRs
+                let pirQuery = db.collection('users').where('role', '==', 'pir');
+                pirQuery = window.applyScopeToPIRQuery(pirQuery, user, CURRENT_TENANT);
+                const usersSnap = await pirQuery.get();
+                const usersData = [];
+                const userMap = {};
+                const allowedPIRIds = new Set();
+
+                usersSnap.forEach(doc => {
+                    const userData = { id: doc.id, ...doc.data() };
+                    usersData.push(userData);
+                    userMap[doc.id] = userData.displayName || userData.email;
+                    allowedPIRIds.add(doc.id);
+                });
+                setUsers(usersData);
+
+                // Load check-ins
+                const checkInsSnap = await db.collection('checkIns')
+                    .orderBy('createdAt', 'desc')
+                    .limit(500)
+                    .get();
+
+                const checkInsData = [];
+                checkInsSnap.forEach(doc => {
+                    const checkIn = { id: doc.id, ...doc.data() };
+                    if (checkIn.userId && allowedPIRIds.has(checkIn.userId)) {
+                        checkIn.userName = userMap[checkIn.userId] || 'Unknown';
+                        checkIn.riskLevel = calculateRiskLevel(checkIn);
+                        checkIn.completionStatus = getCompletionStatus(checkIn);
+                        checkInsData.push(checkIn);
+                    }
+                });
+                setCheckIns(checkInsData);
+
+                // Load reviewed status
+                const reviewedSnap = await db.collection('checkInReviews').get();
+                const reviewed = new Set();
+                reviewedSnap.forEach(doc => reviewed.add(doc.data().checkInId));
+                setReviewedCheckIns(reviewed);
+            } catch (error) {
+                console.error('Error loading check-ins:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const calculateRiskLevel = (checkIn) => {
+            const mood = checkIn.morningData?.mood ?? 10;
+            const craving = checkIn.morningData?.craving ?? 0;
+            const anxiety = checkIn.morningData?.anxietyLevel ?? 0;
+
+            if (mood <= 3 && craving >= 7) return 'critical';
+            if (mood <= 4 && craving >= 6) return 'high';
+            if (mood <= 5 || craving >= 5 || anxiety >= 7) return 'moderate';
+            return 'low';
+        };
+
+        const getCompletionStatus = (checkIn) => {
+            const hasMorning = checkIn.morningData && Object.keys(checkIn.morningData).length > 0;
+            const hasEvening = checkIn.eveningData && Object.keys(checkIn.eveningData).length > 0;
+            if (hasMorning && hasEvening) return 'complete';
+            if (hasMorning && !hasEvening) return 'morning-only';
+            if (!hasMorning && hasEvening) return 'evening-only';
+            return 'incomplete';
+        };
+
+        const filteredCheckIns = useMemo(() => {
+            let filtered = checkIns;
+
+            if (filterPIR !== 'all') {
+                filtered = filtered.filter(c => c.userId === filterPIR);
+            }
+            if (filterRisk !== 'all') {
+                filtered = filtered.filter(c => c.riskLevel === filterRisk);
+            }
+            if (filterCompletion !== 'all') {
+                filtered = filtered.filter(c => c.completionStatus === filterCompletion);
+            }
+            if (filterDate !== 'all') {
+                const now = new Date();
+                const startDate = new Date();
+                if (filterDate === 'today') startDate.setHours(0, 0, 0, 0);
+                else if (filterDate === 'week') startDate.setDate(now.getDate() - 7);
+                else if (filterDate === 'month') startDate.setMonth(now.getMonth() - 1);
+                filtered = filtered.filter(c => {
+                    const date = c.createdAt?.toDate ? c.createdAt.toDate() : new Date(c.createdAt);
+                    return date >= startDate;
+                });
+            }
+            if (searchQuery) {
+                const query = searchQuery.toLowerCase();
+                filtered = filtered.filter(c =>
+                    c.userName?.toLowerCase().includes(query) ||
+                    c.morningData?.notes?.toLowerCase().includes(query) ||
+                    c.eveningData?.gratitude?.toLowerCase().includes(query)
+                );
+            }
+            return filtered;
+        }, [checkIns, filterPIR, filterRisk, filterCompletion, filterDate, searchQuery]);
+
+        const paginatedCheckIns = useMemo(() => {
+            const start = (currentPage - 1) * itemsPerPage;
+            return filteredCheckIns.slice(start, start + itemsPerPage);
+        }, [filteredCheckIns, currentPage]);
+
+        const totalPages = Math.ceil(filteredCheckIns.length / itemsPerPage);
+
+        const getRiskBadge = (level) => {
+            const styles = {
+                critical: { bg: '#DC143C', color: 'white', label: 'Critical' },
+                high: { bg: '#FFA500', color: 'white', label: 'High' },
+                moderate: { bg: '#FFC107', color: '#333', label: 'Moderate' },
+                low: { bg: '#00A86B', color: 'white', label: 'Low' }
+            };
+            const s = styles[level] || styles.low;
+            return (
+                <span style={{
+                    padding: '4px 10px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    background: s.bg,
+                    color: s.color
+                }}>
+                    {s.label}
+                </span>
+            );
+        };
+
+        const getCompletionBadge = (status) => {
+            const styles = {
+                complete: { bg: '#00A86B', color: 'white', label: 'Complete' },
+                'morning-only': { bg: '#FFC107', color: '#333', label: 'Morning Only' },
+                'evening-only': { bg: '#FFA500', color: 'white', label: 'Evening Only' },
+                incomplete: { bg: '#DC143C', color: 'white', label: 'Incomplete' }
+            };
+            const s = styles[status] || styles.incomplete;
+            return (
+                <span style={{
+                    padding: '4px 10px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    background: s.bg,
+                    color: s.color
+                }}>
+                    {s.label}
+                </span>
+            );
+        };
+
+        const handleMarkReviewed = async (checkInId) => {
+            try {
+                await db.collection('checkInReviews').add({
+                    checkInId,
+                    reviewedBy: auth.currentUser.uid,
+                    reviewedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                setReviewedCheckIns(new Set([...reviewedCheckIns, checkInId]));
+            } catch (error) {
+                console.error('Error marking reviewed:', error);
+            }
+        };
+
+        if (loading) {
+            return (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+                    <div style={{
+                        width: '50px', height: '50px',
+                        border: '4px solid #f3f3f3',
+                        borderTop: '4px solid #0077CC',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                    }}></div>
+                </div>
+            );
+        }
+
+        return (
+            <div>
+                {/* Stats */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '15px', marginBottom: '20px' }}>
+                    {[
+                        { label: 'Total', count: checkIns.length, color: '#0077CC' },
+                        { label: 'Critical', count: checkIns.filter(c => c.riskLevel === 'critical').length, color: '#DC143C' },
+                        { label: 'High Risk', count: checkIns.filter(c => c.riskLevel === 'high').length, color: '#FFA500' },
+                        { label: 'Complete', count: checkIns.filter(c => c.completionStatus === 'complete').length, color: '#00A86B' },
+                        { label: 'Needs Review', count: checkIns.filter(c => !reviewedCheckIns.has(c.id)).length, color: '#9C27B0' }
+                    ].map((stat, idx) => (
+                        <div key={idx} style={{
+                            background: 'white',
+                            borderRadius: '12px',
+                            padding: '15px',
+                            textAlign: 'center',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                            borderLeft: `4px solid ${stat.color}`
+                        }}>
+                            <div style={{ fontSize: '24px', fontWeight: '700', color: stat.color }}>{stat.count}</div>
+                            <div style={{ fontSize: '12px', color: '#666' }}>{stat.label}</div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Filters */}
+                <div style={{
+                    background: 'white',
+                    borderRadius: '12px',
+                    padding: '15px 20px',
+                    marginBottom: '20px',
+                    display: 'flex',
+                    gap: '15px',
+                    flexWrap: 'wrap',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+                }}>
+                    <select
+                        value={filterPIR}
+                        onChange={(e) => { setFilterPIR(e.target.value); setCurrentPage(1); }}
+                        style={{ padding: '8px 12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}
+                    >
+                        <option value="all">All PIRs</option>
+                        {users.map(u => (
+                            <option key={u.id} value={u.id}>{u.displayName || u.email}</option>
+                        ))}
+                    </select>
+                    <select
+                        value={filterRisk}
+                        onChange={(e) => { setFilterRisk(e.target.value); setCurrentPage(1); }}
+                        style={{ padding: '8px 12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}
+                    >
+                        <option value="all">All Risk Levels</option>
+                        <option value="critical">Critical</option>
+                        <option value="high">High</option>
+                        <option value="moderate">Moderate</option>
+                        <option value="low">Low</option>
+                    </select>
+                    <select
+                        value={filterCompletion}
+                        onChange={(e) => { setFilterCompletion(e.target.value); setCurrentPage(1); }}
+                        style={{ padding: '8px 12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}
+                    >
+                        <option value="all">All Completion</option>
+                        <option value="complete">Complete</option>
+                        <option value="morning-only">Morning Only</option>
+                        <option value="evening-only">Evening Only</option>
+                        <option value="incomplete">Incomplete</option>
+                    </select>
+                    <select
+                        value={filterDate}
+                        onChange={(e) => { setFilterDate(e.target.value); setCurrentPage(1); }}
+                        style={{ padding: '8px 12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}
+                    >
+                        <option value="all">All Time</option>
+                        <option value="today">Today</option>
+                        <option value="week">Last 7 Days</option>
+                        <option value="month">Last 30 Days</option>
+                    </select>
+                </div>
+
+                {/* Table */}
+                <div style={{ background: 'white', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                            <tr style={{ background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)', color: 'white' }}>
+                                <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600' }}>PIR</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600' }}>Date</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600' }}>Mood</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600' }}>Craving</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600' }}>Risk</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600' }}>Status</th>
+                                <th style={{ padding: '15px', textAlign: 'center', fontWeight: '600' }}>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {paginatedCheckIns.map((checkIn, idx) => (
+                                <tr key={checkIn.id} style={{
+                                    borderBottom: '1px solid #f0f0f0',
+                                    background: checkIn.riskLevel === 'critical' ? 'rgba(220, 20, 60, 0.05)' :
+                                                checkIn.riskLevel === 'high' ? 'rgba(255, 165, 0, 0.05)' :
+                                                idx % 2 === 0 ? 'white' : '#fafafa'
+                                }}>
+                                    <td style={{ padding: '15px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <div style={{
+                                                width: '36px', height: '36px',
+                                                borderRadius: '50%',
+                                                background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                color: 'white',
+                                                fontWeight: '600'
+                                            }}>
+                                                {(checkIn.userName || 'U').charAt(0).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <div style={{ fontWeight: '500' }}>{checkIn.userName}</div>
+                                                {reviewedCheckIns.has(checkIn.id) && (
+                                                    <span style={{ fontSize: '11px', color: '#00A86B' }}>
+                                                        <AdminIcons.CheckCircle size={12} style={{ marginRight: '3px' }} />
+                                                        Reviewed
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td style={{ padding: '15px', textAlign: 'center', fontSize: '14px' }}>
+                                        {formatDate(checkIn.createdAt)}
+                                    </td>
+                                    <td style={{ padding: '15px', textAlign: 'center' }}>
+                                        <span style={{
+                                            display: 'inline-block',
+                                            minWidth: '40px',
+                                            padding: '4px 10px',
+                                            borderRadius: '8px',
+                                            fontWeight: '600',
+                                            background: (checkIn.morningData?.mood ?? 5) <= 3 ? '#ffebee' :
+                                                        (checkIn.morningData?.mood ?? 5) <= 6 ? '#fff8e1' : '#e8f5e9',
+                                            color: (checkIn.morningData?.mood ?? 5) <= 3 ? '#c62828' :
+                                                   (checkIn.morningData?.mood ?? 5) <= 6 ? '#f57f17' : '#2e7d32'
+                                        }}>
+                                            {checkIn.morningData?.mood ?? '-'}
+                                        </span>
+                                    </td>
+                                    <td style={{ padding: '15px', textAlign: 'center' }}>
+                                        <span style={{
+                                            display: 'inline-block',
+                                            minWidth: '40px',
+                                            padding: '4px 10px',
+                                            borderRadius: '8px',
+                                            fontWeight: '600',
+                                            background: (checkIn.morningData?.craving ?? 0) >= 7 ? '#ffebee' :
+                                                        (checkIn.morningData?.craving ?? 0) >= 4 ? '#fff8e1' : '#e8f5e9',
+                                            color: (checkIn.morningData?.craving ?? 0) >= 7 ? '#c62828' :
+                                                   (checkIn.morningData?.craving ?? 0) >= 4 ? '#f57f17' : '#2e7d32'
+                                        }}>
+                                            {checkIn.morningData?.craving ?? '-'}
+                                        </span>
+                                    </td>
+                                    <td style={{ padding: '15px', textAlign: 'center' }}>
+                                        {getRiskBadge(checkIn.riskLevel)}
+                                    </td>
+                                    <td style={{ padding: '15px', textAlign: 'center' }}>
+                                        {getCompletionBadge(checkIn.completionStatus)}
+                                    </td>
+                                    <td style={{ padding: '15px', textAlign: 'center' }}>
+                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                            <button
+                                                onClick={() => setSelectedCheckIn(checkIn)}
+                                                style={{
+                                                    padding: '6px 12px',
+                                                    background: '#0077CC',
+                                                    color: 'white',
+                                                    border: 'none',
+                                                    borderRadius: '6px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '13px'
+                                                }}
+                                            >
+                                                View
+                                            </button>
+                                            {!reviewedCheckIns.has(checkIn.id) && (
+                                                <button
+                                                    onClick={() => handleMarkReviewed(checkIn.id)}
+                                                    style={{
+                                                        padding: '6px 12px',
+                                                        background: '#00A86B',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        borderRadius: '6px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '13px'
+                                                    }}
+                                                >
+                                                    Review
+                                                </button>
+                                            )}
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+
+                    {filteredCheckIns.length === 0 && (
+                        <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
+                            <AdminIcons.FileText size={48} style={{ opacity: 0.3, marginBottom: '15px' }} />
+                            <div>No check-ins found</div>
+                        </div>
+                    )}
+                </div>
+
+                <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+
+                {/* Check-in Detail Modal */}
+                {selectedCheckIn && (
+                    <CheckInDetailModal
+                        checkIn={selectedCheckIn}
+                        onClose={() => setSelectedCheckIn(null)}
+                        onMarkReviewed={handleMarkReviewed}
+                        isReviewed={reviewedCheckIns.has(selectedCheckIn.id)}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    // ==========================================
+    // CHECK-IN DETAIL MODAL
+    // ==========================================
+    function CheckInDetailModal({ checkIn, onClose, onMarkReviewed, isReviewed }) {
+        return (
+            <div style={{
+                position: 'fixed',
+                top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(0,0,0,0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000
+            }} onClick={onClose}>
+                <div style={{
+                    background: 'white',
+                    borderRadius: '16px',
+                    padding: '30px',
+                    maxWidth: '700px',
+                    width: '95%',
+                    maxHeight: '85vh',
+                    overflow: 'auto'
+                }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                        <div>
+                            <h3 style={{ margin: 0 }}>Check-in Details</h3>
+                            <div style={{ fontSize: '14px', color: '#666', marginTop: '4px' }}>
+                                {checkIn.userName} - {formatDateTime(checkIn.createdAt)}
+                            </div>
+                        </div>
+                        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                            <AdminIcons.X size={24} />
+                        </button>
+                    </div>
+
+                    {/* Morning Data */}
+                    <div style={{ marginBottom: '25px' }}>
+                        <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#FFA500', marginBottom: '15px' }}>
+                            <AdminIcons.Sun size={20} />
+                            Morning Check-in
+                        </h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '15px' }}>
+                            <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '10px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '24px', fontWeight: '700', color: '#0077CC' }}>
+                                    {checkIn.morningData?.mood ?? '-'}
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Mood</div>
+                            </div>
+                            <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '10px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '24px', fontWeight: '700', color: '#DC143C' }}>
+                                    {checkIn.morningData?.craving ?? '-'}
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Craving</div>
+                            </div>
+                            <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '10px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '24px', fontWeight: '700', color: '#FFA500' }}>
+                                    {checkIn.morningData?.anxietyLevel ?? '-'}
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Anxiety</div>
+                            </div>
+                            <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '10px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '24px', fontWeight: '700', color: '#9C27B0' }}>
+                                    {checkIn.morningData?.sleepQuality ?? '-'}
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Sleep</div>
+                            </div>
+                        </div>
+                        {checkIn.morningData?.notes && (
+                            <div style={{ marginTop: '15px', padding: '15px', background: '#fff8e1', borderRadius: '10px' }}>
+                                <div style={{ fontWeight: '600', marginBottom: '5px', fontSize: '13px', color: '#666' }}>Notes</div>
+                                <div style={{ fontSize: '14px' }}>{checkIn.morningData.notes}</div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Evening Data */}
+                    <div style={{ marginBottom: '25px' }}>
+                        <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#5C6BC0', marginBottom: '15px' }}>
+                            <AdminIcons.Moon size={20} />
+                            Evening Reflection
+                        </h4>
+                        {checkIn.eveningData ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {checkIn.eveningData.overallDay && (
+                                    <div style={{ padding: '12px', background: '#f8f9fa', borderRadius: '8px' }}>
+                                        <div style={{ fontWeight: '600', fontSize: '13px', color: '#666', marginBottom: '4px' }}>Overall Day</div>
+                                        <div style={{ fontSize: '14px' }}>{checkIn.eveningData.overallDay}</div>
+                                    </div>
+                                )}
+                                {checkIn.eveningData.gratitude && (
+                                    <div style={{ padding: '12px', background: '#e8f5e9', borderRadius: '8px' }}>
+                                        <div style={{ fontWeight: '600', fontSize: '13px', color: '#2e7d32', marginBottom: '4px' }}>Gratitude</div>
+                                        <div style={{ fontSize: '14px' }}>{checkIn.eveningData.gratitude}</div>
+                                    </div>
+                                )}
+                                {checkIn.eveningData.challenges && (
+                                    <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px' }}>
+                                        <div style={{ fontWeight: '600', fontSize: '13px', color: '#e65100', marginBottom: '4px' }}>Challenges</div>
+                                        <div style={{ fontSize: '14px' }}>{checkIn.eveningData.challenges}</div>
+                                    </div>
+                                )}
+                                {checkIn.eveningData.tomorrowGoal && (
+                                    <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px' }}>
+                                        <div style={{ fontWeight: '600', fontSize: '13px', color: '#1565c0', marginBottom: '4px' }}>Tomorrow's Goal</div>
+                                        <div style={{ fontSize: '14px' }}>{checkIn.eveningData.tomorrowGoal}</div>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div style={{ padding: '20px', textAlign: 'center', color: '#999', background: '#f8f9fa', borderRadius: '8px' }}>
+                                No evening reflection submitted
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Actions */}
+                    {!isReviewed && (
+                        <button
+                            onClick={() => { onMarkReviewed(checkIn.id); onClose(); }}
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                background: 'linear-gradient(135deg, #00A86B 0%, #2e7d32 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                fontWeight: '600',
+                                fontSize: '14px'
+                            }}
+                        >
+                            Mark as Reviewed
+                        </button>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // PATTERNS TAB
+    // ==========================================
+    function PatternsTab({ searchQuery, user }) {
+        const [checkIns, setCheckIns] = useState([]);
+        const [patterns, setPatterns] = useState([]);
+        const [users, setUsers] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [filterType, setFilterType] = useState('all');
+
+        useEffect(() => {
+            loadData();
+        }, []);
+
+        const loadData = async () => {
+            try {
+                // Load PIRs
+                let pirQuery = db.collection('users').where('role', '==', 'pir');
+                pirQuery = window.applyScopeToPIRQuery(pirQuery, user, CURRENT_TENANT);
+                const usersSnap = await pirQuery.get();
+                const usersData = [];
+                const userMap = {};
+                const allowedPIRIds = new Set();
+
+                usersSnap.forEach(doc => {
+                    const userData = { id: doc.id, ...doc.data() };
+                    usersData.push(userData);
+                    userMap[doc.id] = userData.displayName || userData.email;
+                    allowedPIRIds.add(doc.id);
+                });
+                setUsers(usersData);
+
+                // Load check-ins
+                const checkInsSnap = await db.collection('checkIns')
+                    .orderBy('createdAt', 'desc')
+                    .limit(500)
+                    .get();
+
+                const checkInsData = [];
+                checkInsSnap.forEach(doc => {
+                    const checkIn = { id: doc.id, ...doc.data() };
+                    if (checkIn.userId && allowedPIRIds.has(checkIn.userId)) {
+                        checkIn.userName = userMap[checkIn.userId] || 'Unknown';
+                        checkInsData.push(checkIn);
+                    }
+                });
+                setCheckIns(checkInsData);
+
+                // Detect patterns
+                const detectedPatterns = detectPatterns(checkInsData, userMap);
+                setPatterns(detectedPatterns);
+            } catch (error) {
+                console.error('Error loading patterns:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const detectPatterns = (checkInsData, userMap) => {
+            const patterns = [];
+            const pirCheckIns = {};
+
+            // Group by user
+            checkInsData.forEach(checkIn => {
+                if (!pirCheckIns[checkIn.userId]) {
+                    pirCheckIns[checkIn.userId] = [];
+                }
+                pirCheckIns[checkIn.userId].push(checkIn);
+            });
+
+            // Detect patterns for each PIR
+            Object.entries(pirCheckIns).forEach(([userId, userCheckIns]) => {
+                const sorted = userCheckIns.sort((a, b) => {
+                    const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+                    const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+                    return dateB - dateA;
+                });
+
+                const userName = sorted[0]?.userName || userMap[userId] || 'Unknown';
+
+                if (sorted.length >= 3) {
+                    const recent = sorted.slice(0, 3);
+
+                    // Declining mood pattern
+                    const moods = recent.map(c => c.morningData?.mood ?? 10);
+                    if (moods[0] < moods[1] && moods[1] < moods[2]) {
+                        patterns.push({
+                            userId,
+                            userName,
+                            type: 'declining-mood',
+                            severity: 'high',
+                            message: `Mood has been declining over the past 3 check-ins`,
+                            details: `Mood went from ${moods[2]} to ${moods[1]} to ${moods[0]}`
+                        });
+                    }
+
+                    // High cravings pattern
+                    const cravings = recent.map(c => c.morningData?.craving ?? 0);
+                    if (cravings.every(c => c >= 6)) {
+                        patterns.push({
+                            userId,
+                            userName,
+                            type: 'high-cravings',
+                            severity: 'critical',
+                            message: `Consistently high cravings for 3+ consecutive check-ins`,
+                            details: `Craving levels: ${cravings.join(', ')}`
+                        });
+                    }
+
+                    // High anxiety pattern
+                    const anxiety = recent.map(c => c.morningData?.anxietyLevel ?? 0);
+                    if (anxiety[0] >= 7 && anxiety[1] >= 7) {
+                        patterns.push({
+                            userId,
+                            userName,
+                            type: 'high-anxiety',
+                            severity: 'high',
+                            message: `Elevated anxiety levels over multiple days`,
+                            details: `Recent anxiety levels: ${anxiety.slice(0, 2).join(', ')}`
+                        });
+                    }
+
+                    // Poor sleep pattern
+                    const sleep = recent.map(c => c.morningData?.sleepQuality ?? 5);
+                    if (sleep.every(s => s <= 4)) {
+                        patterns.push({
+                            userId,
+                            userName,
+                            type: 'poor-sleep',
+                            severity: 'moderate',
+                            message: `Consistently poor sleep quality`,
+                            details: `Sleep quality: ${sleep.join(', ')}`
+                        });
+                    }
+                }
+
+                // Incomplete check-ins pattern
+                const incomplete = sorted.filter(c => {
+                    const hasMorning = c.morningData && Object.keys(c.morningData).length > 0;
+                    const hasEvening = c.eveningData && Object.keys(c.eveningData).length > 0;
+                    return !hasMorning || !hasEvening;
+                });
+                if (incomplete.length >= 5) {
+                    patterns.push({
+                        userId,
+                        userName,
+                        type: 'incomplete-checkins',
+                        severity: 'low',
+                        message: `Has ${incomplete.length} incomplete check-ins`,
+                        details: `Consider reaching out to encourage consistent check-ins`
+                    });
+                }
+
+                // Keyword detection
+                const concerningWords = ['relapse', 'using', 'hopeless', 'giving up', 'cant cope', 'want to use', 'suicide', 'end it'];
+                sorted.slice(0, 10).forEach(checkIn => {
+                    const allText = [
+                        checkIn.morningData?.notes,
+                        checkIn.eveningData?.gratitude,
+                        checkIn.eveningData?.challenges,
+                        checkIn.eveningData?.tomorrowGoal
+                    ].filter(Boolean).join(' ').toLowerCase();
+
+                    concerningWords.forEach(word => {
+                        if (allText.includes(word)) {
+                            patterns.push({
+                                userId,
+                                userName,
+                                type: 'keyword-alert',
+                                severity: 'critical',
+                                message: `Mentioned concerning keyword in check-in`,
+                                details: `Found "${word}" in check-in from ${formatDate(checkIn.createdAt)}`
+                            });
+                        }
+                    });
+                });
+            });
+
+            // Sort by severity
+            const severityOrder = { critical: 0, high: 1, moderate: 2, low: 3 };
+            return patterns.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+        };
+
+        const filteredPatterns = useMemo(() => {
+            let filtered = patterns;
+            if (filterType !== 'all') {
+                filtered = filtered.filter(p => p.type === filterType);
+            }
+            if (searchQuery) {
+                const query = searchQuery.toLowerCase();
+                filtered = filtered.filter(p =>
+                    p.userName?.toLowerCase().includes(query) ||
+                    p.message?.toLowerCase().includes(query)
+                );
+            }
+            return filtered;
+        }, [patterns, filterType, searchQuery]);
+
+        const getPatternIcon = (type) => {
+            switch (type) {
+                case 'declining-mood': return <AdminIcons.TrendingDown size={20} />;
+                case 'high-cravings': return <AdminIcons.AlertTriangle size={20} />;
+                case 'high-anxiety': return <AdminIcons.Activity size={20} />;
+                case 'poor-sleep': return <AdminIcons.Moon size={20} />;
+                case 'incomplete-checkins': return <AdminIcons.FileText size={20} />;
+                case 'keyword-alert': return <AdminIcons.AlertCircle size={20} />;
+                default: return <AdminIcons.AlertCircle size={20} />;
+            }
+        };
+
+        const getSeverityStyle = (severity) => {
+            switch (severity) {
+                case 'critical': return { bg: '#DC143C', color: 'white', border: '#DC143C' };
+                case 'high': return { bg: '#FFA500', color: 'white', border: '#FFA500' };
+                case 'moderate': return { bg: '#FFC107', color: '#333', border: '#FFC107' };
+                case 'low': return { bg: '#6c757d', color: 'white', border: '#6c757d' };
+                default: return { bg: '#6c757d', color: 'white', border: '#6c757d' };
+            }
+        };
+
+        if (loading) {
+            return (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+                    <div style={{
+                        width: '50px', height: '50px',
+                        border: '4px solid #f3f3f3',
+                        borderTop: '4px solid #0077CC',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                    }}></div>
+                </div>
+            );
+        }
+
+        return (
+            <div>
+                {/* Summary Stats */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px', marginBottom: '20px' }}>
+                    {[
+                        { label: 'Total Patterns', count: patterns.length, color: '#0077CC' },
+                        { label: 'Critical', count: patterns.filter(p => p.severity === 'critical').length, color: '#DC143C' },
+                        { label: 'High', count: patterns.filter(p => p.severity === 'high').length, color: '#FFA500' },
+                        { label: 'Moderate', count: patterns.filter(p => p.severity === 'moderate').length, color: '#FFC107' },
+                        { label: 'PIRs Affected', count: new Set(patterns.map(p => p.userId)).size, color: '#9C27B0' }
+                    ].map((stat, idx) => (
+                        <div key={idx} style={{
+                            background: 'white',
+                            borderRadius: '12px',
+                            padding: '15px',
+                            textAlign: 'center',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                            borderLeft: `4px solid ${stat.color}`
+                        }}>
+                            <div style={{ fontSize: '24px', fontWeight: '700', color: stat.color }}>{stat.count}</div>
+                            <div style={{ fontSize: '12px', color: '#666' }}>{stat.label}</div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Filters */}
+                <div style={{
+                    background: 'white',
+                    borderRadius: '12px',
+                    padding: '15px 20px',
+                    marginBottom: '20px',
+                    display: 'flex',
+                    gap: '15px',
+                    flexWrap: 'wrap',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+                }}>
+                    <select
+                        value={filterType}
+                        onChange={(e) => setFilterType(e.target.value)}
+                        style={{ padding: '8px 12px', border: '2px solid #e0e0e0', borderRadius: '8px', fontSize: '14px' }}
+                    >
+                        <option value="all">All Pattern Types</option>
+                        <option value="declining-mood">Declining Mood</option>
+                        <option value="high-cravings">High Cravings</option>
+                        <option value="high-anxiety">High Anxiety</option>
+                        <option value="poor-sleep">Poor Sleep</option>
+                        <option value="incomplete-checkins">Incomplete Check-ins</option>
+                        <option value="keyword-alert">Keyword Alerts</option>
+                    </select>
+                </div>
+
+                {/* Patterns List */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {filteredPatterns.map((pattern, idx) => {
+                        const style = getSeverityStyle(pattern.severity);
+                        return (
+                            <div key={idx} style={{
+                                background: 'white',
+                                borderRadius: '12px',
+                                padding: '20px',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                                borderLeft: `4px solid ${style.border}`,
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '15px'
+                            }}>
+                                <div style={{
+                                    width: '40px', height: '40px',
+                                    borderRadius: '10px',
+                                    background: style.bg,
+                                    color: style.color,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0
+                                }}>
+                                    {getPatternIcon(pattern.type)}
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '5px' }}>
+                                        <span style={{ fontWeight: '600', color: '#333' }}>{pattern.userName}</span>
+                                        <span style={{
+                                            padding: '2px 8px',
+                                            borderRadius: '10px',
+                                            fontSize: '11px',
+                                            fontWeight: '600',
+                                            background: style.bg,
+                                            color: style.color,
+                                            textTransform: 'uppercase'
+                                        }}>
+                                            {pattern.severity}
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: '14px', color: '#333', marginBottom: '5px' }}>
+                                        {pattern.message}
+                                    </div>
+                                    <div style={{ fontSize: '13px', color: '#666' }}>
+                                        {pattern.details}
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => window.location.href = `/admin/userdetail.html?id=${pattern.userId}`}
+                                    style={{
+                                        padding: '8px 16px',
+                                        background: '#0077CC',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '13px',
+                                        fontWeight: '500'
+                                    }}
+                                >
+                                    View PIR
+                                </button>
+                            </div>
+                        );
+                    })}
+
+                    {filteredPatterns.length === 0 && (
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '12px',
+                            padding: '40px',
+                            textAlign: 'center',
+                            color: '#666'
+                        }}>
+                            <AdminIcons.CheckCircle size={48} style={{ color: '#00A86B', opacity: 0.5, marginBottom: '15px' }} />
+                            <div style={{ fontWeight: '600', marginBottom: '5px' }}>No Patterns Detected</div>
+                            <div style={{ fontSize: '14px' }}>All PIRs are within normal parameters</div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // MAIN TASKS PAGE
+    // ==========================================
+    function TasksPage() {
+        const [user, setUser] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [searchQuery, setSearchQuery] = useState('');
+        const [activeTab, setActiveTab] = useState('assignments');
+        const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+            return window.getPreference ? window.getPreference('sidebarCollapsed', false) : false;
+        });
+
+        // Responsive states - showBottomNav when <1024px (matches navigation.js)
+        const [isMobile, setIsMobile] = useState(window.innerWidth < 600);
+        const [isTablet, setIsTablet] = useState(window.innerWidth >= 600 && window.innerWidth < 1024);
+        const [showBottomNav, setShowBottomNav] = useState(window.innerWidth < 1024);
+
+        const handleSidebarCollapse = (collapsed) => {
+            setSidebarCollapsed(collapsed);
+            if (window.savePreference) window.savePreference('sidebarCollapsed', collapsed);
+        };
+
+        // Responsive resize listener
+        useEffect(() => {
+            const handleResize = () => {
+                const width = window.innerWidth;
+                setIsMobile(width < 600);
+                setIsTablet(width >= 600 && width < 1024);
+                setShowBottomNav(width < 1024);
+            };
+            window.addEventListener('resize', handleResize);
+            return () => window.removeEventListener('resize', handleResize);
+        }, []);
+
+        useEffect(() => {
+            const unsubscribe = auth.onAuthStateChanged(async (authUser) => {
+                if (authUser) {
+                    try {
+                        const userDoc = await db.collection('users').doc(authUser.uid).get();
+                        if (userDoc.exists) {
+                            const userData = { id: userDoc.id, ...userDoc.data() };
+                            if (['admin', 'superadmin', 'superadmin1', 'coach'].includes(userData.role)) {
+                                setUser(userData);
+                            } else {
+                                window.location.href = '/';
+                            }
+                        } else {
+                            window.location.href = '/admin/';
+                        }
+                    } catch (error) {
+                        console.error('Error loading user:', error);
+                        window.location.href = '/admin/';
+                    }
+                } else {
+                    window.location.href = '/admin/';
+                }
+                setLoading(false);
+            });
+            return () => unsubscribe();
+        }, []);
+
+        if (loading) {
+            return (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '100vh',
+                    background: '#f5f7fa'
+                }}>
+                    <div style={{
+                        width: '60px',
+                        height: '60px',
+                        border: '4px solid #f3f3f3',
+                        borderTop: '4px solid #0077CC',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                    }}></div>
+                </div>
+            );
+        }
+
+        if (!user) return null;
+
+        const tabs = [
+            { id: 'assignments', label: 'Assignments', icon: <AdminIcons.ClipboardList size={18} /> },
+            { id: 'goals', label: 'Goals', icon: <AdminIcons.Target size={18} /> },
+            { id: 'checkins', label: 'Check-ins', icon: <AdminIcons.FileText size={18} /> },
+            { id: 'patterns', label: 'Patterns', icon: <AdminIcons.Activity size={18} /> }
+        ];
+
+        return (
+            <div style={{ display: 'flex', minHeight: '100vh', background: '#f5f7fa' }}>
+                <Sidebar
+                    activePage="tasks"
+                    user={user}
+                    collapsed={sidebarCollapsed}
+                    onCollapsedChange={handleSidebarCollapse}
+                />
+                <div style={{
+                    flex: 1,
+                    marginLeft: showBottomNav ? 0 : (sidebarCollapsed ? '80px' : '280px'),
+                    width: showBottomNav ? '100%' : 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    transition: 'margin-left 0.3s ease',
+                    paddingBottom: showBottomNav ? '72px' : 0
+                }}>
+                    <Header
+                        user={user}
+                        searchQuery={searchQuery}
+                        onSearchChange={setSearchQuery}
+                        searchPlaceholder="Search tasks..."
+                    />
+                    <main style={{ flex: 1, overflow: 'auto', padding: showBottomNav ? '16px' : '20px 30px' }}>
+                        {/* Page Header */}
+                        <div style={{ marginBottom: '25px' }}>
+                            <h1 style={{ margin: '0 0 5px 0', fontSize: '28px', fontWeight: '700', color: '#333' }}>
+                                Task Management
+                            </h1>
+                            <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
+                                Manage assignments, goals, check-ins, and monitor patterns
+                            </p>
+                        </div>
+
+                        {/* Tab Navigation */}
+                        <div style={{
+                            display: 'flex',
+                            gap: '5px',
+                            marginBottom: '20px',
+                            background: 'white',
+                            padding: '8px',
+                            borderRadius: '12px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+                        }}>
+                            {tabs.map(tab => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    style={{
+                                        flex: 1,
+                                        padding: '12px 20px',
+                                        background: activeTab === tab.id
+                                            ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)'
+                                            : 'transparent',
+                                        color: activeTab === tab.id ? 'white' : '#666',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontWeight: '600',
+                                        fontSize: '14px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '8px',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    {tab.icon}
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Tab Content */}
+                        {activeTab === 'assignments' && <AssignmentsTab searchQuery={searchQuery} user={user} />}
+                        {activeTab === 'goals' && <GoalsTab searchQuery={searchQuery} user={user} />}
+                        {activeTab === 'checkins' && <CheckInsTab searchQuery={searchQuery} user={user} />}
+                        {activeTab === 'patterns' && <PatternsTab searchQuery={searchQuery} user={user} />}
+                    </main>
+                </div>
+
+                <style>{`
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                    @keyframes fadeIn {
+                        from { opacity: 0; }
+                        to { opacity: 1; }
+                    }
+                `}</style>
+            </div>
+        );
+    }
+
+    // Render
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<TasksPage />);
+})();
+    </script>
+</body>
+</html>

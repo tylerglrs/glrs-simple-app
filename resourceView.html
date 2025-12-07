@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resource Viewer - GLRS</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/glrs-logo.png">
+
+    <!-- React and ReactDOM from CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <!-- Babel Standalone for JSX transformation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background: #F0F2F5;
+            color: #2c3e50;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .back-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #FFFFFF;
+            border: 1px solid #ddd;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #2c3e50;
+            cursor: pointer;
+            margin-bottom: 20px;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .back-button:hover {
+            background: #f8f9fa;
+            border-color: #058585;
+            color: #058585;
+        }
+
+        .resource-header {
+            background: #FFFFFF;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .resource-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 16px;
+            line-height: 1.3;
+        }
+
+        .resource-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .type-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            background: #e8f4f8;
+            color: #0277bd;
+        }
+
+        .assigned-badge {
+            background: #fff3e0;
+            color: #e65100;
+        }
+
+        .resource-description {
+            font-size: 15px;
+            line-height: 1.6;
+            color: #555;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #eee;
+        }
+
+        .resource-content {
+            background: #FFFFFF;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .content-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .content-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .download-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #058585;
+            color: #FFFFFF;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .download-button:hover {
+            background: #047373;
+            transform: translateY(-1px);
+        }
+
+        .video-player {
+            width: 100%;
+            max-width: 100%;
+            aspect-ratio: 16/9;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .video-player video {
+            width: 100%;
+            height: 100%;
+        }
+
+        .pdf-viewer {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .pdf-viewer iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .external-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 20px;
+            background: #f8f9fa;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #2c3e50;
+            transition: all 0.2s;
+        }
+
+        .external-link:hover {
+            border-color: #058585;
+            background: #e8f4f8;
+        }
+
+        .external-link-text {
+            flex: 1;
+        }
+
+        .external-link-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .external-link-url {
+            font-size: 13px;
+            color: #666;
+            word-break: break-all;
+        }
+
+        .article-content {
+            font-size: 16px;
+            line-height: 1.8;
+            color: #333;
+        }
+
+        .article-content h1, .article-content h2, .article-content h3 {
+            margin-top: 24px;
+            margin-bottom: 12px;
+            color: #2c3e50;
+        }
+
+        .article-content p {
+            margin-bottom: 16px;
+        }
+
+        .article-content ul, .article-content ol {
+            margin-left: 24px;
+            margin-bottom: 16px;
+        }
+
+        .loading-spinner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 20px;
+            text-align: center;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #058585;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            background: #ffebee;
+            border: 1px solid #ef5350;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            color: #c62828;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 12px;
+            }
+
+            .resource-header {
+                padding: 16px;
+                border-radius: 8px;
+            }
+
+            .resource-title {
+                font-size: 22px;
+            }
+
+            .resource-meta {
+                gap: 12px;
+            }
+
+            .resource-content {
+                padding: 16px;
+                border-radius: 8px;
+            }
+
+            .content-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+
+            .pdf-viewer {
+                height: 400px;
+            }
+
+            .back-button {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Firebase Config -->
+    <script src="/Index/services/config.js"></script>
+
+    <!-- Resource Viewer App -->
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function ResourceViewerApp() {
+            const [resource, setResource] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+            const [assignedBy, setAssignedBy] = useState(null);
+
+            useEffect(() => {
+                const handleResize = () => setIsMobile(window.innerWidth < 768);
+                window.addEventListener('resize', handleResize);
+                return () => window.removeEventListener('resize', handleResize);
+            }, []);
+
+            useEffect(() => {
+                loadResource();
+                initializeLucide();
+            }, []);
+
+            const initializeLucide = () => {
+                if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                    lucide.createIcons();
+                }
+            };
+
+            const loadResource = async () => {
+                try {
+                    // Get resource ID from URL parameter
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const resourceId = urlParams.get('id');
+
+                    if (!resourceId) {
+                        throw new Error('No resource ID provided');
+                    }
+
+                    // Get Firebase auth and db
+                    const auth = firebase.auth();
+                    const db = firebase.firestore();
+
+                    // Wait for auth
+                    const user = await new Promise((resolve) => {
+                        const unsubscribe = auth.onAuthStateChanged((user) => {
+                            unsubscribe();
+                            resolve(user);
+                        });
+                    });
+
+                    if (!user) {
+                        window.location.href = '/';
+                        return;
+                    }
+
+                    // Load resource from Firestore
+                    const resourceDoc = await db.collection('resources').doc(resourceId).get();
+
+                    if (!resourceDoc.exists) {
+                        throw new Error('Resource not found');
+                    }
+
+                    const resourceData = {
+                        id: resourceDoc.id,
+                        ...resourceDoc.data()
+                    };
+
+                    setResource(resourceData);
+
+                    // Load assigned by name if resource is assigned
+                    if (resourceData.isAssigned && resourceData.assignedBy) {
+                        const assignedByDoc = await db.collection('users').doc(resourceData.assignedBy).get();
+                        if (assignedByDoc.exists) {
+                            const userData = assignedByDoc.data();
+                            setAssignedBy(userData.displayName || userData.firstName || 'Coach');
+                        }
+                    }
+
+                    // Record view
+                    await db.collection('users').doc(user.uid)
+                        .collection('resourceViews').doc(resourceId)
+                        .set({
+                            viewedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+
+                    setLoading(false);
+                    setTimeout(initializeLucide, 100);
+
+                } catch (err) {
+                    console.error('Error loading resource:', err);
+                    setError(err.message);
+                    setLoading(false);
+                }
+            };
+
+            const handleBack = () => {
+                window.history.back();
+            };
+
+            const getTypeIcon = (type) => {
+                switch (type) {
+                    case 'video': return 'video';
+                    case 'audio': return 'headphones';
+                    case 'article': return 'file-text';
+                    case 'worksheet': return 'file-edit';
+                    case 'tool': return 'tool';
+                    default: return 'file';
+                }
+            };
+
+            const getTypeName = (type) => {
+                return type ? type.charAt(0).toUpperCase() + type.slice(1) : 'Resource';
+            };
+
+            const renderContent = () => {
+                if (!resource) return null;
+
+                const { type, url, content } = resource;
+
+                // Video
+                if (type === 'video') {
+                    return (
+                        <div>
+                            <div className="content-header">
+                                <div className="content-title">Video Content</div>
+                                {url && (
+                                    <a href={url} download className="download-button">
+                                        <i data-lucide="download" style={{ width: '16px', height: '16px' }}></i>
+                                        Download
+                                    </a>
+                                )}
+                            </div>
+                            <div className="video-player">
+                                <video controls controlsList="nodownload" style={{ width: '100%', height: '100%' }}>
+                                    <source src={url} type="video/mp4" />
+                                    Your browser does not support the video tag.
+                                </video>
+                            </div>
+                        </div>
+                    );
+                }
+
+                // PDF
+                if (type === 'worksheet' && url && url.endsWith('.pdf')) {
+                    return (
+                        <div>
+                            <div className="content-header">
+                                <div className="content-title">PDF Document</div>
+                                <a href={url} target="_blank" rel="noopener noreferrer" className="download-button">
+                                    <i data-lucide="download" style={{ width: '16px', height: '16px' }}></i>
+                                    Download PDF
+                                </a>
+                            </div>
+                            <div className="pdf-viewer">
+                                <iframe src={url} title="PDF Viewer"></iframe>
+                            </div>
+                        </div>
+                    );
+                }
+
+                // Audio
+                if (type === 'audio') {
+                    return (
+                        <div>
+                            <div className="content-header">
+                                <div className="content-title">Audio Content</div>
+                                {url && (
+                                    <a href={url} download className="download-button">
+                                        <i data-lucide="download" style={{ width: '16px', height: '16px' }}></i>
+                                        Download
+                                    </a>
+                                )}
+                            </div>
+                            <audio controls style={{ width: '100%', borderRadius: '8px' }}>
+                                <source src={url} type="audio/mpeg" />
+                                Your browser does not support the audio tag.
+                            </audio>
+                        </div>
+                    );
+                }
+
+                // Google Doc or external link
+                if (url && (url.includes('docs.google.com') || url.includes('drive.google.com'))) {
+                    return (
+                        <div>
+                            <div className="content-header">
+                                <div className="content-title">Google Document</div>
+                            </div>
+                            <a href={url} target="_blank" rel="noopener noreferrer" className="external-link">
+                                <i data-lucide="external-link" style={{ width: '24px', height: '24px', color: '#058585' }}></i>
+                                <div className="external-link-text">
+                                    <div className="external-link-title">Open in Google Docs</div>
+                                    <div className="external-link-url">{url}</div>
+                                </div>
+                                <i data-lucide="arrow-right" style={{ width: '20px', height: '20px', color: '#999' }}></i>
+                            </a>
+                        </div>
+                    );
+                }
+
+                // External URL
+                if (url) {
+                    return (
+                        <div>
+                            <div className="content-header">
+                                <div className="content-title">External Resource</div>
+                            </div>
+                            <a href={url} target="_blank" rel="noopener noreferrer" className="external-link">
+                                <i data-lucide="link" style={{ width: '24px', height: '24px', color: '#058585' }}></i>
+                                <div className="external-link-text">
+                                    <div className="external-link-title">Open Resource</div>
+                                    <div className="external-link-url">{url}</div>
+                                </div>
+                                <i data-lucide="arrow-right" style={{ width: '20px', height: '20px', color: '#999' }}></i>
+                            </a>
+                        </div>
+                    );
+                }
+
+                // Article content
+                if (content) {
+                    return (
+                        <div>
+                            <div className="content-header">
+                                <div className="content-title">Article</div>
+                            </div>
+                            <div className="article-content" dangerouslySetInnerHTML={{ __html: content }} />
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className="error-message">
+                        <i data-lucide="alert-circle" style={{ width: '20px', height: '20px' }}></i>
+                        <span>No content available for this resource.</span>
+                    </div>
+                );
+            };
+
+            if (loading) {
+                return (
+                    <div className="container">
+                        <div className="loading-spinner">
+                            <div className="spinner"></div>
+                            <div style={{ color: '#666', fontSize: '15px' }}>Loading resource...</div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (error) {
+                return (
+                    <div className="container">
+                        <button onClick={handleBack} className="back-button">
+                            <i data-lucide="arrow-left" style={{ width: '16px', height: '16px' }}></i>
+                            Back
+                        </button>
+                        <div className="error-message">
+                            <i data-lucide="alert-circle" style={{ width: '20px', height: '20px' }}></i>
+                            <div>
+                                <div style={{ fontWeight: '600', marginBottom: '4px' }}>Error loading resource</div>
+                                <div>{error}</div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (!resource) return null;
+
+            return (
+                <div className="container">
+                    <button onClick={handleBack} className="back-button">
+                        <i data-lucide="arrow-left" style={{ width: '16px', height: '16px' }}></i>
+                        Back to Resources
+                    </button>
+
+                    <div className="resource-header">
+                        <h1 className="resource-title">{resource.title}</h1>
+
+                        <div className="resource-meta">
+                            <span className="type-badge">
+                                <i data-lucide={getTypeIcon(resource.type)} style={{ width: '14px', height: '14px' }}></i>
+                                {getTypeName(resource.type)}
+                            </span>
+
+                            {resource.isAssigned && (
+                                <span className="type-badge assigned-badge">
+                                    <i data-lucide="user-check" style={{ width: '14px', height: '14px' }}></i>
+                                    Assigned by {assignedBy || 'Coach'}
+                                </span>
+                            )}
+
+                            {resource.category && (
+                                <span className="meta-item">
+                                    <i data-lucide="tag" style={{ width: '14px', height: '14px' }}></i>
+                                    {resource.category}
+                                </span>
+                            )}
+
+                            {resource.duration && (
+                                <span className="meta-item">
+                                    <i data-lucide="clock" style={{ width: '14px', height: '14px' }}></i>
+                                    {resource.duration}
+                                </span>
+                            )}
+                        </div>
+
+                        {resource.description && (
+                            <div className="resource-description">
+                                {resource.description}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="resource-content">
+                        {renderContent()}
+                    </div>
+                </div>
+            );
+        }
+
+        // Render the app
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<ResourceViewerApp />);
+    </script>
+</body>
+</html>

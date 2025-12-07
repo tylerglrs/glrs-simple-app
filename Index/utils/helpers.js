@@ -43,7 +43,9 @@ window.GLRSApp.utils.getSobrietyDays = (sobrietyDate) => {
 
 // Trigger haptic feedback on supported devices
 window.GLRSApp.utils.triggerHaptic = (type = 'light') => {
-    if (!navigator.vibrate) return;
+    // Disable on Safari iOS to prevent UI freezing
+    const isSafariIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (isSafariIOS || !navigator.vibrate) return;
 
     switch (type) {
         case 'light':
@@ -72,8 +74,9 @@ window.GLRSApp.utils.triggerHaptic = (type = 'light') => {
 
 // Show a toast notification with haptic feedback
 window.GLRSApp.utils.showNotification = (message, type = 'info') => {
-    // Trigger haptic feedback
-    if (navigator.vibrate) {
+    // Trigger haptic feedback (disabled on Safari iOS to prevent freezing)
+    const isSafariIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (!isSafariIOS && navigator.vibrate) {
         navigator.vibrate(type === 'success' ? [10, 50, 10] : type === 'error' ? [50, 100, 50] : 10);
     }
 

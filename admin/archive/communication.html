@@ -1,0 +1,1555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Communication - GLRS Admin</title>
+
+    <!-- Favicon - Lucide MessageSquare Icon -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%230077CC' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3C/svg%3E">
+
+    <!-- Shared Styles -->
+    <link rel="stylesheet" href="/admin/shared/styles.css">
+
+    <!-- Firebase SDK (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+
+    <!-- React -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Chart.js for analytics -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+
+    <!-- jsPDF for exports -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Shared Components -->
+    <script src="/admin/shared/firebase.js"></script>
+    <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/permissions.js?v=1"></script>
+    <script src="/admin/shared/utils.js"></script>
+    <script src="/admin/shared/state.js?v=2"></script>
+    <script src="/admin/shared/icons.js"></script>
+    <script type="text/babel" src="/admin/shared/navigation.js?v=10"></script>
+    <script type="text/babel" src="/admin/shared/header.js?v=1"></script>
+
+    <script type="text/babel">
+(function initPage() {
+    if (!window.FIREBASE_READY || !window.auth || !window.db) {
+        console.log('Waiting for Firebase to initialize...');
+        setTimeout(initPage, 50);
+        return;
+    }
+
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+    const { auth, db, storage, CURRENT_TENANT, logAudit } = window;
+
+    // ==========================================
+    // HELPER FUNCTIONS
+    // ==========================================
+
+    const formatDate = (timestamp) => {
+        if (!timestamp) return 'N/A';
+        const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    };
+
+    const formatDateTime = (timestamp) => {
+        if (!timestamp) return 'N/A';
+        const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+        return date.toLocaleString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric',
+            hour: 'numeric', minute: '2-digit', hour12: true
+        });
+    };
+
+    const formatTimeAgo = (timestamp) => {
+        if (!timestamp) return '';
+        const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        if (diffDays < 7) return `${diffDays}d ago`;
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    };
+
+    const exportToCSV = (data, filename) => {
+        if (!data || data.length === 0) return;
+        const headers = Object.keys(data[0]);
+        const csvContent = [
+            headers.join(','),
+            ...data.map(row => headers.map(h => `"${(row[h] || '').toString().replace(/"/g, '""')}"`).join(','))
+        ].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+    };
+
+    const exportToJSON = (data, filename) => {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${filename}_${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+    };
+
+    // ==========================================
+    // DIRECT MESSAGES TAB (Coach-PIR DMs)
+    // ==========================================
+    function DirectMessagesTab({ searchQuery, user }) {
+        const [conversations, setConversations] = useState([]);
+        const [selectedConversation, setSelectedConversation] = useState(null);
+        const [messages, setMessages] = useState([]);
+        const [newMessage, setNewMessage] = useState('');
+        const [loading, setLoading] = useState(true);
+        const [sending, setSending] = useState(false);
+        const [pirUsers, setPirUsers] = useState([]);
+        const [showNewConversation, setShowNewConversation] = useState(false);
+        const messagesEndRef = useRef(null);
+        const messageListener = useRef(null);
+
+        useEffect(() => {
+            loadConversations();
+            loadPirUsers();
+            return () => {
+                if (messageListener.current) messageListener.current();
+            };
+        }, []);
+
+        const loadConversations = async () => {
+            try {
+                setLoading(true);
+                const convoSnap = await db.collection('conversations')
+                    .where('participants', 'array-contains', user.uid)
+                    .orderBy('lastMessageTimestamp', 'desc')
+                    .get();
+
+                const convos = [];
+                for (const doc of convoSnap.docs) {
+                    const data = { id: doc.id, ...doc.data() };
+                    // Get other participant info
+                    const otherUserId = data.participants.find(id => id !== user.uid);
+                    if (otherUserId) {
+                        const otherUserDoc = await db.collection('users').doc(otherUserId).get();
+                        if (otherUserDoc.exists) {
+                            const otherUserData = otherUserDoc.data();
+                            data.otherUser = {
+                                id: otherUserId,
+                                name: `${otherUserData.firstName || ''} ${otherUserData.lastName || ''}`.trim() || 'Unknown',
+                                email: otherUserData.email,
+                                role: otherUserData.role,
+                                avatar: otherUserData.photoURL
+                            };
+                        }
+                    }
+                    convos.push(data);
+                }
+                setConversations(convos);
+            } catch (error) {
+                console.error('Error loading conversations:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const loadPirUsers = async () => {
+            try {
+                let pirQuery = db.collection('users').where('role', '==', 'pir');
+                pirQuery = window.applyScopeToPIRQuery(pirQuery, user, CURRENT_TENANT);
+                const usersSnap = await pirQuery.get();
+                const users = usersSnap.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data(),
+                    name: `${doc.data().firstName || ''} ${doc.data().lastName || ''}`.trim() || doc.data().email
+                }));
+                setPirUsers(users);
+            } catch (error) {
+                console.error('Error loading PIR users:', error);
+            }
+        };
+
+        const loadMessages = (conversationId) => {
+            if (messageListener.current) messageListener.current();
+
+            const listener = db.collection('messages')
+                .where('conversationId', '==', conversationId)
+                .orderBy('createdAt', 'asc')
+                .onSnapshot(snapshot => {
+                    const msgs = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
+                    setMessages(msgs);
+                    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+
+                    // Mark as read
+                    const unread = msgs.filter(m => m.senderId !== user.uid && m.status !== 'read');
+                    if (unread.length > 0) {
+                        const batch = db.batch();
+                        unread.forEach(msg => {
+                            batch.update(db.collection('messages').doc(msg.id), {
+                                status: 'read',
+                                readAt: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                        });
+                        batch.update(db.collection('conversations').doc(conversationId), {
+                            [`unreadCount.${user.uid}`]: 0
+                        });
+                        batch.commit();
+                    }
+                });
+
+            messageListener.current = listener;
+        };
+
+        const handleSelectConversation = (convo) => {
+            setSelectedConversation(convo);
+            loadMessages(convo.id);
+        };
+
+        const handleSendMessage = async () => {
+            if (!newMessage.trim() || !selectedConversation || sending) return;
+
+            setSending(true);
+            const otherUserId = selectedConversation.participants.find(id => id !== user.uid);
+
+            try {
+                await db.collection('messages').add({
+                    conversationId: selectedConversation.id,
+                    senderId: user.uid,
+                    recipientId: otherUserId,
+                    text: newMessage.trim(),
+                    type: 'text',
+                    status: 'sent',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                await db.collection('conversations').doc(selectedConversation.id).update({
+                    lastMessage: {
+                        text: newMessage.trim().substring(0, 50),
+                        senderId: user.uid,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    },
+                    lastMessageTimestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    [`unreadCount.${otherUserId}`]: firebase.firestore.FieldValue.increment(1)
+                });
+
+                setNewMessage('');
+            } catch (error) {
+                console.error('Error sending message:', error);
+                alert('Failed to send message');
+            } finally {
+                setSending(false);
+            }
+        };
+
+        const startNewConversation = async (pirId) => {
+            try {
+                // Check if conversation exists
+                const existingSnap = await db.collection('conversations')
+                    .where('participants', 'array-contains', user.uid)
+                    .get();
+
+                for (const doc of existingSnap.docs) {
+                    if (doc.data().participants.includes(pirId)) {
+                        const convo = { id: doc.id, ...doc.data() };
+                        const pirDoc = await db.collection('users').doc(pirId).get();
+                        if (pirDoc.exists) {
+                            const pirData = pirDoc.data();
+                            convo.otherUser = {
+                                id: pirId,
+                                name: `${pirData.firstName || ''} ${pirData.lastName || ''}`.trim() || 'Unknown',
+                                email: pirData.email,
+                                role: pirData.role
+                            };
+                        }
+                        handleSelectConversation(convo);
+                        setShowNewConversation(false);
+                        return;
+                    }
+                }
+
+                // Create new conversation
+                const pirDoc = await db.collection('users').doc(pirId).get();
+                const pirData = pirDoc.data();
+
+                const newConvo = await db.collection('conversations').add({
+                    participants: [user.uid, pirId].sort(),
+                    participantDetails: {
+                        [user.uid]: {
+                            name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Coach',
+                            role: user.role
+                        },
+                        [pirId]: {
+                            name: `${pirData.firstName || ''} ${pirData.lastName || ''}`.trim() || 'PIR',
+                            role: 'pir'
+                        }
+                    },
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastMessageTimestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    unreadCount: { [user.uid]: 0, [pirId]: 0 }
+                });
+
+                const convo = {
+                    id: newConvo.id,
+                    participants: [user.uid, pirId],
+                    otherUser: {
+                        id: pirId,
+                        name: `${pirData.firstName || ''} ${pirData.lastName || ''}`.trim() || 'Unknown',
+                        email: pirData.email,
+                        role: 'pir'
+                    }
+                };
+
+                handleSelectConversation(convo);
+                setShowNewConversation(false);
+                loadConversations();
+            } catch (error) {
+                console.error('Error starting conversation:', error);
+                alert('Failed to start conversation');
+            }
+        };
+
+        const filteredConversations = useMemo(() => {
+            if (!searchQuery) return conversations;
+            const query = searchQuery.toLowerCase();
+            return conversations.filter(c =>
+                c.otherUser?.name?.toLowerCase().includes(query) ||
+                c.otherUser?.email?.toLowerCase().includes(query)
+            );
+        }, [conversations, searchQuery]);
+
+        if (loading) {
+            return (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '400px' }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ width: '40px', height: '40px', border: '3px solid #f3f3f3', borderTop: '3px solid #0077CC', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 12px' }}></div>
+                        <div>Loading conversations...</div>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: '20px', height: '700px' }}>
+                {/* Conversation List */}
+                <div style={{ background: 'white', borderRadius: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    <div style={{ padding: '20px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h3 style={{ margin: 0, color: '#333' }}>Conversations</h3>
+                        <button
+                            onClick={() => setShowNewConversation(true)}
+                            style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #00A86B 0%, #008554 100%)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
+                        >
+                            + New
+                        </button>
+                    </div>
+                    <div style={{ flex: 1, overflowY: 'auto' }}>
+                        {filteredConversations.length === 0 ? (
+                            <div style={{ padding: '40px 20px', textAlign: 'center', color: '#999' }}>
+                                <AdminIcons.MessageSquare size={48} color="#ddd" />
+                                <div style={{ marginTop: '12px' }}>No conversations yet</div>
+                            </div>
+                        ) : (
+                            filteredConversations.map(convo => {
+                                const unread = convo.unreadCount?.[user.uid] || 0;
+                                const isSelected = selectedConversation?.id === convo.id;
+                                return (
+                                    <div
+                                        key={convo.id}
+                                        onClick={() => handleSelectConversation(convo)}
+                                        style={{
+                                            padding: '15px 20px',
+                                            borderBottom: '1px solid #f0f0f0',
+                                            cursor: 'pointer',
+                                            background: isSelected ? 'linear-gradient(135deg, rgba(0,119,204,0.1) 0%, rgba(0,139,139,0.1) 100%)' : 'white',
+                                            transition: 'background 0.2s'
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                            <div style={{
+                                                width: '48px', height: '48px', borderRadius: '50%',
+                                                background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                color: 'white', fontSize: '18px', fontWeight: '600'
+                                            }}>
+                                                {convo.otherUser?.name?.[0]?.toUpperCase() || '?'}
+                                            </div>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ fontWeight: unread > 0 ? '700' : '500', color: '#333' }}>
+                                                        {convo.otherUser?.name || 'Unknown'}
+                                                    </span>
+                                                    <span style={{ fontSize: '12px', color: '#999' }}>
+                                                        {formatTimeAgo(convo.lastMessageTimestamp)}
+                                                    </span>
+                                                </div>
+                                                <div style={{ fontSize: '13px', color: '#666', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {convo.lastMessage?.text || 'No messages yet'}
+                                                </div>
+                                            </div>
+                                            {unread > 0 && (
+                                                <div style={{
+                                                    width: '24px', height: '24px', borderRadius: '50%',
+                                                    background: '#0077CC', color: 'white',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    fontSize: '12px', fontWeight: '600'
+                                                }}>
+                                                    {unread}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+
+                {/* Message Thread */}
+                <div style={{ background: 'white', borderRadius: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    {selectedConversation ? (
+                        <>
+                            {/* Header */}
+                            <div style={{ padding: '20px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{
+                                    width: '44px', height: '44px', borderRadius: '50%',
+                                    background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: 'white', fontSize: '18px', fontWeight: '600'
+                                }}>
+                                    {selectedConversation.otherUser?.name?.[0]?.toUpperCase() || '?'}
+                                </div>
+                                <div>
+                                    <div style={{ fontWeight: '600', color: '#333' }}>{selectedConversation.otherUser?.name}</div>
+                                    <div style={{ fontSize: '13px', color: '#666' }}>{selectedConversation.otherUser?.email}</div>
+                                </div>
+                            </div>
+
+                            {/* Messages */}
+                            <div style={{ flex: 1, overflowY: 'auto', padding: '20px', background: '#f8f9fa' }}>
+                                {messages.length === 0 ? (
+                                    <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                                        <AdminIcons.MessageSquare size={48} color="#ddd" />
+                                        <div style={{ marginTop: '12px' }}>No messages yet. Start the conversation!</div>
+                                    </div>
+                                ) : (
+                                    messages.map(msg => {
+                                        const isOwn = msg.senderId === user.uid;
+                                        return (
+                                            <div key={msg.id} style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', marginBottom: '12px' }}>
+                                                <div style={{
+                                                    maxWidth: '70%',
+                                                    padding: '12px 16px',
+                                                    borderRadius: isOwn ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                                                    background: isOwn ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : 'white',
+                                                    color: isOwn ? 'white' : '#333',
+                                                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                                                }}>
+                                                    <div style={{ wordWrap: 'break-word' }}>{msg.text}</div>
+                                                    <div style={{ fontSize: '11px', marginTop: '6px', opacity: 0.7, textAlign: 'right' }}>
+                                                        {formatTimeAgo(msg.createdAt)}
+                                                        {isOwn && msg.status === 'read' && ' - Read'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                                <div ref={messagesEndRef} />
+                            </div>
+
+                            {/* Input */}
+                            <div style={{ padding: '20px', borderTop: '1px solid #f0f0f0', display: 'flex', gap: '10px' }}>
+                                <input
+                                    type="text"
+                                    value={newMessage}
+                                    onChange={(e) => setNewMessage(e.target.value)}
+                                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                                    placeholder="Type a message..."
+                                    style={{ flex: 1, padding: '12px 16px', border: '2px solid #e0e0e0', borderRadius: '10px', fontSize: '14px' }}
+                                />
+                                <button
+                                    onClick={handleSendMessage}
+                                    disabled={!newMessage.trim() || sending}
+                                    style={{
+                                        padding: '12px 24px',
+                                        background: newMessage.trim() && !sending ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : '#e0e0e0',
+                                        color: 'white', border: 'none', borderRadius: '10px',
+                                        cursor: newMessage.trim() && !sending ? 'pointer' : 'not-allowed',
+                                        fontSize: '14px', fontWeight: '600'
+                                    }}
+                                >
+                                    {sending ? 'Sending...' : 'Send'}
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                            <div style={{ textAlign: 'center' }}>
+                                <AdminIcons.MessageSquare size={64} color="#ddd" />
+                                <div style={{ marginTop: '16px', fontSize: '16px' }}>Select a conversation to view messages</div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* New Conversation Modal */}
+                {showNewConversation && (
+                    <div style={{
+                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                        background: 'rgba(0,0,0,0.5)', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center', zIndex: 1000
+                    }}>
+                        <div style={{
+                            background: 'white', borderRadius: '15px', padding: '25px',
+                            width: '450px', maxHeight: '80vh', overflow: 'auto'
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <h3 style={{ margin: 0 }}>Start New Conversation</h3>
+                                <button onClick={() => setShowNewConversation(false)} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer' }}>x</button>
+                            </div>
+                            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                                {pirUsers.map(pir => (
+                                    <div
+                                        key={pir.id}
+                                        onClick={() => startNewConversation(pir.id)}
+                                        style={{
+                                            padding: '12px', borderRadius: '10px', marginBottom: '8px',
+                                            cursor: 'pointer', background: '#f8f9fa',
+                                            display: 'flex', alignItems: 'center', gap: '12px',
+                                            transition: 'background 0.2s'
+                                        }}
+                                    >
+                                        <div style={{
+                                            width: '40px', height: '40px', borderRadius: '50%',
+                                            background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            color: 'white', fontWeight: '600'
+                                        }}>
+                                            {pir.name?.[0]?.toUpperCase() || '?'}
+                                        </div>
+                                        <div>
+                                            <div style={{ fontWeight: '500' }}>{pir.name}</div>
+                                            <div style={{ fontSize: '13px', color: '#666' }}>{pir.email}</div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    // ==========================================
+    // TOPIC ROOMS TAB
+    // ==========================================
+    function TopicRoomsTab({ searchQuery, user }) {
+        const [topicRooms, setTopicRooms] = useState([]);
+        const [messages, setMessages] = useState([]);
+        const [selectedRoom, setSelectedRoom] = useState('main');
+        const [newMessage, setNewMessage] = useState('');
+        const [loading, setLoading] = useState(true);
+        const [showCreateModal, setShowCreateModal] = useState(false);
+        const [onlineUsers, setOnlineUsers] = useState(new Set());
+        const messageListener = useRef(null);
+
+        useEffect(() => {
+            loadTopicRooms();
+            setupPresenceListener();
+            return () => {
+                if (messageListener.current) messageListener.current();
+            };
+        }, []);
+
+        useEffect(() => {
+            loadMessages(selectedRoom);
+        }, [selectedRoom]);
+
+        const loadTopicRooms = async () => {
+            try {
+                const roomsSnap = await db.collection('topicRooms')
+                    .where('tenantId', '==', CURRENT_TENANT)
+                    .get();
+                const rooms = roomsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setTopicRooms(rooms);
+            } catch (error) {
+                console.error('Error loading topic rooms:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const setupPresenceListener = () => {
+            db.collection('presence')
+                .where('tenantId', '==', CURRENT_TENANT)
+                .where('online', '==', true)
+                .onSnapshot(snapshot => {
+                    const online = new Set();
+                    snapshot.docs.forEach(doc => online.add(doc.id));
+                    setOnlineUsers(online);
+                });
+        };
+
+        const loadMessages = (roomId) => {
+            if (messageListener.current) messageListener.current();
+
+            const listener = db.collection('messages')
+                .where('tenantId', '==', CURRENT_TENANT)
+                .where('roomId', '==', roomId)
+                .orderBy('createdAt', 'desc')
+                .limit(100)
+                .onSnapshot(async snapshot => {
+                    const msgs = [];
+                    for (const doc of snapshot.docs) {
+                        const data = { id: doc.id, ...doc.data() };
+                        if (data.userId) {
+                            const userDoc = await db.collection('users').doc(data.userId).get();
+                            if (userDoc.exists) {
+                                const userData = userDoc.data();
+                                data.userName = `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.email;
+                                data.userRole = userData.role;
+                            }
+                        }
+                        msgs.push(data);
+                    }
+                    setMessages(msgs);
+                });
+
+            messageListener.current = listener;
+        };
+
+        const handleSendMessage = async () => {
+            if (!newMessage.trim()) return;
+
+            try {
+                await db.collection('messages').add({
+                    tenantId: CURRENT_TENANT,
+                    roomId: selectedRoom,
+                    userId: user.uid,
+                    content: newMessage.trim(),
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    fromAdmin: true
+                });
+                setNewMessage('');
+            } catch (error) {
+                console.error('Error sending message:', error);
+            }
+        };
+
+        const handleCreateRoom = async (roomData) => {
+            try {
+                await db.collection('topicRooms').add({
+                    tenantId: CURRENT_TENANT,
+                    ...roomData,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    createdBy: user.uid,
+                    active: true,
+                    messageCount: 0
+                });
+                setShowCreateModal(false);
+                loadTopicRooms();
+            } catch (error) {
+                console.error('Error creating room:', error);
+            }
+        };
+
+        const handleToggleRoom = async (roomId, currentStatus) => {
+            try {
+                await db.collection('topicRooms').doc(roomId).update({ active: !currentStatus });
+                loadTopicRooms();
+            } catch (error) {
+                console.error('Error toggling room:', error);
+            }
+        };
+
+        const handleDeleteRoom = async (roomId) => {
+            if (!confirm('Delete this topic room?')) return;
+            try {
+                await db.collection('topicRooms').doc(roomId).delete();
+                loadTopicRooms();
+                if (selectedRoom === roomId) setSelectedRoom('main');
+            } catch (error) {
+                console.error('Error deleting room:', error);
+            }
+        };
+
+        if (loading) {
+            return (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '400px' }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ width: '40px', height: '40px', border: '3px solid #f3f3f3', borderTop: '3px solid #0077CC', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 12px' }}></div>
+                        <div>Loading topic rooms...</div>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '20px' }}>
+                {/* Room Sidebar */}
+                <div style={{ background: 'white', borderRadius: '15px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                        <h4 style={{ margin: 0, color: '#333' }}>Chat Rooms</h4>
+                        <button
+                            onClick={() => setShowCreateModal(true)}
+                            style={{ padding: '6px 12px', background: '#00A86B', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}
+                        >
+                            + New
+                        </button>
+                    </div>
+
+                    <div
+                        onClick={() => setSelectedRoom('main')}
+                        style={{
+                            padding: '12px', borderRadius: '10px', cursor: 'pointer', marginBottom: '8px',
+                            background: selectedRoom === 'main' ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : '#f8f9fa',
+                            color: selectedRoom === 'main' ? 'white' : '#333'
+                        }}
+                    >
+                        <AdminIcons.Building size={16} style={{ marginRight: '8px' }} />
+                        Main Chat
+                    </div>
+
+                    {topicRooms.filter(r => r.active).map(room => (
+                        <div
+                            key={room.id}
+                            onClick={() => setSelectedRoom(room.id)}
+                            style={{
+                                padding: '12px', borderRadius: '10px', cursor: 'pointer', marginBottom: '8px',
+                                background: selectedRoom === room.id ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : '#f8f9fa',
+                                color: selectedRoom === room.id ? 'white' : '#333',
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                            }}
+                        >
+                            <span>{room.icon || ''} {room.name}</span>
+                            <span style={{ fontSize: '11px', opacity: 0.7 }}>{room.messageCount || 0}</span>
+                        </div>
+                    ))}
+
+                    <hr style={{ margin: '15px 0', border: 'none', borderTop: '1px solid #e0e0e0' }} />
+                    <h5 style={{ margin: '0 0 10px 0', color: '#666', fontSize: '12px' }}>Manage Rooms</h5>
+                    {topicRooms.map(room => (
+                        <div key={room.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', background: '#f8f9fa', borderRadius: '6px', marginBottom: '6px' }}>
+                            <span style={{ fontSize: '13px', color: room.active ? '#333' : '#999' }}>{room.name}</span>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                                <button onClick={() => handleToggleRoom(room.id, room.active)} style={{ padding: '4px 8px', background: room.active ? '#FFC107' : '#00A86B', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>
+                                    {room.active ? 'Disable' : 'Enable'}
+                                </button>
+                                <button onClick={() => handleDeleteRoom(room.id)} style={{ padding: '4px 8px', background: '#DC143C', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Chat Area */}
+                <div style={{ background: 'white', borderRadius: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', height: '700px' }}>
+                    <div style={{ padding: '20px', borderBottom: '1px solid #f0f0f0' }}>
+                        <h3 style={{ margin: 0 }}>
+                            {selectedRoom === 'main' ? 'Main Chat' : topicRooms.find(r => r.id === selectedRoom)?.name || 'Chat'}
+                        </h3>
+                        <div style={{ fontSize: '13px', color: '#666', marginTop: '5px' }}>
+                            {messages.length} messages | {onlineUsers.size} online
+                        </div>
+                    </div>
+
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column-reverse' }}>
+                        {messages.map(msg => (
+                            <div key={msg.id} style={{ marginBottom: '15px', padding: '12px', background: msg.fromAdmin ? 'rgba(0,119,204,0.1)' : '#f8f9fa', borderRadius: '10px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '600' }}>
+                                        {msg.userName?.[0]?.toUpperCase() || '?'}
+                                    </div>
+                                    <div>
+                                        <span style={{ fontWeight: '600', color: '#333' }}>{msg.userName || 'Unknown'}</span>
+                                        {msg.userRole === 'admin' && <span style={{ marginLeft: '6px', fontSize: '12px', background: '#0077CC', color: 'white', padding: '2px 6px', borderRadius: '4px' }}>Admin</span>}
+                                        {msg.userRole === 'coach' && <span style={{ marginLeft: '6px', fontSize: '12px', background: '#00A86B', color: 'white', padding: '2px 6px', borderRadius: '4px' }}>Coach</span>}
+                                        <span style={{ marginLeft: '8px', fontSize: '12px', color: '#999' }}>{formatTimeAgo(msg.createdAt)}</span>
+                                    </div>
+                                </div>
+                                <div style={{ color: '#333', paddingLeft: '40px' }}>{msg.content}</div>
+                            </div>
+                        ))}
+                        {messages.length === 0 && (
+                            <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                                <AdminIcons.MessageSquare size={48} color="#ddd" />
+                                <div style={{ marginTop: '12px' }}>No messages yet</div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={{ padding: '20px', borderTop: '1px solid #f0f0f0', display: 'flex', gap: '10px' }}>
+                        <input
+                            type="text"
+                            value={newMessage}
+                            onChange={(e) => setNewMessage(e.target.value)}
+                            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                            placeholder="Type a message..."
+                            style={{ flex: 1, padding: '12px 16px', border: '2px solid #e0e0e0', borderRadius: '10px', fontSize: '14px' }}
+                        />
+                        <button
+                            onClick={handleSendMessage}
+                            disabled={!newMessage.trim()}
+                            style={{
+                                padding: '12px 24px',
+                                background: newMessage.trim() ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : '#e0e0e0',
+                                color: 'white', border: 'none', borderRadius: '10px',
+                                cursor: newMessage.trim() ? 'pointer' : 'not-allowed',
+                                fontSize: '14px', fontWeight: '600'
+                            }}
+                        >
+                            Send
+                        </button>
+                    </div>
+                </div>
+
+                {/* Create Room Modal */}
+                {showCreateModal && (
+                    <CreateRoomModal
+                        onSubmit={handleCreateRoom}
+                        onClose={() => setShowCreateModal(false)}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    // ==========================================
+    // CREATE ROOM MODAL
+    // ==========================================
+    function CreateRoomModal({ onSubmit, onClose }) {
+        const [name, setName] = useState('');
+        const [description, setDescription] = useState('');
+        const [icon, setIcon] = useState('');
+
+        const handleSubmit = () => {
+            if (!name.trim()) {
+                alert('Please enter a room name');
+                return;
+            }
+            onSubmit({ name: name.trim(), description: description.trim(), icon: icon || '' });
+        };
+
+        return (
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+                <div style={{ background: 'white', borderRadius: '15px', padding: '25px', width: '450px' }}>
+                    <h3 style={{ margin: '0 0 20px 0' }}>Create Topic Room</h3>
+
+                    <div style={{ marginBottom: '15px' }}>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Room Name *</label>
+                        <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Recovery Support" style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px' }} />
+                    </div>
+
+                    <div style={{ marginBottom: '15px' }}>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Description</label>
+                        <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What is this room for?" rows={3} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', resize: 'vertical' }} />
+                    </div>
+
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Icon (emoji)</label>
+                        <input type="text" value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="e.g., " maxLength={2} style={{ width: '100px', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', textAlign: 'center', fontSize: '20px' }} />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                        <button onClick={onClose} style={{ padding: '10px 20px', background: '#f0f0f0', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                        <button onClick={handleSubmit} style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #00A86B 0%, #008554 100%)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>Create Room</button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // SUPPORT GROUPS TAB
+    // ==========================================
+    function SupportGroupsTab({ searchQuery, user }) {
+        const [supportGroups, setSupportGroups] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [showCreateModal, setShowCreateModal] = useState(false);
+        const [pirUsers, setPirUsers] = useState([]);
+
+        useEffect(() => {
+            loadSupportGroups();
+            loadPirUsers();
+        }, []);
+
+        const loadSupportGroups = async () => {
+            try {
+                const groupsSnap = await db.collection('supportGroups')
+                    .where('tenantId', '==', CURRENT_TENANT)
+                    .orderBy('createdAt', 'desc')
+                    .get();
+                const groups = groupsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setSupportGroups(groups);
+            } catch (error) {
+                console.error('Error loading support groups:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const loadPirUsers = async () => {
+            try {
+                let pirQuery = db.collection('users').where('role', '==', 'pir');
+                pirQuery = window.applyScopeToPIRQuery(pirQuery, user, CURRENT_TENANT);
+                const usersSnap = await pirQuery.get();
+                const users = usersSnap.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data(),
+                    name: `${doc.data().firstName || ''} ${doc.data().lastName || ''}`.trim() || doc.data().email
+                }));
+                setPirUsers(users);
+            } catch (error) {
+                console.error('Error loading PIR users:', error);
+            }
+        };
+
+        const handleCreateGroup = async (groupData) => {
+            try {
+                await db.collection('supportGroups').add({
+                    tenantId: CURRENT_TENANT,
+                    ...groupData,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    createdBy: user.uid,
+                    active: true
+                });
+                setShowCreateModal(false);
+                loadSupportGroups();
+                alert('Support group created successfully!');
+            } catch (error) {
+                console.error('Error creating support group:', error);
+                alert('Failed to create support group');
+            }
+        };
+
+        const handleToggleGroup = async (groupId, currentStatus) => {
+            try {
+                await db.collection('supportGroups').doc(groupId).update({ active: !currentStatus });
+                loadSupportGroups();
+            } catch (error) {
+                console.error('Error toggling group:', error);
+            }
+        };
+
+        const handleDeleteGroup = async (groupId) => {
+            if (!confirm('Delete this support group?')) return;
+            try {
+                await db.collection('supportGroups').doc(groupId).delete();
+                loadSupportGroups();
+            } catch (error) {
+                console.error('Error deleting group:', error);
+            }
+        };
+
+        const filteredGroups = useMemo(() => {
+            if (!searchQuery) return supportGroups;
+            const query = searchQuery.toLowerCase();
+            return supportGroups.filter(g =>
+                g.name?.toLowerCase().includes(query) ||
+                g.type?.toLowerCase().includes(query)
+            );
+        }, [supportGroups, searchQuery]);
+
+        if (loading) {
+            return (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '400px' }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ width: '40px', height: '40px', border: '3px solid #f3f3f3', borderTop: '3px solid #0077CC', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 12px' }}></div>
+                        <div>Loading support groups...</div>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <h3 style={{ margin: 0, color: '#333' }}>Support Groups</h3>
+                    <button
+                        onClick={() => setShowCreateModal(true)}
+                        style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #00A86B 0%, #008554 100%)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
+                    >
+                        + Add Support Group
+                    </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '20px' }}>
+                    {filteredGroups.map(group => (
+                        <div key={group.id} style={{ background: 'white', borderRadius: '15px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
+                                <h4 style={{ margin: 0, color: '#333' }}>{group.name}</h4>
+                                <span style={{
+                                    padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '600', color: 'white',
+                                    background: group.type === 'AA' ? '#0077CC' : group.type === 'NA' ? '#f093fb' : group.type === 'SMART' ? '#4facfe' : '#fa709a'
+                                }}>
+                                    {group.type}
+                                </span>
+                            </div>
+
+                            {group.description && (
+                                <p style={{ fontSize: '14px', color: '#666', marginBottom: '15px' }}>{group.description}</p>
+                            )}
+
+                            <div style={{ padding: '15px', background: '#f8f9fa', borderRadius: '10px', marginBottom: '15px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                    <AdminIcons.Calendar size={16} color="#666" />
+                                    <span style={{ fontWeight: '600' }}>{group.day}</span>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                    <AdminIcons.Clock size={16} color="#666" />
+                                    <span style={{ fontWeight: '600' }}>{group.time}</span>
+                                </div>
+                                {group.location && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <AdminIcons.Pin size={16} color="#666" />
+                                        <span>{group.location}</span>
+                                    </div>
+                                )}
+                                {group.link && (
+                                    <a href={group.link} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#1976d2', textDecoration: 'none', marginTop: '8px' }}>
+                                        <AdminIcons.ExternalLink size={16} />
+                                        <span>Join Meeting</span>
+                                    </a>
+                                )}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button onClick={() => handleToggleGroup(group.id, group.active)} style={{ flex: 1, padding: '8px', background: group.active ? '#00A86B' : '#6c757d', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                                    {group.active ? 'Active' : 'Inactive'}
+                                </button>
+                                <button onClick={() => handleDeleteGroup(group.id)} style={{ flex: 1, padding: '8px', background: '#DC143C', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {filteredGroups.length === 0 && (
+                    <div style={{ padding: '80px 20px', textAlign: 'center', background: 'white', borderRadius: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                        <AdminIcons.Users size={64} color="#ddd" />
+                        <div style={{ fontSize: '20px', fontWeight: '600', color: '#333', marginTop: '20px' }}>No Support Groups Yet</div>
+                        <div style={{ fontSize: '16px', color: '#999', marginTop: '10px' }}>Add support groups for PIRs to join</div>
+                    </div>
+                )}
+
+                {showCreateModal && (
+                    <CreateSupportGroupModal
+                        pirUsers={pirUsers}
+                        onSubmit={handleCreateGroup}
+                        onClose={() => setShowCreateModal(false)}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    // ==========================================
+    // CREATE SUPPORT GROUP MODAL
+    // ==========================================
+    function CreateSupportGroupModal({ pirUsers, onSubmit, onClose }) {
+        const [name, setName] = useState('');
+        const [type, setType] = useState('AA');
+        const [day, setDay] = useState('Monday');
+        const [time, setTime] = useState('18:00');
+        const [location, setLocation] = useState('');
+        const [link, setLink] = useState('');
+        const [description, setDescription] = useState('');
+        const [assignedPIRs, setAssignedPIRs] = useState([]);
+
+        const handleSubmit = () => {
+            if (!name.trim()) {
+                alert('Please enter a group name');
+                return;
+            }
+            onSubmit({ name, type, day, time, location, link, description, assignedPIRs });
+        };
+
+        const togglePIR = (pirId) => {
+            setAssignedPIRs(prev =>
+                prev.includes(pirId) ? prev.filter(id => id !== pirId) : [...prev, pirId]
+            );
+        };
+
+        return (
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+                <div style={{ background: 'white', borderRadius: '15px', padding: '25px', width: '550px', maxHeight: '90vh', overflow: 'auto' }}>
+                    <h3 style={{ margin: '0 0 20px 0' }}>Create Support Group</h3>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Group Name *</label>
+                            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Evening AA Group" style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px' }} />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Type</label>
+                            <select value={type} onChange={(e) => setType(e.target.value)} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px' }}>
+                                <option value="AA">AA</option>
+                                <option value="NA">NA</option>
+                                <option value="SMART">SMART Recovery</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Day</label>
+                            <select value={day} onChange={(e) => setDay(e.target.value)} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px' }}>
+                                {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => (
+                                    <option key={d} value={d}>{d}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Time</label>
+                            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px' }} />
+                        </div>
+                    </div>
+
+                    <div style={{ marginTop: '15px' }}>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Location</label>
+                        <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Physical address" style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px' }} />
+                    </div>
+
+                    <div style={{ marginTop: '15px' }}>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Virtual Meeting Link</label>
+                        <input type="url" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://zoom.us/..." style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px' }} />
+                    </div>
+
+                    <div style={{ marginTop: '15px' }}>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>Description</label>
+                        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Brief description..." style={{ width: '100%', padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px', resize: 'vertical' }} />
+                    </div>
+
+                    <div style={{ marginTop: '15px' }}>
+                        <label style={{ display: 'block', marginBottom: '10px', fontWeight: '500' }}>Assign PIRs</label>
+                        <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #e0e0e0', borderRadius: '8px', padding: '10px' }}>
+                            {pirUsers.map(pir => (
+                                <label key={pir.id} style={{ display: 'flex', alignItems: 'center', padding: '8px', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={assignedPIRs.includes(pir.id)} onChange={() => togglePIR(pir.id)} style={{ marginRight: '10px' }} />
+                                    {pir.name}
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
+                        <button onClick={onClose} style={{ padding: '10px 20px', background: '#f0f0f0', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                        <button onClick={handleSubmit} style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #00A86B 0%, #008554 100%)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>Create Group</button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // MODERATION TAB
+    // ==========================================
+    function ModerationTab({ searchQuery, user }) {
+        const [flaggedMessages, setFlaggedMessages] = useState([]);
+        const [moderationHistory, setModerationHistory] = useState([]);
+        const [userWarnings, setUserWarnings] = useState({});
+        const [moderationKeywords, setModerationKeywords] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [newKeyword, setNewKeyword] = useState('');
+        const [showKeywordManager, setShowKeywordManager] = useState(false);
+
+        useEffect(() => {
+            loadModerationData();
+        }, []);
+
+        const loadModerationData = async () => {
+            try {
+                // Load flagged messages
+                const flaggedSnap = await db.collection('messages')
+                    .where('tenantId', '==', CURRENT_TENANT)
+                    .where('flagged', '==', true)
+                    .where('resolved', '==', false)
+                    .orderBy('flaggedAt', 'desc')
+                    .limit(50)
+                    .get();
+
+                const flagged = [];
+                for (const doc of flaggedSnap.docs) {
+                    const data = { id: doc.id, ...doc.data() };
+                    if (data.userId) {
+                        const userDoc = await db.collection('users').doc(data.userId).get();
+                        if (userDoc.exists) {
+                            const userData = userDoc.data();
+                            data.userName = `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.email;
+                        }
+                    }
+                    flagged.push(data);
+                }
+                setFlaggedMessages(flagged);
+
+                // Load moderation history
+                const historySnap = await db.collection('moderationActions')
+                    .where('tenantId', '==', CURRENT_TENANT)
+                    .orderBy('timestamp', 'desc')
+                    .limit(50)
+                    .get();
+                setModerationHistory(historySnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+                // Load user warnings
+                const warningsSnap = await db.collection('userWarnings').where('tenantId', '==', CURRENT_TENANT).get();
+                const warnings = {};
+                warningsSnap.forEach(doc => {
+                    warnings[doc.id] = doc.data().warnings || [];
+                });
+                setUserWarnings(warnings);
+
+                // Load moderation keywords
+                const settingsDoc = await db.collection('settings').doc('moderation').get();
+                if (settingsDoc.exists) {
+                    setModerationKeywords(settingsDoc.data().keywords || []);
+                }
+            } catch (error) {
+                console.error('Error loading moderation data:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const handleResolve = async (messageId, action) => {
+            try {
+                if (action === 'delete') {
+                    await db.collection('messages').doc(messageId).delete();
+                } else {
+                    await db.collection('messages').doc(messageId).update({
+                        flagged: false,
+                        resolved: true,
+                        resolvedBy: user.uid,
+                        resolvedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+
+                await db.collection('moderationActions').add({
+                    tenantId: CURRENT_TENANT,
+                    action: action,
+                    messageId: messageId,
+                    moderatorId: user.uid,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                loadModerationData();
+            } catch (error) {
+                console.error('Error resolving flag:', error);
+            }
+        };
+
+        const handleAddKeyword = async () => {
+            if (!newKeyword.trim()) return;
+            try {
+                const updated = [...moderationKeywords, newKeyword.toLowerCase()];
+                await db.collection('settings').doc('moderation').set({ keywords: updated });
+                setModerationKeywords(updated);
+                setNewKeyword('');
+            } catch (error) {
+                console.error('Error adding keyword:', error);
+            }
+        };
+
+        const handleRemoveKeyword = async (keyword) => {
+            try {
+                const updated = moderationKeywords.filter(k => k !== keyword);
+                await db.collection('settings').doc('moderation').set({ keywords: updated });
+                setModerationKeywords(updated);
+            } catch (error) {
+                console.error('Error removing keyword:', error);
+            }
+        };
+
+        if (loading) {
+            return (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '400px' }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ width: '40px', height: '40px', border: '3px solid #f3f3f3', borderTop: '3px solid #0077CC', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 12px' }}></div>
+                        <div>Loading moderation data...</div>
+                    </div>
+                </div>
+            );
+        }
+
+        const totalWarnings = Object.values(userWarnings).reduce((acc, w) => acc + w.length, 0);
+
+        return (
+            <div>
+                {/* Stats */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
+                    <div style={{ background: 'linear-gradient(135deg, #f44336 0%, #e53935 100%)', borderRadius: '15px', padding: '25px', color: 'white' }}>
+                        <div style={{ fontSize: '14px', opacity: 0.9 }}>Flagged Messages</div>
+                        <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>{flaggedMessages.length}</div>
+                        <div style={{ fontSize: '12px', opacity: 0.8 }}>Pending review</div>
+                    </div>
+                    <div style={{ background: 'linear-gradient(135deg, #FFC107 0%, #FFA000 100%)', borderRadius: '15px', padding: '25px', color: 'white' }}>
+                        <div style={{ fontSize: '14px', opacity: 0.9 }}>Total Warnings</div>
+                        <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>{totalWarnings}</div>
+                        <div style={{ fontSize: '12px', opacity: 0.8 }}>Issued to users</div>
+                    </div>
+                    <div style={{ background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)', borderRadius: '15px', padding: '25px', color: 'white' }}>
+                        <div style={{ fontSize: '14px', opacity: 0.9 }}>Moderation Actions</div>
+                        <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>{moderationHistory.length}</div>
+                        <div style={{ fontSize: '12px', opacity: 0.8 }}>All time</div>
+                    </div>
+                    <div style={{ background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', borderRadius: '15px', padding: '25px', color: 'white' }}>
+                        <div style={{ fontSize: '14px', opacity: 0.9 }}>Blocked Keywords</div>
+                        <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>{moderationKeywords.length}</div>
+                        <div style={{ fontSize: '12px', opacity: 0.8 }}>Auto-filtered</div>
+                    </div>
+                </div>
+
+                {/* Keyword Manager */}
+                <div style={{ background: 'white', borderRadius: '15px', padding: '25px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                        <h3 style={{ margin: 0 }}>Keyword Filtering</h3>
+                        <button onClick={() => setShowKeywordManager(!showKeywordManager)} style={{ padding: '8px 16px', background: '#0077CC', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
+                            {showKeywordManager ? 'Hide' : 'Manage Keywords'}
+                        </button>
+                    </div>
+
+                    {showKeywordManager && (
+                        <>
+                            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                                <input type="text" value={newKeyword} onChange={(e) => setNewKeyword(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleAddKeyword()} placeholder="Add keyword to block..." style={{ flex: 1, padding: '10px', border: '2px solid #e0e0e0', borderRadius: '8px' }} />
+                                <button onClick={handleAddKeyword} style={{ padding: '10px 20px', background: '#00A86B', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Add</button>
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                {moderationKeywords.map(keyword => (
+                                    <span key={keyword} style={{ padding: '6px 12px', background: '#f8d7da', color: '#721c24', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        {keyword}
+                                        <button onClick={() => handleRemoveKeyword(keyword)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#721c24', fontSize: '16px' }}>x</button>
+                                    </span>
+                                ))}
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                {/* Flagged Messages Queue */}
+                <div style={{ background: 'white', borderRadius: '15px', padding: '25px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                    <h3 style={{ margin: '0 0 20px 0' }}>Flagged Messages Queue</h3>
+
+                    {flaggedMessages.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                            <AdminIcons.CheckCircle size={48} color="#00A86B" />
+                            <div style={{ marginTop: '12px', fontSize: '16px' }}>No flagged messages</div>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'grid', gap: '15px' }}>
+                            {flaggedMessages.map(msg => (
+                                <div key={msg.id} style={{ padding: '15px', background: '#fff3f3', borderRadius: '10px', borderLeft: '4px solid #f44336' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                                        <div>
+                                            <span style={{ fontWeight: '600' }}>{msg.userName || 'Unknown'}</span>
+                                            <span style={{ marginLeft: '10px', fontSize: '12px', color: '#999' }}>{formatTimeAgo(msg.flaggedAt || msg.createdAt)}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button onClick={() => handleResolve(msg.id, 'unflag')} style={{ padding: '6px 12px', background: '#00A86B', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>Approve</button>
+                                            <button onClick={() => handleResolve(msg.id, 'delete')} style={{ padding: '6px 12px', background: '#DC143C', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>Delete</button>
+                                        </div>
+                                    </div>
+                                    <div style={{ color: '#333' }}>{msg.content}</div>
+                                    {msg.flagReason && (
+                                        <div style={{ marginTop: '8px', fontSize: '12px', color: '#c62828' }}>Reason: {msg.flagReason}</div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // MAIN COMMUNICATION VIEW
+    // ==========================================
+    function CommunicationView({ searchQuery, user }) {
+        const [activeTab, setActiveTab] = useState('direct');
+
+        const tabs = [
+            { id: 'direct', label: 'Direct Messages', icon: <AdminIcons.MessageSquare size={18} /> },
+            { id: 'rooms', label: 'Topic Rooms', icon: <AdminIcons.Building size={18} /> },
+            { id: 'groups', label: 'Support Groups', icon: <AdminIcons.Users size={18} /> },
+            { id: 'moderation', label: 'Moderation', icon: <AdminIcons.Shield size={18} /> }
+        ];
+
+        return (
+            <div style={{ padding: '20px', animation: 'fadeIn 0.5s' }}>
+                {/* Tab Navigation */}
+                <div style={{
+                    background: 'white', borderRadius: '15px', padding: '15px 20px', marginBottom: '20px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)', display: 'flex', gap: '10px', flexWrap: 'wrap'
+                }}>
+                    {tabs.map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            style={{
+                                padding: '10px 20px',
+                                background: activeTab === tab.id ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : '#f0f0f0',
+                                color: activeTab === tab.id ? 'white' : '#666',
+                                border: 'none', borderRadius: '10px', cursor: 'pointer',
+                                fontSize: '14px', fontWeight: '500',
+                                display: 'flex', alignItems: 'center', gap: '8px'
+                            }}
+                        >
+                            {tab.icon}
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Tab Content */}
+                {activeTab === 'direct' && <DirectMessagesTab searchQuery={searchQuery} user={user} />}
+                {activeTab === 'rooms' && <TopicRoomsTab searchQuery={searchQuery} user={user} />}
+                {activeTab === 'groups' && <SupportGroupsTab searchQuery={searchQuery} user={user} />}
+                {activeTab === 'moderation' && <ModerationTab searchQuery={searchQuery} user={user} />}
+            </div>
+        );
+    }
+
+    // ==========================================
+    // MAIN APP
+    // ==========================================
+    function App() {
+        const [user, setUser] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [searchQuery, setSearchQuery] = useState('');
+        const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+            return window.getPreference ? window.getPreference('sidebarCollapsed', false) : false;
+        });
+
+        // Responsive states - showBottomNav when <1024px (matches navigation.js)
+        const [isMobile, setIsMobile] = useState(window.innerWidth < 600);
+        const [isTablet, setIsTablet] = useState(window.innerWidth >= 600 && window.innerWidth < 1024);
+        const [showBottomNav, setShowBottomNav] = useState(window.innerWidth < 1024);
+
+        const handleSidebarCollapse = (collapsed) => {
+            setSidebarCollapsed(collapsed);
+            if (window.savePreference) window.savePreference('sidebarCollapsed', collapsed);
+        };
+
+        // Responsive resize listener
+        useEffect(() => {
+            const handleResize = () => {
+                const width = window.innerWidth;
+                setIsMobile(width < 600);
+                setIsTablet(width >= 600 && width < 1024);
+                setShowBottomNav(width < 1024);
+            };
+            window.addEventListener('resize', handleResize);
+            return () => window.removeEventListener('resize', handleResize);
+        }, []);
+
+        useEffect(() => {
+            const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
+                if (firebaseUser) {
+                    const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+                    if (userDoc.exists) {
+                        const userData = { uid: firebaseUser.uid, ...userDoc.data() };
+
+                        // Check page access
+                        if (!window.canAccessPage(userData, 'communication')) {
+                            window.location.href = '/admin/dashboard.html';
+                            return;
+                        }
+
+                        setUser(userData);
+                    }
+                } else {
+                    window.location.href = '/admin/index.html';
+                }
+                setLoading(false);
+            });
+            return () => unsubscribe();
+        }, []);
+
+        if (loading) {
+            return (
+                <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    minHeight: '100vh', background: '#f5f7fa'
+                }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{
+                            width: '60px', height: '60px',
+                            border: '4px solid #f3f3f3', borderTop: '4px solid #0077CC',
+                            borderRadius: '50%', animation: 'spin 1s linear infinite',
+                            margin: '0 auto 20px'
+                        }}></div>
+                        <div style={{ color: '#666' }}>Loading...</div>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div style={{ display: 'flex', minHeight: '100vh', background: '#f5f7fa' }}>
+                <Sidebar
+                    activePage="communication"
+                    user={user}
+                    collapsed={sidebarCollapsed}
+                    onCollapsedChange={handleSidebarCollapse}
+                />
+                <div style={{
+                    flex: 1,
+                    marginLeft: showBottomNav ? 0 : (sidebarCollapsed ? '80px' : '280px'),
+                    width: showBottomNav ? '100%' : 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    transition: 'margin-left 0.3s ease',
+                    paddingBottom: showBottomNav ? '72px' : 0
+                }}>
+                    <Header
+                        title="Communication"
+                        searchQuery={searchQuery}
+                        onSearchChange={setSearchQuery}
+                        user={user}
+                    />
+                    <main style={{ flex: 1, overflow: 'auto', padding: showBottomNav ? '16px' : '0' }}>
+                        <CommunicationView searchQuery={searchQuery} user={user} />
+                    </main>
+                </div>
+            </div>
+        );
+    }
+
+    // Render
+    ReactDOM.render(<App />, document.getElementById('root'));
+
+})();
+    </script>
+
+    <style>
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+</body>
+</html>

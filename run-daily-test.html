@@ -1,0 +1,1834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GLRS Test Data Generator</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      color: #e0e0e0;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 30px;
+      padding: 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    h1 {
+      color: #00d4aa;
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: #888;
+      font-size: 14px;
+    }
+
+    .auth-status {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 12px;
+      padding: 8px 16px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    .auth-status.logged-in {
+      background: rgba(0, 212, 170, 0.1);
+      border: 1px solid rgba(0, 212, 170, 0.3);
+    }
+
+    .auth-status.logged-out {
+      background: rgba(255, 100, 100, 0.1);
+      border: 1px solid rgba(255, 100, 100, 0.3);
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .status-dot.online { background: #00d4aa; }
+    .status-dot.offline { background: #ff6464; }
+
+    .panel {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .panel-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .checkboxes {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 1px solid transparent;
+    }
+
+    .checkbox-item:hover {
+      background: rgba(0, 0, 0, 0.3);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .checkbox-item input {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: #00d4aa;
+    }
+
+    .checkbox-item label {
+      cursor: pointer;
+      flex: 1;
+    }
+
+    .buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    button {
+      padding: 14px 24px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #00d4aa 0%, #00a896 100%);
+      color: #000;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba(0, 212, 170, 0.4);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, #ff6464 0%, #cc5050 100%);
+      color: #fff;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba(255, 100, 100, 0.4);
+    }
+
+    .log-panel {
+      background: #0d1117;
+      border-radius: 12px;
+      border: 1px solid #30363d;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .log-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid #30363d;
+      position: sticky;
+      top: 0;
+      background: #0d1117;
+      z-index: 10;
+    }
+
+    .log-header h3 {
+      font-size: 14px;
+      color: #58a6ff;
+    }
+
+    .clear-log {
+      padding: 6px 12px;
+      font-size: 12px;
+      background: transparent;
+      color: #888;
+      border: 1px solid #30363d;
+    }
+
+    .log-content {
+      padding: 12px;
+      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .log-entry {
+      padding: 4px 0;
+      border-bottom: 1px solid #21262d;
+    }
+
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+
+    .log-time {
+      color: #6e7681;
+      margin-right: 8px;
+    }
+
+    .log-success { color: #3fb950; }
+    .log-error { color: #f85149; }
+    .log-info { color: #58a6ff; }
+    .log-warn { color: #d29922; }
+
+    .empty-log {
+      color: #484f58;
+      text-align: center;
+      padding: 40px;
+    }
+
+    .select-all-row {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 12px;
+    }
+
+    .select-all-btn {
+      padding: 8px 16px;
+      font-size: 13px;
+      background: transparent;
+      color: #58a6ff;
+      border: 1px solid #30363d;
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid transparent;
+      border-top-color: currentColor;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (max-width: 600px) {
+      .checkboxes {
+        grid-template-columns: 1fr;
+      }
+
+      .buttons {
+        flex-direction: column;
+      }
+
+      button {
+        width: 100%;
+        justify-content: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>GLRS Test Data Generator</h1>
+      <p class="subtitle">Generate realistic test data for AI feature development</p>
+      <div id="authStatus" class="auth-status logged-out">
+        <span class="status-dot offline"></span>
+        <span>Checking authentication...</span>
+      </div>
+    </header>
+
+    <div class="panel">
+      <h2 class="panel-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 11l3 3L22 4"></path>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+        </svg>
+        Select Data Types
+      </h2>
+
+      <div class="select-all-row">
+        <button class="select-all-btn" onclick="toggleAll()">Select All</button>
+      </div>
+
+      <div class="checkboxes">
+        <div class="checkbox-item">
+          <input type="checkbox" id="morningCheckIn" checked>
+          <label for="morningCheckIn">Morning Check-in</label>
+        </div>
+        <div class="checkbox-item">
+          <input type="checkbox" id="eveningCheckIn" checked>
+          <label for="eveningCheckIn">Evening Check-in</label>
+        </div>
+        <div class="checkbox-item">
+          <input type="checkbox" id="reflection" checked>
+          <label for="reflection">Evening Reflection</label>
+        </div>
+        <div class="checkbox-item">
+          <input type="checkbox" id="habits" checked>
+          <label for="habits">Habit Completions (70%)</label>
+        </div>
+        <div class="checkbox-item">
+          <input type="checkbox" id="gratitudes" checked>
+          <label for="gratitudes">Gratitudes (1-3)</label>
+        </div>
+        <div class="checkbox-item">
+          <input type="checkbox" id="meeting" checked>
+          <label for="meeting">Meeting Attendance</label>
+        </div>
+        <div class="checkbox-item">
+          <input type="checkbox" id="win" checked>
+          <label for="win">Daily Win</label>
+        </div>
+      </div>
+
+      <div class="buttons">
+        <button id="btnToday" class="btn-primary" onclick="generateToday()" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          Generate Today
+        </button>
+        <button id="btnWeek" class="btn-secondary" onclick="generateWeek()" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+          </svg>
+          Generate Last 7 Days
+        </button>
+        <button id="btnBackfill" class="btn-secondary" onclick="backfill90Days()" disabled style="background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); color: #fff; border: none;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"></path>
+          </svg>
+          Backfill 90 Days (Fill Gaps)
+        </button>
+        <button id="btnClear" class="btn-danger" onclick="clearToday()" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+          Clear Today
+        </button>
+      </div>
+    </div>
+
+    <!-- AI CONTEXT MIGRATION PANEL -->
+    <div class="panel" style="border: 2px solid #8b5cf6;">
+      <h2 class="panel-title" style="color: #8b5cf6;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+          <path d="M2 17l10 5 10-5"></path>
+          <path d="M2 12l10 5 10-5"></path>
+        </svg>
+        AI Context Migration
+      </h2>
+      <p style="color: #888; margin-bottom: 16px; font-size: 14px;">
+        Populate the <code style="background: #21262d; padding: 2px 6px; border-radius: 4px;">users/{userId}/aiContext/current</code> document from existing data.
+        This aggregates check-ins, habits, goals, reflections, etc. into a single document for AI features.
+      </p>
+
+      <div class="buttons">
+        <button id="btnMigrateMe" class="btn-primary" onclick="migrateCurrentUser()" disabled style="background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+          Migrate My Account Only
+        </button>
+        <button id="btnMigrateAll" class="btn-secondary" onclick="migrateAllUsers()" disabled style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #000; border: none;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+          Migrate ALL Users (Admin)
+        </button>
+        <button id="btnDryRun" class="btn-secondary" onclick="dryRunMigration()" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+          Dry Run (Preview)
+        </button>
+      </div>
+
+      <div style="margin-top: 16px; padding: 12px; background: rgba(139, 92, 246, 0.1); border-radius: 8px; border: 1px solid rgba(139, 92, 246, 0.3);">
+        <h4 style="color: #a78bfa; margin-bottom: 8px; font-size: 13px;">Migration Stats</h4>
+        <div id="migrationStats" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; font-size: 12px;">
+          <div><span style="color: #6e7681;">Users:</span> <span id="statUsers">-</span></div>
+          <div><span style="color: #6e7681;">Migrated:</span> <span id="statMigrated">-</span></div>
+          <div><span style="color: #6e7681;">Skipped:</span> <span id="statSkipped">-</span></div>
+          <div><span style="color: #6e7681;">Failed:</span> <span id="statFailed">-</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="log-panel" style="max-height: 500px;">
+        <div class="log-header">
+          <h3>Activity Log</h3>
+          <button class="clear-log" onclick="clearLog()">Clear</button>
+        </div>
+        <div class="log-content" id="logContent">
+          <p class="empty-log">Logs will appear here...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+
+  <script>
+    // Firebase configuration (matches PIR portal)
+    const firebaseConfig = {
+      apiKey: "AIzaSyAufSTHtCTFSEIeZ9YzvrULCnji5I-SMi0",
+      authDomain: "glrs-pir-system.firebaseapp.com",
+      projectId: "glrs-pir-system",
+      storageBucket: "glrs-pir-system.firebasestorage.app",
+      messagingSenderId: "830378577655",
+      appId: "1:830378577655:web:8c5e0a9b0f3d2f1a0c9e8b"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+
+    // Set persistence to LOCAL to share auth state with main app
+    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    let currentUser = null;
+
+    // =======================================================================
+    // TEMPLATE DATA
+    // =======================================================================
+
+    const GRATITUDE_TEMPLATES = [
+      "Grateful for my sponsor checking in on me today",
+      "Thankful for the recovery community support",
+      "Grateful my coach believed in me",
+      "Good conversation with my sister today",
+      "Thankful my parents are still in my corner",
+      "Grateful I woke up sober another day",
+      "Thankful for progress, not perfection",
+      "Grateful for a good cup of coffee this morning",
+      "Thankful for the sunshine today",
+      "Grateful for a solid night's sleep",
+      "Grateful my body is healing",
+      "Thankful for improved sleep quality",
+      "Grateful I showed up to work on time",
+      "Thankful for productive focus today",
+      "Grateful for another day of sobriety",
+      "Thankful I made it through another week",
+    ];
+
+    const CHALLENGE_TEMPLATES = [
+      "Work stress made me irritable today",
+      "Had a difficult conversation that triggered old patterns",
+      "Strong craving hit around 5pm",
+      "Feeling isolated and lonely today",
+      "Couldn't sleep well - racing thoughts",
+      "Missed my morning routine",
+    ];
+
+    const REFLECTION_TEMPLATES = [
+      "Today I practiced patience when I would have lost my temper before. This is growth.",
+      "I sat with uncomfortable feelings instead of numbing them. Hard but worth it.",
+      "Used the breathing technique when triggered - it actually helped.",
+      "Noticing how much sleep affects my mood the next day.",
+      "Despite the hard moments, I'm grateful I'm here doing this work.",
+      "Today was hard. Didn't handle things perfectly but I stayed sober.",
+    ];
+
+    const WIN_TEMPLATES = [
+      "Made it through a tough moment without using",
+      "Exercised for 20 minutes",
+      "Ate three healthy meals",
+      "Got to bed on time",
+      "Made it to my meeting",
+      "Called my sponsor",
+      "Had a meaningful conversation",
+    ];
+
+    const DEFAULT_HABITS = [
+      { id: 'morning_meditation', name: 'Morning Meditation' },
+      { id: 'gratitude_journal', name: 'Gratitude Journal' },
+      { id: 'exercise', name: 'Exercise' },
+      { id: 'evening_reflection', name: 'Evening Reflection' },
+    ];
+
+    // =======================================================================
+    // HELPERS
+    // =======================================================================
+
+    function randomInt(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function randomElement(arr) {
+      return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    function randomElements(arr, count) {
+      const shuffled = [...arr].sort(() => 0.5 - Math.random());
+      return shuffled.slice(0, count);
+    }
+
+    function getDateKey(date) {
+      return date.toISOString().split('T')[0];
+    }
+
+    function addDays(date, days) {
+      const result = new Date(date);
+      result.setDate(result.getDate() + days);
+      return result;
+    }
+
+    function formatTime(date) {
+      return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    // =======================================================================
+    // LOGGING
+    // =======================================================================
+
+    function log(message, type = 'info') {
+      const logContent = document.getElementById('logContent');
+      const emptyLog = logContent.querySelector('.empty-log');
+      if (emptyLog) emptyLog.remove();
+
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `
+        <span class="log-time">${formatTime(new Date())}</span>
+        <span class="log-${type}">${message}</span>
+      `;
+      logContent.appendChild(entry);
+      logContent.scrollTop = logContent.scrollHeight;
+    }
+
+    function clearLog() {
+      document.getElementById('logContent').innerHTML = '<p class="empty-log">Logs will appear here...</p>';
+    }
+
+    // =======================================================================
+    // AUTH
+    // =======================================================================
+
+    // Show login form
+    function showLoginForm() {
+      const authStatus = document.getElementById('authStatus');
+      authStatus.innerHTML = `
+        <div style="width: 100%; max-width: 400px;">
+          <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <input type="email" id="loginEmail" placeholder="Email"
+              style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #fff;">
+            <input type="password" id="loginPassword" placeholder="Password"
+              style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #fff;">
+          </div>
+          <button onclick="manualLogin()" style="width: 100%; padding: 10px; border-radius: 6px; background: #00d4aa; color: #000; border: none; font-weight: 600; cursor: pointer;">
+            Sign In
+          </button>
+          <p style="text-align: center; margin-top: 8px; font-size: 12px; color: #6e7681;">
+            Use your GLRS app credentials
+          </p>
+        </div>
+      `;
+    }
+
+    // Manual login function
+    async function manualLogin() {
+      const email = document.getElementById('loginEmail').value;
+      const password = document.getElementById('loginPassword').value;
+
+      if (!email || !password) {
+        log('Please enter email and password', 'error');
+        return;
+      }
+
+      try {
+        log('Signing in...', 'info');
+        await auth.signInWithEmailAndPassword(email, password);
+        log('Sign in successful!', 'success');
+      } catch (error) {
+        log(`Sign in failed: ${error.message}`, 'error');
+      }
+    }
+
+    auth.onAuthStateChanged((user) => {
+      currentUser = user;
+      const authStatus = document.getElementById('authStatus');
+      const buttons = ['btnToday', 'btnWeek', 'btnBackfill', 'btnClear', 'btnMigrateMe', 'btnMigrateAll', 'btnDryRun'];
+
+      if (user) {
+        authStatus.className = 'auth-status logged-in';
+        authStatus.innerHTML = `
+          <span class="status-dot online"></span>
+          <span>Logged in as: ${user.email}</span>
+          <button onclick="auth.signOut()" style="margin-left: 12px; padding: 4px 12px; border-radius: 4px; background: transparent; color: #888; border: 1px solid #30363d; font-size: 12px; cursor: pointer;">Sign Out</button>
+        `;
+        buttons.forEach(id => document.getElementById(id).disabled = false);
+        log(`Authenticated as ${user.email}`, 'success');
+      } else {
+        authStatus.className = 'auth-status logged-out';
+        showLoginForm();
+        buttons.forEach(id => document.getElementById(id).disabled = true);
+        log('Not authenticated. Please sign in below.', 'warn');
+      }
+    });
+
+    // =======================================================================
+    // CHECKBOX HELPERS
+    // =======================================================================
+
+    function toggleAll() {
+      const checkboxes = document.querySelectorAll('.checkboxes input[type="checkbox"]');
+      const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+      checkboxes.forEach(cb => cb.checked = !allChecked);
+    }
+
+    function getSelectedTypes() {
+      return {
+        morningCheckIn: document.getElementById('morningCheckIn').checked,
+        eveningCheckIn: document.getElementById('eveningCheckIn').checked,
+        reflection: document.getElementById('reflection').checked,
+        habits: document.getElementById('habits').checked,
+        gratitudes: document.getElementById('gratitudes').checked,
+        meeting: document.getElementById('meeting').checked,
+        win: document.getElementById('win').checked,
+      };
+    }
+
+    // =======================================================================
+    // DATA GENERATION
+    // =======================================================================
+
+    async function generateDataForDate(date, types) {
+      const userId = currentUser.uid;
+      const dateKey = getDateKey(date);
+      let created = 0;
+
+      // Generate realistic metrics
+      const mood = randomInt(5, 8);
+      const craving = randomInt(2, 6);
+      const anxiety = randomInt(3, 6);
+      const sleep = randomInt(5, 8);
+      const energy = randomInt(5, 8);
+
+      const tenantId = 'glrs';
+
+      // Morning check-in
+      if (types.morningCheckIn) {
+        const morningDate = new Date(date);
+        morningDate.setHours(7 + randomInt(0, 2), randomInt(0, 59), 0, 0);
+
+        await db.collection('checkIns').add({
+          userId,
+          tenantId,
+          type: 'morning',
+          date: firebase.firestore.Timestamp.fromDate(morningDate),
+          createdAt: firebase.firestore.Timestamp.fromDate(morningDate),
+          mood,
+          craving,
+          anxiety,
+          sleep,
+          energy,
+          notes: 'Test data - morning check-in',
+        });
+        log(`Created morning check-in for ${dateKey} (mood: ${mood}, craving: ${craving})`, 'success');
+        created++;
+      }
+
+      // Evening check-in
+      if (types.eveningCheckIn) {
+        const eveningDate = new Date(date);
+        eveningDate.setHours(19 + randomInt(0, 2), randomInt(0, 59), 0, 0);
+
+        await db.collection('checkIns').add({
+          userId,
+          tenantId,
+          type: 'evening',
+          date: firebase.firestore.Timestamp.fromDate(eveningDate),
+          createdAt: firebase.firestore.Timestamp.fromDate(eveningDate),
+          mood: Math.max(1, mood + randomInt(-1, 1)),
+          craving: Math.max(1, craving + randomInt(-1, 1)),
+          anxiety: Math.max(1, anxiety + randomInt(-1, 1)),
+          sleep,
+          energy: Math.max(1, energy - 1),
+          notes: 'Test data - evening check-in',
+          highlights: [randomElement(['Stayed sober', 'Made it to a meeting', 'Connected with someone'])],
+          challenges: [randomElement(CHALLENGE_TEMPLATES)],
+        });
+        log(`Created evening check-in for ${dateKey}`, 'success');
+        created++;
+      }
+
+      // Reflection
+      if (types.reflection) {
+        await db.collection('reflections').add({
+          userId,
+          tenantId,
+          content: randomElement(REFLECTION_TEMPLATES),
+          createdAt: firebase.firestore.Timestamp.fromDate(date),
+          mood,
+          type: 'evening',
+        });
+        log(`Created reflection for ${dateKey}`, 'success');
+        created++;
+      }
+
+      // Gratitudes
+      if (types.gratitudes) {
+        const count = randomInt(1, 3);
+        const templates = randomElements(GRATITUDE_TEMPLATES, count);
+        for (const template of templates) {
+          await db.collection('gratitudes').add({
+            userId,
+            tenantId,
+            content: template,
+            createdAt: firebase.firestore.Timestamp.fromDate(date),
+          });
+        }
+        log(`Created ${count} gratitudes for ${dateKey}`, 'success');
+        created += count;
+      }
+
+      // Habits (techniqueCompletions)
+      if (types.habits) {
+        let completedCount = 0;
+        for (const habit of DEFAULT_HABITS) {
+          if (Math.random() < 0.7) {
+            await db.collection('techniqueCompletions').add({
+              userId,
+              tenantId,
+              habitId: habit.id,
+              habitName: habit.name,
+              completedAt: firebase.firestore.Timestamp.fromDate(date),
+              notes: '',
+            });
+            completedCount++;
+          }
+        }
+        log(`Created ${completedCount} technique completions for ${dateKey}`, 'success');
+        created += completedCount;
+      }
+
+      // Meeting Attendance
+      if (types.meeting && Math.random() < 0.5) {
+        await db.collection('meetingAttendance').add({
+          userId,
+          tenantId,
+          meetingName: randomElement(['AA Meeting', 'NA Meeting', 'SMART Recovery']),
+          meetingType: randomElement(['aa', 'na', 'other']),
+          attendedAt: firebase.firestore.Timestamp.fromDate(date),
+          notes: 'Good meeting today',
+        });
+        log(`Created meeting attendance for ${dateKey}`, 'success');
+        created++;
+      }
+
+      // Today Win (todayWins collection)
+      if (types.win && Math.random() < 0.7) {
+        await db.collection('todayWins').add({
+          userId,
+          tenantId,
+          content: randomElement(WIN_TEMPLATES),
+          createdAt: firebase.firestore.Timestamp.fromDate(date),
+        });
+        log(`Created win for ${dateKey}`, 'success');
+        created++;
+      }
+
+      return created;
+    }
+
+    // =======================================================================
+    // BUTTON HANDLERS
+    // =======================================================================
+
+    async function generateToday() {
+      if (!currentUser) return;
+
+      const btn = document.getElementById('btnToday');
+      const originalContent = btn.innerHTML;
+      btn.innerHTML = '<div class="spinner"></div> Generating...';
+      btn.disabled = true;
+
+      try {
+        const types = getSelectedTypes();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        log('Starting generation for today...', 'info');
+        const count = await generateDataForDate(today, types);
+        log(`Completed! Created ${count} documents for today.`, 'success');
+      } catch (error) {
+        log(`Error: ${error.message}`, 'error');
+        console.error(error);
+      } finally {
+        btn.innerHTML = originalContent;
+        btn.disabled = false;
+      }
+    }
+
+    async function generateWeek() {
+      if (!currentUser) return;
+
+      const btn = document.getElementById('btnWeek');
+      const originalContent = btn.innerHTML;
+      btn.innerHTML = '<div class="spinner"></div> Generating...';
+      btn.disabled = true;
+
+      try {
+        const types = getSelectedTypes();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        let totalCount = 0;
+        log('Starting generation for last 7 days...', 'info');
+
+        for (let i = 6; i >= 0; i--) {
+          const date = addDays(today, -i);
+          const count = await generateDataForDate(date, types);
+          totalCount += count;
+        }
+
+        log(`Completed! Created ${totalCount} documents across 7 days.`, 'success');
+      } catch (error) {
+        log(`Error: ${error.message}`, 'error');
+        console.error(error);
+      } finally {
+        btn.innerHTML = originalContent;
+        btn.disabled = false;
+      }
+    }
+
+    async function clearToday() {
+      if (!currentUser) return;
+      if (!confirm('Are you sure you want to delete all test data from today?')) return;
+
+      const btn = document.getElementById('btnClear');
+      const originalContent = btn.innerHTML;
+      btn.innerHTML = '<div class="spinner"></div> Clearing...';
+      btn.disabled = true;
+
+      try {
+        const userId = currentUser.uid;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = addDays(today, 1);
+
+        const todayTimestamp = firebase.firestore.Timestamp.fromDate(today);
+        const tomorrowTimestamp = firebase.firestore.Timestamp.fromDate(tomorrow);
+
+        const collections = ['checkIns', 'reflections', 'gratitudes', 'habitCompletions', 'meetings', 'wins'];
+        let totalDeleted = 0;
+
+        log('Starting cleanup for today...', 'info');
+
+        for (const collection of collections) {
+          const snapshot = await db.collection(collection)
+            .where('userId', '==', userId)
+            .where('date', '>=', todayTimestamp)
+            .where('date', '<', tomorrowTimestamp)
+            .get();
+
+          for (const doc of snapshot.docs) {
+            await doc.ref.delete();
+            totalDeleted++;
+          }
+
+          if (snapshot.size > 0) {
+            log(`Deleted ${snapshot.size} documents from ${collection}`, 'warn');
+          }
+        }
+
+        log(`Completed! Deleted ${totalDeleted} documents from today.`, 'success');
+      } catch (error) {
+        log(`Error: ${error.message}`, 'error');
+        console.error(error);
+      } finally {
+        btn.innerHTML = originalContent;
+        btn.disabled = false;
+      }
+    }
+
+    // =======================================================================
+    // BACKFILL 90 DAYS - ANALYZE AND FILL GAPS
+    // =======================================================================
+
+    async function backfill90Days() {
+      if (!currentUser) return;
+
+      const btn = document.getElementById('btnBackfill');
+      const originalContent = btn.innerHTML;
+      btn.innerHTML = '<div class="spinner"></div> Analyzing...';
+      btn.disabled = true;
+
+      try {
+        const userId = currentUser.uid;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const startDate = addDays(today, -90);
+        const endDate = addDays(today, 1); // Include today
+
+        log('Analyzing existing data from the last 90 days...', 'info');
+
+        // Build a map of dates that have data for each type
+        const existingData = {
+          morningCheckIn: new Set(),
+          eveningCheckIn: new Set(),
+          reflection: new Set(),
+          gratitude: new Set(),
+          habitCompletion: new Set(),
+          meeting: new Set(),
+          win: new Set(),
+        };
+
+        // Helper to check if date is in range (client-side filtering)
+        const isInRange = (timestamp) => {
+          if (!timestamp) return false;
+          const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+          return date >= startDate && date <= endDate;
+        };
+
+        // Query check-ins (userId only, filter dates client-side)
+        const checkInsSnapshot = await db.collection('checkIns')
+          .where('userId', '==', userId)
+          .get();
+
+        checkInsSnapshot.forEach(doc => {
+          const data = doc.data();
+          if (data.date && isInRange(data.date)) {
+            const dateKey = getDateKey(data.date.toDate());
+            if (data.type === 'morning') {
+              existingData.morningCheckIn.add(dateKey);
+            } else if (data.type === 'evening') {
+              existingData.eveningCheckIn.add(dateKey);
+            }
+          }
+        });
+        log(`Found ${existingData.morningCheckIn.size} morning check-ins, ${existingData.eveningCheckIn.size} evening check-ins`, 'info');
+
+        // Query reflections (userId only, filter dates client-side)
+        const reflectionsSnapshot = await db.collection('reflections')
+          .where('userId', '==', userId)
+          .get();
+
+        reflectionsSnapshot.forEach(doc => {
+          const data = doc.data();
+          if (data.createdAt && isInRange(data.createdAt)) {
+            const dateKey = getDateKey(data.createdAt.toDate());
+            existingData.reflection.add(dateKey);
+          }
+        });
+        log(`Found ${existingData.reflection.size} reflections`, 'info');
+
+        // Query gratitudes (userId only, filter dates client-side)
+        const gratitudesSnapshot = await db.collection('gratitudes')
+          .where('userId', '==', userId)
+          .get();
+
+        gratitudesSnapshot.forEach(doc => {
+          const data = doc.data();
+          if (data.createdAt && isInRange(data.createdAt)) {
+            const dateKey = getDateKey(data.createdAt.toDate());
+            existingData.gratitude.add(dateKey);
+          }
+        });
+        log(`Found ${existingData.gratitude.size} days with gratitudes`, 'info');
+
+        // Query technique completions (userId only, filter dates client-side)
+        const techniquesSnapshot = await db.collection('techniqueCompletions')
+          .where('userId', '==', userId)
+          .get();
+
+        techniquesSnapshot.forEach(doc => {
+          const data = doc.data();
+          if (data.completedAt && isInRange(data.completedAt)) {
+            const dateKey = getDateKey(data.completedAt.toDate());
+            existingData.habitCompletion.add(dateKey);
+          }
+        });
+        log(`Found ${existingData.habitCompletion.size} days with technique completions`, 'info');
+
+        // Query meeting attendance (userId only, filter dates client-side)
+        const attendanceSnapshot = await db.collection('meetingAttendance')
+          .where('userId', '==', userId)
+          .get();
+
+        attendanceSnapshot.forEach(doc => {
+          const data = doc.data();
+          if (data.attendedAt && isInRange(data.attendedAt)) {
+            const dateKey = getDateKey(data.attendedAt.toDate());
+            existingData.meeting.add(dateKey);
+          }
+        });
+        log(`Found ${existingData.meeting.size} days with meeting attendance`, 'info');
+
+        // Query todayWins (userId only, filter dates client-side)
+        const winsSnapshot = await db.collection('todayWins')
+          .where('userId', '==', userId)
+          .get();
+
+        winsSnapshot.forEach(doc => {
+          const data = doc.data();
+          if (data.createdAt && isInRange(data.createdAt)) {
+            const dateKey = getDateKey(data.createdAt.toDate());
+            existingData.win.add(dateKey);
+          }
+        });
+        log(`Found ${existingData.win.size} days with wins`, 'info');
+
+        // Now iterate through all 90 days and fill gaps
+        btn.innerHTML = '<div class="spinner"></div> Filling gaps...';
+        log('Starting to fill gaps...', 'info');
+
+        let totalCreated = 0;
+        let daysProcessed = 0;
+
+        for (let i = 90; i >= 0; i--) {
+          const currentDate = addDays(today, -i);
+          const dateKey = getDateKey(currentDate);
+
+          // Determine what's missing for this day
+          const typesToGenerate = {
+            morningCheckIn: !existingData.morningCheckIn.has(dateKey),
+            eveningCheckIn: !existingData.eveningCheckIn.has(dateKey),
+            reflection: !existingData.reflection.has(dateKey),
+            gratitudes: !existingData.gratitude.has(dateKey),
+            habits: !existingData.habitCompletion.has(dateKey),
+            meeting: !existingData.meeting.has(dateKey),
+            win: !existingData.win.has(dateKey),
+          };
+
+          // Check if anything is missing
+          const hasMissing = Object.values(typesToGenerate).some(v => v);
+
+          if (hasMissing) {
+            // Apply realistic rates - don't generate 100% of data
+            // 85% check-in rate
+            if (Math.random() > 0.85) {
+              typesToGenerate.morningCheckIn = false;
+              typesToGenerate.eveningCheckIn = false;
+            }
+            // 70% reflection rate (only if evening check-in)
+            if (!typesToGenerate.eveningCheckIn && Math.random() > 0.70) {
+              typesToGenerate.reflection = false;
+            }
+            // 80% gratitude rate
+            if (Math.random() > 0.80) {
+              typesToGenerate.gratitudes = false;
+            }
+            // 65% habit rate
+            if (Math.random() > 0.65) {
+              typesToGenerate.habits = false;
+            }
+            // 35% meeting rate (2-3 per week)
+            if (Math.random() > 0.35) {
+              typesToGenerate.meeting = false;
+            }
+            // 60% win rate
+            if (Math.random() > 0.60) {
+              typesToGenerate.win = false;
+            }
+
+            // Generate data for missing types
+            const count = await generateDataForDate(currentDate, typesToGenerate);
+            totalCreated += count;
+          }
+
+          daysProcessed++;
+
+          // Log progress every 10 days
+          if (daysProcessed % 10 === 0) {
+            log(`Processed ${daysProcessed}/91 days, created ${totalCreated} documents so far...`, 'info');
+          }
+        }
+
+        log(`BACKFILL COMPLETE! Created ${totalCreated} documents across 91 days.`, 'success');
+
+        // Show summary
+        const summary = [
+          `Morning check-ins: ${existingData.morningCheckIn.size} existing`,
+          `Evening check-ins: ${existingData.eveningCheckIn.size} existing`,
+          `Reflections: ${existingData.reflection.size} existing`,
+          `Gratitudes: ${existingData.gratitude.size} days existing`,
+          `Habit completions: ${existingData.habitCompletion.size} days existing`,
+          `Meetings: ${existingData.meeting.size} days existing`,
+          `Wins: ${existingData.win.size} days existing`,
+        ];
+        log('Summary: ' + summary.join(', '), 'info');
+
+      } catch (error) {
+        log(`Error: ${error.message}`, 'error');
+        console.error(error);
+      } finally {
+        btn.innerHTML = originalContent;
+        btn.disabled = false;
+      }
+    }
+
+    // =======================================================================
+    // AI CONTEXT MIGRATION FUNCTIONS
+    // =======================================================================
+
+    function updateMigrationStats(users, migrated, skipped, failed) {
+      document.getElementById('statUsers').textContent = users;
+      document.getElementById('statMigrated').textContent = migrated;
+      document.getElementById('statSkipped').textContent = skipped;
+      document.getElementById('statFailed').textContent = failed;
+    }
+
+    // Helper functions for migration
+    function getDaysAgoDate(days) {
+      const date = new Date();
+      date.setDate(date.getDate() - days);
+      return date;
+    }
+
+    function daysBetweenDates(date1, date2) {
+      const oneDay = 24 * 60 * 60 * 1000;
+      return Math.floor(Math.abs((date2 - date1) / oneDay));
+    }
+
+    function averageArray(arr) {
+      if (!arr || arr.length === 0) return null;
+      const valid = arr.filter(n => n !== null && n !== undefined);
+      if (valid.length === 0) return null;
+      return valid.reduce((a, b) => a + b, 0) / valid.length;
+    }
+
+    function getTrendFromAverages(current, previous) {
+      if (current === null || previous === null) return 'stable';
+      const diff = current - previous;
+      if (diff > 0.5) return 'improving';
+      if (diff < -0.5) return 'declining';
+      return 'stable';
+    }
+
+    /**
+     * Migrate a single user to AI Context
+     */
+    async function migrateUserToAIContext(userId) {
+      log(`[${userId}] Starting migration...`, 'info');
+
+      // Fetch user profile
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        throw new Error('User not found');
+      }
+      const userData = userDoc.data();
+      log(`[${userId}] User: ${userData.displayName || userData.firstName || 'Unknown'}`, 'info');
+
+      // Calculate sobriety days
+      let sobrietyDays = 0;
+      let stage = null;
+      if (userData.sobrietyDate || userData.recoveryStartDate) {
+        const startDate = (userData.sobrietyDate || userData.recoveryStartDate).toDate?.() ||
+          new Date(userData.sobrietyDate || userData.recoveryStartDate);
+        sobrietyDays = daysBetweenDates(startDate, new Date());
+        if (sobrietyDays < 90) stage = 'early';
+        else if (sobrietyDays < 180) stage = 'developing';
+        else if (sobrietyDays < 365) stage = 'sustained';
+        else stage = 'stable';
+      }
+      log(`[${userId}] Sobriety days: ${sobrietyDays}, Stage: ${stage || 'unknown'}`, 'info');
+
+      // Fetch ALL check-ins (no date limit)
+      const checkInsSnapshot = await db.collection('checkIns')
+        .where('userId', '==', userId)
+        .orderBy('createdAt', 'desc')
+        .get();
+      const checkIns = checkInsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      log(`[${userId}] Found ${checkIns.length} check-ins (ALL)`, 'info');
+
+      // Fetch habits
+      const habitsSnapshot = await db.collection('habits')
+        .where('userId', '==', userId)
+        .where('isActive', '==', true)
+        .get();
+      const habits = habitsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      log(`[${userId}] Found ${habits.length} active habits`, 'info');
+
+      // Fetch goals
+      const goalsSnapshot = await db.collection('goals')
+        .where('userId', '==', userId)
+        .get();
+      const goals = goalsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      log(`[${userId}] Found ${goals.length} goals`, 'info');
+
+      // Fetch assignments
+      const assignmentsSnapshot = await db.collection('assignments')
+        .where('pirId', '==', userId)
+        .get();
+      const assignments = assignmentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      log(`[${userId}] Found ${assignments.length} assignments`, 'info');
+
+      // Fetch ALL reflections (no date limit)
+      const reflectionsSnapshot = await db.collection('reflections')
+        .where('userId', '==', userId)
+        .get();
+      const reflections = reflectionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      log(`[${userId}] Found ${reflections.length} reflections (ALL)`, 'info');
+
+      // Fetch ALL gratitudes (no date limit)
+      const gratitudesSnapshot = await db.collection('gratitudes')
+        .where('userId', '==', userId)
+        .get();
+      const gratitudes = gratitudesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      log(`[${userId}] Found ${gratitudes.length} gratitudes (ALL)`, 'info');
+
+      // Fetch ALL wins (no date limit)
+      const winsSnapshot = await db.collection('todayWins')
+        .where('userId', '==', userId)
+        .get();
+      const wins = winsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      log(`[${userId}] Found ${wins.length} wins (ALL)`, 'info');
+
+      // Fetch breakthroughs
+      const breakthroughsSnapshot = await db.collection('breakthroughs')
+        .where('userId', '==', userId)
+        .get();
+      const breakthroughs = breakthroughsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      log(`[${userId}] Found ${breakthroughs.length} breakthroughs`, 'info');
+
+      // Fetch savings data
+      const savingsItemsSnapshot = await db.collection('savingsItems')
+        .where('userId', '==', userId)
+        .get();
+      const savingsItems = savingsItemsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const savingsGoalsSnapshot = await db.collection('savingsGoals')
+        .where('userId', '==', userId)
+        .get();
+      const savingsGoals = savingsGoalsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      log(`[${userId}] Found ${savingsItems.length} savings items, ${savingsGoals.length} savings goals`, 'info');
+
+      // Fetch saved meetings
+      const favoritesSnapshot = await db.collection('users').doc(userId).collection('favorites').get();
+      const savedMeetingsCount = favoritesSnapshot.size;
+      log(`[${userId}] Found ${savedMeetingsCount} saved meetings`, 'info');
+
+      // Fetch ALL technique completions
+      const techniqueCompletionsSnapshot = await db.collection('techniqueCompletions')
+        .where('userId', '==', userId)
+        .get();
+      const techniqueCompletions = techniqueCompletionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      log(`[${userId}] Found ${techniqueCompletions.length} technique completions (ALL)`, 'info');
+
+      // Fetch ALL meeting attendance
+      const meetingAttendanceSnapshot = await db.collection('meetingAttendance')
+        .where('userId', '==', userId)
+        .get();
+      const meetingAttendance = meetingAttendanceSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      log(`[${userId}] Found ${meetingAttendance.length} meeting attendance records (ALL)`, 'info');
+
+      // Fetch ALL daily posts
+      const dailyPostsSnapshot = await db.collection('dailyPosts')
+        .where('userId', '==', userId)
+        .get();
+      const dailyPosts = dailyPostsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      log(`[${userId}] Found ${dailyPosts.length} daily posts (ALL)`, 'info');
+
+      // Fetch user preferences
+      const userPreferencesDoc = await db.collection('userPreferences').doc(userId).get();
+      const userPreferences = userPreferencesDoc.exists ? userPreferencesDoc.data() : null;
+      log(`[${userId}] Found user preferences: ${userPreferences ? 'yes' : 'no'}`, 'info');
+
+      // Fetch ALL pledges
+      const pledgesSnapshot = await db.collection('pledges')
+        .where('userId', '==', userId)
+        .get();
+      const pledges = pledgesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      log(`[${userId}] Found ${pledges.length} pledges (ALL)`, 'info');
+
+      // Fetch streaks document
+      const streaksDoc = await db.collection('streaks').doc(userId).get();
+      const streaksData = streaksDoc.exists ? streaksDoc.data() : null;
+      log(`[${userId}] Found streaks data: ${streaksData ? 'yes' : 'no'}`, 'info');
+
+      // Build today section
+      const today = new Date().toISOString().split('T')[0];
+      const todayCheckIns = checkIns.filter(c => {
+        const date = c.createdAt?.toDate?.() || new Date(c.createdAt);
+        return date.toISOString().split('T')[0] === today;
+      });
+      const morningCheckIn = todayCheckIns.find(c => c.type === 'morning');
+      const eveningCheckIn = todayCheckIns.find(c => c.type === 'evening');
+
+      // Build recent7Days section
+      const sevenDaysAgo = getDaysAgoDate(7);
+      const fourteenDaysAgo = getDaysAgoDate(14);
+      const currentWeek = checkIns.filter(c => {
+        const date = c.createdAt?.toDate?.() || new Date(c.createdAt);
+        return date >= sevenDaysAgo;
+      });
+      const previousWeek = checkIns.filter(c => {
+        const date = c.createdAt?.toDate?.() || new Date(c.createdAt);
+        return date >= fourteenDaysAgo && date < sevenDaysAgo;
+      });
+
+      const extractMetric = (list, field) => list
+        .map(c => c.morningData?.[field] ?? c[field])
+        .filter(v => v !== null && v !== undefined);
+
+      const currentMoods = extractMetric(currentWeek, 'mood');
+      const currentCravings = extractMetric(currentWeek, 'craving');
+      const previousMoods = extractMetric(previousWeek, 'mood');
+      const previousCravings = extractMetric(previousWeek, 'craving');
+
+      // Calculate check-in streak
+      const checkedDays = new Set();
+      checkIns.forEach(c => {
+        const date = c.createdAt?.toDate?.() || new Date(c.createdAt);
+        checkedDays.add(date.toISOString().split('T')[0]);
+      });
+      let checkInStreak = 0;
+      let streakDate = new Date();
+      while (checkedDays.has(streakDate.toISOString().split('T')[0])) {
+        checkInStreak++;
+        streakDate.setDate(streakDate.getDate() - 1);
+      }
+
+      // Calculate milestones
+      const milestones = [7, 14, 30, 60, 90, 180, 365, 730, 1095];
+      const nextMilestone = milestones.find(m => m > sobrietyDays) || null;
+
+      // Calculate total saved
+      const totalSaved = savingsItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+
+      // Build the AI Context document
+      log(`[${userId}] Building aiContext document...`, 'info');
+      const aiContextDoc = {
+        userId,
+        lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
+        schemaVersion: 1,
+
+        user: {
+          firstName: userData.firstName || userData.displayName || 'User',
+          recoveryStartDate: userData.sobrietyDate || userData.recoveryStartDate || null,
+          sobrietyDays,
+          primarySubstance: userData.primarySubstance || userData.substance || null,
+          stage,
+          isVeteran: userData.isVeteran || false,
+          timezone: userData.timezone || 'America/Los_Angeles',
+        },
+
+        today: {
+          date: today,
+          morningCheckIn: {
+            completed: !!morningCheckIn,
+            completedAt: morningCheckIn?.createdAt || null,
+            mood: morningCheckIn?.morningData?.mood ?? morningCheckIn?.mood ?? null,
+            craving: morningCheckIn?.morningData?.craving ?? morningCheckIn?.craving ?? null,
+            anxiety: morningCheckIn?.morningData?.anxiety ?? morningCheckIn?.anxiety ?? null,
+            sleep: morningCheckIn?.morningData?.sleep ?? morningCheckIn?.sleep ?? null,
+            energy: morningCheckIn?.morningData?.energy ?? morningCheckIn?.energy ?? null,
+          },
+          eveningCheckIn: {
+            completed: !!eveningCheckIn,
+            completedAt: eveningCheckIn?.createdAt || null,
+            overallDay: eveningCheckIn?.eveningData?.overallDay ?? eveningCheckIn?.overallDay ?? null,
+            gratitude: eveningCheckIn?.eveningData?.gratitude ?? eveningCheckIn?.gratitude ?? null,
+            tomorrowGoal: eveningCheckIn?.eveningData?.tomorrowGoal ?? eveningCheckIn?.tomorrowGoal ?? null,
+          },
+          habitsCompleted: [],
+          habitsExpected: habits.filter(h => h.frequency === 'daily').length,
+          reflectionsCount: 0,
+          gratitudesCount: 0,
+          winsCount: 0,
+          meetingsAttended: 0,
+          assignmentsCompleted: 0,
+        },
+
+        recent7Days: {
+          checkInCount: currentWeek.length,
+          avgMood: averageArray(currentMoods),
+          avgCraving: averageArray(currentCravings),
+          avgAnxiety: null,
+          avgSleep: null,
+          avgEnergy: null,
+          moodValues: currentMoods.slice(0, 7),
+          cravingValues: currentCravings.slice(0, 7),
+          anxietyValues: [],
+          sleepValues: [],
+          energyValues: [],
+          moodTrend: getTrendFromAverages(averageArray(currentMoods), averageArray(previousMoods)),
+          cravingTrend: getTrendFromAverages(averageArray(previousCravings), averageArray(currentCravings)),
+          anxietyTrend: 'stable',
+          sleepTrend: 'stable',
+          energyTrend: 'stable',
+        },
+
+        patterns: {
+          bestDayOfWeek: null,
+          worstDayOfWeek: null,
+          highCravingTime: null,
+          sleepMoodCorrelation: null,
+          weekendMoodDiff: null,
+          topGratitudeCategories: [],
+          topWinCategories: [],
+        },
+
+        streaks: {
+          checkInStreak,
+          checkInStreakAtRisk: !checkedDays.has(today),
+          meetingStreak: 0,
+          habitStreaks: [],
+          allHabitsStreak: 0,
+        },
+
+        habits: {
+          definitions: habits.map(h => ({ id: h.id, name: h.name, frequency: h.frequency || 'daily' })),
+          activeCount: habits.length,
+          completionRate7Day: 0,
+          completionRate30Day: 0,
+          topHabits: [],
+          needsAttention: [],
+        },
+
+        goals: {
+          activeCount: goals.filter(g => g.status === 'active' || g.status === 'in_progress').length,
+          completedCount: goals.filter(g => g.status === 'completed').length,
+          active: goals.filter(g => g.status === 'active' || g.status === 'in_progress').slice(0, 10).map(g => ({
+            id: g.id,
+            title: g.title || g.name,
+            category: g.category || null,
+            progress: g.progress || 0,
+            targetDate: g.targetDate || null,
+            isOverdue: false,
+          })),
+          avgProgress: 0,
+          overdueCount: 0,
+          recentlyCompleted: [],
+        },
+
+        assignments: {
+          pendingCount: assignments.filter(a => a.status === 'pending' || a.status === 'assigned').length,
+          overdueCount: 0,
+          completedThisWeek: 0,
+          streak: 0,
+          nextDue: null,
+        },
+
+        meetings: {
+          attendedThisWeek: meetingAttendance.filter(m => {
+            const date = m.createdAt?.toDate?.() || new Date(m.createdAt);
+            const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+            return date >= weekAgo;
+          }).length,
+          attendedThisMonth: meetingAttendance.filter(m => {
+            const date = m.createdAt?.toDate?.() || new Date(m.createdAt);
+            const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate() - 30);
+            return date >= monthAgo;
+          }).length,
+          totalAttended: meetingAttendance.length,
+          weeklyAverage: 0,
+          streak: 0,
+          topTypes: [],
+          lastAttendedDate: meetingAttendance[0]?.createdAt || null,
+          upcomingCount: 0,
+          savedCount: savedMeetingsCount,
+          attendanceHistory: meetingAttendance.slice(0, 100).map(m => ({
+            id: m.id || null,
+            meetingId: m.meetingId || null,
+            meetingName: m.meetingName || m.name || null,
+            date: m.createdAt || null,
+            type: m.meetingType || m.type || null,
+          })),
+        },
+
+        reflections: {
+          totalCount: reflections.length,
+          weeklyAverage: 0,
+          recentThemes: [],
+          sentimentTrend: 'neutral',
+          allReflections: reflections.map(r => ({
+            id: r.id || null,
+            content: r.content || r.text || null,
+            createdAt: r.createdAt || null,
+            mood: r.mood || null,
+          })),
+        },
+
+        gratitudes: {
+          totalCount: gratitudes.length,
+          weeklyAverage: 0,
+          topCategories: [],
+          allGratitudes: gratitudes.map(g => ({
+            id: g.id || null,
+            content: g.content || g.text || null,
+            createdAt: g.createdAt || null,
+            category: g.category || null,
+          })),
+        },
+
+        wins: {
+          totalCount: wins.length,
+          weeklyAverage: 0,
+          topCategories: [],
+          allWins: wins.map(w => ({
+            id: w.id || null,
+            content: w.content || w.text || null,
+            createdAt: w.createdAt || null,
+            category: w.category || null,
+          })),
+        },
+
+        breakthroughs: {
+          totalCount: breakthroughs.length,
+          mostRecentDate: breakthroughs[0]?.createdAt || null,
+          hadRecentBreakthrough: false,
+          allBreakthroughs: breakthroughs.map(b => ({
+            id: b.id || null,
+            content: b.content || b.text || null,
+            createdAt: b.createdAt || null,
+          })),
+        },
+
+        techniqueCompletions: {
+          totalCount: techniqueCompletions.length,
+          allCompletions: techniqueCompletions.map(t => ({
+            id: t.id || null,
+            techniqueId: t.techniqueId || null,
+            techniqueName: t.techniqueName || t.name || null,
+            createdAt: t.createdAt || null,
+            helpful: t.helpful !== undefined ? t.helpful : null,
+          })),
+        },
+
+        dailyPosts: {
+          totalCount: dailyPosts.length,
+          allPosts: dailyPosts.map(p => ({
+            id: p.id || null,
+            content: p.content || null,
+            type: p.type || null,
+            createdAt: p.createdAt || null,
+            likes: p.likes || 0,
+          })),
+        },
+
+        pledges: {
+          totalCount: pledges.length,
+          allPledges: pledges.map(p => ({
+            id: p.id || null,
+            content: p.content || p.text || null,
+            createdAt: p.createdAt || null,
+            completed: p.completed || false,
+          })),
+        },
+
+        userPreferences: userPreferences || {},
+
+        streaksData: streaksData || {},
+
+        milestones: {
+          nextMilestone: nextMilestone ? { days: nextMilestone, daysUntil: nextMilestone - sobrietyDays } : null,
+          recentlyAchieved: [],
+        },
+
+        journey: {
+          totalSaved: totalSaved || 0,
+          savingsGoalProgress: null,
+          moneyMapProgress: null,
+          countdownGoalsActive: 0,
+          savingsGoals: savingsGoals.map(g => ({
+            id: g.id || null,
+            name: g.name || null,
+            targetAmount: g.targetAmount || 0,
+            currentAmount: g.currentAmount || 0,
+            createdAt: g.createdAt || null,
+          })),
+        },
+
+        // Store ALL check-ins for complete history
+        checkInsHistory: checkIns.map(c => ({
+          id: c.id || null,
+          type: c.type || null,
+          createdAt: c.createdAt || null,
+          mood: c.morningData?.mood ?? c.mood ?? null,
+          craving: c.morningData?.craving ?? c.craving ?? null,
+          anxiety: c.morningData?.anxiety ?? c.anxiety ?? null,
+          sleep: c.morningData?.sleep ?? c.sleep ?? null,
+          energy: c.morningData?.energy ?? c.energy ?? null,
+          overallDay: c.eveningData?.overallDay ?? c.overallDay ?? null,
+        })),
+
+        context: {
+          isWeekend: new Date().getDay() === 0 || new Date().getDay() === 6,
+          isHighRisk: false,
+          riskFactors: [],
+          needsEncouragement: false,
+          hasPositiveMomentum: false,
+          daysToNextMilestone: nextMilestone ? nextMilestone - sobrietyDays : null,
+          engagedToday: !!morningCheckIn || !!eveningCheckIn,
+          lastInsightDate: null,
+          lastInsightType: null,
+        },
+      };
+
+      // Write to Firestore
+      log(`[${userId}] Writing to Firestore...`, 'info');
+      await db.collection('users').doc(userId).collection('aiContext').doc('current').set(aiContextDoc);
+
+      log(`[${userId}] MIGRATION COMPLETE!`, 'success');
+      log(`[${userId}] Summary: ${sobrietyDays} days sober, ${checkIns.length} check-ins, ${goals.length} goals, ${habits.length} habits`, 'success');
+
+      return aiContextDoc;
+    }
+
+    /**
+     * Migrate current user only
+     */
+    async function migrateCurrentUser() {
+      if (!currentUser) return;
+
+      const btn = document.getElementById('btnMigrateMe');
+      const originalContent = btn.innerHTML;
+      btn.innerHTML = '<div class="spinner"></div> Migrating...';
+      btn.disabled = true;
+
+      updateMigrationStats(1, 0, 0, 0);
+
+      try {
+        log('='.repeat(50), 'info');
+        log('STARTING MIGRATION FOR CURRENT USER', 'info');
+        log('='.repeat(50), 'info');
+
+        // Check if already migrated
+        const existingContext = await db.collection('users').doc(currentUser.uid)
+          .collection('aiContext').doc('current').get();
+
+        if (existingContext.exists) {
+          const overwrite = confirm('AI Context already exists for your account. Overwrite?');
+          if (!overwrite) {
+            log('Migration cancelled - document already exists', 'warn');
+            updateMigrationStats(1, 0, 1, 0);
+            return;
+          }
+        }
+
+        await migrateUserToAIContext(currentUser.uid);
+        updateMigrationStats(1, 1, 0, 0);
+
+        log('='.repeat(50), 'success');
+        log('MIGRATION COMPLETE!', 'success');
+        log('='.repeat(50), 'success');
+
+      } catch (error) {
+        log(`ERROR: ${error.message}`, 'error');
+        console.error(error);
+        updateMigrationStats(1, 0, 0, 1);
+      } finally {
+        btn.innerHTML = originalContent;
+        btn.disabled = false;
+      }
+    }
+
+    /**
+     * Dry run - preview which users would be migrated
+     */
+    async function dryRunMigration() {
+      if (!currentUser) return;
+
+      const btn = document.getElementById('btnDryRun');
+      const originalContent = btn.innerHTML;
+      btn.innerHTML = '<div class="spinner"></div> Analyzing...';
+      btn.disabled = true;
+
+      try {
+        log('='.repeat(50), 'info');
+        log('DRY RUN - ANALYZING ALL USERS', 'info');
+        log('='.repeat(50), 'info');
+
+        // Fetch all users
+        const usersSnapshot = await db.collection('users').get();
+        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        log(`Found ${users.length} total users`, 'info');
+
+        let wouldMigrate = 0;
+        let wouldSkip = 0;
+
+        for (const user of users) {
+          const existingContext = await db.collection('users').doc(user.id)
+            .collection('aiContext').doc('current').get();
+
+          if (existingContext.exists) {
+            log(`[SKIP] ${user.id} - ${user.displayName || user.firstName || 'Unknown'} (already has aiContext)`, 'warn');
+            wouldSkip++;
+          } else {
+            log(`[MIGRATE] ${user.id} - ${user.displayName || user.firstName || 'Unknown'}`, 'info');
+            wouldMigrate++;
+          }
+        }
+
+        updateMigrationStats(users.length, wouldMigrate, wouldSkip, 0);
+
+        log('='.repeat(50), 'info');
+        log(`DRY RUN COMPLETE: ${wouldMigrate} would be migrated, ${wouldSkip} would be skipped`, 'success');
+        log('='.repeat(50), 'info');
+
+      } catch (error) {
+        log(`ERROR: ${error.message}`, 'error');
+        console.error(error);
+      } finally {
+        btn.innerHTML = originalContent;
+        btn.disabled = false;
+      }
+    }
+
+    /**
+     * Migrate ALL users
+     */
+    async function migrateAllUsers() {
+      if (!currentUser) return;
+
+      const confirmed = confirm(
+        'This will migrate ALL users in the database.\n\n' +
+        'Users with existing aiContext will be SKIPPED.\n\n' +
+        'Are you sure you want to proceed?'
+      );
+      if (!confirmed) return;
+
+      const btn = document.getElementById('btnMigrateAll');
+      const originalContent = btn.innerHTML;
+      btn.innerHTML = '<div class="spinner"></div> Migrating...';
+      btn.disabled = true;
+
+      try {
+        log('='.repeat(60), 'info');
+        log('STARTING BULK MIGRATION FOR ALL USERS', 'info');
+        log('='.repeat(60), 'info');
+
+        // Fetch all users
+        const usersSnapshot = await db.collection('users').get();
+        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        log(`Found ${users.length} total users to process`, 'info');
+        updateMigrationStats(users.length, 0, 0, 0);
+
+        let migrated = 0;
+        let skipped = 0;
+        let failed = 0;
+
+        for (let i = 0; i < users.length; i++) {
+          const user = users[i];
+          const progress = `[${i + 1}/${users.length}]`;
+
+          try {
+            // Check if already has aiContext
+            const existingContext = await db.collection('users').doc(user.id)
+              .collection('aiContext').doc('current').get();
+
+            if (existingContext.exists) {
+              log(`${progress} SKIPPED ${user.id} - ${user.displayName || user.firstName || 'Unknown'} (already exists)`, 'warn');
+              skipped++;
+              updateMigrationStats(users.length, migrated, skipped, failed);
+              continue;
+            }
+
+            log(`${progress} Starting migration for ${user.id}...`, 'info');
+            await migrateUserToAIContext(user.id);
+            migrated++;
+            log(`${progress} SUCCESS: ${user.id}`, 'success');
+
+            updateMigrationStats(users.length, migrated, skipped, failed);
+
+            // Add delay to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+          } catch (error) {
+            log(`${progress} FAILED: ${user.id} - ${error.message}`, 'error');
+            failed++;
+            updateMigrationStats(users.length, migrated, skipped, failed);
+          }
+        }
+
+        log('='.repeat(60), 'success');
+        log(`BULK MIGRATION COMPLETE!`, 'success');
+        log(`Total: ${users.length} | Migrated: ${migrated} | Skipped: ${skipped} | Failed: ${failed}`, 'success');
+        log('='.repeat(60), 'success');
+
+      } catch (error) {
+        log(`ERROR: ${error.message}`, 'error');
+        console.error(error);
+      } finally {
+        btn.innerHTML = originalContent;
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>

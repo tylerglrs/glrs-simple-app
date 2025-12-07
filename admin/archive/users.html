@@ -1,0 +1,3260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Users Management - GLRS Admin</title>
+
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%230077CC' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><path d='M22 21v-2a4 4 0 0 0-3-3.87'/><path d='M16 3.13a4 4 0 0 1 0 7.75'/></svg>">
+
+    <!-- Shared Styles -->
+    <link rel="stylesheet" href="/admin/shared/styles.css">
+
+    <!-- Firebase SDK (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+
+    <!-- React -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Shared Components -->
+    <script src="/admin/shared/firebase.js"></script>
+    <script src="/admin/shared/auth.js"></script>
+    <script src="/admin/shared/permissions.js"></script>
+    <script src="/admin/shared/utils.js"></script>
+    <script src="/admin/shared/state.js?v=2"></script>
+    <script src="/admin/shared/icons.js"></script>
+    <script type="text/babel" src="/admin/shared/navigation.js?v=8"></script>
+    <script type="text/babel" src="/admin/shared/header.js?v=1"></script>
+
+    <script type="text/babel">
+        // Wait for Firebase to initialize before running
+(function initPage() {
+    if (!window.FIREBASE_READY || !window.auth || !window.db) {
+        console.log('Waiting for Firebase to initialize...');
+        setTimeout(initPage, 50);
+        return;
+    }
+
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+    const { auth, db, storage, CURRENT_TENANT, logAudit } = window;
+
+        // ==========================================
+        // PAGINATION COMPONENT
+        // ==========================================
+        function Pagination({ currentPage, totalPages, onPageChange }) {
+            const renderPageNumbers = () => {
+                const pages = [];
+                const showPages = 5;
+                let startPage = Math.max(1, currentPage - Math.floor(showPages / 2));
+                let endPage = Math.min(totalPages, startPage + showPages - 1);
+
+                if (endPage - startPage < showPages - 1) {
+                    startPage = Math.max(1, endPage - showPages + 1);
+                }
+
+                for (let i = startPage; i <= endPage; i++) {
+                    pages.push(
+                        <button
+                            key={i}
+                            onClick={() => onPageChange(i)}
+                            style={{
+                                padding: '8px 12px',
+                                margin: '0 2px',
+                                background: currentPage === i
+                                    ? '#0077CC'
+                                    : 'white',
+                                color: currentPage === i ? 'white' : '#333',
+                                border: currentPage === i ? 'none' : '1px solid #ddd',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontWeight: currentPage === i ? '600' : 'normal',
+                                fontSize: '14px'
+                            }}
+                        >
+                            {i}
+                        </button>
+                    );
+                }
+
+                return pages;
+            };
+
+            return (
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '20px'
+                }}>
+                    <button
+                        onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                        disabled={currentPage === 1}
+                        style={{
+                            padding: '8px 16px',
+                            background: currentPage === 1 ? '#f0f0f0' : 'white',
+                            color: currentPage === 1 ? '#999' : '#333',
+                            border: '1px solid #ddd',
+                            borderRadius: '6px',
+                            cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '500'
+                        }}
+                    >
+                        Previous
+                    </button>
+
+                    {renderPageNumbers()}
+
+                    <button
+                        onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+                        disabled={currentPage === totalPages}
+                        style={{
+                            padding: '8px 16px',
+                            background: currentPage === totalPages ? '#f0f0f0' : 'white',
+                            color: currentPage === totalPages ? '#999' : '#333',
+                            border: '1px solid #ddd',
+                            borderRadius: '6px',
+                            cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '500'
+                        }}
+                    >
+                        Next
+                    </button>
+                </div>
+            );
+        }
+
+        // ==========================================
+        // TODO: ADD MODAL COMPONENTS
+        // ==========================================
+        // The following modals need to be added from admin.html:
+        // 1. CreateUserModal (lines 31290-31928, ~638 lines)
+        // 2. UserDetailModal (lines 32839-37711, ~4,872 lines)
+        // 3. CoachDetailModal (lines 37711+, size unknown)
+        //
+        // For now, using placeholder stubs.
+        // ==========================================
+
+        // Temporary CreateUserModal stub
+        function CreateUserModal({ onClose, onSuccess, defaultRole }) {
+            return (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000
+                }}>
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '12px',
+                        padding: '30px',
+                        maxWidth: '500px'
+                    }}>
+                        <h2>Create User Modal</h2>
+                        <p>CreateUserModal component (~638 lines) needs to be added.</p>
+                        <p>Location: admin.html lines 31290-31928</p>
+                        <button
+                            onClick={onClose}
+                            style={{
+                                padding: '10px 20px',
+                                background: '#0077CC',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                marginTop: '20px'
+                            }}
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        // Temporary UserDetailModal stub (same as dashboard.html)
+        function UserDetailModal({ user, onClose, onUpdate, currentUserId }) {
+            return (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000
+                }}>
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '12px',
+                        padding: '30px',
+                        maxWidth: '500px'
+                    }}>
+                        <h2>PIR Detail Modal</h2>
+                        <p>UserDetailModal component (~4,872 lines) needs to be added.</p>
+                        <p>Location: admin.html lines 32839-37711</p>
+                        <p>PIR: {user.displayName || user.email}</p>
+                        <button
+                            onClick={onClose}
+                            style={{
+                                padding: '10px 20px',
+                                background: '#0077CC',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                marginTop: '20px'
+                            }}
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        // Temporary CoachDetailModal stub
+        function CoachDetailModal({ coach, onClose, onUpdate, currentUserId }) {
+            return (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000
+                }}>
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '12px',
+                        padding: '30px',
+                        maxWidth: '500px'
+                    }}>
+                        <h2>Coach Detail Modal</h2>
+                        <p>CoachDetailModal component needs to be added.</p>
+                        <p>Location: admin.html lines 37711+</p>
+                        <p>Coach: {coach.displayName || coach.email}</p>
+                        <button
+                            onClick={onClose}
+                            style={{
+                                padding: '10px 20px',
+                                background: '#0077CC',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                marginTop: '20px'
+                            }}
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        // ==========================================
+        // PIR NOTES MODAL (Merged from mypirs.html)
+        // ==========================================
+        function PIRNotesModal({ pir, existingNotes, onClose, onSave }) {
+            const [notes, setNotes] = useState(existingNotes);
+
+            return (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000,
+                    padding: '20px',
+                    animation: 'fadeIn 0.2s'
+                }}>
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '20px',
+                        maxWidth: '600px',
+                        width: '100%',
+                        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+                        animation: 'slideUp 0.3s'
+                    }}>
+                        {/* Header */}
+                        <div style={{
+                            background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                            padding: '25px 30px',
+                            borderRadius: '20px 20px 0 0',
+                            color: 'white'
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <h2 style={{ margin: 0, fontSize: '24px' }}>
+                                    Notes for {pir.displayName || pir.email}
+                                </h2>
+                                <button
+                                    onClick={onClose}
+                                    style={{
+                                        background: 'rgba(255,255,255,0.2)',
+                                        border: 'none',
+                                        color: 'white',
+                                        fontSize: '24px',
+                                        width: '36px',
+                                        height: '36px',
+                                        borderRadius: '50%',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}
+                                >
+                                    {String.fromCharCode(215)}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '30px' }}>
+                            <textarea
+                                value={notes}
+                                onChange={(e) => setNotes(e.target.value)}
+                                placeholder="Add private notes about this PIR..."
+                                style={{
+                                    width: '100%',
+                                    minHeight: '200px',
+                                    padding: '15px',
+                                    border: '2px solid #e0e0e0',
+                                    borderRadius: '10px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit',
+                                    resize: 'vertical',
+                                    marginBottom: '20px'
+                                }}
+                            />
+
+                            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                                <button
+                                    onClick={onClose}
+                                    style={{
+                                        padding: '12px 24px',
+                                        background: '#6c757d',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        fontWeight: '500'
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => onSave(notes)}
+                                    style={{
+                                        padding: '12px 24px',
+                                        background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        fontWeight: '500'
+                                    }}
+                                >
+                                    Save Notes
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ==========================================
+        // USERS VIEW (Lines 3987-4942 from admin.html)
+        // ==========================================
+        function UsersView({ searchQuery, user, onImpersonate }) {
+            const [users, setUsers] = useState([]);
+            const [filteredUsers, setFilteredUsers] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [currentPage, setCurrentPage] = useState(1);
+            const [showCreateModal, setShowCreateModal] = useState(false);
+            const [selectedUser, setSelectedUser] = useState(null);
+            const [activeTab, setActiveTab] = useState('pir');
+
+            // New state for enhancements
+            const [stats, setStats] = useState({
+                totalPIRs: 0,
+                activePIRs: 0,
+                avgCompliance: 0,
+                criticalAlerts: 0,
+                newThisWeek: 0
+            });
+            const [selectedUsers, setSelectedUsers] = useState(new Set());
+            const [showBulkActions, setShowBulkActions] = useState(false);
+            const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'active', 'inactive', 'critical'
+            const [complianceFilter, setComplianceFilter] = useState('all'); // 'all', 'high', 'medium', 'low'
+            const [pirHealthData, setPirHealthData] = useState({}); // Store compliance and last check-in per PIR
+
+            // Responsive states for UsersView
+            const [isMobileView, setIsMobileView] = useState(window.innerWidth < 768);
+
+            // Handle responsive resize
+            useEffect(() => {
+                const handleResize = () => {
+                    setIsMobileView(window.innerWidth < 768);
+                };
+                window.addEventListener('resize', handleResize);
+                return () => window.removeEventListener('resize', handleResize);
+            }, []);
+
+            const itemsPerPage = 20;
+
+            // Separate users by role
+            const pirUsers = useMemo(() => users.filter(u => u.role === 'pir'), [users]);
+            const coachUsers = useMemo(() => users.filter(u => u.role === 'coach'), [users]);
+            const adminUsers = useMemo(() => users.filter(u => u.role === 'admin'), [users]);
+
+            useEffect(() => {
+                loadUsers();
+            }, []);
+
+            useEffect(() => {
+                if (activeTab === 'pir') {
+                    loadPIRHealthData();
+                    calculateStats();
+                }
+            }, [users, activeTab]);
+
+            useEffect(() => {
+                filterUsers();
+                setCurrentPage(1);
+            }, [users, searchQuery, activeTab, statusFilter, complianceFilter]);
+
+            const loadUsers = async () => {
+                try {
+                    setLoading(true);
+
+                    // 🔐 SCOPE FILTERING: Apply data scope based on user role
+                    // - Coaches: Only see assigned PIRs (if they have access to this page)
+                    // - Admins/SuperAdmin1: See all users in tenant
+                    // - SuperAdmin: See all users across all tenants
+                    const scope = window.getDataScope(user);
+                    let usersQuery = db.collection('users');
+
+                    if (scope === 'all_tenants') {
+                        // SuperAdmin: No tenant filter, see all users
+                        usersQuery = usersQuery.orderBy('createdAt', 'desc');
+                    } else if (scope === 'all_pirs_tenant' || scope === 'all_coaches_tenant') {
+                        // Admin/SuperAdmin1: Filter by tenant
+                        usersQuery = usersQuery
+                            .where('tenantId', '==', CURRENT_TENANT)
+                            .orderBy('createdAt', 'desc');
+                    } else if (scope === 'assigned_pirs') {
+                        // Coach: Only assigned PIRs (defensive - coaches shouldn't access this page)
+                        usersQuery = usersQuery
+                            .where('tenantId', '==', CURRENT_TENANT)
+                            .where('role', '==', 'pir')
+                            .where('assignedCoach', '==', user.uid)
+                            .orderBy('createdAt', 'desc');
+                    } else {
+                        // own_data or unknown: Only own user record
+                        usersQuery = usersQuery
+                            .where('tenantId', '==', CURRENT_TENANT)
+                            .where(firebase.firestore.FieldPath.documentId(), '==', user.uid);
+                    }
+
+                    const usersSnap = await usersQuery.get();
+
+                    const usersData = [];
+                    const coachIds = new Set();
+
+                    usersSnap.forEach(doc => {
+                        const userData = { id: doc.id, ...doc.data() };
+                        usersData.push(userData);
+                        if (userData.assignedCoach) {
+                            coachIds.add(userData.assignedCoach);
+                        }
+                    });
+
+                    // Batch load coaches
+                    const coachesMap = {};
+                    if (coachIds.size > 0) {
+                        const coachResults = await batchQuery('users',
+                            firebase.firestore.FieldPath.documentId(),
+                            Array.from(coachIds)
+                        );
+
+                        coachResults.forEach(coach => {
+                            coachesMap[coach.id] = coach.displayName || coach.email;
+                        });
+                    }
+
+                    usersData.forEach(user => {
+                        if (user.assignedCoach && coachesMap[user.assignedCoach]) {
+                            user.coachName = coachesMap[user.assignedCoach];
+                        }
+                    });
+
+                    setUsers(usersData);
+
+                } catch (error) {
+                    console.error('Error loading users:', error);
+                    alert('Failed to load users. Please refresh the page.');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const loadPIRHealthData = async () => {
+                try {
+                    const healthData = {};
+                    const sevenDaysAgo = new Date();
+                    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+                    // Load check-ins for all PIRs from last 7 days
+                    const checkInsSnap = await db.collection('checkIns')
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .where('createdAt', '>=', sevenDaysAgo)
+                        .get();
+
+                    const pirCheckIns = {};
+                    checkInsSnap.forEach(doc => {
+                        const data = doc.data();
+                        if (!pirCheckIns[data.userId]) {
+                            pirCheckIns[data.userId] = [];
+                        }
+                        pirCheckIns[data.userId].push(data);
+                    });
+
+                    // Calculate compliance and last check-in for each PIR
+                    pirUsers.forEach(pir => {
+                        const checkIns = pirCheckIns[pir.id] || [];
+                        const compliance = Math.round((checkIns.length / 14) * 100); // 2 check-ins per day * 7 days
+
+                        const lastCheckIn = checkIns.length > 0
+                            ? checkIns.reduce((latest, current) => {
+                                const currentDate = current.createdAt?.toDate ? current.createdAt.toDate() : new Date(current.createdAt);
+                                const latestDate = latest.createdAt?.toDate ? latest.createdAt.toDate() : new Date(latest.createdAt);
+                                return currentDate > latestDate ? current : latest;
+                            }).createdAt
+                            : null;
+
+                        healthData[pir.id] = {
+                            compliance: Math.min(compliance, 100),
+                            lastCheckIn,
+                            checkInCount: checkIns.length,
+                            status: compliance >= 70 ? 'good' : compliance >= 40 ? 'moderate' : 'critical'
+                        };
+                    });
+
+                    setPirHealthData(healthData);
+
+                } catch (error) {
+                    console.error('Error loading PIR health data:', error);
+                }
+            };
+
+            const calculateStats = async () => {
+                try {
+                    const oneWeekAgo = new Date();
+                    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+                    // Count active PIRs
+                    const activePIRs = pirUsers.filter(p => p.active !== false).length;
+
+                    // Calculate average compliance
+                    const complianceValues = Object.values(pirHealthData).map(h => h.compliance || 0);
+                    const avgCompliance = complianceValues.length > 0
+                        ? Math.round(complianceValues.reduce((a, b) => a + b, 0) / complianceValues.length)
+                        : 0;
+
+                    // Count critical alerts
+                    const alertsSnap = await db.collection('alerts')
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .where('resolved', '==', false)
+                        .where('priority', '==', 'critical')
+                        .get();
+
+                    // Count new PIRs this week
+                    const newThisWeek = pirUsers.filter(p => {
+                        const createdAt = p.createdAt?.toDate ? p.createdAt.toDate() : new Date(p.createdAt);
+                        return createdAt >= oneWeekAgo;
+                    }).length;
+
+                    setStats({
+                        totalPIRs: pirUsers.length,
+                        activePIRs,
+                        avgCompliance,
+                        criticalAlerts: alertsSnap.size,
+                        newThisWeek
+                    });
+
+                } catch (error) {
+                    console.error('Error calculating stats:', error);
+                }
+            };
+
+            const filterUsers = () => {
+                let tabFiltered = [];
+                if (activeTab === 'pir') {
+                    tabFiltered = pirUsers;
+                } else if (activeTab === 'coach') {
+                    tabFiltered = coachUsers;
+                } else if (activeTab === 'admin') {
+                    tabFiltered = adminUsers;
+                }
+
+                // Apply status filter
+                if (statusFilter !== 'all') {
+                    if (statusFilter === 'active') {
+                        tabFiltered = tabFiltered.filter(u => u.active !== false);
+                    } else if (statusFilter === 'inactive') {
+                        tabFiltered = tabFiltered.filter(u => u.active === false);
+                    } else if (statusFilter === 'critical') {
+                        tabFiltered = tabFiltered.filter(u => pirHealthData[u.id]?.status === 'critical');
+                    }
+                }
+
+                // Apply compliance filter (PIRs only)
+                if (activeTab === 'pir' && complianceFilter !== 'all') {
+                    if (complianceFilter === 'high') {
+                        tabFiltered = tabFiltered.filter(u => (pirHealthData[u.id]?.compliance || 0) >= 70);
+                    } else if (complianceFilter === 'medium') {
+                        tabFiltered = tabFiltered.filter(u => {
+                            const comp = pirHealthData[u.id]?.compliance || 0;
+                            return comp >= 40 && comp < 70;
+                        });
+                    } else if (complianceFilter === 'low') {
+                        tabFiltered = tabFiltered.filter(u => (pirHealthData[u.id]?.compliance || 0) < 40);
+                    }
+                }
+
+                // Apply search filter
+                if (searchQuery) {
+                    const query = searchQuery.toLowerCase();
+                    tabFiltered = tabFiltered.filter(user =>
+                        user.email?.toLowerCase().includes(query) ||
+                        user.displayName?.toLowerCase().includes(query) ||
+                        user.firstName?.toLowerCase().includes(query) ||
+                        user.lastName?.toLowerCase().includes(query) ||
+                        user.phone?.toLowerCase().includes(query) ||
+                        user.coachName?.toLowerCase().includes(query)
+                    );
+                }
+
+                setFilteredUsers(tabFiltered);
+            };
+
+            const paginatedUsers = useMemo(() => {
+                const start = (currentPage - 1) * itemsPerPage;
+                const end = start + itemsPerPage;
+                return filteredUsers.slice(start, end);
+            }, [filteredUsers, currentPage]);
+
+            const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
+
+            const handleSelectAll = () => {
+                if (selectedUsers.size === paginatedUsers.length) {
+                    setSelectedUsers(new Set());
+                } else {
+                    setSelectedUsers(new Set(paginatedUsers.map(u => u.id)));
+                }
+            };
+
+            const handleSelectUser = (userId) => {
+                const newSelected = new Set(selectedUsers);
+                if (newSelected.has(userId)) {
+                    newSelected.delete(userId);
+                } else {
+                    newSelected.add(userId);
+                }
+                setSelectedUsers(newSelected);
+            };
+
+            const handleBulkAssignCoach = async () => {
+                const coachId = prompt('Enter coach ID to assign:');
+                if (!coachId) return;
+
+                try {
+                    const batch = db.batch();
+                    selectedUsers.forEach(userId => {
+                        const userRef = db.collection('users').doc(userId);
+                        batch.update(userRef, { assignedCoach: coachId });
+                    });
+
+                    await batch.commit();
+                    alert(`Assigned coach to ${selectedUsers.size} users`);
+                    setSelectedUsers(new Set());
+                    loadUsers();
+                } catch (error) {
+                    console.error('Error in bulk assign:', error);
+                    alert('Failed to assign coach');
+                }
+            };
+
+            const handleBulkToggleStatus = async () => {
+                try {
+                    const batch = db.batch();
+                    selectedUsers.forEach(userId => {
+                        const user = users.find(u => u.id === userId);
+                        const userRef = db.collection('users').doc(userId);
+                        batch.update(userRef, { active: user.active === false });
+                    });
+
+                    await batch.commit();
+                    alert(`Updated status for ${selectedUsers.size} users`);
+                    setSelectedUsers(new Set());
+                    loadUsers();
+                } catch (error) {
+                    console.error('Error in bulk status toggle:', error);
+                    alert('Failed to update status');
+                }
+            };
+
+            const handleExport = (format) => {
+                const exportData = filteredUsers.map(user => ({
+                    name: user.displayName || 'N/A',
+                    email: user.email,
+                    role: user.role,
+                    status: user.active !== false ? 'Active' : 'Inactive',
+                    coach: user.coachName || 'N/A',
+                    compliance: activeTab === 'pir' ? `${pirHealthData[user.id]?.compliance || 0}%` : 'N/A',
+                    phone: user.phone || 'N/A',
+                    joined: formatDate(user.createdAt)
+                }));
+
+                if (format === 'json') {
+                    exportToJSON(exportData, `${activeTab}_users`);
+                } else if (format === 'csv') {
+                    exportToCSV(exportData, `${activeTab}_users`);
+                } else if (format === 'pdf') {
+                    exportToPDF(exportData, `${activeTab.toUpperCase()} Users Report`);
+                }
+            };
+
+            const getHealthBadgeColor = (status) => {
+                if (status === 'good') return '#00A86B';
+                if (status === 'moderate') return '#FF9800';
+                return '#f44336';
+            };
+
+            if (loading) {
+                return (
+                    <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: '400px',
+                        gap: '20px'
+                    }}>
+                        <div style={{
+                            width: '60px',
+                            height: '60px',
+                            border: '4px solid #f3f3f3',
+                            borderTop: '4px solid #0077CC',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite'
+                        }}></div>
+                        <p style={{ color: '#666', fontSize: '16px' }}>Loading users...</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div style={{ animation: 'fadeIn 0.3s ease-in', padding: '20px' }}>
+                    {/* Stats Cards - PIRs Only */}
+                    {activeTab === 'pir' && (
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                            gap: '20px',
+                            marginBottom: '30px'
+                        }}>
+                           <div style={{
+                                background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                borderRadius: '12px',
+                                padding: '25px',
+                                color: 'white',
+                                boxShadow: '0 8px 20px rgba(0,119,204,0.3)',
+                                transition: 'all 0.3s ease',
+                                cursor: 'pointer'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                            >
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '10px' }}>Total PIRs</div>
+                                <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.totalPIRs}</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '10px' }}>
+                                    {stats.activePIRs} active
+                                </div>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)',
+                                borderRadius: '12px',
+                                padding: '25px',
+                                color: 'white',
+                                boxShadow: '0 4px 12px rgba(255,152,0,0.3)',
+                                transition: 'all 0.3s ease',
+                                cursor: 'pointer'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                            >
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '10px' }}>Avg Compliance</div>
+                                <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.avgCompliance}%</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '10px' }}>
+                                    Last 7 days
+                                </div>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                                borderRadius: '12px',
+                                padding: '25px',
+                                color: 'white',
+                                boxShadow: '0 4px 12px rgba(79,172,254,0.3)',
+                                transition: 'all 0.3s ease',
+                                cursor: 'pointer'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                            >
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '10px' }}>Critical Alerts</div>
+                                <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.criticalAlerts}</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '10px' }}>
+                                    Require attention
+                                </div>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, #00A86B 0%, #008554 100%)',
+                                borderRadius: '12px',
+                                padding: '25px',
+                                color: 'white',
+                                boxShadow: '0 8px 20px rgba(0,168,107,0.3)',
+                                transition: 'all 0.3s ease',
+                                cursor: 'pointer'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                            >
+                                <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '10px' }}>New This Week</div>
+                                <div style={{ fontSize: '36px', fontWeight: 'bold' }}>{stats.newThisWeek}</div>
+                                <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '10px' }}>
+                                    Recent additions
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                  {/* User Management Control Panel */}
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '16px',
+                        boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+                        marginBottom: '20px',
+                        overflow: 'hidden'
+                    }}>
+                        {/* Role Tabs Section */}
+                        <div style={{
+                            padding: isMobileView ? '16px' : '20px 24px',
+                            borderBottom: '1px solid #e8ecf0',
+                            background: 'linear-gradient(180deg, #fafbfc 0%, #ffffff 100%)'
+                        }}>
+                            <div style={{
+                                display: 'flex',
+                                gap: isMobileView ? '8px' : '12px',
+                                flexWrap: 'wrap'
+                            }}>
+                                {/* PIRs Tab */}
+                                <button
+                                    onClick={() => setActiveTab('pir')}
+                                    style={{
+                                        padding: isMobileView ? '10px 16px' : '12px 20px',
+                                        border: activeTab === 'pir' ? 'none' : '1px solid #e0e4e8',
+                                        background: activeTab === 'pir' ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : 'white',
+                                        color: activeTab === 'pir' ? 'white' : '#555',
+                                        borderRadius: '10px',
+                                        cursor: 'pointer',
+                                        fontSize: isMobileView ? '13px' : '14px',
+                                        fontWeight: '600',
+                                        transition: 'all 0.2s ease',
+                                        boxShadow: activeTab === 'pir' ? '0 4px 12px rgba(0,119,204,0.25)' : '0 1px 3px rgba(0,0,0,0.05)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        flex: isMobileView ? '1 1 auto' : '0 0 auto',
+                                        justifyContent: 'center',
+                                        minWidth: isMobileView ? '0' : 'auto'
+                                    }}
+                                >
+                                    {AdminIcons.Users({ size: isMobileView ? 16 : 18 })}
+                                    <span>PIRs</span>
+                                    <span style={{
+                                        background: activeTab === 'pir' ? 'rgba(255,255,255,0.25)' : '#f0f2f4',
+                                        padding: '2px 8px',
+                                        borderRadius: '12px',
+                                        fontSize: '12px',
+                                        fontWeight: '700'
+                                    }}>{pirUsers.length}</span>
+                                </button>
+
+                                {/* Coaches Tab */}
+                                <button
+                                    onClick={() => setActiveTab('coach')}
+                                    style={{
+                                        padding: isMobileView ? '10px 16px' : '12px 20px',
+                                        border: activeTab === 'coach' ? 'none' : '1px solid #e0e4e8',
+                                        background: activeTab === 'coach' ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : 'white',
+                                        color: activeTab === 'coach' ? 'white' : '#555',
+                                        borderRadius: '10px',
+                                        cursor: 'pointer',
+                                        fontSize: isMobileView ? '13px' : '14px',
+                                        fontWeight: '600',
+                                        transition: 'all 0.2s ease',
+                                        boxShadow: activeTab === 'coach' ? '0 4px 12px rgba(0,119,204,0.25)' : '0 1px 3px rgba(0,0,0,0.05)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        flex: isMobileView ? '1 1 auto' : '0 0 auto',
+                                        justifyContent: 'center',
+                                        minWidth: isMobileView ? '0' : 'auto'
+                                    }}
+                                >
+                                    {AdminIcons.Award({ size: isMobileView ? 16 : 18 })}
+                                    <span>Coaches</span>
+                                    <span style={{
+                                        background: activeTab === 'coach' ? 'rgba(255,255,255,0.25)' : '#f0f2f4',
+                                        padding: '2px 8px',
+                                        borderRadius: '12px',
+                                        fontSize: '12px',
+                                        fontWeight: '700'
+                                    }}>{coachUsers.length}</span>
+                                </button>
+
+                                {/* Admins Tab */}
+                                <button
+                                    onClick={() => setActiveTab('admin')}
+                                    style={{
+                                        padding: isMobileView ? '10px 16px' : '12px 20px',
+                                        border: activeTab === 'admin' ? 'none' : '1px solid #e0e4e8',
+                                        background: activeTab === 'admin' ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : 'white',
+                                        color: activeTab === 'admin' ? 'white' : '#555',
+                                        borderRadius: '10px',
+                                        cursor: 'pointer',
+                                        fontSize: isMobileView ? '13px' : '14px',
+                                        fontWeight: '600',
+                                        transition: 'all 0.2s ease',
+                                        boxShadow: activeTab === 'admin' ? '0 4px 12px rgba(0,119,204,0.25)' : '0 1px 3px rgba(0,0,0,0.05)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        flex: isMobileView ? '1 1 auto' : '0 0 auto',
+                                        justifyContent: 'center',
+                                        minWidth: isMobileView ? '0' : 'auto'
+                                    }}
+                                >
+                                    {AdminIcons.Settings({ size: isMobileView ? 16 : 18 })}
+                                    <span>Admins</span>
+                                    <span style={{
+                                        background: activeTab === 'admin' ? 'rgba(255,255,255,0.25)' : '#f0f2f4',
+                                        padding: '2px 8px',
+                                        borderRadius: '12px',
+                                        fontSize: '12px',
+                                        fontWeight: '700'
+                                    }}>{adminUsers.length}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Filters Section */}
+                        <div style={{
+                            padding: isMobileView ? '12px 16px' : '16px 24px',
+                            borderBottom: '1px solid #e8ecf0',
+                            display: 'flex',
+                            flexDirection: isMobileView ? 'column' : 'row',
+                            gap: isMobileView ? '12px' : '16px',
+                            alignItems: isMobileView ? 'stretch' : 'center',
+                            background: '#fafbfc'
+                        }}>
+                            <div style={{
+                                display: 'flex',
+                                gap: '10px',
+                                flexWrap: 'wrap',
+                                flex: 1
+                            }}>
+                                {/* Status Filter */}
+                                <select
+                                    value={statusFilter}
+                                    onChange={(e) => setStatusFilter(e.target.value)}
+                                    style={{
+                                        padding: isMobileView ? '10px 14px' : '10px 16px',
+                                        borderRadius: '10px',
+                                        border: '1px solid #e0e4e8',
+                                        background: 'white',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        fontWeight: '500',
+                                        color: '#444',
+                                        flex: isMobileView ? '1 1 calc(50% - 5px)' : '0 0 auto',
+                                        minWidth: isMobileView ? '0' : '140px',
+                                        boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                                    }}
+                                >
+                                    <option value="all">All Status</option>
+                                    <option value="active">Active Only</option>
+                                    <option value="inactive">Inactive Only</option>
+                                    {activeTab === 'pir' && <option value="critical">Critical Status</option>}
+                                </select>
+
+                                {/* Compliance Filter - PIRs only */}
+                                {activeTab === 'pir' && (
+                                    <select
+                                        value={complianceFilter}
+                                        onChange={(e) => setComplianceFilter(e.target.value)}
+                                        style={{
+                                            padding: isMobileView ? '10px 14px' : '10px 16px',
+                                            borderRadius: '10px',
+                                            border: '1px solid #e0e4e8',
+                                            background: 'white',
+                                            cursor: 'pointer',
+                                            fontSize: '14px',
+                                            fontWeight: '500',
+                                            color: '#444',
+                                            flex: isMobileView ? '1 1 calc(50% - 5px)' : '0 0 auto',
+                                            minWidth: isMobileView ? '0' : '150px',
+                                            boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                                        }}
+                                    >
+                                        <option value="all">All Compliance</option>
+                                        <option value="high">High (70%+)</option>
+                                        <option value="medium">Medium (40-70%)</option>
+                                        <option value="low">Low (&lt;40%)</option>
+                                    </select>
+                                )}
+
+                                {/* Results Count */}
+                                <div style={{
+                                    fontSize: '13px',
+                                    color: '#666',
+                                    padding: isMobileView ? '10px 14px' : '10px 16px',
+                                    background: 'white',
+                                    borderRadius: '10px',
+                                    border: '1px solid #e0e4e8',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    flex: isMobileView ? '1 1 100%' : '0 0 auto',
+                                    justifyContent: isMobileView ? 'center' : 'flex-start'
+                                }}>
+                                    {AdminIcons.Filter({ size: 14, color: '#888' })}
+                                    <span style={{ fontWeight: '600', color: '#333' }}>{filteredUsers.length}</span>
+                                    <span>{activeTab}s</span>
+                                    {searchQuery && <span style={{ color: '#0077CC' }}>(filtered)</span>}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Actions Section */}
+                        <div style={{
+                            padding: isMobileView ? '12px 16px' : '16px 24px',
+                            display: 'flex',
+                            flexDirection: isMobileView ? 'column' : 'row',
+                            gap: '10px',
+                            justifyContent: 'space-between',
+                            alignItems: isMobileView ? 'stretch' : 'center',
+                            flexWrap: 'wrap'
+                        }}>
+                            {/* Bulk Actions - PIRs only */}
+                            {activeTab === 'pir' && selectedUsers.size > 0 && (
+                                <div style={{
+                                    display: 'flex',
+                                    gap: '10px',
+                                    flexWrap: 'wrap',
+                                    flex: isMobileView ? '1 1 100%' : '0 0 auto'
+                                }}>
+                                    <button
+                                        onClick={handleBulkAssignCoach}
+                                        style={{
+                                            padding: '10px 16px',
+                                            background: 'linear-gradient(135deg, #00A86B 0%, #008554 100%)',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '600',
+                                            transition: 'all 0.2s',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            flex: isMobileView ? '1' : '0 0 auto',
+                                            justifyContent: 'center',
+                                            boxShadow: '0 2px 8px rgba(0,168,107,0.25)'
+                                        }}
+                                    >
+                                        {AdminIcons.UserPlus({ size: 14 })}
+                                        Assign Coach ({selectedUsers.size})
+                                    </button>
+                                    <button
+                                        onClick={handleBulkToggleStatus}
+                                        style={{
+                                            padding: '10px 16px',
+                                            background: 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '600',
+                                            transition: 'all 0.2s',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            flex: isMobileView ? '1' : '0 0 auto',
+                                            justifyContent: 'center',
+                                            boxShadow: '0 2px 8px rgba(255,152,0,0.25)'
+                                        }}
+                                    >
+                                        {AdminIcons.RefreshCw({ size: 14 })}
+                                        Toggle Status
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Primary Actions */}
+                            <div style={{
+                                display: 'flex',
+                                gap: '10px',
+                                flexWrap: 'wrap',
+                                marginLeft: isMobileView ? 0 : 'auto',
+                                flex: isMobileView ? '1 1 100%' : '0 0 auto'
+                            }}>
+                                {/* Export Button */}
+                                {window.canPerformAction(user, 'export_data') && (
+                                    <button
+                                        onClick={() => handleExport('csv')}
+                                        style={{
+                                            padding: '10px 16px',
+                                            background: 'white',
+                                            color: '#555',
+                                            border: '1px solid #e0e4e8',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '600',
+                                            transition: 'all 0.2s',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            flex: isMobileView ? '1' : '0 0 auto',
+                                            justifyContent: 'center',
+                                            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                                        }}
+                                    >
+                                        {AdminIcons.Download({ size: 14 })}
+                                        Export CSV
+                                    </button>
+                                )}
+
+                                {/* Create User Button */}
+                                {(window.canPerformAction(user, 'create_pir') ||
+                                  window.canPerformAction(user, 'create_coach') ||
+                                  window.canPerformAction(user, 'create_admin')) && (
+                                    <button
+                                        onClick={() => setShowCreateModal(true)}
+                                        style={{
+                                            padding: '10px 20px',
+                                            background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '10px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '700',
+                                            transition: 'all 0.2s',
+                                            boxShadow: '0 4px 12px rgba(0,119,204,0.3)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            flex: isMobileView ? '1' : '0 0 auto',
+                                            justifyContent: 'center'
+                                        }}
+                                    >
+                                        {AdminIcons.Plus({ size: 16 })}
+                                        Create User
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                 {/* User List - Cards on Mobile, Table on Desktop */}
+                    {isMobileView ? (
+                        /* Mobile Card View */
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {paginatedUsers.map((userItem) => (
+                                <div
+                                    key={userItem.id}
+                                    style={{
+                                        background: 'white',
+                                        borderRadius: '16px',
+                                        boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+                                        overflow: 'hidden',
+                                        border: selectedUsers.has(userItem.id) ? '2px solid #0077CC' : '1px solid #e8ecf0'
+                                    }}
+                                >
+                                    {/* Card Header */}
+                                    <div style={{
+                                        padding: '16px',
+                                        background: 'linear-gradient(135deg, #fafbfc 0%, #ffffff 100%)',
+                                        borderBottom: '1px solid #e8ecf0',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '12px'
+                                    }}>
+                                        {activeTab === 'pir' && (
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedUsers.has(userItem.id)}
+                                                onChange={() => handleSelectUser(userItem.id)}
+                                                style={{ cursor: 'pointer', width: '18px', height: '18px', flexShrink: 0 }}
+                                            />
+                                        )}
+                                        <div style={{
+                                            width: '48px',
+                                            height: '48px',
+                                            borderRadius: '12px',
+                                            background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            color: 'white',
+                                            fontWeight: '700',
+                                            fontSize: '20px',
+                                            flexShrink: 0
+                                        }}>
+                                            {(userItem.displayName || userItem.email || 'U').charAt(0).toUpperCase()}
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{
+                                                fontWeight: '600',
+                                                fontSize: '16px',
+                                                color: '#222',
+                                                marginBottom: '4px',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap'
+                                            }}>
+                                                {userItem.displayName || 'N/A'}
+                                            </div>
+                                            <div style={{
+                                                fontSize: '13px',
+                                                color: '#666',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap'
+                                            }}>
+                                                {userItem.email}
+                                            </div>
+                                        </div>
+                                        <span style={{
+                                            padding: '5px 12px',
+                                            borderRadius: '20px',
+                                            fontSize: '12px',
+                                            fontWeight: '600',
+                                            background: userItem.active !== false ? '#dcfce7' : '#fee2e2',
+                                            color: userItem.active !== false ? '#166534' : '#dc2626',
+                                            flexShrink: 0
+                                        }}>
+                                            {userItem.active !== false ? 'Active' : 'Inactive'}
+                                        </span>
+                                    </div>
+
+                                    {/* Card Body - Info Grid */}
+                                    <div style={{ padding: '16px' }}>
+                                        <div style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(2, 1fr)',
+                                            gap: '12px',
+                                            marginBottom: '16px'
+                                        }}>
+                                            {activeTab === 'pir' && (
+                                                <div style={{
+                                                    background: '#f8fafc',
+                                                    borderRadius: '10px',
+                                                    padding: '12px'
+                                                }}>
+                                                    <div style={{ fontSize: '11px', color: '#888', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>
+                                                        Health
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <div style={{
+                                                            width: '10px',
+                                                            height: '10px',
+                                                            borderRadius: '50%',
+                                                            background: getHealthBadgeColor(pirHealthData[userItem.id]?.status)
+                                                        }}></div>
+                                                        <span style={{ fontSize: '15px', fontWeight: '600', color: '#333' }}>
+                                                            {pirHealthData[userItem.id]?.compliance || 0}%
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {activeTab === 'pir' && (
+                                                <div style={{
+                                                    background: '#f8fafc',
+                                                    borderRadius: '10px',
+                                                    padding: '12px'
+                                                }}>
+                                                    <div style={{ fontSize: '11px', color: '#888', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>
+                                                        Last Check-in
+                                                    </div>
+                                                    <div style={{ fontSize: '14px', fontWeight: '500', color: '#333' }}>
+                                                        {pirHealthData[userItem.id]?.lastCheckIn ? formatTimeAgo(pirHealthData[userItem.id].lastCheckIn) : 'Never'}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div style={{
+                                                background: '#f8fafc',
+                                                borderRadius: '10px',
+                                                padding: '12px'
+                                            }}>
+                                                <div style={{ fontSize: '11px', color: '#888', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>
+                                                    Phone
+                                                </div>
+                                                <div style={{ fontSize: '14px', fontWeight: '500', color: '#333' }}>
+                                                    {userItem.phone || '-'}
+                                                </div>
+                                            </div>
+                                            <div style={{
+                                                background: '#f8fafc',
+                                                borderRadius: '10px',
+                                                padding: '12px'
+                                            }}>
+                                                <div style={{ fontSize: '11px', color: '#888', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>
+                                                    Joined
+                                                </div>
+                                                <div style={{ fontSize: '14px', fontWeight: '500', color: '#333' }}>
+                                                    {formatDate(userItem.createdAt)}
+                                                </div>
+                                            </div>
+                                            {activeTab === 'pir' && (
+                                                <div style={{
+                                                    background: '#f8fafc',
+                                                    borderRadius: '10px',
+                                                    padding: '12px',
+                                                    gridColumn: 'span 2'
+                                                }}>
+                                                    <div style={{ fontSize: '11px', color: '#888', fontWeight: '600', textTransform: 'uppercase', marginBottom: '4px' }}>
+                                                        Assigned Coach
+                                                    </div>
+                                                    <div style={{ fontSize: '14px', fontWeight: '500', color: '#333' }}>
+                                                        {userItem.coachName || 'Not assigned'}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Card Actions */}
+                                        <div style={{ display: 'flex', gap: '10px' }}>
+                                            <button
+                                                onClick={() => window.location.href = '/admin/userdetail.html?id=' + userItem.id}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '12px 16px',
+                                                    background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                                    color: 'white',
+                                                    border: 'none',
+                                                    borderRadius: '10px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '14px',
+                                                    fontWeight: '600',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '8px',
+                                                    boxShadow: '0 2px 8px rgba(0,119,204,0.25)'
+                                                }}
+                                            >
+                                                {AdminIcons.Eye({ size: 16 })}
+                                                View Profile
+                                            </button>
+                                            {userItem.role === 'pir' && window.canPerformAction(window.currentUser || {}, 'impersonate') && (
+                                                <button
+                                                    onClick={() => onImpersonate && onImpersonate(userItem)}
+                                                    style={{
+                                                        padding: '12px 16px',
+                                                        background: '#f1f5f9',
+                                                        color: '#475569',
+                                                        border: '1px solid #e2e8f0',
+                                                        borderRadius: '10px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '14px',
+                                                        fontWeight: '600',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '8px'
+                                                    }}
+                                                >
+                                                    {AdminIcons.User({ size: 16 })}
+                                                    View As
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        /* Desktop Table View */
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '12px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                            overflow: 'hidden'
+                        }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ background: '#f8f9fa', borderBottom: '2px solid #e0e0e0' }}>
+                                        {activeTab === 'pir' && (
+                                            <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedUsers.size === paginatedUsers.length && paginatedUsers.length > 0}
+                                                    onChange={handleSelectAll}
+                                                    style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                                                />
+                                            </th>
+                                        )}
+                                        <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Name</th>
+                                        <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Email</th>
+                                        <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Status</th>
+                                        {activeTab === 'pir' && <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Health</th>}
+                                        {activeTab === 'pir' && <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Assigned Coach</th>}
+                                        {activeTab === 'pir' && <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Last Check-in</th>}
+                                        <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Phone</th>
+                                        <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Joined</th>
+                                        <th style={{ padding: '15px', textAlign: 'left', fontWeight: '600', color: '#333' }}>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {paginatedUsers.map((userItem) => (
+                                        <tr key={userItem.id} style={{
+                                            borderBottom: '1px solid #e0e0e0',
+                                            transition: 'all 0.3s ease',
+                                            background: selectedUsers.has(userItem.id) ? '#e3f2fd' : 'white'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            if (!selectedUsers.has(userItem.id)) {
+                                                e.currentTarget.style.background = '#f8f9fa';
+                                            }
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            if (!selectedUsers.has(userItem.id)) {
+                                                e.currentTarget.style.background = 'white';
+                                            }
+                                        }}
+                                        >
+                                            {activeTab === 'pir' && (
+                                                <td style={{ padding: '15px' }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedUsers.has(userItem.id)}
+                                                        onChange={() => handleSelectUser(userItem.id)}
+                                                        style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                                                    />
+                                                </td>
+                                            )}
+                                            <td style={{ padding: '15px' }}>
+                                                <div
+                                                    onClick={() => window.location.href = '/admin/userdetail.html?id=' + userItem.id}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
+                                                >
+                                                    <div style={{
+                                                        width: '40px',
+                                                        height: '40px',
+                                                        borderRadius: '50%',
+                                                        background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        color: 'white',
+                                                        fontWeight: '600',
+                                                        fontSize: '16px'
+                                                    }}>
+                                                        {(userItem.displayName || userItem.email || 'U').charAt(0).toUpperCase()}
+                                                    </div>
+                                                    <span style={{ fontWeight: '500', color: '#0077CC' }}>
+                                                        {userItem.displayName || 'N/A'}
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            <td style={{ padding: '15px', color: '#666' }}>{userItem.email}</td>
+                                            <td style={{ padding: '15px' }}>
+                                                <span style={{
+                                                    padding: '4px 12px',
+                                                    borderRadius: '20px',
+                                                    fontSize: '12px',
+                                                    fontWeight: '500',
+                                                    background: userItem.active !== false ? '#e8f5e9' : '#ffebee',
+                                                    color: userItem.active !== false ? '#2e7d32' : '#c62828'
+                                                }}>
+                                                    {userItem.active !== false ? 'Active' : 'Inactive'}
+                                                </span>
+                                            </td>
+                                            {activeTab === 'pir' && (
+                                                <td style={{ padding: '15px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <div style={{
+                                                            width: '8px',
+                                                            height: '8px',
+                                                            borderRadius: '50%',
+                                                            background: getHealthBadgeColor(pirHealthData[userItem.id]?.status)
+                                                        }}></div>
+                                                        <span style={{ fontSize: '13px', fontWeight: '500', color: '#666' }}>
+                                                            {pirHealthData[userItem.id]?.compliance || 0}%
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                            )}
+                                            {activeTab === 'pir' && <td style={{ padding: '15px', color: '#666' }}>{userItem.coachName || '-'}</td>}
+                                            {activeTab === 'pir' && (
+                                                <td style={{ padding: '15px', color: '#666' }}>
+                                                    {pirHealthData[userItem.id]?.lastCheckIn ? formatTimeAgo(pirHealthData[userItem.id].lastCheckIn) : 'Never'}
+                                                </td>
+                                            )}
+                                            <td style={{ padding: '15px', color: '#666' }}>{userItem.phone || '-'}</td>
+                                            <td style={{ padding: '15px', color: '#666' }}>{formatDate(userItem.createdAt)}</td>
+                                            <td style={{ padding: '15px' }}>
+                                                <div style={{ display: 'flex', gap: '8px' }}>
+                                                    <button
+                                                        onClick={() => window.location.href = '/admin/userdetail.html?id=' + userItem.id}
+                                                        style={{
+                                                            padding: '6px 12px',
+                                                            background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                                            color: 'white',
+                                                            border: 'none',
+                                                            borderRadius: '6px',
+                                                            cursor: 'pointer',
+                                                            fontSize: '13px',
+                                                            fontWeight: '500',
+                                                            transition: 'all 0.3s ease'
+                                                        }}
+                                                        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                                                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                                    >
+                                                        View
+                                                    </button>
+                                                    {userItem.role === 'pir' && window.canPerformAction(window.currentUser || {}, 'impersonate') && (
+                                                        <button
+                                                            onClick={() => onImpersonate && onImpersonate(userItem)}
+                                                            style={{
+                                                                padding: '6px 12px',
+                                                                background: '#555',
+                                                                color: 'white',
+                                                                border: 'none',
+                                                                borderRadius: '6px',
+                                                                cursor: 'pointer',
+                                                                fontSize: '13px',
+                                                                fontWeight: '500',
+                                                                transition: 'all 0.3s ease'
+                                                            }}
+                                                            onMouseEnter={(e) => {
+                                                                e.currentTarget.style.background = '#666';
+                                                                e.currentTarget.style.transform = 'scale(1.05)';
+                                                            }}
+                                                            onMouseLeave={(e) => {
+                                                                e.currentTarget.style.background = '#555';
+                                                                e.currentTarget.style.transform = 'scale(1)';
+                                                            }}
+                                                        >
+                                                            View As
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    {filteredUsers.length === 0 && (
+                            <div style={{
+                                padding: '60px 20px',
+                                textAlign: 'center',
+                                color: '#666'
+                            }}>
+                                <div style={{ marginBottom: '15px' }}>{AdminIcons.Search({ size: 48, color: '#ccc' })}</div>
+                                <div style={{ fontSize: '18px', fontWeight: '500', marginBottom: '8px' }}>
+                                    {searchQuery ? `No ${activeTab}s found matching your search` : `No ${activeTab}s found`}
+                                </div>
+                                <div style={{ fontSize: '14px' }}>
+                                    {searchQuery ? 'Try adjusting your search terms' : `Click "Create User" to add a new ${activeTab}`}
+                                </div>
+                            </div>
+                        )}
+
+                    {totalPages > 1 && (
+                        <div style={{ marginTop: '20px' }}>
+                            <Pagination
+                                currentPage={currentPage}
+                                totalPages={totalPages}
+                                onPageChange={setCurrentPage}
+                            />
+                        </div>
+                    )}
+
+                    {showCreateModal && (
+                        <CreateUserModal
+                            onClose={() => setShowCreateModal(false)}
+                            onSuccess={() => {
+                                setShowCreateModal(false);
+                                loadUsers();
+                            }}
+                        />
+                    )}
+
+                    {selectedUser && (
+                        selectedUser.role === 'coach' || selectedUser.role === 'admin' ? (
+                            <CoachDetailModal
+                                coach={selectedUser}
+                                onClose={() => setSelectedUser(null)}
+                                onUpdate={() => {
+                                    setSelectedUser(null);
+                                    loadUsers();
+                                }}
+                                currentUserId={user.uid}
+                            />
+                        ) : (
+                            <UserDetailModal
+                                user={selectedUser}
+                                onClose={() => setSelectedUser(null)}
+                                onUpdate={() => {
+                                    setSelectedUser(null);
+                                    loadUsers();
+                                }}
+                                currentUserId={user.uid}
+                            />
+                        )
+                    )}
+                </div>
+            );
+        }
+
+        // ==========================================
+        // MY PIRS VIEW (Merged from mypirs.html)
+        // Coach's view of their assigned PIRs with health metrics
+        // ==========================================
+        function MyPIRsView({ searchQuery, user }) {
+            const [myPIRs, setMyPIRs] = useState([]);
+            const [filteredPIRs, setFilteredPIRs] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [selectedPIR, setSelectedPIR] = useState(null);
+            const [activeFilter, setActiveFilter] = useState('all');
+            const [recentCheckIns, setRecentCheckIns] = useState([]);
+            const [pendingAlerts, setPendingAlerts] = useState([]);
+            const [showNotesModal, setShowNotesModal] = useState(false);
+            const [selectedPIRForNotes, setSelectedPIRForNotes] = useState(null);
+            const [pirNotes, setPirNotes] = useState({});
+            const [sortBy, setSortBy] = useState('daysClean');
+            const [viewMode, setViewMode] = useState('grid');
+
+            const moodChartRefs = useRef({});
+            const cravingChartRefs = useRef({});
+            const chartInstances = useRef({});
+
+            // ==========================================
+            // GOOGLE CALENDAR HELPER FUNCTIONS
+            // ==========================================
+
+            // Recovery milestones calculation
+            const getRecoveryMilestones = (sobrietyDate) => {
+                if (!sobrietyDate) return [];
+
+                let startYear, startMonth, startDay;
+
+                if (typeof sobrietyDate === 'string' && sobrietyDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    [startYear, startMonth, startDay] = sobrietyDate.split('-').map(Number);
+                } else if (sobrietyDate.toDate) {
+                    const d = sobrietyDate.toDate();
+                    startYear = d.getFullYear();
+                    startMonth = d.getMonth() + 1;
+                    startDay = d.getDate();
+                } else if (sobrietyDate.seconds) {
+                    const d = new Date(sobrietyDate.seconds * 1000);
+                    startYear = d.getFullYear();
+                    startMonth = d.getMonth() + 1;
+                    startDay = d.getDate();
+                } else {
+                    const d = new Date(sobrietyDate);
+                    startYear = d.getFullYear();
+                    startMonth = d.getMonth() + 1;
+                    startDay = d.getDate();
+                }
+
+                const startDate = new Date(startYear, startMonth - 1, startDay, 0, 0, 0, 0);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+
+                const daysSober = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 2;
+                const milestones = [];
+
+                // Day-based milestones
+                const dayBased = [
+                    { days: 1, title: '24 Hours Clean', icon: 'star' },
+                    { days: 7, title: '1 Week Clean', icon: 'calendar' },
+                    { days: 30, title: '1 Month Clean', icon: 'trophy' },
+                    { days: 60, title: '2 Months Clean', icon: 'award' },
+                    { days: 90, title: '3 Months Clean', icon: 'target' },
+                    { days: 100, title: '100 Days Clean', icon: 'check' },
+                    { days: 200, title: '200 Days Clean', icon: 'sparkle' },
+                    { days: 500, title: '500 Days Clean', icon: 'trophy' },
+                    { days: 1000, title: '1000 Days Clean', icon: 'medal' }
+                ];
+
+                dayBased.forEach(milestone => {
+                    const targetDate = new Date(startDate);
+                    targetDate.setDate(targetDate.getDate() + milestone.days - 1);
+
+                    milestones.push({
+                        ...milestone,
+                        date: targetDate,
+                        targetDate: targetDate,
+                        achieved: daysSober >= milestone.days,
+                        isToday: daysSober === milestone.days,
+                        isTomorrow: daysSober === (milestone.days - 1),
+                        daysUntil: milestone.days - daysSober,
+                        type: 'recovery'
+                    });
+                });
+
+                // Monthly milestones
+                const monthBased = [
+                    { months: 4, title: '4 Months Clean', icon: 'star' },
+                    { months: 5, title: '5 Months Clean', icon: 'rainbow' },
+                    { months: 6, title: '6 Months Clean', icon: 'celebrate' },
+                    { months: 7, title: '7 Months Clean', icon: 'star' },
+                    { months: 8, title: '8 Months Clean', icon: 'medal' },
+                    { months: 9, title: '9 Months Clean', icon: 'gem' },
+                    { months: 10, title: '10 Months Clean', icon: 'flower' },
+                    { months: 11, title: '11 Months Clean', icon: 'confetti' },
+                    { months: 12, title: '1 Year Clean', icon: 'cake' },
+                    { months: 18, title: '18 Months Clean', icon: 'star' }
+                ];
+
+                monthBased.forEach(milestone => {
+                    const targetDate = new Date(startYear, (startMonth - 1) + milestone.months, startDay, 0, 0, 0, 0);
+                    const approxDays = Math.floor((targetDate - startDate) / (1000 * 60 * 60 * 24)) + 2;
+
+                    milestones.push({
+                        days: approxDays,
+                        title: milestone.title,
+                        icon: milestone.icon,
+                        date: targetDate,
+                        targetDate: targetDate,
+                        achieved: today >= targetDate,
+                        isToday: today.toDateString() === targetDate.toDateString(),
+                        isTomorrow: false,
+                        daysUntil: Math.ceil((targetDate - today) / (1000 * 60 * 60 * 24)),
+                        type: 'recovery'
+                    });
+                });
+
+                // Yearly milestones
+                for (let year = 2; year <= 20; year++) {
+                    const targetDate = new Date(startYear + year, startMonth - 1, startDay, 0, 0, 0, 0);
+                    const approxDays = Math.floor((targetDate - startDate) / (1000 * 60 * 60 * 24)) + 2;
+
+                    milestones.push({
+                        days: approxDays,
+                        title: `${year} Years Clean`,
+                        icon: 'star',
+                        date: targetDate,
+                        targetDate: targetDate,
+                        achieved: today >= targetDate,
+                        isToday: today.toDateString() === targetDate.toDateString(),
+                        isTomorrow: false,
+                        daysUntil: Math.ceil((targetDate - today) / (1000 * 60 * 60 * 24)),
+                        type: 'recovery'
+                    });
+                }
+
+                milestones.sort((a, b) => a.targetDate - b.targetDate);
+                return milestones;
+            };
+
+            // Check if Google token is valid
+            const checkGoogleToken = async () => {
+                if (!user.googleConnected || !user.googleAccessToken) {
+                    return {
+                        valid: false,
+                        error: 'Google Services not connected. Please connect Google in your Profile settings.'
+                    };
+                }
+
+                if (user.googleTokenExpiry) {
+                    const now = Date.now();
+                    const expiryTime = user.googleTokenExpiry;
+                    const fiveMinutes = 5 * 60 * 1000;
+
+                    if (now >= expiryTime - fiveMinutes) {
+                        return {
+                            valid: false,
+                            error: 'Google token expired. Please reconnect Google Services in Profile.'
+                        };
+                    }
+                }
+
+                return { valid: true };
+            };
+
+            // Add milestones to coach's Google Calendar
+            const addMilestonesToCoachCalendar = async (pir, accessToken) => {
+                try {
+                    if (!pir.sobrietyDate) {
+                        alert('PIR has no sobriety date set. Cannot calculate milestones.');
+                        return;
+                    }
+
+                    const tokenCheck = await checkGoogleToken();
+                    if (!tokenCheck.valid) {
+                        alert('Cannot add milestones without Google Calendar\n\n' + tokenCheck.error);
+                        return;
+                    }
+
+                    const validToken = user.googleAccessToken;
+                    const milestones = getRecoveryMilestones(pir.sobrietyDate);
+                    const upcomingMilestones = milestones.filter(m => !m.achieved);
+
+                    if (upcomingMilestones.length === 0) {
+                        alert(`${pir.displayName || 'PIR'} has achieved all defined milestones!`);
+                        return;
+                    }
+
+                    console.log(`Creating ${upcomingMilestones.length} milestone events...`);
+
+                    let successCount = 0;
+                    let failCount = 0;
+                    const createdEvents = [];
+
+                    for (const milestone of upcomingMilestones) {
+                        try {
+                            const eventDate = milestone.targetDate.toISOString().split('T')[0];
+
+                            const event = {
+                                summary: `${pir.displayName || 'PIR'} - ${milestone.title}`,
+                                description: `Celebrate ${pir.displayName || pir.email}'s milestone!\n\nDays Clean: ${milestone.days}\n\nRemember to acknowledge this achievement!`,
+                                start: {
+                                    date: eventDate,
+                                    timeZone: 'America/Los_Angeles'
+                                },
+                                end: {
+                                    date: eventDate,
+                                    timeZone: 'America/Los_Angeles'
+                                },
+                                reminders: {
+                                    useDefault: false,
+                                    overrides: [
+                                        { method: 'email', minutes: 24 * 60 },
+                                        { method: 'popup', minutes: 0 }
+                                    ]
+                                },
+                                colorId: '9'
+                            };
+
+                            const response = await fetch(
+                                'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+                                {
+                                    method: 'POST',
+                                    headers: {
+                                        'Authorization': `Bearer ${validToken}`,
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify(event)
+                                }
+                            );
+
+                            if (response.ok) {
+                                const createdEvent = await response.json();
+                                successCount++;
+                                console.log(`Created: ${milestone.title}`);
+
+                                createdEvents.push({
+                                    eventId: createdEvent.id,
+                                    milestoneDays: milestone.days,
+                                    milestoneTitle: milestone.title,
+                                    milestoneDate: eventDate,
+                                    createdAt: new Date().toISOString()
+                                });
+                            } else {
+                                failCount++;
+                                console.error(`Failed: ${milestone.title}`);
+                            }
+                        } catch (error) {
+                            failCount++;
+                            console.error(`Error creating milestone event:`, error);
+                        }
+                    }
+
+                    // Save tracked events to Firestore
+                    if (createdEvents.length > 0) {
+                        try {
+                            await db.collection('users').doc(pir.id).update({
+                                milestoneCalendarEvents: createdEvents,
+                                milestonesLastSynced: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                        } catch (error) {
+                            console.error('Error saving event IDs to Firestore:', error);
+                        }
+                    }
+
+                    if (successCount > 0 && failCount === 0) {
+                        alert(
+                            `Success!\n\n` +
+                            `${successCount} milestone celebration${successCount > 1 ? 's' : ''} added to your calendar!\n\n` +
+                            `You'll be reminded to celebrate each milestone with ${pir.displayName || 'your PIR'}!`
+                        );
+                    } else if (successCount > 0 && failCount > 0) {
+                        alert(
+                            `Partial Success\n\n` +
+                            `${successCount} milestone${successCount > 1 ? 's' : ''} added\n` +
+                            `${failCount} failed\n\n` +
+                            `Check console for details.`
+                        );
+                    } else {
+                        alert(
+                            `Failed to add milestones\n\n` +
+                            `Please check your Google Calendar connection and try again.`
+                        );
+                    }
+                } catch (error) {
+                    console.error('Error adding milestones to calendar:', error);
+                    alert('Failed to add milestones: ' + error.message);
+                }
+            };
+
+            // ==========================================
+            // DATA LOADING FUNCTIONS
+            // ==========================================
+
+            useEffect(() => {
+                loadMyPIRs();
+                loadPIRNotes();
+            }, [user]);
+
+            useEffect(() => {
+                filterPIRs();
+            }, [searchQuery, myPIRs, activeFilter, sortBy]);
+
+            useEffect(() => {
+                if (myPIRs.length > 0 && viewMode === 'grid') {
+                    myPIRs.forEach(pir => {
+                        if (pir.moodTrend) renderMiniChart(pir.id, 'mood', pir.moodTrend);
+                        if (pir.cravingTrend) renderMiniChart(pir.id, 'craving', pir.cravingTrend);
+                    });
+                }
+            }, [myPIRs, viewMode]);
+
+            const loadPIRNotes = async () => {
+                try {
+                    const notesSnap = await db.collection('pirNotes')
+                        .where('tenantId', '==', CURRENT_TENANT)
+                        .where('coachId', '==', user.uid)
+                        .get();
+
+                    const notes = {};
+                    notesSnap.forEach(doc => {
+                        notes[doc.data().pirId] = doc.data().notes;
+                    });
+                    setPirNotes(notes);
+                } catch (error) {
+                    console.error('Error loading PIR notes:', error);
+                }
+            };
+
+            const loadMyPIRs = async () => {
+                try {
+                    setLoading(true);
+
+                    // Apply data scope based on user role
+                    let pirQuery = db.collection('users').where('role', '==', 'pir');
+                    pirQuery = window.applyScopeToPIRQuery(pirQuery, user, CURRENT_TENANT);
+
+                    const pirsSnap = await pirQuery.get();
+
+                    const pirsData = [];
+                    const pirIds = [];
+
+                    for (const doc of pirsSnap.docs) {
+                        const pirData = { id: doc.id, ...doc.data() };
+                        pirIds.push(doc.id);
+
+                        // Get last check-in
+                        const lastCheckInSnap = await db.collection('checkIns')
+                            .where('tenantId', '==', CURRENT_TENANT)
+                            .where('userId', '==', doc.id)
+                            .orderBy('createdAt', 'desc')
+                            .limit(1)
+                            .get();
+
+                        if (!lastCheckInSnap.empty) {
+                            pirData.lastCheckIn = lastCheckInSnap.docs[0].data();
+                            pirData.lastCheckInDate = lastCheckInSnap.docs[0].data().createdAt;
+                        }
+
+                        // Get last 7 days of check-ins for trend
+                        const sevenDaysAgo = new Date();
+                        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+                        const weekCheckInsSnap = await db.collection('checkIns')
+                            .where('tenantId', '==', CURRENT_TENANT)
+                            .where('userId', '==', doc.id)
+                            .where('createdAt', '>=', sevenDaysAgo)
+                            .orderBy('createdAt', 'asc')
+                            .get();
+
+                        const moodTrend = [];
+                        const cravingTrend = [];
+
+                        weekCheckInsSnap.forEach(checkInDoc => {
+                            const data = checkInDoc.data();
+                            if (data.morningData?.mood) moodTrend.push(data.morningData.mood);
+                            if (data.morningData?.craving) cravingTrend.push(data.morningData.craving);
+                        });
+
+                        pirData.moodTrend = moodTrend;
+                        pirData.cravingTrend = cravingTrend;
+
+                        // Calculate days clean
+                        if (pirData.sobrietyDate) {
+                            const sobrietyDate = pirData.sobrietyDate.toDate ?
+                                pirData.sobrietyDate.toDate() : new Date(pirData.sobrietyDate);
+                            pirData.daysClean = Math.floor((new Date() - sobrietyDate) / (1000 * 60 * 60 * 24));
+                        } else {
+                            pirData.daysClean = 0;
+                        }
+
+                        // Check compliance
+                        pirData.weeklyCheckIns = weekCheckInsSnap.size;
+                        pirData.complianceRate = Math.min(Math.round((weekCheckInsSnap.size / 14) * 100), 100);
+
+                        // Check for active alerts
+                        const alertsSnap = await db.collection('alerts')
+                            .where('tenantId', '==', CURRENT_TENANT)
+                            .where('userId', '==', doc.id)
+                            .where('resolved', '==', false)
+                            .get();
+
+                        pirData.activeAlerts = alertsSnap.size;
+
+                        // Get milestone badge
+                        pirData.milestone = getMilestone(pirData.daysClean);
+
+                        pirsData.push(pirData);
+                    }
+
+                    // Load recent check-ins
+                    if (pirIds.length > 0) {
+                        const checkInsPromises = pirIds.map(id =>
+                            db.collection('checkIns')
+                                .where('tenantId', '==', CURRENT_TENANT)
+                                .where('userId', '==', id)
+                                .orderBy('createdAt', 'desc')
+                                .limit(3)
+                                .get()
+                        );
+
+                        const checkInsSnapshots = await Promise.all(checkInsPromises);
+                        const allCheckIns = [];
+
+                        checkInsSnapshots.forEach((snapshot, index) => {
+                            snapshot.forEach(doc => {
+                                const checkInData = { id: doc.id, ...doc.data() };
+                                const pir = pirsData.find(p => p.id === pirIds[index]);
+                                checkInData.pirName = pir?.displayName || pir?.email || 'Unknown';
+                                checkInData.pirId = pirIds[index];
+                                allCheckIns.push(checkInData);
+                            });
+                        });
+
+                        allCheckIns.sort((a, b) => {
+                            const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+                            const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+                            return dateB - dateA;
+                        });
+
+                        setRecentCheckIns(allCheckIns.slice(0, 10));
+
+                        // Load pending alerts
+                        const alertsPromises = pirIds.map(id =>
+                            db.collection('alerts')
+                                .where('tenantId', '==', CURRENT_TENANT)
+                                .where('userId', '==', id)
+                                .where('resolved', '==', false)
+                                .get()
+                        );
+
+                        const alertsSnapshots = await Promise.all(alertsPromises);
+                        const allAlerts = [];
+
+                        alertsSnapshots.forEach((snapshot, index) => {
+                            snapshot.forEach(doc => {
+                                const alertData = { id: doc.id, ...doc.data() };
+                                const pir = pirsData.find(p => p.id === pirIds[index]);
+                                alertData.pirName = pir?.displayName || pir?.email || 'Unknown';
+                                alertData.pirId = pirIds[index];
+                                allAlerts.push(alertData);
+                            });
+                        });
+
+                        setPendingAlerts(allAlerts);
+                    }
+
+                    setMyPIRs(pirsData);
+                    setFilteredPIRs(pirsData);
+
+                } catch (error) {
+                    console.error('Error loading my PIRs:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const getMilestone = (days) => {
+                if (days >= 365) return { label: '1 Year+', color: '#9C27B0', icon: 'crown' };
+                if (days >= 180) return { label: '6 Months', color: '#673AB7', icon: 'gem' };
+                if (days >= 90) return { label: '90 Days', color: '#3F51B5', icon: 'star' };
+                if (days >= 60) return { label: '60 Days', color: '#4682B4', icon: 'star' };
+                if (days >= 30) return { label: '30 Days', color: '#00A86B', icon: 'target' };
+                if (days >= 7) return { label: '1 Week', color: '#8BC34A', icon: 'sparkle' };
+                return null;
+            };
+
+            const renderMiniChart = (pirId, type, data) => {
+                const refKey = `${type}-${pirId}`;
+                const chartRef = type === 'mood' ? moodChartRefs.current[pirId] : cravingChartRefs.current[pirId];
+
+                if (!chartRef) return;
+
+                if (chartInstances.current[refKey]) {
+                    chartInstances.current[refKey].destroy();
+                }
+
+                const ctx = chartRef.getContext('2d');
+                chartInstances.current[refKey] = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.map((_, i) => ''),
+                        datasets: [{
+                            data: data,
+                            borderColor: type === 'mood' ? '#00A86B' : '#FF9800',
+                            borderWidth: 2,
+                            fill: false,
+                            tension: 0.4,
+                            pointRadius: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { display: false, min: 0, max: 10 },
+                            x: { display: false }
+                        },
+                        plugins: { legend: { display: false } }
+                    }
+                });
+            };
+
+            const filterPIRs = () => {
+                let filtered = [...myPIRs];
+
+                if (activeFilter === 'needsAttention') {
+                    filtered = filtered.filter(pir =>
+                        pir.complianceRate < 50 ||
+                        pir.activeAlerts > 0 ||
+                        !pir.lastCheckInDate ||
+                        (pir.lastCheckInDate && daysSince(pir.lastCheckInDate) > 2)
+                    );
+                } else if (activeFilter === 'compliant') {
+                    filtered = filtered.filter(pir =>
+                        pir.complianceRate >= 70 &&
+                        pir.activeAlerts === 0
+                    );
+                }
+
+                if (searchQuery) {
+                    const query = searchQuery.toLowerCase();
+                    filtered = filtered.filter(pir =>
+                        pir.email?.toLowerCase().includes(query) ||
+                        pir.displayName?.toLowerCase().includes(query) ||
+                        pir.firstName?.toLowerCase().includes(query) ||
+                        pir.lastName?.toLowerCase().includes(query)
+                    );
+                }
+
+                // Sort
+                filtered.sort((a, b) => {
+                    if (sortBy === 'daysClean') return b.daysClean - a.daysClean;
+                    if (sortBy === 'compliance') return b.complianceRate - a.complianceRate;
+                    if (sortBy === 'lastCheckIn') {
+                        const dateA = a.lastCheckInDate?.toDate ? a.lastCheckInDate.toDate() : new Date(0);
+                        const dateB = b.lastCheckInDate?.toDate ? b.lastCheckInDate.toDate() : new Date(0);
+                        return dateB - dateA;
+                    }
+                    return 0;
+                });
+
+                setFilteredPIRs(filtered);
+            };
+
+            const daysSince = (date) => {
+                if (!date) return 999;
+                const checkDate = date?.toDate ? date.toDate() : new Date(date);
+                return Math.floor((new Date() - checkDate) / (1000 * 60 * 60 * 24));
+            };
+
+            const handleSaveNotes = async (pirId, notes) => {
+                try {
+                    await db.collection('pirNotes').doc(`${user.uid}_${pirId}`).set({
+                        coachId: user.uid,
+                        pirId: pirId,
+                        tenantId: CURRENT_TENANT,
+                        notes: notes,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    setPirNotes(prev => ({ ...prev, [pirId]: notes }));
+                    alert('Notes saved successfully');
+                } catch (error) {
+                    console.error('Error saving notes:', error);
+                    alert('Failed to save notes');
+                }
+            };
+
+            const handleQuickAssignment = async (pirId) => {
+                const title = prompt('Assignment Title:');
+                if (title) {
+                    const description = prompt('Assignment Description:');
+                    const dueDate = prompt('Due Date (YYYY-MM-DD):');
+
+                    try {
+                        await db.collection('assignments').add({
+                            tenantId: CURRENT_TENANT,
+                            userId: pirId,
+                            title: title,
+                            description: description || '',
+                            dueDate: dueDate || '',
+                            status: 'pending',
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            createdBy: user.uid
+                        });
+
+                        alert('Assignment created successfully!');
+                    } catch (error) {
+                        console.error('Error creating assignment:', error);
+                        alert('Failed to create assignment');
+                    }
+                }
+            };
+
+            const handleResolveAlert = async (alertId) => {
+                try {
+                    await db.collection('alerts').doc(alertId).update({
+                        resolved: true,
+                        resolvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        resolvedBy: user.uid
+                    });
+
+                    loadMyPIRs();
+                } catch (error) {
+                    console.error('Error resolving alert:', error);
+                    alert('Failed to resolve alert');
+                }
+            };
+
+            const handleExportPIRReport = (pir) => {
+                const reportData = {
+                    name: pir.displayName || pir.email,
+                    email: pir.email,
+                    daysClean: pir.daysClean,
+                    complianceRate: `${pir.complianceRate}%`,
+                    weeklyCheckIns: pir.weeklyCheckIns,
+                    activeAlerts: pir.activeAlerts,
+                    lastCheckIn: pir.lastCheckInDate ? formatDateTime(pir.lastCheckInDate) : 'Never',
+                    lastMood: pir.lastCheckIn?.morningData?.mood || 'N/A',
+                    lastCraving: pir.lastCheckIn?.morningData?.craving || 'N/A',
+                    milestone: pir.milestone?.label || 'None',
+                    notes: pirNotes[pir.id] || 'No notes'
+                };
+
+                const csv = Object.entries(reportData).map(([key, value]) => `${key},${value}`).join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${pir.displayName || 'PIR'}_Report.csv`;
+                a.click();
+            };
+
+            const getStatusColor = (pir) => {
+                if (pir.activeAlerts > 0) return '#f44336';
+                if (pir.complianceRate < 50) return '#FF9800';
+                if (pir.complianceRate >= 70) return '#00A86B';
+                return '#FFC107';
+            };
+
+            const getStatusLabel = (pir) => {
+                if (pir.activeAlerts > 0) return 'Alert';
+                if (!pir.lastCheckInDate) return 'No Check-in';
+                if (daysSince(pir.lastCheckInDate) > 2) return 'Overdue';
+                if (pir.complianceRate >= 70) return 'Good';
+                if (pir.complianceRate >= 50) return 'Fair';
+                return 'Needs Attention';
+            };
+
+            if (loading) {
+                return (
+                    <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: '400px',
+                        gap: '20px'
+                    }}>
+                        <div style={{
+                            width: '60px',
+                            height: '60px',
+                            border: '4px solid #f3f3f3',
+                            borderTop: '4px solid #0077CC',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite'
+                        }}></div>
+                        <p style={{ color: '#666' }}>Loading your PIRs...</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div style={{ padding: '20px', animation: 'fadeIn 0.5s' }}>
+                    {/* Stats Cards */}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                        gap: '20px',
+                        marginBottom: '30px'
+                    }}>
+                        <div style={{
+                            background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                            borderRadius: '15px',
+                            padding: '25px',
+                            color: 'white',
+                            boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+                            transition: 'transform 0.2s',
+                            cursor: 'pointer'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            <div style={{ fontSize: '14px', opacity: 0.9 }}>Total PIRs</div>
+                            <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                                {myPIRs.length}
+                            </div>
+                            <div style={{ fontSize: '12px', opacity: 0.8 }}>In your caseload</div>
+                        </div>
+
+                        <div style={{
+                            background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                            borderRadius: '15px',
+                            padding: '25px',
+                            color: 'white',
+                            boxShadow: '0 4px 15px rgba(240, 147, 251, 0.3)',
+                            transition: 'transform 0.2s',
+                            cursor: 'pointer'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            <div style={{ fontSize: '14px', opacity: 0.9 }}>Active Alerts</div>
+                            <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                                {pendingAlerts.length}
+                            </div>
+                            <div style={{ fontSize: '12px', opacity: 0.8 }}>Need attention</div>
+                        </div>
+
+                        <div style={{
+                            background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                            borderRadius: '15px',
+                            padding: '25px',
+                            color: 'white',
+                            boxShadow: '0 4px 15px rgba(79, 172, 254, 0.3)',
+                            transition: 'transform 0.2s',
+                            cursor: 'pointer'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            <div style={{ fontSize: '14px', opacity: 0.9 }}>Compliant PIRs</div>
+                            <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                                {myPIRs.filter(p => p.complianceRate >= 70).length}
+                            </div>
+                            <div style={{ fontSize: '12px', opacity: 0.8 }}>70%+ compliance</div>
+                        </div>
+
+                        <div style={{
+                            background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+                            borderRadius: '15px',
+                            padding: '25px',
+                            color: 'white',
+                            boxShadow: '0 4px 15px rgba(250, 112, 154, 0.3)',
+                            transition: 'transform 0.2s',
+                            cursor: 'pointer'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            <div style={{ fontSize: '14px', opacity: 0.9 }}>Avg Days Clean</div>
+                            <div style={{ fontSize: '42px', fontWeight: 'bold', margin: '10px 0' }}>
+                                {Math.round(myPIRs.reduce((acc, p) => acc + p.daysClean, 0) / (myPIRs.length || 1))}
+                            </div>
+                            <div style={{ fontSize: '12px', opacity: 0.8 }}>All PIRs average</div>
+                        </div>
+                    </div>
+
+                    {/* Pending Alerts Banner */}
+                    {pendingAlerts.length > 0 && (
+                        <div style={{
+                            background: 'linear-gradient(135deg, #ff4444, #cc0000)',
+                            padding: '20px',
+                            borderRadius: '15px',
+                            marginBottom: '20px',
+                            boxShadow: '0 4px 15px rgba(255, 68, 68, 0.4)'
+                        }}>
+                            <div style={{ color: 'white', marginBottom: '15px', fontSize: '18px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                {AdminIcons.AlertTriangle && AdminIcons.AlertTriangle({ size: 24, color: 'white' })}
+                                {pendingAlerts.length} Pending Alert{pendingAlerts.length > 1 ? 's' : ''}
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                {pendingAlerts.slice(0, 3).map(alert => (
+                                    <div key={alert.id} style={{
+                                        background: 'rgba(255,255,255,0.15)',
+                                        backdropFilter: 'blur(10px)',
+                                        borderRadius: '10px',
+                                        padding: '15px',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        color: 'white'
+                                    }}>
+                                        <div>
+                                            <div style={{ fontWeight: '600', marginBottom: '5px' }}>
+                                                {alert.pirName} - {alert.type?.replace('_', ' ')}
+                                            </div>
+                                            <div style={{ fontSize: '13px', opacity: 0.9 }}>
+                                                {alert.message}
+                                            </div>
+                                            <div style={{ fontSize: '11px', opacity: 0.7, marginTop: '5px' }}>
+                                                {formatTimeAgo(alert.createdAt)}
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => handleResolveAlert(alert.id)}
+                                            style={{
+                                                padding: '8px 16px',
+                                                background: 'white',
+                                                color: '#DC143C',
+                                                border: 'none',
+                                                borderRadius: '8px',
+                                                cursor: 'pointer',
+                                                fontSize: '13px',
+                                                fontWeight: '600',
+                                                transition: 'transform 0.2s'
+                                            }}
+                                            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                                            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                        >
+                                            Resolve
+                                        </button>
+                                    </div>
+                                ))}
+                                {pendingAlerts.length > 3 && (
+                                    <div style={{ color: 'white', fontSize: '13px', opacity: 0.9, textAlign: 'center' }}>
+                                        +{pendingAlerts.length - 3} more alerts
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Filters and Controls */}
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '15px',
+                        padding: '20px',
+                        marginBottom: '20px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                <button
+                                    onClick={() => setActiveFilter('all')}
+                                    style={{
+                                        padding: '8px 16px',
+                                        background: activeFilter === 'all' ? 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)' : '#f0f0f0',
+                                        color: activeFilter === 'all' ? 'white' : '#666',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        fontWeight: '500',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    All ({myPIRs.length})
+                                </button>
+                                <button
+                                    onClick={() => setActiveFilter('needsAttention')}
+                                    style={{
+                                        padding: '8px 16px',
+                                        background: activeFilter === 'needsAttention' ? 'linear-gradient(135deg, #f44336 0%, #e53935 100%)' : '#f0f0f0',
+                                        color: activeFilter === 'needsAttention' ? 'white' : '#666',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        fontWeight: '500',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    Needs Attention ({myPIRs.filter(p =>
+                                        p.complianceRate < 50 || p.activeAlerts > 0 || daysSince(p.lastCheckInDate) > 2
+                                    ).length})
+                                </button>
+                                <button
+                                    onClick={() => setActiveFilter('compliant')}
+                                    style={{
+                                        padding: '8px 16px',
+                                        background: activeFilter === 'compliant' ? 'linear-gradient(135deg, #00A86B 0%, #008554 100%)' : '#f0f0f0',
+                                        color: activeFilter === 'compliant' ? 'white' : '#666',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        fontWeight: '500',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    Compliant ({myPIRs.filter(p => p.complianceRate >= 70 && p.activeAlerts === 0).length})
+                                </button>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                <select
+                                    value={sortBy}
+                                    onChange={(e) => setSortBy(e.target.value)}
+                                    style={{
+                                        padding: '8px 12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #ddd',
+                                        background: 'white',
+                                        cursor: 'pointer',
+                                        fontSize: '14px'
+                                    }}
+                                >
+                                    <option value="daysClean">Sort by Days Clean</option>
+                                    <option value="compliance">Sort by Compliance</option>
+                                    <option value="lastCheckIn">Sort by Last Check-in</option>
+                                </select>
+
+                                <button
+                                    onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+                                    style={{
+                                        padding: '8px 16px',
+                                        background: '#6c757d',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        fontWeight: '500'
+                                    }}
+                                >
+                                    {viewMode === 'grid' ? 'List View' : 'Grid View'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* PIRs Grid/List */}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: viewMode === 'grid' ? 'repeat(auto-fill, minmax(350px, 1fr))' : '1fr',
+                        gap: '20px',
+                        marginBottom: '30px'
+                    }}>
+                        {filteredPIRs.map(pir => (
+                            <div key={pir.id} style={{
+                                background: 'white',
+                                borderRadius: '15px',
+                                padding: '20px',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                                borderLeft: `4px solid ${getStatusColor(pir)}`,
+                                transition: 'all 0.2s',
+                                cursor: 'pointer'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'translateY(-5px)';
+                                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,0.15)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'translateY(0)';
+                                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                            }}
+                            >
+                                {/* Header */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
+                                    <div style={{ flex: 1 }}>
+                                        <h4 style={{ margin: '0 0 5px 0', fontSize: '18px', color: '#333' }}>
+                                            {pir.displayName || pir.email}
+                                        </h4>
+                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                            <span style={{
+                                                padding: '4px 12px',
+                                                borderRadius: '20px',
+                                                fontSize: '12px',
+                                                fontWeight: '500',
+                                                background: getStatusColor(pir),
+                                                color: 'white'
+                                            }}>
+                                                {getStatusLabel(pir)}
+                                            </span>
+                                            {pir.milestone && (
+                                                <span style={{
+                                                    padding: '4px 12px',
+                                                    borderRadius: '20px',
+                                                    fontSize: '12px',
+                                                    fontWeight: '500',
+                                                    background: pir.milestone.color,
+                                                    color: 'white'
+                                                }}>
+                                                    {pir.milestone.label}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {pir.activeAlerts > 0 && (
+                                        <div style={{
+                                            background: '#DC143C',
+                                            color: 'white',
+                                            borderRadius: '50%',
+                                            width: '30px',
+                                            height: '30px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontSize: '14px',
+                                            fontWeight: 'bold'
+                                        }}>
+                                            {pir.activeAlerts}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Stats Grid */}
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(2, 1fr)',
+                                    gap: '10px',
+                                    marginBottom: '15px',
+                                    padding: '15px',
+                                    background: '#f8f9fa',
+                                    borderRadius: '10px'
+                                }}>
+                                    <div>
+                                        <div style={{ fontSize: '12px', color: '#999', marginBottom: '3px' }}>Days Clean</div>
+                                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#333' }}>{pir.daysClean}</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '12px', color: '#999', marginBottom: '3px' }}>Compliance</div>
+                                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: getStatusColor(pir) }}>
+                                            {pir.complianceRate}%
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '12px', color: '#999', marginBottom: '3px' }}>Last Check-in</div>
+                                        <div style={{ fontSize: '13px', fontWeight: '500', color: '#666' }}>
+                                            {pir.lastCheckInDate ? formatTimeAgo(pir.lastCheckInDate) : 'Never'}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '12px', color: '#999', marginBottom: '3px' }}>Weekly Check-ins</div>
+                                        <div style={{ fontSize: '13px', fontWeight: '500', color: '#666' }}>
+                                            {pir.weeklyCheckIns}/14
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Trend Charts */}
+                                {viewMode === 'grid' && (pir.moodTrend?.length > 0 || pir.cravingTrend?.length > 0) && (
+                                    <div style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: '1fr 1fr',
+                                        gap: '10px',
+                                        marginBottom: '15px'
+                                    }}>
+                                        {pir.moodTrend?.length > 0 && (
+                                            <div>
+                                                <div style={{ fontSize: '11px', color: '#999', marginBottom: '5px' }}>Mood Trend</div>
+                                                <canvas
+                                                    ref={el => moodChartRefs.current[pir.id] = el}
+                                                    style={{ height: '40px' }}
+                                                ></canvas>
+                                            </div>
+                                        )}
+                                        {pir.cravingTrend?.length > 0 && (
+                                            <div>
+                                                <div style={{ fontSize: '11px', color: '#999', marginBottom: '5px' }}>Craving Trend</div>
+                                                <canvas
+                                                    ref={el => cravingChartRefs.current[pir.id] = el}
+                                                    style={{ height: '40px' }}
+                                                ></canvas>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Quick Notes Preview */}
+                                {pirNotes[pir.id] && (
+                                    <div style={{
+                                        padding: '10px',
+                                        background: '#fff3cd',
+                                        borderRadius: '8px',
+                                        fontSize: '12px',
+                                        color: '#856404',
+                                        marginBottom: '15px',
+                                        maxHeight: '40px',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px'
+                                    }}>
+                                        {AdminIcons.FileText && AdminIcons.FileText({ size: 14, color: '#856404' })}
+                                        {pirNotes[pir.id]}
+                                    </div>
+                                )}
+
+                                {/* Actions */}
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                    <button
+                                        onClick={() => setSelectedPIR(pir)}
+                                        style={{
+                                            flex: 1,
+                                            padding: '10px 16px',
+                                            background: 'linear-gradient(135deg, #0077CC 0%, #008B8B 100%)',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '500',
+                                            transition: 'transform 0.2s'
+                                        }}
+                                        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
+                                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                    >
+                                        View Details
+                                    </button>
+
+                                    <button
+                                        onClick={async () => {
+                                            if (!user.googleConnected || !user.googleAccessToken) {
+                                                alert('Google Calendar Not Connected\n\nPlease connect Google Services in your Profile to sync milestones!');
+                                                return;
+                                            }
+                                            await addMilestonesToCoachCalendar(pir, user.googleAccessToken);
+                                        }}
+                                        style={{
+                                            padding: '10px 16px',
+                                            background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '500',
+                                            transition: 'transform 0.2s',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px'
+                                        }}
+                                        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
+                                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                    >
+                                        {AdminIcons.Calendar && AdminIcons.Calendar({ size: 14 })} Calendar
+                                    </button>
+
+                                    <button
+                                        onClick={() => {
+                                            setSelectedPIRForNotes(pir);
+                                            setShowNotesModal(true);
+                                        }}
+                                        style={{
+                                            padding: '10px 16px',
+                                            background: '#6c757d',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            fontWeight: '500'
+                                        }}
+                                    >
+                                        Notes
+                                    </button>
+                                    {window.canPerformAction(user, 'create_assignment') && (
+                                        <button
+                                            onClick={() => handleQuickAssignment(pir.id)}
+                                            style={{
+                                                padding: '10px 16px',
+                                                background: '#00A86B',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '8px',
+                                                cursor: 'pointer',
+                                                fontSize: '13px',
+                                                fontWeight: '500'
+                                            }}
+                                        >
+                                            + Task
+                                        </button>
+                                    )}
+                                    {window.canPerformAction(user, 'export_data') && (
+                                        <button
+                                            onClick={() => handleExportPIRReport(pir)}
+                                            style={{
+                                                padding: '10px 16px',
+                                                background: '#FFA500',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '8px',
+                                                cursor: 'pointer',
+                                                fontSize: '13px',
+                                                fontWeight: '500'
+                                            }}
+                                        >
+                                            Export
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {filteredPIRs.length === 0 && (
+                        <div style={{
+                            padding: '60px 20px',
+                            textAlign: 'center',
+                            background: 'white',
+                            borderRadius: '15px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                        }}>
+                            <div style={{ marginBottom: '15px' }}>
+                                {AdminIcons.Users && AdminIcons.Users({ size: 48, color: '#ccc' })}
+                            </div>
+                            <div style={{ fontSize: '18px', fontWeight: '500', color: '#333', marginBottom: '8px' }}>
+                                {myPIRs.length === 0 ? 'No PIRs Assigned' : 'No PIRs Match Filters'}
+                            </div>
+                            <div style={{ fontSize: '14px', color: '#999' }}>
+                                {myPIRs.length === 0
+                                    ? 'PIRs will appear here when assigned to you'
+                                    : 'Try adjusting your filters'}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Recent Check-ins Section */}
+                    {recentCheckIns.length > 0 && (
+                        <div style={{
+                            background: 'white',
+                            borderRadius: '15px',
+                            padding: '25px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                            marginTop: '30px'
+                        }}>
+                            <h3 style={{ margin: '0 0 20px 0', color: '#333' }}>Recent Check-ins</h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                {recentCheckIns.map(checkIn => (
+                                    <div key={checkIn.id} style={{
+                                        padding: '15px',
+                                        background: '#f8f9fa',
+                                        borderRadius: '10px',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center'
+                                    }}>
+                                        <div>
+                                            <div style={{ fontWeight: '600', color: '#333', marginBottom: '5px' }}>
+                                                {checkIn.pirName}
+                                            </div>
+                                            <div style={{ fontSize: '13px', color: '#666', display: 'flex', gap: '15px' }}>
+                                                <span>Mood: {checkIn.morningData?.mood || '--'}/10</span>
+                                                <span>Craving: {checkIn.morningData?.craving || '--'}/10</span>
+                                                {checkIn.attendedMeeting && <span style={{ color: '#00A86B' }}>Meeting Attended</span>}
+                                            </div>
+                                        </div>
+                                        <div style={{ fontSize: '12px', color: '#999' }}>
+                                            {formatTimeAgo(checkIn.createdAt)}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Notes Modal */}
+                    {showNotesModal && selectedPIRForNotes && (
+                        <PIRNotesModal
+                            pir={selectedPIRForNotes}
+                            existingNotes={pirNotes[selectedPIRForNotes.id] || ''}
+                            onClose={() => {
+                                setShowNotesModal(false);
+                                setSelectedPIRForNotes(null);
+                            }}
+                            onSave={(notes) => {
+                                handleSaveNotes(selectedPIRForNotes.id, notes);
+                                setShowNotesModal(false);
+                                setSelectedPIRForNotes(null);
+                            }}
+                        />
+                    )}
+
+                    {/* PIR Detail Modal */}
+                    {selectedPIR && (
+                        <UserDetailModal
+                            user={selectedPIR}
+                            onClose={() => setSelectedPIR(null)}
+                            onUpdate={() => {
+                                setSelectedPIR(null);
+                                loadMyPIRs();
+                            }}
+                            currentUserId={user.uid}
+                        />
+                    )}
+                </div>
+            );
+        }
+
+        // ==========================================
+        // ROOT APP COMPONENT
+        // ==========================================
+        function UsersApp() {
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [searchQuery, setSearchQuery] = useState('');
+            // View mode: 'users' for user management, 'mypirs' for coach's assigned PIRs
+            const [viewMode, setViewMode] = useState('users');
+            // Notification state
+            const [notifications, setNotifications] = useState([]);
+            // Connection status
+            const [isOnline, setIsOnline] = useState(navigator.onLine);
+            // Manage sidebar collapsed state
+            const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+                return window.getPreference ? window.getPreference('sidebarCollapsed', false) : false;
+            });
+
+            // Responsive states - showBottomNav when <1024px (matches navigation.js)
+            const [isMobile, setIsMobile] = useState(window.innerWidth < 600);
+            const [isTablet, setIsTablet] = useState(window.innerWidth >= 600 && window.innerWidth < 1024);
+            const [showBottomNav, setShowBottomNav] = useState(window.innerWidth < 1024);
+
+            // Responsive resize listener
+            useEffect(() => {
+                const handleResize = () => {
+                    const width = window.innerWidth;
+                    setIsMobile(width < 600);
+                    setIsTablet(width >= 600 && width < 1024);
+                    setShowBottomNav(width < 1024);
+                };
+                window.addEventListener('resize', handleResize);
+                return () => window.removeEventListener('resize', handleResize);
+            }, []);
+
+            useEffect(() => {
+                const unsubscribe = firebase.auth().onAuthStateChanged(async (firebaseUser) => {
+                    if (firebaseUser) {
+                        // Use shared getCurrentUser() function which includes tenant status checking
+                        const userData = await window.getCurrentUser();
+
+                        if (userData) {
+                            // PAGE ACCESS: Allow if user can access 'users' OR 'my_pirs'
+                            const canAccessUsers = window.canAccessPage(userData, 'users');
+                            const canAccessMyPirs = window.canAccessPage(userData, 'my_pirs');
+
+                            if (!canAccessUsers && !canAccessMyPirs) {
+                                alert('You do not have permission to access this page.');
+                                window.location.href = '/admin/dashboard.html';
+                                return;
+                            }
+
+                            // Set default view based on role
+                            // Coaches default to 'mypirs', admins default to 'users'
+                            if (userData.role === 'coach' || (!canAccessUsers && canAccessMyPirs)) {
+                                setViewMode('mypirs');
+                            }
+
+                            setUser(userData);
+                        } else {
+                            // getCurrentUser returns null if tenant is suspended/expired (already redirected)
+                            // or if user doc doesn't exist
+                            window.location.href = '/admin/login';
+                        }
+                    } else {
+                        window.location.href = '/admin/login';
+                    }
+                    setLoading(false);
+                });
+
+                return () => unsubscribe();
+            }, []);
+
+            // Set up notification listener
+            useEffect(() => {
+                if (!user) return;
+
+                const unsubscribe = firebase.firestore()
+                    .collection('notifications')
+                    .where('userId', '==', user.uid)
+                    .orderBy('timestamp', 'desc')
+                    .limit(50)
+                    .onSnapshot((snapshot) => {
+                        const notifs = snapshot.docs.map(doc => ({
+                            id: doc.id,
+                            ...doc.data()
+                        }));
+                        setNotifications(notifs);
+                    }, (error) => {
+                        console.error('Error loading notifications:', error);
+                    });
+
+                return () => unsubscribe();
+            }, [user]);
+
+            // Set up connection status listener
+            useEffect(() => {
+                const handleOnline = () => setIsOnline(true);
+                const handleOffline = () => setIsOnline(false);
+
+                window.addEventListener('online', handleOnline);
+                window.addEventListener('offline', handleOffline);
+
+                return () => {
+                    window.removeEventListener('online', handleOnline);
+                    window.removeEventListener('offline', handleOffline);
+                };
+            }, []);
+
+            // Clear notification handlers
+            const handleClearNotification = async (notificationId) => {
+                try {
+                    await firebase.firestore().collection('notifications').doc(notificationId).delete();
+                } catch (error) {
+                    console.error('Error clearing notification:', error);
+                }
+            };
+
+            const handleClearAllNotifications = async () => {
+                try {
+                    const batch = firebase.firestore().batch();
+                    notifications.forEach(notif => {
+                        const docRef = firebase.firestore().collection('notifications').doc(notif.id);
+                        batch.delete(docRef);
+                    });
+                    await batch.commit();
+                } catch (error) {
+                    console.error('Error clearing all notifications:', error);
+                }
+            };
+
+            const handleImpersonate = (pirUser) => {
+                alert(`Impersonation feature not yet implemented for: ${pirUser.displayName || pirUser.email}`);
+            };
+
+            if (loading) {
+                return (
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: '100vh',
+                        background: '#f5f7fa'
+                    }}>
+                        <div style={{
+                            width: '60px',
+                            height: '60px',
+                            border: '4px solid #f3f3f3',
+                            borderTop: '4px solid #0077CC',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite'
+                        }}></div>
+                    </div>
+                );
+            }
+
+            return (
+                <>
+                    {/* Connection Status Bar */}
+                    {!isOnline && (
+                        <div style={{
+                            background: '#FFA500',
+                            color: 'white',
+                            padding: '10px',
+                            textAlign: 'center',
+                            fontWeight: '600',
+                            fontSize: '14px',
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            zIndex: 9999
+                        }}>
+                            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                {AdminIcons.AlertTriangle({ size: 18 })} Offline - Some features may be limited
+                            </span>
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', minHeight: '100vh', background: '#f5f7fa' }}>
+                        {/* Sidebar Component */}
+                        <Sidebar
+                            activePage="users"
+                            user={user}
+                            collapsed={sidebarCollapsed}
+                            onCollapsedChange={setSidebarCollapsed}
+                        />
+                        {/* Main Content Wrapper - no margin when bottom nav visible */}
+                        <div style={{
+                            flex: 1,
+                            marginLeft: showBottomNav ? 0 : (sidebarCollapsed ? '80px' : '280px'),
+                            width: showBottomNav ? '100%' : 'auto',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            transition: 'margin-left 0.3s ease',
+                            paddingBottom: showBottomNav ? '72px' : 0
+                        }}>
+                            <Header
+                                user={user}
+                                searchQuery={searchQuery}
+                                setSearchQuery={setSearchQuery}
+                                sidebarCollapsed={sidebarCollapsed}
+                                notifications={notifications}
+                                onClearNotification={handleClearNotification}
+                                onClearAllNotifications={handleClearAllNotifications}
+                            />
+                            {/* Main Content */}
+                            <main style={{ flex: 1, overflow: 'auto', padding: showBottomNav ? '16px' : '20px' }}>
+                            {/* View Mode Tabs - only show if user has access to both views */}
+                            {window.canAccessPage(user, 'users') && window.canAccessPage(user, 'my_pirs') && (
+                                <div style={{
+                                    display: 'flex',
+                                    gap: '8px',
+                                    marginBottom: '20px',
+                                    background: 'white',
+                                    padding: '8px',
+                                    borderRadius: '12px',
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                                }}>
+                                    <button
+                                        onClick={() => setViewMode('users')}
+                                        style={{
+                                            padding: '12px 24px',
+                                            background: viewMode === 'users' ? 'linear-gradient(135deg, #0077CC 0%, #005A9C 100%)' : 'transparent',
+                                            color: viewMode === 'users' ? 'white' : '#666',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            fontWeight: '600',
+                                            fontSize: '14px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        {AdminIcons.Users({ size: 18 })} All Users
+                                    </button>
+                                    <button
+                                        onClick={() => setViewMode('mypirs')}
+                                        style={{
+                                            padding: '12px 24px',
+                                            background: viewMode === 'mypirs' ? 'linear-gradient(135deg, #0077CC 0%, #005A9C 100%)' : 'transparent',
+                                            color: viewMode === 'mypirs' ? 'white' : '#666',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            fontWeight: '600',
+                                            fontSize: '14px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        {AdminIcons.Target({ size: 18 })} My PIRs
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Render view based on mode */}
+                            {viewMode === 'users' ? (
+                                <UsersView user={user} searchQuery={searchQuery} onImpersonate={handleImpersonate} />
+                            ) : (
+                                <MyPIRsView user={user} searchQuery={searchQuery} />
+                            )}
+                            </main>
+                        </div>
+                    </div>
+                </>
+            );
+        }
+
+        // Render the app
+        ReactDOM.render(<UsersApp />, document.getElementById('root'));
+
+})(); // End initPage
+    </script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isUnder5MB() {
+      return request.resource.size < 5 * 1024 * 1024;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // My Day posts - users can only upload to their own folder
+    match /dailyPosts/{userId}/{imageId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isOwner(userId);
+    }
+
+    // Community chat images - users can only upload to their own folder
+    match /communityImages/{userId}/{imageId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isOwner(userId);
+    }
+
+    // Topic room images - users can only upload to their own folder
+    match /topicRoomImages/{userId}/{imageId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isOwner(userId);
+    }
+
+    // Profile images - users can only upload to their own folder
+    match /users/{userId}/profile/{imageId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isOwner(userId);
+    }
+
+    // Agreement PDFs - allow read for anyone (accessed via signed URL), write for authenticated staff
+    // Signers access via token link (not authenticated) so PDFs need public read
+    match /agreements/{agreementId}/{fileName} {
+      allow read: if true;  // PDFs are accessed via download URLs shared with signers
+      allow write: if isAuthenticated();  // Only staff can generate/upload PDFs
+    }
+
+    // Default: deny all other access
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

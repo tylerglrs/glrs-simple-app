@@ -13,9 +13,10 @@ const firebaseConfig = {
     apiKey: "AIzaSyAufSTHtCTFSEIeZ9YzvrULCnji5I-SMi0",
     authDomain: "glrs-pir-system.firebaseapp.com",
     projectId: "glrs-pir-system",
-    storageBucket: "glrs-pir-system.appspot.com",
+    storageBucket: "glrs-pir-system.firebasestorage.app",  // FIXED: Updated to new Firebase Storage URL format
     messagingSenderId: "830378577655",
-    appId: "1:830378577655:web:8a9ea644b8e3c5a9f15c42"
+    appId: "1:830378577655:web:ceb8e57c80f9b1cc028df2",  // FIXED: Updated to correct App ID
+    measurementId: "G-W5JDNQ9J1X"  // ADDED: Analytics measurement ID
 };
 
 // Initialize Firebase (only if not already initialized)

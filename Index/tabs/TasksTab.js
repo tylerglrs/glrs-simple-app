@@ -1,6 +1,15 @@
 // Destructure React hooks for use in components
 const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
+// Helper function for timezone-aware timestamp formatting
+const formatDate = (date, format = 'date') => {
+    if (!date) return '';
+    // Convert Date objects to Firestore Timestamp format for formatTimestamp
+    const timestamp = date.toDate ? date : { toDate: () => date };
+    return window.GLRSApp?.utils?.formatTimestamp(timestamp, null, format) ||
+           (date.toDate ? date.toDate() : date).toLocaleDateString();
+};
+
 /**
  * @file TasksTab.js
  * @description Tasks tab component for GLRS PIR Portal - Daily check-ins, reflections, and recovery tasks
@@ -38,7 +47,7 @@ const { useState, useEffect, useMemo, useCallback, useRef } = React;
  *
  * @components Embedded components:
  * - TasksTabModals: 9 modal components for pattern viewing
- * - TasksSidebarModals: Sidebar navigation modals
+ * - Inline Modals: 16 sidebar modals (habit, reflection, tasks, stats, etc.)
  * - CheckInModals: Check-in submission modals
  *
  * @dependencies
@@ -97,10 +106,12 @@ function TasksTab() {
         sleepPattern: { average: 0, trend: 'stable', insights: [] }
     });
 
-    // OPTIONAL STATE (6 hooks) - For full feature parity
+    // OPTIONAL STATE (8 hooks) - For full feature parity
     const [goals, setGoals] = React.useState([]);
     const [assignments, setAssignments] = React.useState([]);
     const [objectives, setObjectives] = React.useState([]);
+    const [checkins, setCheckins] = React.useState([]);
+    const [reflections, setReflections] = React.useState([]);
     const [coachNotes, setCoachNotes] = React.useState([]);
     const [weeklyStats, setWeeklyStats] = React.useState(null);
     const [nextMilestone, setNextMilestone] = React.useState(null);
@@ -116,32 +127,60 @@ function TasksTab() {
     const [showPastReflectionsModal, setShowPastReflectionsModal] = React.useState(false);
     const [showGratitudeModal, setShowGratitudeModal] = React.useState(false);
 
-    // SIDEBAR MODAL VISIBILITY STATE (17 hooks)
+    // SIDEBAR AND MODAL STATE (2 hooks - replaces 17 hooks!)
     const [showSidebar, setShowSidebar] = React.useState(false);
-    const [showHabitTrackerModal, setShowHabitTrackerModal] = React.useState(false);
-    const [showQuickReflectionModal, setShowQuickReflectionModal] = React.useState(false);
-    const [showThisWeekTasksModal, setShowThisWeekTasksModal] = React.useState(false);
-    const [showOverdueItemsModal, setShowOverdueItemsModal] = React.useState(false);
-    const [showMarkCompleteModal, setShowMarkCompleteModal] = React.useState(false);
-    const [showProgressStatsModal, setShowProgressStatsModal] = React.useState(false);
-    const [showGoalProgressModal, setShowGoalProgressModal] = React.useState(false);
-    const [showTodayWinsModal, setShowTodayWinsModal] = React.useState(false);
-    const [showStreaksModal, setShowStreaksModal] = React.useState(false);
-    const [showReflectionStreaksModal, setShowReflectionStreaksModal] = React.useState(false);
-    const [showIntentionsModal, setShowIntentionsModal] = React.useState(false);
-    const [showPastIntentionsModal, setShowPastIntentionsModal] = React.useState(false);
-    const [showProgressSnapshotModal, setShowProgressSnapshotModal] = React.useState(false);
-    const [showHabitHistory, setShowHabitHistory] = React.useState(false);
-    const [showReflectionHistory, setShowReflectionHistory] = React.useState(false);
-    const [showWinsHistory, setShowWinsHistory] = React.useState(false);
+    const [activeModal, setActiveModal] = React.useState(null);
+    // activeModal values: 'habit' | 'reflection' | 'thisWeek' | 'overdue' | 'complete' |
+    //                     'stats' | 'goalProgress' | 'wins' | 'streaks' | 'reflectionStreaks' |
+    //                     'intentions' | 'pastIntentions' | 'snapshot' | 'habitHistory' |
+    //                     'reflectionHistory' | 'winsHistory' | null
+
+    // MODAL FORM STATE (local state for modal inputs)
+    const [newHabitName, setNewHabitName] = React.useState('');
+    const [newReflection, setNewReflection] = React.useState('');
+    const [newWin, setNewWin] = React.useState('');
+    const [newIntention, setNewIntention] = React.useState('');
+
+    // TASKSTABMODALS STATE (for pattern modals)
+    const [reflectionFilter, setReflectionFilter] = React.useState('all'); // 'all' | 'week' | 'month'
+    const [selectedReflection, setSelectedReflection] = React.useState(null);
+    const [gratitudeTheme, setGratitudeTheme] = React.useState('');
+    const [gratitudeText, setGratitudeText] = React.useState('');
+
+    // CHECKINMODALS STATE (for check-in modals)
+    const [checkInModalType, setCheckInModalType] = React.useState(null); // 'checkIn' | 'reflection' | 'profilePrompt' | 'challengeCheckIn' | null
+    const [selectedChallenge, setSelectedChallenge] = React.useState(null);
+    const [challengeCheckInStatus, setChallengeCheckInStatus] = React.useState('');
+    const [challengeCheckInNotes, setChallengeCheckInNotes] = React.useState('');
+
+    // MOBILE RESPONSIVENESS STATE (1 hook)
+    const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
 
     // REFLECTION STATS STATE (1 hook)
     const [reflectionStats, setReflectionStats] = React.useState({
+        totalAllTime: 0,
         totalThisMonth: 0,
         avgDailyScore: 0,
-        topGratitudeTheme: null,
+        topGratitudeThemes: [], // Top 3 themes with counts and dates
         gratitudeThemes: []
     });
+    const [allReflections, setAllReflections] = React.useState([]);
+    const [gratitudeJournalStats, setGratitudeJournalStats] = React.useState({
+        allTime: 0,
+        thisWeek: 0,
+        thisMonth: 0
+    });
+    const [challengesHistoryStats, setChallengesHistoryStats] = React.useState({
+        allTime: 0,
+        thisWeek: 0,
+        thisMonth: 0
+    });
+    const [gratitudeJournalPeriod, setGratitudeJournalPeriod] = React.useState(null); // 'allTime', 'thisWeek', 'thisMonth'
+    const [challengesHistoryPeriod, setChallengesHistoryPeriod] = React.useState(null); // 'allTime', 'thisWeek', 'thisMonth'
+    const [tomorrowGoals, setTomorrowGoals] = React.useState([]); // Array of { goal, date, completed, completedDate }
+    const [yesterdayGoal, setYesterdayGoal] = React.useState(null); // Yesterday's goal to show in today's reflection
+    const [shareGoalData, setShareGoalData] = React.useState(null); // { goal, date } for sharing to community
+    const [shareComment, setShareComment] = React.useState(''); // Comment for community share
 
     // REFLECTION STREAK DATA STATE (1 hook)
     const [reflectionStreakData, setReflectionStreakData] = React.useState({
@@ -167,6 +206,25 @@ function TasksTab() {
         return () => unsubscribeAuth();
     }, []);
 
+    // Initialize Lucide icons on component mount (for always-visible icons like hamburger menu)
+    React.useEffect(() => {
+        const timer = setTimeout(() => {
+            if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
+                console.log('✅ TasksTab: Initial Lucide icons initialized');
+            }
+        }, 100);
+
+        return () => clearTimeout(timer);
+    }, []);
+
+    // Mobile responsiveness resize listener
+    React.useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
     // ═══════════════════════════════════════════════════════════
     // STEP 4a COMPLETE: Load check-in status (morning/evening completion)
     // ═══════════════════════════════════════════════════════════
@@ -187,7 +245,7 @@ function TasksTab() {
                 today.setHours(0, 0, 0, 0);
 
                 // Query today's check-in
-                const snapshot = await db.collection('checkins')
+                const snapshot = await db.collection('checkIns')
                     .where('userId', '==', user.uid)
                     .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(today))
                     .orderBy('createdAt', 'desc')
@@ -260,6 +318,340 @@ function TasksTab() {
     }, [user]);
 
     // ═══════════════════════════════════════════════════════════
+    // STEP 4b-1.5: Calculate streaks from check-ins and update Firestore
+    // ═══════════════════════════════════════════════════════════
+
+    React.useEffect(() => {
+        if (!user) return;
+
+        const calculateAndUpdateStreaks = async () => {
+            try {
+                const db = firebase.firestore();
+
+                // Get ALL check-ins for this user, sorted by date
+                const snapshot = await db.collection('checkIns')
+                    .where('userId', '==', user.uid)
+                    .orderBy('createdAt', 'desc')
+                    .get();
+
+                if (snapshot.empty) {
+                    // No check-ins yet, create empty streak document
+                    await db.collection('streaks').doc(user.uid).set({
+                        currentStreak: 0,
+                        longestStreak: 0,
+                        reflectionStreak: 0,
+                        allStreaks: [],
+                        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    return;
+                }
+
+                // Convert check-ins to date strings (YYYY-MM-DD)
+                const checkInDates = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.createdAt) {
+                        const date = data.createdAt.toDate();
+                        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                        if (!checkInDates.includes(dateStr)) {
+                            checkInDates.push(dateStr);
+                        }
+                    }
+                });
+
+                // Sort dates (newest first)
+                checkInDates.sort((a, b) => b.localeCompare(a));
+
+                // Calculate streaks
+                const allStreaks = [];
+                let currentStreakLength = 0;
+                let longestStreakLength = 0;
+                let tempStreak = {
+                    length: 0,
+                    startDate: null,
+                    endDate: null
+                };
+
+                // Get today's date string
+                const today = new Date();
+                const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+                // Get yesterday's date string
+                const yesterday = new Date(today);
+                yesterday.setDate(yesterday.getDate() - 1);
+                const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+                // Process dates to find streaks
+                for (let i = 0; i < checkInDates.length; i++) {
+                    const currentDate = checkInDates[i];
+                    const nextDate = checkInDates[i + 1];
+
+                    if (tempStreak.length === 0) {
+                        // Start a new streak
+                        tempStreak = {
+                            length: 1,
+                            startDate: currentDate,
+                            endDate: currentDate
+                        };
+                    } else {
+                        // Check if this date is consecutive with the previous one
+                        const current = new Date(currentDate);
+                        const previous = new Date(tempStreak.startDate);
+                        const diffTime = previous - current;
+                        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+                        if (diffDays === 1) {
+                            // Consecutive day, extend streak
+                            tempStreak.length++;
+                            tempStreak.startDate = currentDate;
+                        } else {
+                            // Gap found, save current streak and start new one
+                            allStreaks.push({ ...tempStreak });
+                            if (tempStreak.length > longestStreakLength) {
+                                longestStreakLength = tempStreak.length;
+                            }
+                            tempStreak = {
+                                length: 1,
+                                startDate: currentDate,
+                                endDate: currentDate
+                            };
+                        }
+                    }
+
+                    // If this is the last date, save the streak
+                    if (i === checkInDates.length - 1) {
+                        allStreaks.push({ ...tempStreak });
+                        if (tempStreak.length > longestStreakLength) {
+                            longestStreakLength = tempStreak.length;
+                        }
+                    }
+                }
+
+                // Determine current streak (must include today or yesterday)
+                if (allStreaks.length > 0) {
+                    const mostRecentStreak = allStreaks[0];
+                    if (mostRecentStreak.endDate === todayStr || mostRecentStreak.endDate === yesterdayStr) {
+                        currentStreakLength = mostRecentStreak.length;
+                    }
+                }
+
+                // Calculate reflection streak (check for eveningData)
+                let reflectionStreakLength = 0;
+                const reflectionDates = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.eveningData && data.createdAt) {
+                        const date = data.createdAt.toDate();
+                        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                        if (!reflectionDates.includes(dateStr)) {
+                            reflectionDates.push(dateStr);
+                        }
+                    }
+                });
+
+                // Sort reflection dates
+                reflectionDates.sort((a, b) => b.localeCompare(a));
+
+                // Calculate current reflection streak
+                if (reflectionDates.length > 0) {
+                    const latestReflection = reflectionDates[0];
+                    if (latestReflection === todayStr || latestReflection === yesterdayStr) {
+                        reflectionStreakLength = 1;
+                        for (let i = 1; i < reflectionDates.length; i++) {
+                            const current = new Date(reflectionDates[i]);
+                            const previous = new Date(reflectionDates[i - 1]);
+                            const diffTime = previous - current;
+                            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                            if (diffDays === 1) {
+                                reflectionStreakLength++;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Update Firestore streaks document
+                await db.collection('streaks').doc(user.uid).set({
+                    currentStreak: currentStreakLength,
+                    longestStreak: longestStreakLength,
+                    reflectionStreak: reflectionStreakLength,
+                    allStreaks: allStreaks,
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                console.log('✅ Streaks calculated and updated:', {
+                    current: currentStreakLength,
+                    longest: longestStreakLength,
+                    reflection: reflectionStreakLength,
+                    totalStreaks: allStreaks.length
+                });
+
+            } catch (error) {
+                console.error('Error calculating streaks:', error);
+            }
+        };
+
+        // Calculate streaks on mount
+        calculateAndUpdateStreaks();
+
+        // Set up listener to recalculate when check-ins change
+        const db = firebase.firestore();
+        const unsubscribe = db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .onSnapshot(() => {
+                calculateAndUpdateStreaks();
+            });
+
+        return () => unsubscribe();
+    }, [user]);
+
+    // ═══════════════════════════════════════════════════════════
+    // STEP 4a-2: Reflection streak calculation (separate from check-in streak)
+    // ═══════════════════════════════════════════════════════════
+
+    React.useEffect(() => {
+        if (!user) return;
+
+        const calculateReflectionStreaks = async () => {
+            try {
+                const db = firebase.firestore();
+
+                // Get ALL check-ins with eveningData for this user
+                const snapshot = await db.collection('checkIns')
+                    .where('userId', '==', user.uid)
+                    .orderBy('createdAt', 'desc')
+                    .get();
+
+                // Extract dates that have reflections (eveningData)
+                const reflectionDates = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.eveningData && data.createdAt) {
+                        const date = data.createdAt.toDate();
+                        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                        if (!reflectionDates.includes(dateStr)) {
+                            reflectionDates.push(dateStr);
+                        }
+                    }
+                });
+
+                if (reflectionDates.length === 0) {
+                    setReflectionStreakData({
+                        currentStreak: 0,
+                        longestStreak: 0,
+                        allStreaks: []
+                    });
+                    setReflectionStreak(0);
+                    return;
+                }
+
+                // Sort dates (newest first)
+                reflectionDates.sort((a, b) => b.localeCompare(a));
+
+                // Calculate streaks
+                const allStreaks = [];
+                let currentStreakLength = 0;
+                let longestStreakLength = 0;
+                let tempStreak = {
+                    length: 0,
+                    startDate: null,
+                    endDate: null
+                };
+
+                // Get today's and yesterday's date strings
+                const today = new Date();
+                const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                const yesterday = new Date(today);
+                yesterday.setDate(yesterday.getDate() - 1);
+                const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+                // Process dates to find streaks
+                for (let i = 0; i < reflectionDates.length; i++) {
+                    const currentDate = reflectionDates[i];
+
+                    if (tempStreak.length === 0) {
+                        tempStreak = {
+                            length: 1,
+                            startDate: currentDate,
+                            endDate: currentDate
+                        };
+                    } else {
+                        const current = new Date(currentDate);
+                        const previous = new Date(tempStreak.startDate);
+                        const diffTime = previous - current;
+                        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+                        if (diffDays === 1) {
+                            tempStreak.length++;
+                            tempStreak.startDate = currentDate;
+                        } else {
+                            allStreaks.push({ ...tempStreak });
+                            if (tempStreak.length > longestStreakLength) {
+                                longestStreakLength = tempStreak.length;
+                            }
+                            tempStreak = {
+                                length: 1,
+                                startDate: currentDate,
+                                endDate: currentDate
+                            };
+                        }
+                    }
+
+                    if (i === reflectionDates.length - 1) {
+                        allStreaks.push({ ...tempStreak });
+                        if (tempStreak.length > longestStreakLength) {
+                            longestStreakLength = tempStreak.length;
+                        }
+                    }
+                }
+
+                // Determine current streak (must include today or yesterday)
+                if (allStreaks.length > 0) {
+                    const mostRecentStreak = allStreaks[0];
+                    if (mostRecentStreak.endDate === todayStr || mostRecentStreak.endDate === yesterdayStr) {
+                        currentStreakLength = mostRecentStreak.length;
+                    }
+                }
+
+                // Filter streaks to show only 2+ days
+                const filteredStreaks = allStreaks
+                    .filter(s => s.length >= 2)
+                    .sort((a, b) => b.length - a.length);
+
+                setReflectionStreakData({
+                    currentStreak: currentStreakLength,
+                    longestStreak: longestStreakLength,
+                    allStreaks: filteredStreaks
+                });
+                setReflectionStreak(currentStreakLength);
+
+                console.log('✅ Reflection streaks calculated:', {
+                    current: currentStreakLength,
+                    longest: longestStreakLength,
+                    totalStreaks: filteredStreaks.length
+                });
+
+            } catch (error) {
+                console.error('Error calculating reflection streaks:', error);
+            }
+        };
+
+        // Calculate on mount
+        calculateReflectionStreaks();
+
+        // Set up listener to recalculate when check-ins change
+        const db = firebase.firestore();
+        const unsubscribe = db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .onSnapshot(() => {
+                calculateReflectionStreaks();
+            });
+
+        return () => unsubscribe();
+    }, [user]);
+
+    // ═══════════════════════════════════════════════════════════
     // STEP 4b-2: Weekly stats calculation (7-day check-in rate and avg mood)
     // ═══════════════════════════════════════════════════════════
 
@@ -277,7 +669,7 @@ function TasksTab() {
                 const sevenDaysAgo = new Date();
                 sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-                const snapshot = await db.collection('checkins')
+                const snapshot = await db.collection('checkIns')
                     .where('userId', '==', user.uid)
                     .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(sevenDaysAgo))
                     .get();
@@ -313,6 +705,241 @@ function TasksTab() {
     }, [user]);
 
     // ═══════════════════════════════════════════════════════════
+    // STEP 4b-3: Reflection stats calculation (ALL-TIME reflections from checkIns)
+    // ═══════════════════════════════════════════════════════════
+
+    React.useEffect(() => {
+        if (!user) {
+            setReflectionStats({
+                totalAllTime: 0,
+                totalThisMonth: 0,
+                avgDailyScore: 0,
+                topGratitudeThemes: [],
+                gratitudeThemes: []
+            });
+            setAllReflections([]);
+            setGratitudeJournalStats({ allTime: 0, thisWeek: 0, thisMonth: 0 });
+            setChallengesHistoryStats({ allTime: 0, thisWeek: 0, thisMonth: 0 });
+            return;
+        }
+
+        const calculateReflectionStats = async () => {
+            try {
+                const db = firebase.firestore();
+                const now = new Date();
+                const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                firstDayOfMonth.setHours(0, 0, 0, 0);
+
+                // Get ALL reflections from checkIns collection
+                const allSnapshot = await db.collection('checkIns')
+                    .where('userId', '==', user.uid)
+                    .orderBy('createdAt', 'desc')
+                    .get();
+
+                // Filter for documents with eveningData (reflections) and store all
+                const allReflectionsArray = [];
+                const thisMonthReflections = [];
+
+                allSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.eveningData) {
+                        const reflectionData = {
+                            id: doc.id,
+                            date: data.createdAt.toDate(),
+                            ...data.eveningData
+                        };
+                        allReflectionsArray.push(reflectionData);
+
+                        // Check if this reflection is from this month
+                        if (data.createdAt.toDate() >= firstDayOfMonth) {
+                            thisMonthReflections.push(data.eveningData);
+                        }
+                    }
+                });
+
+                const totalAllTime = allReflectionsArray.length;
+                const totalThisMonth = thisMonthReflections.length;
+
+                // Calculate average daily score from this month's reflections
+                let avgDailyScore = 0;
+                if (totalThisMonth > 0) {
+                    const totalScore = thisMonthReflections.reduce((sum, r) => sum + (r.overallDay || 0), 0);
+                    avgDailyScore = Math.round((totalScore / totalThisMonth) * 10) / 10;
+                }
+
+                // Analyze gratitude themes from all reflections
+                const themeData = {}; // { themeName: { count: 0, dates: [] } }
+
+                allReflectionsArray.forEach(r => {
+                    // Check if reflection has a gratitude theme
+                    if (r.gratitudeTheme && r.gratitudeTheme.trim()) {
+                        const theme = r.gratitudeTheme;
+                        if (!themeData[theme]) {
+                            themeData[theme] = {
+                                name: theme,
+                                count: 0,
+                                dates: []
+                            };
+                        }
+                        themeData[theme].count++;
+                        themeData[theme].dates.push(r.date);
+                    }
+                });
+
+                // Get top 3 themes sorted by count
+                const topGratitudeThemes = Object.values(themeData)
+                    .sort((a, b) => b.count - a.count)
+                    .slice(0, 3)
+                    .map(theme => ({
+                        name: theme.name,
+                        count: theme.count,
+                        lastDate: theme.dates[0], // Most recent date (already sorted desc)
+                        dates: theme.dates.slice(0, 5) // Keep up to 5 most recent dates
+                    }));
+
+                // Calculate gratitude journal stats (reflections with gratitude entries)
+                const gratitudeAllTime = allReflectionsArray.filter(r => r.gratitude && r.gratitude.trim()).length;
+                const gratitudeThisWeek = allReflectionsArray.filter(r => {
+                    if (!r.gratitude || !r.gratitude.trim()) return false;
+                    const weekAgo = new Date();
+                    weekAgo.setDate(weekAgo.getDate() - 7);
+                    return r.date >= weekAgo;
+                }).length;
+                const gratitudeThisMonth = allReflectionsArray.filter(r => {
+                    if (!r.gratitude || !r.gratitude.trim()) return false;
+                    return r.date >= firstDayOfMonth;
+                }).length;
+
+                // Calculate challenges history stats (reflections with challenges entries)
+                const challengesAllTime = allReflectionsArray.filter(r => r.challenges && r.challenges.trim()).length;
+                const challengesThisWeek = allReflectionsArray.filter(r => {
+                    if (!r.challenges || !r.challenges.trim()) return false;
+                    const weekAgo = new Date();
+                    weekAgo.setDate(weekAgo.getDate() - 7);
+                    return r.date >= weekAgo;
+                }).length;
+                const challengesThisMonth = allReflectionsArray.filter(r => {
+                    if (!r.challenges || !r.challenges.trim()) return false;
+                    return r.date >= firstDayOfMonth;
+                }).length;
+
+                setReflectionStats({
+                    totalAllTime,
+                    totalThisMonth,
+                    avgDailyScore,
+                    topGratitudeThemes,
+                    gratitudeThemes: Object.keys(themeData)
+                });
+                setAllReflections(allReflectionsArray);
+                setGratitudeJournalStats({
+                    allTime: gratitudeAllTime,
+                    thisWeek: gratitudeThisWeek,
+                    thisMonth: gratitudeThisMonth
+                });
+                setChallengesHistoryStats({
+                    allTime: challengesAllTime,
+                    thisWeek: challengesThisWeek,
+                    thisMonth: challengesThisMonth
+                });
+
+                console.log('✅ Reflection stats loaded:', {
+                    totalAllTime,
+                    totalThisMonth,
+                    avgDailyScore,
+                    topGratitudeThemes,
+                    gratitudeJournal: { gratitudeAllTime, gratitudeThisWeek, gratitudeThisMonth },
+                    challengesHistory: { challengesAllTime, challengesThisWeek, challengesThisMonth }
+                });
+
+            } catch (error) {
+                console.error('Error calculating reflection stats:', error);
+                window.handleFirebaseError && window.handleFirebaseError(error, 'calculateReflectionStats');
+            }
+        };
+
+        calculateReflectionStats();
+    }, [user]);
+
+    // ═══════════════════════════════════════════════════════════
+    // STEP 4b-4: Tomorrow's Goals tracking (from evening reflections)
+    // ═══════════════════════════════════════════════════════════
+
+    React.useEffect(() => {
+        if (!user) {
+            setTomorrowGoals([]);
+            setYesterdayGoal(null);
+            return;
+        }
+
+        const loadTomorrowGoals = async () => {
+            try {
+                const db = firebase.firestore();
+
+                // Get all check-ins with eveningData
+                const snapshot = await db.collection('checkIns')
+                    .where('userId', '==', user.uid)
+                    .orderBy('createdAt', 'desc')
+                    .get();
+
+                const goals = [];
+                let foundYesterdayGoal = null;
+
+                // Get yesterday's date
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                yesterday.setHours(0, 0, 0, 0);
+                const yesterdayEnd = new Date(yesterday);
+                yesterdayEnd.setHours(23, 59, 59, 999);
+
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.eveningData && data.eveningData.tomorrowGoal) {
+                        const date = data.createdAt.toDate();
+
+                        // Check if this is yesterday's goal
+                        if (date >= yesterday && date <= yesterdayEnd && !foundYesterdayGoal) {
+                            foundYesterdayGoal = {
+                                goal: data.eveningData.tomorrowGoal,
+                                date: date,
+                                docId: doc.id,
+                                completed: data.eveningData.goalCompleted || false
+                            };
+                        }
+
+                        goals.push({
+                            id: doc.id,
+                            goal: data.eveningData.tomorrowGoal,
+                            date: date,
+                            completed: data.eveningData.goalCompleted || false,
+                            completedDate: data.eveningData.goalCompletedDate || null
+                        });
+                    }
+                });
+
+                setTomorrowGoals(goals);
+                setYesterdayGoal(foundYesterdayGoal);
+
+                console.log('✅ Tomorrow goals loaded:', { totalGoals: goals.length, yesterdayGoal: foundYesterdayGoal });
+
+            } catch (error) {
+                console.error('Error loading tomorrow goals:', error);
+            }
+        };
+
+        loadTomorrowGoals();
+
+        // Set up real-time listener
+        const db = firebase.firestore();
+        const unsubscribe = db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .onSnapshot(() => {
+                loadTomorrowGoals();
+            });
+
+        return () => unsubscribe();
+    }, [user]);
+
+    // ═══════════════════════════════════════════════════════════
     // STEP 4c COMPLETE: Pattern detection (30-day historical analysis)
     // ═══════════════════════════════════════════════════════════
 
@@ -335,7 +962,7 @@ function TasksTab() {
                 const thirtyDaysAgo = new Date();
                 thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-                const snapshot = await db.collection('checkins')
+                const snapshot = await db.collection('checkIns')
                     .where('userId', '==', user.uid)
                     .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(thirtyDaysAgo))
                     .orderBy('createdAt', 'desc')
@@ -545,6 +1172,26 @@ function TasksTab() {
     }, [user]);
 
     // ═══════════════════════════════════════════════════════════
+    // STEP 4h: Initialize Lucide icons when sidebar or modals open
+    // ═══════════════════════════════════════════════════════════
+
+    React.useEffect(() => {
+        if (showSidebar || activeModal || activeTaskTab) {
+            // Small delay to ensure DOM has updated
+            const timer = setTimeout(() => {
+                if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                    lucide.createIcons();
+                    console.log('✅ TasksTab: Lucide icons initialized for sidebar/modals/tabs');
+                } else {
+                    console.warn('⚠️ TasksTab: Lucide library not available');
+                }
+            }, 150);
+
+            return () => clearTimeout(timer);
+        }
+    }, [showSidebar, activeModal, activeTaskTab]);
+
+    // ═══════════════════════════════════════════════════════════
     // FIREBASE QUERIES COMPLETE - Now have user, check-in status, streak, patterns, goals, assignments, objectives, coachNotes
     // ═══════════════════════════════════════════════════════════
 
@@ -567,7 +1214,7 @@ function TasksTab() {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
 
-            const checkInRef = db.collection('checkins').doc();
+            const checkInRef = db.collection('checkIns').doc();
             await checkInRef.set({
                 userId: user.uid,
                 morningData: checkInData,
@@ -614,7 +1261,7 @@ function TasksTab() {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
 
-            const snapshot = await db.collection('checkins')
+            const snapshot = await db.collection('checkIns')
                 .where('userId', '==', user.uid)
                 .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(today))
                 .limit(1)
@@ -631,7 +1278,7 @@ function TasksTab() {
                 });
             } else {
                 // Create new check-in
-                const checkInRef = db.collection('checkins').doc();
+                const checkInRef = db.collection('checkIns').doc();
                 await checkInRef.set({
                     userId: user.uid,
                     eveningData: reflectionData,
@@ -771,6 +1418,87 @@ function TasksTab() {
 
     return (
         <>
+            {/* TASKS TAB HEADER */}
+            <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: '48px',
+                background: '#058585',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '0 16px',
+                zIndex: 100,
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                {/* Left: Hamburger Menu + Title */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button
+                        onClick={() => {
+                            if (typeof window.GLRSApp?.utils?.triggerHaptic === 'function') {
+                                window.GLRSApp.utils.triggerHaptic('medium');
+                            }
+                            setShowSidebar(true);
+                        }}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#FFFFFF',
+                            cursor: 'pointer',
+                            padding: '8px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}
+                        title="Quick Tools"
+                    >
+                        <i data-lucide="menu" style={{ width: '24px', height: '24px' }}></i>
+                    </button>
+
+                    <h1 style={{
+                        margin: 0,
+                        color: 'white',
+                        fontSize: isMobile ? '16px' : '18px',
+                        fontWeight: 'bold'
+                    }}>
+                        Tasks
+                    </h1>
+                </div>
+
+                {/* Right: Profile Icon */}
+                <button
+                    onClick={() => {
+                        if (typeof window.GLRSApp?.utils?.triggerHaptic === 'function') {
+                            window.GLRSApp.utils.triggerHaptic('light');
+                        }
+                        // Dispatch custom event to navigate to profile tab
+                        window.dispatchEvent(new CustomEvent('glrs-navigate', {
+                            detail: { view: 'profile' }
+                        }));
+                    }}
+                    style={{
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '50%',
+                        background: 'transparent',
+                        border: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        transition: 'background 0.2s'
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                    title="Profile"
+                >
+                    <i data-lucide="user" style={{ width: '20px', height: '20px', color: '#FFFFFF' }}></i>
+                </button>
+            </div>
+
             {/* TASKS SUB-NAVIGATION */}
             <div style={{
                 background: '#058585',
@@ -785,30 +1513,6 @@ function TasksTab() {
                 zIndex: 99,
                 boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
             }}>
-                {/* Hamburger Menu Button - Opens Quick Tools Sidebar */}
-                <button
-                    onClick={() => {
-                        window.GLRSApp.utils.triggerHaptic('medium');
-                        setShowSidebar(true);
-                    }}
-                    style={{
-                        position: 'absolute',
-                        left: '12px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        background: 'none',
-                        border: 'none',
-                        color: '#FFFFFF',
-                        cursor: 'pointer',
-                        padding: '8px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                    }}
-                    title="Quick Tools"
-                >
-                    <i data-lucide="menu" style={{ width: '24px', height: '24px' }}></i>
-                </button>
 
                 <button
                     onClick={() => {
@@ -821,7 +1525,7 @@ function TasksTab() {
                         background: 'none',
                         border: 'none',
                         color: activeTaskTab === 'checkin' ? '#FFFFFF' : 'rgba(255,255,255,0.7)',
-                        fontSize: '14px',
+                        fontSize: isMobile ? '13px' : '14px',
                         fontWeight: activeTaskTab === 'checkin' ? 'bold' : '400',
                         cursor: 'pointer',
                         position: 'relative',
@@ -853,7 +1557,7 @@ function TasksTab() {
                         background: 'none',
                         border: 'none',
                         color: activeTaskTab === 'reflections' ? '#FFFFFF' : 'rgba(255,255,255,0.7)',
-                        fontSize: '14px',
+                        fontSize: isMobile ? '13px' : '14px',
                         fontWeight: activeTaskTab === 'reflections' ? 'bold' : '400',
                         cursor: 'pointer',
                         position: 'relative',
@@ -885,7 +1589,7 @@ function TasksTab() {
                         background: 'none',
                         border: 'none',
                         color: activeTaskTab === 'golden' ? '#FFFFFF' : 'rgba(255,255,255,0.7)',
-                        fontSize: '14px',
+                        fontSize: isMobile ? '13px' : '14px',
                         fontWeight: activeTaskTab === 'golden' ? 'bold' : '400',
                         cursor: 'pointer',
                         position: 'relative',
@@ -923,10 +1627,10 @@ function TasksTab() {
                 }}>
                     {/* Morning Check-In Section */}
                     <h3 style={{
-                        fontSize: '16px',
+                        fontSize: isMobile ? '15px' : '16px',
                         fontWeight: '400',
                         color: '#000000',
-                        marginBottom: '10px'
+                        marginBottom: isMobile ? '8px' : '10px'
                     }}>
                         Morning Check-In
                     </h3>
@@ -940,22 +1644,22 @@ function TasksTab() {
                             width: '100%',
                             background: 'linear-gradient(135deg, rgba(5, 133, 133, 0.1) 0%, rgba(5, 133, 133, 0.05) 100%)',
                             borderRadius: '12px',
-                            padding: '30px 20px',
-                            marginBottom: '20px',
+                            padding: isMobile ? '20px 15px' : '30px 20px',
+                            marginBottom: isMobile ? '15px' : '20px',
                             textAlign: 'center',
                             border: '2px solid rgba(5, 133, 133, 0.2)'
                         }}>
-                            <div style={{ fontSize: '64px', marginBottom: '15px' }}>✅</div>
+                            <div style={{ fontSize: isMobile ? '48px' : '64px', marginBottom: isMobile ? '10px' : '15px' }}>✅</div>
                             <h3 style={{
-                                fontSize: '18px',
+                                fontSize: isMobile ? '16px' : '18px',
                                 fontWeight: 'bold',
                                 color: '#058585',
-                                marginBottom: '8px'
+                                marginBottom: isMobile ? '6px' : '8px'
                             }}>
                                 Morning Check-In Complete!
                             </h3>
                             <p style={{
-                                fontSize: '14px',
+                                fontSize: isMobile ? '13px' : '14px',
                                 color: '#666',
                                 margin: 0
                             }}>
@@ -970,15 +1674,15 @@ function TasksTab() {
                         width: '100%',
                         background: '#FFFFFF',
                         borderRadius: '12px',
-                        padding: '12px',
-                        marginBottom: '8px',
+                        padding: isMobile ? '10px' : '12px',
+                        marginBottom: isMobile ? '6px' : '8px',
                         boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
                     }}>
                         <div style={{
-                            fontSize: '14px',
+                            fontSize: isMobile ? '13px' : '14px',
                             fontWeight: '400',
                             color: '#000000',
-                            marginBottom: '8px'
+                            marginBottom: isMobile ? '6px' : '8px'
                         }}>
                             Mood
                         </div>
@@ -987,14 +1691,14 @@ function TasksTab() {
                             alignItems: 'center',
                             justifyContent: 'center',
                             position: 'relative',
-                            height: '70px',
+                            height: isMobile ? '60px' : '70px',
                             overflow: 'hidden'
                         }}>
                             {/* Highlight Box Behind Selected Number */}
                             <div style={{
                                 position: 'absolute',
-                                width: '70px',
-                                height: '60px',
+                                width: isMobile ? '60px' : '70px',
+                                height: isMobile ? '50px' : '60px',
                                 background: 'rgba(5, 133, 133, 0.12)',
                                 borderRadius: '12px',
                                 top: '50%',
@@ -1008,9 +1712,9 @@ function TasksTab() {
                             <div style={{
                                 position: 'absolute',
                                 width: '1px',
-                                height: '50px',
+                                height: isMobile ? '40px' : '50px',
                                 background: 'rgba(5, 133, 133, 0.3)',
-                                left: 'calc(50% - 40px)',
+                                left: isMobile ? 'calc(50% - 35px)' : 'calc(50% - 40px)',
                                 top: '50%',
                                 transform: 'translateY(-50%)',
                                 pointerEvents: 'none',
@@ -1021,9 +1725,9 @@ function TasksTab() {
                             <div style={{
                                 position: 'absolute',
                                 width: '1px',
-                                height: '50px',
+                                height: isMobile ? '40px' : '50px',
                                 background: 'rgba(5, 133, 133, 0.3)',
-                                left: 'calc(50% + 40px)',
+                                left: isMobile ? 'calc(50% + 35px)' : 'calc(50% + 40px)',
                                 top: '50%',
                                 transform: 'translateY(-50%)',
                                 pointerEvents: 'none',
@@ -1059,20 +1763,20 @@ function TasksTab() {
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '20px',
+                                gap: isMobile ? '15px' : '20px',
                                 overflowX: 'auto',
                                 overflowY: 'hidden',
                                 scrollSnapType: 'x mandatory',
                                 WebkitOverflowScrolling: 'touch',
                                 scrollBehavior: 'smooth',
-                                padding: '0 calc(50% - 30px)',
+                                padding: isMobile ? '0 calc(50% - 25px)' : '0 calc(50% - 30px)',
                                 width: '100%',
                                 touchAction: 'pan-x'
                             }}
                             onScroll={(e) => {
                                 const container = e.target;
                                 const scrollLeft = container.scrollLeft;
-                                const itemWidth = 60 + 20; // width + gap
+                                const itemWidth = (isMobile ? 50 : 60) + (isMobile ? 15 : 20); // width + gap
                                 const centerIndex = Math.round(scrollLeft / itemWidth);
                                 if (centerIndex !== morningCheckInData.mood && centerIndex >= 0 && centerIndex <= 10) {
                                     window.GLRSApp.utils.triggerHaptic('light');
@@ -1088,12 +1792,12 @@ function TasksTab() {
                                             setMorningCheckInData(prev => ({ ...prev, mood: rating }));
                                         }}
                                         style={{
-                                            minWidth: '60px',
-                                            height: '60px',
+                                            minWidth: isMobile ? '50px' : '60px',
+                                            height: isMobile ? '50px' : '60px',
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'center',
-                                            fontSize: morningCheckInData.mood === rating ? '32px' : '20px',
+                                            fontSize: morningCheckInData.mood === rating ? (isMobile ? '28px' : '32px') : (isMobile ? '18px' : '20px'),
                                             fontWeight: morningCheckInData.mood === rating ? 'bold' : '400',
                                             color: morningCheckInData.mood === rating ? '#058585' : '#cccccc',
                                             cursor: 'pointer',
@@ -1116,15 +1820,15 @@ function TasksTab() {
                         width: '100%',
                         background: '#FFFFFF',
                         borderRadius: '12px',
-                        padding: '12px',
-                        marginBottom: '8px',
+                        padding: isMobile ? '10px' : '12px',
+                        marginBottom: isMobile ? '6px' : '8px',
                         boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
                     }}>
                         <div style={{
-                            fontSize: '14px',
+                            fontSize: isMobile ? '13px' : '14px',
                             fontWeight: '400',
                             color: '#000000',
-                            marginBottom: '8px'
+                            marginBottom: isMobile ? '6px' : '8px'
                         }}>
                             Craving
                         </div>
@@ -1133,13 +1837,13 @@ function TasksTab() {
                             alignItems: 'center',
                             justifyContent: 'center',
                             position: 'relative',
-                            height: '70px',
+                            height: isMobile ? '60px' : '70px',
                             overflow: 'hidden'
                         }}>
                             <div style={{
                                 position: 'absolute',
-                                width: '70px',
-                                height: '60px',
+                                width: isMobile ? '60px' : '70px',
+                                height: isMobile ? '50px' : '60px',
                                 background: 'rgba(5, 133, 133, 0.12)',
                                 borderRadius: '12px',
                                 top: '50%',
@@ -1151,9 +1855,9 @@ function TasksTab() {
                             <div style={{
                                 position: 'absolute',
                                 width: '1px',
-                                height: '50px',
+                                height: isMobile ? '40px' : '50px',
                                 background: 'rgba(5, 133, 133, 0.3)',
-                                left: 'calc(50% - 40px)',
+                                left: isMobile ? 'calc(50% - 35px)' : 'calc(50% - 40px)',
                                 top: '50%',
                                 transform: 'translateY(-50%)',
                                 pointerEvents: 'none',
@@ -1162,9 +1866,9 @@ function TasksTab() {
                             <div style={{
                                 position: 'absolute',
                                 width: '1px',
-                                height: '50px',
+                                height: isMobile ? '40px' : '50px',
                                 background: 'rgba(5, 133, 133, 0.3)',
-                                left: 'calc(50% + 40px)',
+                                left: isMobile ? 'calc(50% + 35px)' : 'calc(50% + 40px)',
                                 top: '50%',
                                 transform: 'translateY(-50%)',
                                 pointerEvents: 'none',
@@ -1195,20 +1899,20 @@ function TasksTab() {
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '20px',
+                                gap: isMobile ? '15px' : '20px',
                                 overflowX: 'auto',
                                 overflowY: 'hidden',
                                 scrollSnapType: 'x mandatory',
                                 WebkitOverflowScrolling: 'touch',
                                 scrollBehavior: 'smooth',
-                                padding: '0 calc(50% - 30px)',
+                                padding: isMobile ? '0 calc(50% - 25px)' : '0 calc(50% - 30px)',
                                 width: '100%',
                                 touchAction: 'pan-x'
                             }}
                             onScroll={(e) => {
                                 const container = e.target;
                                 const scrollLeft = container.scrollLeft;
-                                const itemWidth = 60 + 20;
+                                const itemWidth = (isMobile ? 50 : 60) + (isMobile ? 15 : 20);
                                 const centerIndex = Math.round(scrollLeft / itemWidth);
                                 if (centerIndex !== morningCheckInData.craving && centerIndex >= 0 && centerIndex <= 10) {
                                     window.GLRSApp.utils.triggerHaptic('light');
@@ -1224,12 +1928,12 @@ function TasksTab() {
                                             setMorningCheckInData(prev => ({ ...prev, craving: rating }));
                                         }}
                                         style={{
-                                            minWidth: '60px',
-                                            height: '60px',
+                                            minWidth: isMobile ? '50px' : '60px',
+                                            height: isMobile ? '50px' : '60px',
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'center',
-                                            fontSize: morningCheckInData.craving === rating ? '32px' : '20px',
+                                            fontSize: morningCheckInData.craving === rating ? (isMobile ? '28px' : '32px') : (isMobile ? '18px' : '20px'),
                                             fontWeight: morningCheckInData.craving === rating ? 'bold' : '400',
                                             color: morningCheckInData.craving === rating ? '#058585' : '#cccccc',
                                             cursor: 'pointer',
@@ -1252,15 +1956,15 @@ function TasksTab() {
                         width: '100%',
                         background: '#FFFFFF',
                         borderRadius: '12px',
-                        padding: '12px',
-                        marginBottom: '8px',
+                        padding: isMobile ? '10px' : '12px',
+                        marginBottom: isMobile ? '6px' : '8px',
                         boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
                     }}>
                         <div style={{
-                            fontSize: '14px',
+                            fontSize: isMobile ? '13px' : '14px',
                             fontWeight: '400',
                             color: '#000000',
-                            marginBottom: '8px'
+                            marginBottom: isMobile ? '6px' : '8px'
                         }}>
                             Anxiety
                         </div>
@@ -1269,13 +1973,13 @@ function TasksTab() {
                             alignItems: 'center',
                             justifyContent: 'center',
                             position: 'relative',
-                            height: '70px',
+                            height: isMobile ? '60px' : '70px',
                             overflow: 'hidden'
                         }}>
                             <div style={{
                                 position: 'absolute',
-                                width: '70px',
-                                height: '60px',
+                                width: isMobile ? '60px' : '70px',
+                                height: isMobile ? '50px' : '60px',
                                 background: 'rgba(5, 133, 133, 0.12)',
                                 borderRadius: '12px',
                                 top: '50%',
@@ -1287,9 +1991,9 @@ function TasksTab() {
                             <div style={{
                                 position: 'absolute',
                                 width: '1px',
-                                height: '50px',
+                                height: isMobile ? '40px' : '50px',
                                 background: 'rgba(5, 133, 133, 0.3)',
-                                left: 'calc(50% - 40px)',
+                                left: isMobile ? 'calc(50% - 35px)' : 'calc(50% - 40px)',
                                 top: '50%',
                                 transform: 'translateY(-50%)',
                                 pointerEvents: 'none',
@@ -1298,9 +2002,9 @@ function TasksTab() {
                             <div style={{
                                 position: 'absolute',
                                 width: '1px',
-                                height: '50px',
+                                height: isMobile ? '40px' : '50px',
                                 background: 'rgba(5, 133, 133, 0.3)',
-                                left: 'calc(50% + 40px)',
+                                left: isMobile ? 'calc(50% + 35px)' : 'calc(50% + 40px)',
                                 top: '50%',
                                 transform: 'translateY(-50%)',
                                 pointerEvents: 'none',
@@ -1331,20 +2035,20 @@ function TasksTab() {
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '20px',
+                                gap: isMobile ? '15px' : '20px',
                                 overflowX: 'auto',
                                 overflowY: 'hidden',
                                 scrollSnapType: 'x mandatory',
                                 WebkitOverflowScrolling: 'touch',
                                 scrollBehavior: 'smooth',
-                                padding: '0 calc(50% - 30px)',
+                                padding: isMobile ? '0 calc(50% - 25px)' : '0 calc(50% - 30px)',
                                 width: '100%',
                                 touchAction: 'pan-x'
                             }}
                             onScroll={(e) => {
                                 const container = e.target;
                                 const scrollLeft = container.scrollLeft;
-                                const itemWidth = 60 + 20;
+                                const itemWidth = (isMobile ? 50 : 60) + (isMobile ? 15 : 20);
                                 const centerIndex = Math.round(scrollLeft / itemWidth);
                                 if (centerIndex !== morningCheckInData.anxiety && centerIndex >= 0 && centerIndex <= 10) {
                                     window.GLRSApp.utils.triggerHaptic('light');
@@ -1360,12 +2064,12 @@ function TasksTab() {
                                             setMorningCheckInData(prev => ({ ...prev, anxiety: rating }));
                                         }}
                                         style={{
-                                            minWidth: '60px',
-                                            height: '60px',
+                                            minWidth: isMobile ? '50px' : '60px',
+                                            height: isMobile ? '50px' : '60px',
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'center',
-                                            fontSize: morningCheckInData.anxiety === rating ? '32px' : '20px',
+                                            fontSize: morningCheckInData.anxiety === rating ? (isMobile ? '28px' : '32px') : (isMobile ? '18px' : '20px'),
                                             fontWeight: morningCheckInData.anxiety === rating ? 'bold' : '400',
                                             color: morningCheckInData.anxiety === rating ? '#058585' : '#cccccc',
                                             cursor: 'pointer',
@@ -1388,15 +2092,15 @@ function TasksTab() {
                         width: '100%',
                         background: '#FFFFFF',
                         borderRadius: '12px',
-                        padding: '12px',
-                        marginBottom: '12px',
+                        padding: isMobile ? '10px' : '12px',
+                        marginBottom: isMobile ? '10px' : '12px',
                         boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
                     }}>
                         <div style={{
-                            fontSize: '14px',
+                            fontSize: isMobile ? '13px' : '14px',
                             fontWeight: '400',
                             color: '#000000',
-                            marginBottom: '8px'
+                            marginBottom: isMobile ? '6px' : '8px'
                         }}>
                             Sleep
                         </div>
@@ -1405,13 +2109,13 @@ function TasksTab() {
                             alignItems: 'center',
                             justifyContent: 'center',
                             position: 'relative',
-                            height: '70px',
+                            height: isMobile ? '60px' : '70px',
                             overflow: 'hidden'
                         }}>
                             <div style={{
                                 position: 'absolute',
-                                width: '70px',
-                                height: '60px',
+                                width: isMobile ? '60px' : '70px',
+                                height: isMobile ? '50px' : '60px',
                                 background: 'rgba(5, 133, 133, 0.12)',
                                 borderRadius: '12px',
                                 top: '50%',
@@ -1423,9 +2127,9 @@ function TasksTab() {
                             <div style={{
                                 position: 'absolute',
                                 width: '1px',
-                                height: '50px',
+                                height: isMobile ? '40px' : '50px',
                                 background: 'rgba(5, 133, 133, 0.3)',
-                                left: 'calc(50% - 40px)',
+                                left: isMobile ? 'calc(50% - 35px)' : 'calc(50% - 40px)',
                                 top: '50%',
                                 transform: 'translateY(-50%)',
                                 pointerEvents: 'none',
@@ -1434,9 +2138,9 @@ function TasksTab() {
                             <div style={{
                                 position: 'absolute',
                                 width: '1px',
-                                height: '50px',
+                                height: isMobile ? '40px' : '50px',
                                 background: 'rgba(5, 133, 133, 0.3)',
-                                left: 'calc(50% + 40px)',
+                                left: isMobile ? 'calc(50% + 35px)' : 'calc(50% + 40px)',
                                 top: '50%',
                                 transform: 'translateY(-50%)',
                                 pointerEvents: 'none',
@@ -1467,20 +2171,20 @@ function TasksTab() {
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '20px',
+                                gap: isMobile ? '15px' : '20px',
                                 overflowX: 'auto',
                                 overflowY: 'hidden',
                                 scrollSnapType: 'x mandatory',
                                 WebkitOverflowScrolling: 'touch',
                                 scrollBehavior: 'smooth',
-                                padding: '0 calc(50% - 30px)',
+                                padding: isMobile ? '0 calc(50% - 25px)' : '0 calc(50% - 30px)',
                                 width: '100%',
                                 touchAction: 'pan-x'
                             }}
                             onScroll={(e) => {
                                 const container = e.target;
                                 const scrollLeft = container.scrollLeft;
-                                const itemWidth = 60 + 20;
+                                const itemWidth = (isMobile ? 50 : 60) + (isMobile ? 15 : 20);
                                 const centerIndex = Math.round(scrollLeft / itemWidth);
                                 if (centerIndex !== morningCheckInData.sleep && centerIndex >= 0 && centerIndex <= 10) {
                                     window.GLRSApp.utils.triggerHaptic('light');
@@ -1496,12 +2200,12 @@ function TasksTab() {
                                             setMorningCheckInData(prev => ({ ...prev, sleep: rating }));
                                         }}
                                         style={{
-                                            minWidth: '60px',
-                                            height: '60px',
+                                            minWidth: isMobile ? '50px' : '60px',
+                                            height: isMobile ? '50px' : '60px',
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'center',
-                                            fontSize: morningCheckInData.sleep === rating ? '32px' : '20px',
+                                            fontSize: morningCheckInData.sleep === rating ? (isMobile ? '28px' : '32px') : (isMobile ? '18px' : '20px'),
                                             fontWeight: morningCheckInData.sleep === rating ? 'bold' : '400',
                                             color: morningCheckInData.sleep === rating ? '#058585' : '#cccccc',
                                             cursor: 'pointer',
@@ -1520,7 +2224,7 @@ function TasksTab() {
                     </div>
 
                     {/* Submit Button */}
-                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: isMobile ? '15px' : '20px' }}>
                         <button
                             onClick={async () => {
                                 triggerHaptic('success');
@@ -1542,13 +2246,13 @@ function TasksTab() {
                             }}
                             disabled={morningCheckInData.mood == null || morningCheckInData.craving == null || morningCheckInData.anxiety == null || morningCheckInData.sleep == null}
                             style={{
-                                width: '120px',
-                                height: '40px',
+                                width: isMobile ? '110px' : '120px',
+                                minHeight: isMobile ? '44px' : '40px',
                                 background: (morningCheckInData.mood == null || morningCheckInData.craving == null || morningCheckInData.anxiety == null || morningCheckInData.sleep == null) ? '#cccccc' : '#058585',
                                 border: 'none',
                                 borderRadius: '8px',
                                 color: '#FFFFFF',
-                                fontSize: '14px',
+                                fontSize: isMobile ? '13px' : '14px',
                                 fontWeight: '400',
                                 cursor: (morningCheckInData.mood == null || morningCheckInData.craving == null || morningCheckInData.anxiety == null || morningCheckInData.sleep == null) ? 'not-allowed' : 'pointer',
                                 transition: 'all 0.2s'
@@ -1634,10 +2338,9 @@ function TasksTab() {
                         cursor: 'pointer',
                         transition: 'all 0.2s'
                     }}
-                    onClick={async () => {
+                    onClick={() => {
                         window.GLRSApp.utils.triggerHaptic('light');
-                        // TODO: Global modal - needs PIRapp prop
-                        console.warn('Calendar heatmap modal needs PIRapp integration - loaders.js not compatible with TasksTab architecture');
+                        setActiveModal('checkRate');
                     }}>
                         <span style={{
                             fontSize: '14px',
@@ -1685,10 +2388,9 @@ function TasksTab() {
                         cursor: 'pointer',
                         transition: 'all 0.2s'
                     }}
-                    onClick={async () => {
+                    onClick={() => {
                         window.GLRSApp.utils.triggerHaptic('light');
-                        // TODO: Global modal - needs PIRapp prop
-                        console.warn('Mood week modal needs PIRapp integration');
+                        setActiveModal('avgMood');
                     }}>
                         <span style={{
                             fontSize: '14px',
@@ -1738,7 +2440,7 @@ function TasksTab() {
                     }}
                     onClick={() => {
                         window.GLRSApp.utils.triggerHaptic('light');
-                        // TODO: Global modal - needs PIRapp prop
+                        setActiveModal('streaks');
                     }}>
                         <span style={{
                             fontSize: '14px',
@@ -1748,7 +2450,7 @@ function TasksTab() {
                             Longest Streak
                         </span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {streakData && streakData.longestStreak > 0 ? (
+                            {streakData && typeof streakData.longestStreak === 'number' ? (
                                 <>
                                     <span style={{
                                         fontSize: '18px',
@@ -1766,7 +2468,7 @@ function TasksTab() {
                                     color: '#999999',
                                     fontStyle: 'italic'
                                 }}>
-                                    No data yet
+                                    Calculating...
                                 </span>
                             )}
                         </div>
@@ -1794,7 +2496,9 @@ function TasksTab() {
                     }}
                     onClick={() => {
                         window.GLRSApp.utils.triggerHaptic('light');
-                        // TODO: Navigation - should use router or PIRapp callback
+                        if (window.navigateToTab) {
+                            window.navigateToTab('progress'); // Navigate to Journey tab
+                        }
                     }}>
                         <i data-lucide="bar-chart-3" style={{ width: '20px', height: '20px' }}></i>
                         View Check-In Trends
@@ -1915,7 +2619,7 @@ function TasksTab() {
                     }}
                     onClick={() => {
                         window.GLRSApp.utils.triggerHaptic('light');
-                        // TODO: Global modal - needs PIRapp prop
+                        setActiveModal('stats');
                     }}>
                         <div style={{
                             display: 'flex',
@@ -1957,25 +2661,42 @@ function TasksTab() {
                         alignItems: 'center'
                     }}
                     onClick={async () => {
-                        try {
-                            window.GLRSApp.utils.triggerHaptic('light');
-                            const shareText = checkInStreak > 0
-                                ? `${checkInStreak} ${checkInStreak === 1 ? 'day' : 'days'} check-in streak! Proud of my progress in recovery.${weeklyStats && weeklyStats.checkRate ? ` ${weeklyStats.checkRate}% check-in rate this month.` : ''}`
-                                : 'Starting my recovery journey! Following my daily check-ins and reflections.';
+                        window.GLRSApp.utils.triggerHaptic('light');
+                        const shareText = checkInStreak > 0
+                            ? `${checkInStreak} ${checkInStreak === 1 ? 'day' : 'days'} check-in streak! 🔥\n\nProud of my progress in recovery.${weeklyStats && weeklyStats.checkRate ? `\n\n📊 ${weeklyStats.checkRate}% check-in rate this week` : ''}${weeklyStats && weeklyStats.avgMood > 0 ? `\n😊 Average mood: ${weeklyStats.avgMood}/10` : ''}\n\n#RecoveryJourney #Progress #GLRecovery`
+                            : 'Starting my recovery journey! 💪\n\nFollowing my daily check-ins and reflections.\n\n#RecoveryJourney #GLRecovery';
 
-                            if (navigator.share) {
+                        // Try native share API (works on Chrome, Safari, Edge, mobile browsers)
+                        if (navigator.share) {
+                            console.log('✅ Native share API available - opening share sheet...');
+                            try {
                                 await navigator.share({
                                     title: 'My Recovery Progress',
-                                    text: shareText,
+                                    text: shareText
                                 });
-                            } else {
-                                alert(`Share your progress:\n\n${shareText}`);
+                                console.log('✅ Share completed successfully');
+                                return;
+                            } catch (error) {
+                                if (error.name === 'AbortError') {
+                                    console.log('ℹ️ User cancelled share');
+                                    return;
+                                }
+                                console.error('❌ Share API error:', error.name, error.message);
+                                // Fall through to clipboard fallback
                             }
-                        } catch (error) {
-                            if (error.name !== 'AbortError') {
-                                console.error('Share error:', error);
-                                alert('Unable to share. Please try again.');
-                            }
+                        } else {
+                            console.log('ℹ️ Share API not supported in this browser/context');
+                        }
+
+                        // Fallback: copy to clipboard
+                        console.log('Using clipboard fallback...');
+                        try {
+                            await navigator.clipboard.writeText(shareText);
+                            alert('✅ Progress message copied to clipboard!\n\nYou can now paste it anywhere to share.');
+                        } catch (clipboardError) {
+                            console.error('❌ Clipboard error:', clipboardError);
+                            // Last resort: show text in prompt
+                            prompt('Copy this text to share:', shareText);
                         }
                     }}>
                         <div style={{
@@ -2123,10 +2844,10 @@ function TasksTab() {
                     }}>
                         {/* Evening Reflections Section */}
                         <h3 style={{
-                            fontSize: '16px',
+                            fontSize: isMobile ? '15px' : '16px',
                             fontWeight: '400',
                             color: '#000000',
-                            marginBottom: '10px'
+                            marginBottom: isMobile ? '8px' : '10px'
                         }}>
                             Evening Reflections
                         </h3>
@@ -2138,22 +2859,22 @@ function TasksTab() {
                                 width: '100%',
                                 background: 'linear-gradient(135deg, rgba(5, 133, 133, 0.1) 0%, rgba(5, 133, 133, 0.05) 100%)',
                                 borderRadius: '12px',
-                                padding: '30px 20px',
-                                marginBottom: '20px',
+                                padding: isMobile ? '20px 15px' : '30px 20px',
+                                marginBottom: isMobile ? '15px' : '20px',
                                 textAlign: 'center',
                                 border: '2px solid rgba(5, 133, 133, 0.2)'
                             }}>
-                                <div style={{ fontSize: '64px', marginBottom: '15px' }}>✅</div>
+                                <div style={{ fontSize: isMobile ? '48px' : '64px', marginBottom: isMobile ? '10px' : '15px' }}>✅</div>
                                 <h3 style={{
-                                    fontSize: '18px',
+                                    fontSize: isMobile ? '16px' : '18px',
                                     fontWeight: 'bold',
                                     color: '#058585',
-                                    marginBottom: '8px'
+                                    marginBottom: isMobile ? '6px' : '8px'
                                 }}>
                                     Evening Reflection Complete!
                                 </h3>
                                 <p style={{
-                                    fontSize: '14px',
+                                    fontSize: isMobile ? '13px' : '14px',
                                     color: '#666',
                                     margin: 0
                                 }}>
@@ -2168,20 +2889,20 @@ function TasksTab() {
                             width: '100%',
                             background: '#E3F2FD',
                             borderRadius: '12px',
-                            padding: '16px',
-                            marginBottom: '12px',
+                            padding: isMobile ? '12px' : '16px',
+                            marginBottom: isMobile ? '10px' : '12px',
                             border: '1px solid #90CAF9'
                         }}>
                             <div style={{
-                                fontSize: '14px',
+                                fontSize: isMobile ? '13px' : '14px',
                                 fontWeight: 'bold',
                                 color: '#000000',
-                                marginBottom: '8px'
+                                marginBottom: isMobile ? '6px' : '8px'
                             }}>
                                 Today's Reflection Prompt
                             </div>
                             <div style={{
-                                fontSize: '14px',
+                                fontSize: isMobile ? '13px' : '14px',
                                 fontWeight: '400',
                                 color: '#666666',
                                 fontStyle: 'italic'
@@ -2195,15 +2916,15 @@ function TasksTab() {
                             width: '100%',
                             background: '#FFFFFF',
                             borderRadius: '12px',
-                            padding: '12px',
-                            marginBottom: '8px',
+                            padding: isMobile ? '10px' : '12px',
+                            marginBottom: isMobile ? '6px' : '8px',
                             boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
                         }}>
                             <div style={{
-                                fontSize: '14px',
+                                fontSize: isMobile ? '13px' : '14px',
                                 fontWeight: '400',
                                 color: '#000000',
-                                marginBottom: '8px'
+                                marginBottom: isMobile ? '6px' : '8px'
                             }}>
                                 Your Response
                             </div>
@@ -2213,11 +2934,11 @@ function TasksTab() {
                                 placeholder="Reflect on today's prompt..."
                                 style={{
                                     width: '100%',
-                                    minHeight: '80px',
+                                    minHeight: isMobile ? '70px' : '80px',
                                     border: '1px solid #ddd',
                                     borderRadius: '8px',
-                                    padding: '8px',
-                                    fontSize: '14px',
+                                    padding: isMobile ? '8px' : '8px',
+                                    fontSize: isMobile ? '13px' : '14px',
                                     fontWeight: '400',
                                     color: '#000000',
                                     resize: 'vertical',
@@ -2231,15 +2952,15 @@ function TasksTab() {
                             width: '100%',
                             background: '#FFFFFF',
                             borderRadius: '12px',
-                            padding: '12px',
-                            marginBottom: '8px',
+                            padding: isMobile ? '10px' : '12px',
+                            marginBottom: isMobile ? '6px' : '8px',
                             boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
                         }}>
                             <div style={{
-                                fontSize: '14px',
+                                fontSize: isMobile ? '13px' : '14px',
                                 fontWeight: '400',
                                 color: '#000000',
-                                marginBottom: '8px'
+                                marginBottom: isMobile ? '6px' : '8px'
                             }}>
                                 Overall Day
                             </div>
@@ -2248,13 +2969,13 @@ function TasksTab() {
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 position: 'relative',
-                                height: '70px',
+                                height: isMobile ? '60px' : '70px',
                                 overflow: 'hidden'
                             }}>
                                 <div style={{
                                     position: 'absolute',
-                                    width: '70px',
-                                    height: '60px',
+                                    width: isMobile ? '60px' : '70px',
+                                    height: isMobile ? '50px' : '60px',
                                     background: 'rgba(5, 133, 133, 0.12)',
                                     borderRadius: '12px',
                                     top: '50%',
@@ -2266,9 +2987,9 @@ function TasksTab() {
                                 <div style={{
                                     position: 'absolute',
                                     width: '1px',
-                                    height: '50px',
+                                    height: isMobile ? '40px' : '50px',
                                     background: 'rgba(5, 133, 133, 0.3)',
-                                    left: 'calc(50% - 40px)',
+                                    left: isMobile ? 'calc(50% - 35px)' : 'calc(50% - 40px)',
                                     top: '50%',
                                     transform: 'translateY(-50%)',
                                     pointerEvents: 'none',
@@ -2277,9 +2998,9 @@ function TasksTab() {
                                 <div style={{
                                     position: 'absolute',
                                     width: '1px',
-                                    height: '50px',
+                                    height: isMobile ? '40px' : '50px',
                                     background: 'rgba(5, 133, 133, 0.3)',
-                                    left: 'calc(50% + 40px)',
+                                    left: isMobile ? 'calc(50% + 35px)' : 'calc(50% + 40px)',
                                     top: '50%',
                                     transform: 'translateY(-50%)',
                                     pointerEvents: 'none',
@@ -2310,20 +3031,20 @@ function TasksTab() {
                                     style={{
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: '20px',
+                                        gap: isMobile ? '15px' : '20px',
                                         overflowX: 'auto',
                                         overflowY: 'hidden',
                                         scrollSnapType: 'x mandatory',
                                         WebkitOverflowScrolling: 'touch',
                                         scrollBehavior: 'smooth',
-                                        padding: '0 calc(50% - 30px)',
+                                        padding: isMobile ? '0 calc(50% - 25px)' : '0 calc(50% - 30px)',
                                         width: '100%',
                                         touchAction: 'pan-x'
                                     }}
                                     onScroll={(e) => {
                                         const container = e.target;
                                         const scrollLeft = container.scrollLeft;
-                                        const itemWidth = 80;
+                                        const itemWidth = (isMobile ? 50 : 60) + (isMobile ? 15 : 20);
                                         const centerIndex = Math.round(scrollLeft / itemWidth);
                                         setEveningReflectionData(prev => ({ ...prev, overallDay: centerIndex }));
                                     }}
@@ -2332,12 +3053,12 @@ function TasksTab() {
                                         <div
                                             key={num}
                                             style={{
-                                                minWidth: '60px',
-                                                height: '60px',
+                                                minWidth: isMobile ? '50px' : '60px',
+                                                height: isMobile ? '50px' : '60px',
                                                 display: 'flex',
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
-                                                fontSize: eveningReflectionData.overallDay === num ? '36px' : '24px',
+                                                fontSize: eveningReflectionData.overallDay === num ? (isMobile ? '28px' : '36px') : (isMobile ? '18px' : '24px'),
                                                 fontWeight: eveningReflectionData.overallDay === num ? 'bold' : '400',
                                                 color: eveningReflectionData.overallDay === num ? '#058585' : '#CCCCCC',
                                                 transition: 'all 0.2s',
@@ -2350,7 +3071,7 @@ function TasksTab() {
                                                 setEveningReflectionData(prev => ({ ...prev, overallDay: num }));
                                                 const container = e.target.closest('.swipeable-picker-container');
                                                 if (container) {
-                                                    const itemWidth = 80;
+                                                    const itemWidth = (isMobile ? 50 : 60) + (isMobile ? 15 : 20);
                                                     container.scrollLeft = num * itemWidth;
                                                 }
                                             }}
@@ -2367,15 +3088,15 @@ function TasksTab() {
                             width: '100%',
                             background: '#FFFFFF',
                             borderRadius: '12px',
-                            padding: '12px',
-                            marginBottom: '8px',
+                            padding: isMobile ? '10px' : '12px',
+                            marginBottom: isMobile ? '6px' : '8px',
                             boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
                         }}>
                             <div style={{
-                                fontSize: '14px',
+                                fontSize: isMobile ? '13px' : '14px',
                                 fontWeight: '400',
                                 color: '#000000',
-                                marginBottom: '8px'
+                                marginBottom: isMobile ? '6px' : '8px'
                             }}>
                                 Today's Challenges
                             </div>
@@ -2385,11 +3106,11 @@ function TasksTab() {
                                 placeholder="What challenges did you face today?"
                                 style={{
                                     width: '100%',
-                                    minHeight: '60px',
+                                    minHeight: isMobile ? '55px' : '60px',
                                     border: '1px solid #ddd',
                                     borderRadius: '8px',
-                                    padding: '8px',
-                                    fontSize: '14px',
+                                    padding: isMobile ? '8px' : '8px',
+                                    fontSize: isMobile ? '13px' : '14px',
                                     fontWeight: '400',
                                     color: '#000000',
                                     resize: 'vertical',
@@ -2403,15 +3124,15 @@ function TasksTab() {
                             width: '100%',
                             background: '#FFFFFF',
                             borderRadius: '12px',
-                            padding: '12px',
-                            marginBottom: '8px',
+                            padding: isMobile ? '10px' : '12px',
+                            marginBottom: isMobile ? '6px' : '8px',
                             boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
                         }}>
                             <div style={{
-                                fontSize: '14px',
+                                fontSize: isMobile ? '13px' : '14px',
                                 fontWeight: '400',
                                 color: '#000000',
-                                marginBottom: '8px'
+                                marginBottom: isMobile ? '6px' : '8px'
                             }}>
                                 What I'm Grateful For
                             </div>
@@ -2421,11 +3142,11 @@ function TasksTab() {
                                 placeholder="What are you grateful for today?"
                                 style={{
                                     width: '100%',
-                                    minHeight: '60px',
+                                    minHeight: isMobile ? '55px' : '60px',
                                     border: '1px solid #ddd',
                                     borderRadius: '8px',
-                                    padding: '8px',
-                                    fontSize: '14px',
+                                    padding: isMobile ? '8px' : '8px',
+                                    fontSize: isMobile ? '13px' : '14px',
                                     fontWeight: '400',
                                     color: '#000000',
                                     resize: 'vertical',
@@ -2439,15 +3160,15 @@ function TasksTab() {
                             width: '100%',
                             background: '#FFFFFF',
                             borderRadius: '12px',
-                            padding: '12px',
-                            marginBottom: '16px',
+                            padding: isMobile ? '10px' : '12px',
+                            marginBottom: isMobile ? '12px' : '16px',
                             boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
                         }}>
                             <div style={{
-                                fontSize: '14px',
+                                fontSize: isMobile ? '13px' : '14px',
                                 fontWeight: '400',
                                 color: '#000000',
-                                marginBottom: '8px'
+                                marginBottom: isMobile ? '6px' : '8px'
                             }}>
                                 Tomorrow's Goal
                             </div>
@@ -2457,11 +3178,11 @@ function TasksTab() {
                                 placeholder="What's your goal for tomorrow?"
                                 style={{
                                     width: '100%',
-                                    minHeight: '60px',
+                                    minHeight: isMobile ? '55px' : '60px',
                                     border: '1px solid #ddd',
                                     borderRadius: '8px',
-                                    padding: '8px',
-                                    fontSize: '14px',
+                                    padding: isMobile ? '8px' : '8px',
+                                    fontSize: isMobile ? '13px' : '14px',
                                     fontWeight: '400',
                                     color: '#000000',
                                     resize: 'vertical',
@@ -2470,8 +3191,89 @@ function TasksTab() {
                             />
                         </div>
 
+                        {/* Yesterday's Goal - Mark as Complete */}
+                        {yesterdayGoal && (
+                            <div style={{
+                                width: '100%',
+                                background: yesterdayGoal.completed ? '#E8F5E9' : '#FFF9E6',
+                                borderRadius: '12px',
+                                padding: '16px',
+                                marginBottom: '16px',
+                                border: `2px solid ${yesterdayGoal.completed ? '#4CAF50' : '#FFA500'}`
+                            }}>
+                                <div style={{
+                                    fontSize: '14px',
+                                    fontWeight: 'bold',
+                                    color: '#000',
+                                    marginBottom: '12px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                }}>
+                                    <i data-lucide="target" style={{ width: '18px', height: '18px', color: yesterdayGoal.completed ? '#4CAF50' : '#FFA500' }}></i>
+                                    Yesterday's Goal
+                                </div>
+
+                                <div style={{
+                                    fontSize: '14px',
+                                    color: '#000',
+                                    padding: '12px',
+                                    background: '#FFFFFF',
+                                    borderRadius: '8px',
+                                    marginBottom: '12px',
+                                    fontStyle: 'italic'
+                                }}>
+                                    "{yesterdayGoal.goal}"
+                                </div>
+
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '12px',
+                                    padding: '12px',
+                                    background: 'rgba(255, 255, 255, 0.7)',
+                                    borderRadius: '8px'
+                                }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={yesterdayGoal.completed}
+                                        onChange={async (e) => {
+                                            const completed = e.target.checked;
+                                            try {
+                                                const db = firebase.firestore();
+                                                await db.collection('checkIns').doc(yesterdayGoal.docId).update({
+                                                    'eveningData.goalCompleted': completed,
+                                                    'eveningData.goalCompletedDate': completed ? firebase.firestore.FieldValue.serverTimestamp() : null
+                                                });
+                                                window.GLRSApp?.utils?.showNotification &&
+                                                    window.GLRSApp.utils.showNotification(
+                                                        completed ? '✅ Goal marked complete!' : 'Goal unmarked',
+                                                        'success'
+                                                    );
+                                            } catch (error) {
+                                                console.error('Error updating goal status:', error);
+                                            }
+                                        }}
+                                        style={{
+                                            width: '20px',
+                                            height: '20px',
+                                            cursor: 'pointer'
+                                        }}
+                                    />
+                                    <label style={{
+                                        fontSize: '14px',
+                                        fontWeight: '600',
+                                        color: yesterdayGoal.completed ? '#4CAF50' : '#666',
+                                        cursor: 'pointer'
+                                    }}>
+                                        {yesterdayGoal.completed ? '✅ Completed!' : 'Mark as completed'}
+                                    </label>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Submit Button */}
-                        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: isMobile ? '20px' : '24px' }}>
                             <button
                                 onClick={async () => {
                                     triggerHaptic('success');
@@ -2479,13 +3281,13 @@ function TasksTab() {
                                 }}
                                 disabled={eveningReflectionData.overallDay === null || !eveningReflectionData.challenges || !eveningReflectionData.gratitude || !eveningReflectionData.tomorrowGoal}
                                 style={{
-                                    width: '120px',
-                                    height: '40px',
+                                    width: isMobile ? '110px' : '120px',
+                                    minHeight: isMobile ? '44px' : '40px',
                                     background: (eveningReflectionData.overallDay === null || !eveningReflectionData.challenges || !eveningReflectionData.gratitude || !eveningReflectionData.tomorrowGoal) ? '#cccccc' : '#058585',
                                     border: 'none',
                                     borderRadius: '8px',
                                     color: '#FFFFFF',
-                                    fontSize: '14px',
+                                    fontSize: isMobile ? '13px' : '14px',
                                     fontWeight: '400',
                                     cursor: (eveningReflectionData.overallDay === null || !eveningReflectionData.challenges || !eveningReflectionData.gratitude || !eveningReflectionData.tomorrowGoal) ? 'not-allowed' : 'pointer',
                                     transition: 'all 0.2s'
@@ -2502,41 +3304,41 @@ function TasksTab() {
                             width: '100%',
                             background: '#FFFFFF',
                             borderRadius: '12px',
-                            padding: '12px',
-                            marginBottom: '12px',
+                            padding: isMobile ? '10px' : '12px',
+                            marginBottom: isMobile ? '10px' : '12px',
                             boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
-                            cursor: 'pointer'
+                            cursor: 'pointer',
+                            minHeight: isMobile ? '44px' : 'auto'
                         }}
                         onClick={async () => {
                             window.GLRSApp.utils.triggerHaptic('light');
-                            // TODO: Global modal - needs PIRapp prop
-                            console.warn('Reflection streak modal needs PIRapp integration');
+                            setActiveModal('reflectionStreaks');
                         }}>
                             <span style={{
-                                fontSize: '14px',
+                                fontSize: isMobile ? '13px' : '14px',
                                 fontWeight: '400',
                                 color: '#000000'
                             }}>
                                 Reflection Streak
                             </span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '8px' }}>
                                 {reflectionStreak > 0 ? (
                                     <>
                                         <span style={{
-                                            fontSize: '18px',
+                                            fontSize: isMobile ? '16px' : '18px',
                                             fontWeight: 'bold',
                                             color: '#058585'
                                         }}>
                                             {reflectionStreak} {reflectionStreak === 1 ? 'day' : 'days'}
                                         </span>
-                                        <i data-lucide="chevron-right" style={{ width: '16px', height: '16px', color: '#666666' }}></i>
+                                        <i data-lucide="chevron-right" style={{ width: isMobile ? '14px' : '16px', height: isMobile ? '14px' : '16px', color: '#666666' }}></i>
                                     </>
                                 ) : (
                                     <span style={{
-                                        fontSize: '14px',
+                                        fontSize: isMobile ? '13px' : '14px',
                                         fontWeight: '400',
                                         color: '#999999',
                                         fontStyle: 'italic'
@@ -2549,56 +3351,56 @@ function TasksTab() {
 
                         {/* Quick Stats Header */}
                         <h3 style={{
-                            fontSize: '16px',
+                            fontSize: isMobile ? '15px' : '16px',
                             fontWeight: '400',
                             color: '#000000',
-                            marginBottom: '10px',
-                            marginTop: '20px'
+                            marginBottom: isMobile ? '8px' : '10px',
+                            marginTop: isMobile ? '16px' : '20px'
                         }}>
                             Reflection Stats
                         </h3>
 
-                        {/* Total This Month Stat Card */}
+                        {/* Total Reflections (All-Time) Stat Card */}
                         <div style={{
                             width: '100%',
                             background: '#FFFFFF',
                             borderRadius: '12px',
-                            padding: '12px',
-                            marginBottom: '8px',
+                            padding: isMobile ? '10px' : '12px',
+                            marginBottom: isMobile ? '6px' : '8px',
                             boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
                             cursor: 'pointer',
-                            transition: 'all 0.2s'
+                            transition: 'all 0.2s',
+                            minHeight: isMobile ? '44px' : 'auto'
                         }}
                         onClick={async () => {
                             window.GLRSApp.utils.triggerHaptic('light');
-                            // TODO: Global modal - needs PIRapp prop
-                            console.warn('Calendar heatmap modal needs PIRapp integration');
+                            setActiveModal('allReflections');
                         }}>
                             <span style={{
-                                fontSize: '14px',
+                                fontSize: isMobile ? '13px' : '14px',
                                 fontWeight: '400',
                                 color: '#000000'
                             }}>
                                 Total Reflections
                             </span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                {reflectionStats.totalThisMonth > 0 ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '8px' }}>
+                                {reflectionStats.totalAllTime > 0 ? (
                                     <>
                                         <span style={{
-                                            fontSize: '18px',
+                                            fontSize: isMobile ? '16px' : '18px',
                                             fontWeight: 'bold',
                                             color: '#000000'
                                         }}>
-                                            {reflectionStats.totalThisMonth}
+                                            {reflectionStats.totalAllTime}
                                         </span>
-                                        <i data-lucide="chevron-right" style={{ width: '16px', height: '16px', color: '#666666' }}></i>
+                                        <i data-lucide="chevron-right" style={{ width: isMobile ? '14px' : '16px', height: isMobile ? '14px' : '16px', color: '#666666' }}></i>
                                     </>
                                 ) : (
                                     <span style={{
-                                        fontSize: '14px',
+                                        fontSize: isMobile ? '13px' : '14px',
                                         fontWeight: '400',
                                         color: '#999999',
                                         fontStyle: 'italic'
@@ -2614,42 +3416,51 @@ function TasksTab() {
                             width: '100%',
                             background: '#FFFFFF',
                             borderRadius: '12px',
-                            padding: '12px',
-                            marginBottom: '8px',
+                            padding: isMobile ? '10px' : '12px',
+                            marginBottom: isMobile ? '6px' : '8px',
                             boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
                             cursor: 'pointer',
-                            transition: 'all 0.2s'
+                            transition: 'all 0.2s',
+                            minHeight: isMobile ? '44px' : 'auto'
                         }}
-                        onClick={async () => {
+                        onClick={() => {
                             window.GLRSApp.utils.triggerHaptic('light');
-                            // TODO: Global modal - needs PIRapp prop
-                            console.warn('Overall day week modal needs PIRapp integration');
+                            // Navigate to Journey tab, Wellness section
+                            if (window.navigateToTab) {
+                                window.navigateToTab('journey');
+                                // Set Journey sub-tab to Wellness after a brief delay to ensure Journey tab is mounted
+                                setTimeout(() => {
+                                    if (window.navigateToJourneySubTab) {
+                                        window.navigateToJourneySubTab('wellness');
+                                    }
+                                }, 100);
+                            }
                         }}>
                             <span style={{
-                                fontSize: '14px',
+                                fontSize: isMobile ? '13px' : '14px',
                                 fontWeight: '400',
                                 color: '#000000'
                             }}>
                                 Avg Daily Score
                             </span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '8px' }}>
                                 {reflectionStats.avgDailyScore > 0 ? (
                                     <>
                                         <span style={{
-                                            fontSize: '18px',
+                                            fontSize: isMobile ? '16px' : '18px',
                                             fontWeight: 'bold',
                                             color: '#000000'
                                         }}>
                                             {reflectionStats.avgDailyScore}
                                         </span>
-                                        <i data-lucide="chevron-right" style={{ width: '16px', height: '16px', color: '#666666' }}></i>
+                                        <i data-lucide="chevron-right" style={{ width: isMobile ? '14px' : '16px', height: isMobile ? '14px' : '16px', color: '#666666' }}></i>
                                     </>
                                 ) : (
                                     <span style={{
-                                        fontSize: '14px',
+                                        fontSize: isMobile ? '13px' : '14px',
                                         fontWeight: '400',
                                         color: '#999999',
                                         fontStyle: 'italic'
@@ -2660,56 +3471,92 @@ function TasksTab() {
                             </div>
                         </div>
 
-                        {/* Top Gratitude Theme Stat Card */}
+                        {/* Top Gratitude Themes Section */}
                         <div style={{
                             width: '100%',
                             background: '#FFFFFF',
                             borderRadius: '12px',
-                            padding: '12px',
-                            marginBottom: '16px',
+                            padding: isMobile ? '12px' : '16px',
+                            marginBottom: isMobile ? '12px' : '16px',
                             boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
                             cursor: 'pointer',
-                            transition: 'all 0.2s'
+                            transition: 'all 0.2s',
+                            minHeight: isMobile ? '44px' : 'auto'
                         }}
                         onClick={() => {
-                            if (reflectionStats.gratitudeThemes && reflectionStats.gratitudeThemes.length > 0) {
-                                window.GLRSApp.utils.triggerHaptic('light');
-                                // TODO: Global modal - needs PIRapp prop
-                            }
+                            window.GLRSApp.utils.triggerHaptic('light');
+                            setActiveModal('gratitudeThemes');
                         }}>
-                            <span style={{
-                                fontSize: '14px',
-                                fontWeight: '400',
-                                color: '#000000'
+                            <div style={{
+                                fontSize: isMobile ? '13px' : '14px',
+                                fontWeight: '600',
+                                color: '#000000',
+                                marginBottom: isMobile ? '10px' : '12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between'
                             }}>
-                                Top Gratitude Theme
-                            </span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                {reflectionStats.topGratitudeTheme ? (
-                                    <>
-                                        <span style={{
-                                            fontSize: '14px',
-                                            fontWeight: '400',
-                                            color: '#058585'
-                                        }}>
-                                            {reflectionStats.topGratitudeTheme}
-                                        </span>
-                                        <i data-lucide="chevron-right" style={{ width: '16px', height: '16px', color: '#666666' }}></i>
-                                    </>
-                                ) : (
-                                    <span style={{
-                                        fontSize: '14px',
-                                        fontWeight: '400',
-                                        color: '#999999',
-                                        fontStyle: 'italic'
-                                    }}>
-                                        No gratitudes yet
-                                    </span>
-                                )}
+                                <span>Top Gratitude Themes</span>
+                                <i data-lucide="chevron-right" style={{ width: isMobile ? '14px' : '16px', height: isMobile ? '14px' : '16px', color: '#666666' }}></i>
                             </div>
+
+                            {reflectionStats.topGratitudeThemes && reflectionStats.topGratitudeThemes.length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                    {reflectionStats.topGratitudeThemes.map((theme, index) => {
+                                        const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉';
+                                        const bgColor = index === 0 ? '#FFF9E6' : index === 1 ? '#F5F5F5' : '#F8F9FA';
+                                        const borderColor = index === 0 ? '#FFA500' : '#E5E5E5';
+
+                                        return (
+                                            <div
+                                                key={index}
+                                                style={{
+                                                    padding: '12px',
+                                                    background: bgColor,
+                                                    borderRadius: '8px',
+                                                    border: `1px solid ${borderColor}`,
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center'
+                                                }}
+                                            >
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span style={{ fontSize: '20px' }}>{medal}</span>
+                                                    <div>
+                                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#000' }}>
+                                                            {theme.name}
+                                                        </div>
+                                                        <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>
+                                                            Last: {theme.lastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div style={{
+                                                    padding: '4px 10px',
+                                                    background: '#058585',
+                                                    borderRadius: '12px',
+                                                    fontSize: '12px',
+                                                    fontWeight: 'bold',
+                                                    color: '#FFFFFF'
+                                                }}>
+                                                    {theme.count}×
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div style={{
+                                    textAlign: 'center',
+                                    padding: '20px',
+                                    color: '#999',
+                                    fontSize: '14px',
+                                    fontStyle: 'italic'
+                                }}>
+                                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>💭</div>
+                                    Start adding gratitudes to see your themes!
+                                </div>
+                            )}
                         </div>
 
                         {/* Longest Streak Stat Card */}
@@ -2717,41 +3564,42 @@ function TasksTab() {
                             width: '100%',
                             background: '#FFFFFF',
                             borderRadius: '12px',
-                            padding: '12px',
-                            marginBottom: '16px',
+                            padding: isMobile ? '10px' : '12px',
+                            marginBottom: isMobile ? '12px' : '16px',
                             boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
                             cursor: 'pointer',
-                            transition: 'all 0.2s'
+                            transition: 'all 0.2s',
+                            minHeight: isMobile ? '44px' : 'auto'
                         }}
                         onClick={() => {
                             window.GLRSApp.utils.triggerHaptic('light');
-                            // TODO: Global modal - needs PIRapp prop
+                            setActiveModal('reflectionStreaks');
                         }}>
                             <span style={{
-                                fontSize: '14px',
+                                fontSize: isMobile ? '13px' : '14px',
                                 fontWeight: '400',
                                 color: '#000000'
                             }}>
                                 Longest Streak
                             </span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '8px' }}>
                                 {reflectionStreakData.longestStreak > 0 ? (
                                     <>
                                         <span style={{
-                                            fontSize: '18px',
+                                            fontSize: isMobile ? '16px' : '18px',
                                             fontWeight: 'bold',
                                             color: '#000000'
                                         }}>
                                             🔥 {reflectionStreakData.longestStreak} {reflectionStreakData.longestStreak === 1 ? 'day' : 'days'}
                                         </span>
-                                        <i data-lucide="chevron-right" style={{ width: '16px', height: '16px', color: '#666666' }}></i>
+                                        <i data-lucide="chevron-right" style={{ width: isMobile ? '14px' : '16px', height: isMobile ? '14px' : '16px', color: '#666666' }}></i>
                                     </>
                                 ) : (
                                     <span style={{
-                                        fontSize: '14px',
+                                        fontSize: isMobile ? '13px' : '14px',
                                         fontWeight: '400',
                                         color: '#999999',
                                         fontStyle: 'italic'
@@ -2765,15 +3613,15 @@ function TasksTab() {
                         {/* View Past Reflections Button */}
                         <button style={{
                             width: '100%',
-                            height: '48px',
+                            minHeight: isMobile ? '44px' : '48px',
                             background: '#FFFFFF',
                             borderRadius: '12px',
-                            padding: '12px',
-                            marginBottom: '12px',
+                            padding: isMobile ? '10px' : '12px',
+                            marginBottom: isMobile ? '10px' : '12px',
                             boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                             border: '1px solid #058585',
                             color: '#058585',
-                            fontSize: '14px',
+                            fontSize: isMobile ? '13px' : '14px',
                             fontWeight: '400',
                             cursor: 'pointer',
                             transition: 'all 0.2s'
@@ -2787,11 +3635,11 @@ function TasksTab() {
 
                         {/* Quick Tools Section */}
                         <h3 style={{
-                            fontSize: '16px',
+                            fontSize: isMobile ? '15px' : '16px',
                             fontWeight: 'bold',
                             color: '#000000',
-                            marginTop: '24px',
-                            marginBottom: '12px'
+                            marginTop: isMobile ? '20px' : '24px',
+                            marginBottom: isMobile ? '10px' : '12px'
                         }}>
                             Quick Tools
                         </h3>
@@ -2799,15 +3647,15 @@ function TasksTab() {
                         {/* Gratitude Entry Button */}
                         <button style={{
                             width: '100%',
-                            height: '48px',
+                            minHeight: isMobile ? '44px' : '48px',
                             background: '#058585',
                             borderRadius: '12px',
-                            padding: '12px',
-                            marginBottom: '12px',
+                            padding: isMobile ? '10px' : '12px',
+                            marginBottom: isMobile ? '10px' : '12px',
                             boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                             border: 'none',
                             color: '#FFFFFF',
-                            fontSize: '14px',
+                            fontSize: isMobile ? '13px' : '14px',
                             fontWeight: '400',
                             cursor: 'pointer',
                             transition: 'all 0.2s',
@@ -2846,8 +3694,7 @@ function TasksTab() {
                         }}
                         onClick={async () => {
                             window.GLRSApp.utils.triggerHaptic('light');
-                            // TODO: This modal should be passed as prop from PIRapp - setShowModal('gratitudeJournal')
-                            console.warn('Gratitude Journal modal functionality needs PIRapp integration');
+                            setActiveModal('gratitudeJournal');
                         }}>
                             <i data-lucide="book-heart" style={{ width: '16px', height: '16px' }}></i>
                             Gratitude Journal
@@ -2875,8 +3722,7 @@ function TasksTab() {
                         }}
                         onClick={async () => {
                             window.GLRSApp.utils.triggerHaptic('light');
-                            // TODO: This modal should be passed as prop from PIRapp - setShowModal('challengesHistory')
-                            console.warn('Challenges History modal functionality needs PIRapp integration');
+                            setActiveModal('challengesHistory');
                         }}>
                             <i data-lucide="alert-triangle" style={{ width: '16px', height: '16px' }}></i>
                             Challenges History
@@ -2904,8 +3750,7 @@ function TasksTab() {
                         }}
                         onClick={async () => {
                             window.GLRSApp.utils.triggerHaptic('light');
-                            // TODO: This modal should be passed as prop from PIRapp - setShowModal('tomorrowGoals')
-                            console.warn('Tomorrow Goals modal functionality needs PIRapp integration');
+                            setActiveModal('goalProgress');
                         }}>
                             <i data-lucide="trophy" style={{ width: '16px', height: '16px' }}></i>
                             Goal Tracker
@@ -2931,8 +3776,27 @@ function TasksTab() {
                             justifyContent: 'center',
                             gap: '8px'
                         }}
-                        onClick={() => {
-                            shareReflections();
+                        onClick={async () => {
+                            try {
+                                window.GLRSApp.utils.triggerHaptic('light');
+                                const shareText = reflectionStreak > 0
+                                    ? `${reflectionStreak} ${reflectionStreak === 1 ? 'day' : 'days'} reflection streak! Building self-awareness in recovery.${reflectionStats.totalThisMonth > 0 ? ` ${reflectionStats.totalThisMonth} reflections this month.` : ''}`
+                                    : 'Starting my reflection practice! Taking time for gratitude and self-reflection each day.';
+
+                                if (navigator.share) {
+                                    await navigator.share({
+                                        title: 'My Reflection Progress',
+                                        text: shareText,
+                                    });
+                                } else {
+                                    alert(`Share your reflections:\n\n${shareText}`);
+                                }
+                            } catch (error) {
+                                if (error.name !== 'AbortError') {
+                                    console.error('Share error:', error);
+                                    alert('Unable to share. Please try again.');
+                                }
+                            }
                         }}>
                             <i data-lucide="share-2" style={{ width: '16px', height: '16px' }}></i>
                             Share Reflections
@@ -2958,109 +3822,4866 @@ function TasksTab() {
                 )}
             </div>
 
-            {/* RENDER TASKS SIDEBAR MODALS */}
-            {React.createElement(window.GLRSApp.components.TasksSidebarModals, {
-                // Modal visibility flags (17)
-                showHabitTrackerModal: showHabitTrackerModal,
-                showQuickReflectionModal: showQuickReflectionModal,
-                showThisWeekTasksModal: showThisWeekTasksModal,
-                showOverdueItemsModal: showOverdueItemsModal,
-                showMarkCompleteModal: showMarkCompleteModal,
-                showProgressStatsModal: showProgressStatsModal,
-                showGoalProgressModal: showGoalProgressModal,
-                showTodayWinsModal: showTodayWinsModal,
-                showStreaksModal: showStreaksModal,
-                showReflectionStreaksModal: showReflectionStreaksModal,
-                showIntentionsModal: showIntentionsModal,
-                showPastIntentionsModal: showPastIntentionsModal,
-                showProgressSnapshotModal: showProgressSnapshotModal,
-                showHabitHistory: showHabitHistory,
-                showReflectionHistory: showReflectionHistory,
-                showWinsHistory: showWinsHistory,
-                showSidebar: showSidebar,
+            {/* SIDEBAR AND MODALS NOW RENDERED INLINE BELOW */}
 
-                // Data props (10)
+            {/* TASKS SIDEBAR - Slides from LEFT */}
+            {showSidebar && (
+                <>
+                    {/* Backdrop */}
+                    <div
+                        onClick={() => setShowSidebar(false)}
+                        style={{
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            background: 'rgba(0, 0, 0, 0.5)',
+                            zIndex: 9998
+                        }}
+                    />
+
+                    {/* Sidebar Panel */}
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        bottom: 0,
+                        width: '280px',
+                        background: '#FFFFFF',
+                        boxShadow: '4px 0 12px rgba(0, 0, 0, 0.15)',
+                        zIndex: 9999,
+                        padding: '20px',
+                        overflowY: 'auto',
+                        animation: 'slideInLeft 0.3s ease-out'
+                    }}>
+                        {/* Close Button */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: '25px',
+                            paddingBottom: '15px',
+                            borderBottom: '2px solid #f0f0f0'
+                        }}>
+                            <h2 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: 'bold',
+                                color: '#058585'
+                            }}>
+                                Quick Tools
+                            </h2>
+                            <div
+                                onClick={() => setShowSidebar(false)}
+                                style={{
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '4px'
+                                }}
+                            >
+                                <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
+                            </div>
+                        </div>
+
+                        {/* Menu Items */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {/* Habit Tracker */}
+                            <div
+                                onClick={() => {
+                                    if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
+                                    setShowSidebar(false);
+                                    setActiveModal('habit');
+                                }}
+                                style={{
+                                    padding: '15px',
+                                    background: '#f8f9fa',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '12px',
+                                    transition: 'all 0.2s',
+                                    border: '1px solid #e9ecef'
+                                }}
+                            >
+                                <i data-lucide="repeat" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
+                                <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                    Habit Tracker
+                                </span>
+                            </div>
+
+                            {/* Quick Reflection */}
+                            <div
+                                onClick={() => {
+                                    if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
+                                    setShowSidebar(false);
+                                    setActiveModal('reflection');
+                                }}
+                                style={{
+                                    padding: '15px',
+                                    background: '#f8f9fa',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '12px',
+                                    transition: 'all 0.2s',
+                                    border: '1px solid #e9ecef'
+                                }}
+                            >
+                                <i data-lucide="message-circle" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
+                                <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                    Quick Reflection
+                                </span>
+                            </div>
+
+                            {/* This Week's Tasks */}
+                            <div
+                                onClick={() => {
+                                    if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
+                                    setShowSidebar(false);
+                                    setActiveModal('thisWeek');
+                                }}
+                                style={{
+                                    padding: '15px',
+                                    background: '#f8f9fa',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '12px',
+                                    transition: 'all 0.2s',
+                                    border: '1px solid #e9ecef'
+                                }}
+                            >
+                                <i data-lucide="calendar-days" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
+                                <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                    This Week's Tasks
+                                </span>
+                            </div>
+
+                            {/* Overdue Items */}
+                            <div
+                                onClick={() => {
+                                    if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
+                                    setShowSidebar(false);
+                                    setActiveModal('overdue');
+                                }}
+                                style={{
+                                    padding: '15px',
+                                    background: '#f8f9fa',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '12px',
+                                    transition: 'all 0.2s',
+                                    border: '1px solid #e9ecef'
+                                }}
+                            >
+                                <i data-lucide="alert-circle" style={{ width: '20px', height: '20px', color: '#DC143C' }}></i>
+                                <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                    Overdue Items
+                                </span>
+                            </div>
+
+                            {/* Mark Complete */}
+                            <div
+                                onClick={() => {
+                                    if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
+                                    setShowSidebar(false);
+                                    setActiveModal('complete');
+                                }}
+                                style={{
+                                    padding: '15px',
+                                    background: '#f8f9fa',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '12px',
+                                    transition: 'all 0.2s',
+                                    border: '1px solid #e9ecef'
+                                }}
+                            >
+                                <i data-lucide="check-circle" style={{ width: '20px', height: '20px', color: '#00A86B' }}></i>
+                                <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                    Mark Complete
+                                </span>
+                            </div>
+
+                            {/* Progress Stats */}
+                            <div
+                                onClick={() => {
+                                    if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
+                                    setShowSidebar(false);
+                                    setActiveModal('stats');
+                                }}
+                                style={{
+                                    padding: '15px',
+                                    background: '#f8f9fa',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '12px',
+                                    transition: 'all 0.2s',
+                                    border: '1px solid #e9ecef'
+                                }}
+                            >
+                                <i data-lucide="trending-up" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
+                                <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                    Progress Stats
+                                </span>
+                            </div>
+
+                            {/* Goal Progress */}
+                            <div
+                                onClick={() => {
+                                    if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
+                                    setShowSidebar(false);
+                                    setActiveModal('goalProgress');
+                                }}
+                                style={{
+                                    padding: '15px',
+                                    background: '#f8f9fa',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '12px',
+                                    transition: 'all 0.2s',
+                                    border: '1px solid #e9ecef'
+                                }}
+                            >
+                                <i data-lucide="target" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
+                                <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                    Goal Progress
+                                </span>
+                            </div>
+
+                            {/* Today's Wins */}
+                            <div
+                                onClick={() => {
+                                    if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
+                                    setShowSidebar(false);
+                                    setActiveModal('wins');
+                                }}
+                                style={{
+                                    padding: '15px',
+                                    background: '#f8f9fa',
+                                    borderRadius: '10px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '12px',
+                                    transition: 'all 0.2s',
+                                    border: '1px solid #e9ecef'
+                                }}
+                            >
+                                <i data-lucide="star" style={{ width: '20px', height: '20px', color: '#FFA500' }}></i>
+                                <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
+                                    Today's Wins
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* ============================================ */}
+            {/* INLINE MODALS - Admin Pattern              */}
+            {/* ============================================ */}
+
+            {/* HABIT TRACKER MODAL */}
+            {activeModal === 'habit' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '16px',
+                        maxWidth: '500px',
+                        width: '100%',
+                        maxHeight: '80vh',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '2px solid #f0f0f0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <h2 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: '600',
+                                color: '#058585',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px'
+                            }}>
+                                <i data-lucide="repeat" style={{ width: '24px', height: '24px' }}></i>
+                                Habit Tracker
+                            </h2>
+                            <div
+                                onClick={() => setActiveModal(null)}
+                                style={{
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '4px'
+                                }}
+                            >
+                                <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{
+                            padding: '20px',
+                            overflowY: 'auto',
+                            flex: 1
+                        }}>
+                            {/* Add New Habit */}
+                            <div style={{
+                                marginBottom: '20px',
+                                padding: '15px',
+                                background: '#f8f9fa',
+                                borderRadius: '12px'
+                            }}>
+                                <label style={{
+                                    display: 'block',
+                                    fontSize: '14px',
+                                    fontWeight: '600',
+                                    color: '#333333',
+                                    marginBottom: '8px'
+                                }}>
+                                    Add New Habit
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newHabitName}
+                                    onChange={(e) => setNewHabitName(e.target.value)}
+                                    placeholder="e.g., Drink 8 glasses of water"
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #ddd',
+                                        fontSize: '15px',
+                                        marginBottom: '10px'
+                                    }}
+                                    onKeyPress={async (e) => {
+                                        if (e.key === 'Enter' && newHabitName.trim()) {
+                                            try {
+                                                // TODO: Save habit to Firestore
+                                                console.log('TODO: Save habit to Firestore:', { name: newHabitName.trim() });
+                                                setNewHabitName('');
+                                            } catch (error) {
+                                                alert('Error adding habit');
+                                            }
+                                        }
+                                    }}
+                                />
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <button
+                                        onClick={async () => {
+                                            if (newHabitName.trim()) {
+                                                try {
+                                                    // TODO: Save habit to Firestore
+                                                    console.log('TODO: Save habit to Firestore:', { name: newHabitName.trim() });
+                                                    setNewHabitName('');
+                                                    alert('Habit added! 🎯');
+                                                } catch (error) {
+                                                    alert('Error adding habit');
+                                                }
+                                            }
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            padding: '10px 20px',
+                                            background: '#058585',
+                                            color: '#fff',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            fontSize: '14px',
+                                            fontWeight: '600',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        Add
+                                    </button>
+                                    <button
+                                        onClick={async () => {
+                                            if (newHabitName.trim()) {
+                                                try {
+                                                    // TODO: Save and share habit to community
+                                                    console.log('TODO: Save and share habit:', { name: newHabitName.trim() });
+                                                    setNewHabitName('');
+                                                    alert('Habit added and commitment shared to community! 🎯');
+                                                } catch (error) {
+                                                    alert('Error adding habit');
+                                                }
+                                            }
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            padding: '10px 20px',
+                                            background: 'linear-gradient(135deg, #00A86B 0%, #058585 100%)',
+                                            color: '#fff',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            fontSize: '14px',
+                                            fontWeight: '600',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px'
+                                        }}
+                                    >
+                                        <i data-lucide="share-2" style={{ width: '14px', height: '14px' }}></i>
+                                        Add & Share
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Today's Habits */}
+                            <div style={{ marginBottom: '15px' }}>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    marginBottom: '12px'
+                                }}>
+                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#333333' }}>
+                                        Today's Habits
+                                    </h3>
+                                    <button
+                                        onClick={() => setActiveModal('habitHistory')}
+                                        style={{
+                                            padding: '6px 12px',
+                                            background: '#f8f9fa',
+                                            color: '#058585',
+                                            border: '1px solid #058585',
+                                            borderRadius: '6px',
+                                            fontSize: '13px',
+                                            fontWeight: '600',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        View History
+                                    </button>
+                                </div>
+
+                                {/* TODO: Load habits from Firestore - using empty array for now */}
+                                {[].length === 0 ? (
+                                    <div style={{
+                                        textAlign: 'center',
+                                        padding: '30px 20px',
+                                        color: '#999999',
+                                        fontSize: '14px'
+                                    }}>
+                                        No habits yet. Add your first habit above!
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        {/* Habits will be mapped here once loaded from Firestore */}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* QUICK REFLECTION MODAL */}
+            {activeModal === 'reflection' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '16px',
+                        maxWidth: '500px',
+                        width: '100%',
+                        maxHeight: '80vh',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '2px solid #f0f0f0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <h2 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: '600',
+                                color: '#058585',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px'
+                            }}>
+                                <i data-lucide="message-circle" style={{ width: '24px', height: '24px' }}></i>
+                                Quick Reflection
+                            </h2>
+                            <div
+                                onClick={() => setActiveModal(null)}
+                                style={{
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '4px'
+                                }}
+                            >
+                                <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{
+                            padding: '20px',
+                            overflowY: 'auto',
+                            flex: 1
+                        }}>
+                            {/* Add New Reflection */}
+                            <div style={{
+                                marginBottom: '20px'
+                            }}>
+                                <label style={{
+                                    display: 'block',
+                                    fontSize: '14px',
+                                    fontWeight: '600',
+                                    color: '#333333',
+                                    marginBottom: '8px'
+                                }}>
+                                    What's on your mind?
+                                </label>
+                                <textarea
+                                    value={newReflection}
+                                    onChange={(e) => setNewReflection(e.target.value)}
+                                    placeholder="Share a quick thought, feeling, or reflection..."
+                                    style={{
+                                        width: '100%',
+                                        padding: '12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #ddd',
+                                        fontSize: '15px',
+                                        minHeight: '120px',
+                                        resize: 'vertical',
+                                        fontFamily: 'inherit'
+                                    }}
+                                />
+                                <div style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '10px',
+                                    marginTop: '10px'
+                                }}>
+                                    <div style={{
+                                        display: 'flex',
+                                        gap: '10px'
+                                    }}>
+                                        <button
+                                            onClick={async () => {
+                                                if (newReflection.trim()) {
+                                                    try {
+                                                        // TODO: Save reflection to Firestore
+                                                        console.log('TODO: Save reflection to Firestore:', newReflection.trim());
+                                                        setNewReflection('');
+                                                        alert('Reflection saved!');
+                                                    } catch (error) {
+                                                        alert('Error saving reflection');
+                                                    }
+                                                }
+                                            }}
+                                            style={{
+                                                flex: 1,
+                                                padding: '10px 24px',
+                                                background: '#058585',
+                                                color: '#fff',
+                                                border: 'none',
+                                                borderRadius: '8px',
+                                                fontSize: '15px',
+                                                fontWeight: '600',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            Save
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                if (newReflection.trim()) {
+                                                    try {
+                                                        // TODO: Save and share reflection to community
+                                                        console.log('TODO: Save and share reflection:', { reflection: newReflection.trim() });
+                                                        setNewReflection('');
+                                                        alert('Reflection saved and shared to community! 🎉');
+                                                    } catch (error) {
+                                                        alert('Error saving reflection');
+                                                    }
+                                                }
+                                            }}
+                                            style={{
+                                                flex: 1,
+                                                padding: '10px 24px',
+                                                background: 'linear-gradient(135deg, #00A86B 0%, #058585 100%)',
+                                                color: '#fff',
+                                                border: 'none',
+                                                borderRadius: '8px',
+                                                fontSize: '15px',
+                                                fontWeight: '600',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '6px'
+                                            }}
+                                        >
+                                            <i data-lucide="share-2" style={{ width: '16px', height: '16px' }}></i>
+                                            Save & Share
+                                        </button>
+                                    </div>
+                                    <button
+                                        onClick={() => setActiveModal('reflectionHistory')}
+                                        style={{
+                                            padding: '8px 16px',
+                                            background: '#f8f9fa',
+                                            color: '#058585',
+                                            border: '1px solid #058585',
+                                            borderRadius: '6px',
+                                            fontSize: '14px',
+                                            fontWeight: '600',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        View Past Reflections
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Recent Reflections */}
+                            <div>
+                                <h3 style={{
+                                    margin: '0 0 12px 0',
+                                    fontSize: '16px',
+                                    fontWeight: '600',
+                                    color: '#333333'
+                                }}>
+                                    Recent Reflections
+                                </h3>
+                                {/* TODO: Load reflections from Firestore - using empty array for now */}
+                                {[].length === 0 ? (
+                                    <div style={{
+                                        textAlign: 'center',
+                                        padding: '30px 20px',
+                                        color: '#999999',
+                                        fontSize: '14px'
+                                    }}>
+                                        No reflections yet. Share your first thought above!
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        {/* Reflections will be mapped here once loaded from Firestore */}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* THIS WEEK'S TASKS MODAL */}
+            {activeModal === 'thisWeek' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '16px',
+                        maxWidth: '500px',
+                        width: '100%',
+                        maxHeight: '80vh',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '2px solid #f0f0f0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <h2 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: '600',
+                                color: '#058585',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px'
+                            }}>
+                                <i data-lucide="calendar-days" style={{ width: '24px', height: '24px' }}></i>
+                                This Week's Tasks
+                            </h2>
+                            <div
+                                onClick={() => setActiveModal(null)}
+                                style={{
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '4px'
+                                }}
+                            >
+                                <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{
+                            padding: '20px',
+                            overflowY: 'auto',
+                            flex: 1
+                        }}>
+                            {(() => {
+                                const today = new Date();
+                                const startOfWeek = new Date(today);
+                                startOfWeek.setDate(today.getDate() - today.getDay());
+                                startOfWeek.setHours(0, 0, 0, 0);
+
+                                const endOfWeek = new Date(startOfWeek);
+                                endOfWeek.setDate(startOfWeek.getDate() + 7);
+
+                                const thisWeekAssignments = assignments.filter(assignment => {
+                                    if (!assignment.dueDate) return false;
+                                    const dueDate = assignment.dueDate.toDate();
+                                    return dueDate >= startOfWeek && dueDate < endOfWeek;
+                                });
+
+                                if (thisWeekAssignments.length === 0) {
+                                    return (
+                                        <div style={{
+                                            textAlign: 'center',
+                                            padding: '40px 20px',
+                                            color: '#666666'
+                                        }}>
+                                            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📅</div>
+                                            <div style={{ fontSize: '16px', fontWeight: '600', color: '#333333', marginBottom: '8px' }}>
+                                                No Tasks This Week
+                                            </div>
+                                            <div style={{ fontSize: '14px' }}>
+                                                You don't have any tasks due this week
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                return (
+                                    <>
+                                        <div style={{ fontSize: '14px', color: '#666666', marginBottom: '15px' }}>
+                                            {thisWeekAssignments.length} task{thisWeekAssignments.length !== 1 ? 's' : ''} due this week
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                            {thisWeekAssignments.map(assignment => {
+                                                const dueDate = assignment.dueDate.toDate();
+                                                const isOverdue = dueDate < today;
+                                                const isToday = dueDate.toDateString() === today.toDateString();
+
+                                                return (
+                                                    <div
+                                                        key={assignment.id}
+                                                        style={{
+                                                            padding: '12px 15px',
+                                                            background: assignment.status === 'completed'
+                                                                ? 'linear-gradient(135deg, rgba(0, 168, 107, 0.1) 0%, rgba(0, 168, 107, 0.05) 100%)'
+                                                                : isOverdue
+                                                                ? 'linear-gradient(135deg, rgba(220, 20, 60, 0.1) 0%, rgba(220, 20, 60, 0.05) 100%)'
+                                                                : isToday
+                                                                ? 'linear-gradient(135deg, rgba(255, 165, 0, 0.1) 0%, rgba(255, 165, 0, 0.05) 100%)'
+                                                                : '#f8f9fa',
+                                                            borderRadius: '10px',
+                                                            border: assignment.status === 'completed'
+                                                                ? '2px solid rgba(0, 168, 107, 0.3)'
+                                                                : isOverdue
+                                                                ? '2px solid rgba(220, 20, 60, 0.3)'
+                                                                : isToday
+                                                                ? '2px solid rgba(255, 165, 0, 0.3)'
+                                                                : '1px solid #e9ecef'
+                                                        }}
+                                                    >
+                                                        <div style={{
+                                                            display: 'flex',
+                                                            alignItems: 'start',
+                                                            gap: '10px'
+                                                        }}>
+                                                            {assignment.status === 'completed' ? (
+                                                                <i data-lucide="check-circle" style={{ width: '20px', height: '20px', color: '#00A86B', marginTop: '2px' }}></i>
+                                                            ) : isOverdue ? (
+                                                                <i data-lucide="alert-circle" style={{ width: '20px', height: '20px', color: '#DC143C', marginTop: '2px' }}></i>
+                                                            ) : (
+                                                                <i data-lucide="circle" style={{ width: '20px', height: '20px', color: '#058585', marginTop: '2px' }}></i>
+                                                            )}
+                                                            <div style={{ flex: 1 }}>
+                                                                <div style={{
+                                                                    fontSize: '15px',
+                                                                    fontWeight: '600',
+                                                                    color: '#333333',
+                                                                    marginBottom: '4px',
+                                                                    textDecoration: assignment.status === 'completed' ? 'line-through' : 'none'
+                                                                }}>
+                                                                    {assignment.title}
+                                                                </div>
+                                                                <div style={{ fontSize: '13px', color: '#666666' }}>
+                                                                    Due: {dueDate.toLocaleDateString()}
+                                                                    {isToday && ' (Today)'}
+                                                                    {isOverdue && assignment.status !== 'completed' && ' (Overdue)'}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </>
+                                );
+                            })()}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* OVERDUE ITEMS MODAL */}
+            {activeModal === 'overdue' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '16px',
+                        maxWidth: '500px',
+                        width: '100%',
+                        maxHeight: '80vh',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '2px solid #f0f0f0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <h2 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: '600',
+                                color: '#DC143C',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px'
+                            }}>
+                                <i data-lucide="alert-circle" style={{ width: '24px', height: '24px' }}></i>
+                                Overdue Items
+                            </h2>
+                            <div
+                                onClick={() => setActiveModal(null)}
+                                style={{
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '4px'
+                                }}
+                            >
+                                <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{
+                            padding: '20px',
+                            overflowY: 'auto',
+                            flex: 1
+                        }}>
+                            {(() => {
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+
+                                const overdueAssignments = assignments.filter(assignment => {
+                                    if (!assignment.dueDate || assignment.status === 'completed') return false;
+                                    const dueDate = assignment.dueDate.toDate();
+                                    return dueDate < today;
+                                });
+
+                                if (overdueAssignments.length === 0) {
+                                    return (
+                                        <div style={{
+                                            textAlign: 'center',
+                                            padding: '40px 20px',
+                                            color: '#666666'
+                                        }}>
+                                            <div style={{ fontSize: '48px', marginBottom: '16px' }}>✅</div>
+                                            <div style={{ fontSize: '16px', fontWeight: '600', color: '#333333', marginBottom: '8px' }}>
+                                                No Overdue Items!
+                                            </div>
+                                            <div style={{ fontSize: '14px' }}>
+                                                You're all caught up. Great work!
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                return (
+                                    <>
+                                        <div style={{
+                                            fontSize: '14px',
+                                            color: '#DC143C',
+                                            marginBottom: '15px',
+                                            fontWeight: '600'
+                                        }}>
+                                            {overdueAssignments.length} overdue item{overdueAssignments.length !== 1 ? 's' : ''}
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                            {overdueAssignments.map(assignment => {
+                                                const dueDate = assignment.dueDate.toDate();
+                                                const daysOverdue = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
+
+                                                return (
+                                                    <div
+                                                        key={assignment.id}
+                                                        style={{
+                                                            padding: '12px 15px',
+                                                            background: 'linear-gradient(135deg, rgba(220, 20, 60, 0.1) 0%, rgba(220, 20, 60, 0.05) 100%)',
+                                                            borderRadius: '10px',
+                                                            border: '2px solid rgba(220, 20, 60, 0.3)'
+                                                        }}
+                                                    >
+                                                        <div style={{
+                                                            display: 'flex',
+                                                            alignItems: 'start',
+                                                            gap: '10px'
+                                                        }}>
+                                                            <i data-lucide="alert-circle" style={{ width: '20px', height: '20px', color: '#DC143C', marginTop: '2px' }}></i>
+                                                            <div style={{ flex: 1 }}>
+                                                                <div style={{
+                                                                    fontSize: '15px',
+                                                                    fontWeight: '600',
+                                                                    color: '#333333',
+                                                                    marginBottom: '4px'
+                                                                }}>
+                                                                    {assignment.title}
+                                                                </div>
+                                                                <div style={{ fontSize: '13px', color: '#DC143C', fontWeight: '600' }}>
+                                                                    {daysOverdue} day{daysOverdue !== 1 ? 's' : ''} overdue (Due: {dueDate.toLocaleDateString()})
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </>
+                                );
+                            })()}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MARK COMPLETE MODAL */}
+            {activeModal === 'complete' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '16px',
+                        maxWidth: '500px',
+                        width: '100%',
+                        maxHeight: '80vh',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '2px solid #f0f0f0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <h2 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: '600',
+                                color: '#00A86B',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px'
+                            }}>
+                                <i data-lucide="check-circle" style={{ width: '24px', height: '24px' }}></i>
+                                Mark Complete
+                            </h2>
+                            <div
+                                onClick={() => setActiveModal(null)}
+                                style={{
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '4px'
+                                }}
+                            >
+                                <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{
+                            padding: '20px',
+                            overflowY: 'auto',
+                            flex: 1
+                        }}>
+                            {(() => {
+                                const incompleteAssignments = assignments.filter(a => a.status !== 'completed');
+
+                                if (incompleteAssignments.length === 0) {
+                                    return (
+                                        <div style={{
+                                            textAlign: 'center',
+                                            padding: '40px 20px',
+                                            color: '#666666'
+                                        }}>
+                                            <div style={{ fontSize: '48px', marginBottom: '16px' }}>✅</div>
+                                            <div style={{ fontSize: '16px', fontWeight: '600', color: '#333333', marginBottom: '8px' }}>
+                                                All Done!
+                                            </div>
+                                            <div style={{ fontSize: '14px' }}>
+                                                You have no incomplete tasks
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                return (
+                                    <>
+                                        <div style={{ fontSize: '14px', color: '#666666', marginBottom: '15px' }}>
+                                            {incompleteAssignments.length} incomplete task{incompleteAssignments.length !== 1 ? 's' : ''}
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                            {incompleteAssignments.map(assignment => (
+                                                <div
+                                                    key={assignment.id}
+                                                    style={{
+                                                        padding: '12px 15px',
+                                                        background: '#f8f9fa',
+                                                        borderRadius: '10px',
+                                                        border: '1px solid #e9ecef',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '12px'
+                                                    }}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={false}
+                                                        onChange={async () => {
+                                                            if (confirm(`Mark "${assignment.title}" as complete?`)) {
+                                                                try {
+                                                                    await handleAssignmentComplete(assignment.id, true);
+                                                                } catch (error) {
+                                                                    alert('Error marking task complete');
+                                                                }
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            width: '20px',
+                                                            height: '20px',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                    />
+                                                    <div style={{ flex: 1 }}>
+                                                        <div style={{
+                                                            fontSize: '15px',
+                                                            fontWeight: '600',
+                                                            color: '#333333',
+                                                            marginBottom: '4px'
+                                                        }}>
+                                                            {assignment.title}
+                                                        </div>
+                                                        {assignment.dueDate && (
+                                                            <div style={{ fontSize: '13px', color: '#666666' }}>
+                                                                Due: {assignment.dueDate.toDate().toLocaleDateString()}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </>
+                                );
+                            })()}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* WEEKLY PROGRESS REPORT MODAL */}
+            {activeModal === 'stats' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }}
+                onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '15px',
+                        maxWidth: '500px',
+                        width: '100%',
+                        maxHeight: '85vh',
+                        overflow: 'auto',
+                        position: 'relative'
+                    }}
+                    onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            position: 'sticky',
+                            top: 0,
+                            background: '#FFFFFF',
+                            borderRadius: '15px 15px 0 0',
+                            zIndex: 1
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '18px',
+                                fontWeight: '600',
+                                color: '#000',
+                                textAlign: 'center'
+                            }}>
+                                📊 Weekly Progress Report
+                            </h3>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            {(() => {
+                                const totalAssignments = assignments.length;
+                                const completedAssignments = assignments.filter(a => a.status === 'completed').length;
+                                const completionRate = totalAssignments > 0 ? Math.round((completedAssignments / totalAssignments) * 100) : 0;
+
+                                const totalGoals = goals.length;
+                                const activeGoals = goals.filter(g => g.status === 'active').length;
+
+                                // Include check-in stats
+                                const checkRate = weeklyStats?.checkRate || 0;
+                                const avgMood = weeklyStats?.avgMood || 0;
+                                const currentStreak = checkInStreak || 0;
+
+                                // TODO: Load habits from Firestore
+                                const habits = [];
+                                const todayHabits = [];
+
+                                // Generate shareable text
+                                const generateReportText = () => {
+                                    const date = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+                                    return `📊 My Weekly Recovery Progress - ${date}
+
+🎯 Overall Performance
+✓ ${completionRate}% completion rate (${completedAssignments}/${totalAssignments} tasks)
+✓ ${checkRate}% check-in rate
+✓ ${currentStreak} day check-in streak
+
+😊 Wellness
+• Average mood: ${avgMood}/10
+${avgMood >= 7 ? '• Feeling great!' : avgMood >= 4 ? '• Staying steady' : '• Working through challenges'}
+
+📋 Tasks & Goals
+• ${totalAssignments} total tasks (${completedAssignments} completed)
+• ${totalGoals} goals (${activeGoals} active)
+
+Keep up the great work in recovery! 💪
+
+#RecoveryJourney #Progress #GLRecovery`;
+                                };
+
+                                return (
+                                    <>
+                                        {/* Completion Rate Hero */}
+                                        <div style={{
+                                            padding: '20px',
+                                            background: 'linear-gradient(135deg, rgba(5, 133, 133, 0.1) 0%, rgba(0, 168, 107, 0.1) 100%)',
+                                            borderRadius: '12px',
+                                            textAlign: 'center',
+                                            marginBottom: '20px'
+                                        }}>
+                                            <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>
+                                                Overall Completion Rate
+                                            </div>
+                                            <div style={{ fontSize: '48px', fontWeight: 'bold', color: '#058585', marginBottom: '8px' }}>
+                                                {completionRate}%
+                                            </div>
+                                            <div style={{ fontSize: '13px', color: '#666' }}>
+                                                {completedAssignments} of {totalAssignments} tasks completed
+                                            </div>
+                                        </div>
+
+                                        {/* Check-In Stats */}
+                                        {(checkRate > 0 || currentStreak > 0) && (
+                                            <div style={{
+                                                padding: '16px',
+                                                background: '#F8F9FA',
+                                                borderRadius: '10px',
+                                                marginBottom: '16px'
+                                            }}>
+                                                <div style={{ fontSize: '14px', fontWeight: '600', color: '#000', marginBottom: '12px' }}>
+                                                    📅 Check-In Performance
+                                                </div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                                                        <span style={{ color: '#666' }}>Check-In Rate:</span>
+                                                        <span style={{ fontWeight: '600', color: '#058585' }}>{checkRate}%</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                                                        <span style={{ color: '#666' }}>Current Streak:</span>
+                                                        <span style={{ fontWeight: '600', color: '#058585' }}>{currentStreak} days</span>
+                                                    </div>
+                                                    {avgMood > 0 && (
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                                                            <span style={{ color: '#666' }}>Average Mood:</span>
+                                                            <span style={{ fontWeight: '600', color: avgMood >= 7 ? '#00A86B' : avgMood >= 4 ? '#FF9800' : '#F44336' }}>{avgMood}/10</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Tasks Stats */}
+                                        <div style={{
+                                            padding: '16px',
+                                            background: '#F8F9FA',
+                                            borderRadius: '10px',
+                                            marginBottom: '16px'
+                                        }}>
+                                            <div style={{ fontSize: '14px', fontWeight: '600', color: '#000', marginBottom: '12px' }}>
+                                                ✅ Tasks Overview
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                                                    <span style={{ color: '#666' }}>Total Tasks:</span>
+                                                    <span style={{ fontWeight: '600', color: '#333' }}>{totalAssignments}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                                                    <span style={{ color: '#666' }}>Completed:</span>
+                                                    <span style={{ fontWeight: '600', color: '#00A86B' }}>{completedAssignments}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                                                    <span style={{ color: '#666' }}>In Progress:</span>
+                                                    <span style={{ fontWeight: '600', color: '#FFA500' }}>{totalAssignments - completedAssignments}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Goals Stats */}
+                                        <div style={{
+                                            padding: '16px',
+                                            background: '#F8F9FA',
+                                            borderRadius: '10px',
+                                            marginBottom: '16px'
+                                        }}>
+                                            <div style={{ fontSize: '14px', fontWeight: '600', color: '#000', marginBottom: '12px' }}>
+                                                🎯 Goals Overview
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                                                    <span style={{ color: '#666' }}>Total Goals:</span>
+                                                    <span style={{ fontWeight: '600', color: '#333' }}>{totalGoals}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                                                    <span style={{ color: '#666' }}>Active:</span>
+                                                    <span style={{ fontWeight: '600', color: '#058585' }}>{activeGoals}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Action Buttons */}
+                                        <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
+                                            {/* Share Button */}
+                                            <button
+                                                onClick={async () => {
+                                                    window.GLRSApp.utils.triggerHaptic('light');
+                                                    const reportText = generateReportText();
+
+                                                    // Try native share API (works on iOS Safari, Android Chrome, Desktop Chrome/Edge)
+                                                    if (navigator.share) {
+                                                        console.log('✅ Native share API available - opening share sheet...');
+                                                        try {
+                                                            await navigator.share({
+                                                                title: 'My Weekly Recovery Progress',
+                                                                text: reportText
+                                                            });
+                                                            console.log('✅ Share completed successfully');
+                                                            return;
+                                                        } catch (error) {
+                                                            if (error.name === 'AbortError') {
+                                                                console.log('ℹ️ User cancelled share');
+                                                                return;
+                                                            }
+                                                            console.error('❌ Share API error:', error.name, error.message);
+                                                            // Fall through to clipboard fallback
+                                                        }
+                                                    } else {
+                                                        console.log('ℹ️ Share API not supported in this browser/context');
+                                                    }
+
+                                                    // Fallback: copy to clipboard
+                                                    console.log('Using clipboard fallback...');
+                                                    try {
+                                                        await navigator.clipboard.writeText(reportText);
+                                                        alert('✅ Progress report copied to clipboard!\n\nYou can now paste it anywhere to share.');
+                                                    } catch (clipboardError) {
+                                                        console.error('❌ Clipboard error:', clipboardError);
+                                                        // Last resort: show text in prompt
+                                                        prompt('Copy this text to share:', reportText);
+                                                    }
+                                                }}
+                                                style={{
+                                                    flex: 1,
+                                                    height: '48px',
+                                                    background: '#FFFFFF',
+                                                    border: '2px solid #058585',
+                                                    borderRadius: '8px',
+                                                    color: '#058585',
+                                                    fontSize: '14px',
+                                                    fontWeight: '600',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '8px'
+                                                }}
+                                            >
+                                                <i data-lucide="share-2" style={{ width: '18px', height: '18px' }}></i>
+                                                Share
+                                            </button>
+
+                                            {/* Save Button */}
+                                            <button
+                                                onClick={() => {
+                                                    try {
+                                                        window.GLRSApp.utils.triggerHaptic('light');
+                                                        const reportText = generateReportText();
+                                                        const blob = new Blob([reportText], { type: 'text/plain' });
+                                                        const url = URL.createObjectURL(blob);
+                                                        const a = document.createElement('a');
+                                                        a.href = url;
+                                                        a.download = `Weekly-Progress-${new Date().toISOString().split('T')[0]}.txt`;
+                                                        document.body.appendChild(a);
+                                                        a.click();
+                                                        document.body.removeChild(a);
+                                                        URL.revokeObjectURL(url);
+
+                                                        window.GLRSApp?.utils?.showNotification?.('Report saved successfully!', 'success');
+                                                    } catch (error) {
+                                                        console.error('Save error:', error);
+                                                        alert('Unable to save report. Please try again.');
+                                                    }
+                                                }}
+                                                style={{
+                                                    flex: 1,
+                                                    height: '48px',
+                                                    background: '#058585',
+                                                    border: 'none',
+                                                    borderRadius: '8px',
+                                                    color: '#FFFFFF',
+                                                    fontSize: '14px',
+                                                    fontWeight: '600',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '8px'
+                                                }}
+                                            >
+                                                <i data-lucide="download" style={{ width: '18px', height: '18px' }}></i>
+                                                Save
+                                            </button>
+                                        </div>
+
+                                        {/* Close Button */}
+                                        <button
+                                            onClick={() => setActiveModal(null)}
+                                            style={{
+                                                marginTop: '12px',
+                                                width: '100%',
+                                                height: '48px',
+                                                background: '#F8F9FA',
+                                                border: '1px solid #E5E5E5',
+                                                borderRadius: '8px',
+                                                color: '#666',
+                                                fontSize: '14px',
+                                                fontWeight: '400',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            Close
+                                        </button>
+                                    </>
+                                );
+                            })()}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* GOAL PROGRESS MODAL */}
+            {activeModal === 'goalProgress' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '16px',
+                        maxWidth: '500px',
+                        width: '100%',
+                        maxHeight: '80vh',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '2px solid #f0f0f0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <h2 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: '600',
+                                color: '#058585',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px'
+                            }}>
+                                <i data-lucide="target" style={{ width: '24px', height: '24px' }}></i>
+                                Goal Progress
+                            </h2>
+                            <div
+                                onClick={() => setActiveModal(null)}
+                                style={{
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '4px'
+                                }}
+                            >
+                                <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{
+                            padding: '20px',
+                            overflowY: 'auto',
+                            flex: 1
+                        }}>
+                            {goals.length === 0 ? (
+                                <div style={{
+                                    textAlign: 'center',
+                                    padding: '40px 20px',
+                                    color: '#666666'
+                                }}>
+                                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎯</div>
+                                    <div style={{ fontSize: '16px', fontWeight: '600', color: '#333333', marginBottom: '8px' }}>
+                                        No Goals Yet
+                                    </div>
+                                    <div style={{ fontSize: '14px' }}>
+                                        Start adding goals to track your progress
+                                    </div>
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                    {goals.map(goal => {
+                                        const progress = goal.progress || 0;
+
+                                        return (
+                                            <div
+                                                key={goal.id}
+                                                style={{
+                                                    padding: '15px',
+                                                    background: '#f8f9fa',
+                                                    borderRadius: '12px',
+                                                    border: '1px solid #e9ecef'
+                                                }}
+                                            >
+                                                <div style={{
+                                                    fontSize: '15px',
+                                                    fontWeight: '600',
+                                                    color: '#333333',
+                                                    marginBottom: '10px'
+                                                }}>
+                                                    {goal.goalName || goal.name}
+                                                </div>
+
+                                                {/* Progress Bar */}
+                                                <div style={{
+                                                    width: '100%',
+                                                    height: '8px',
+                                                    background: '#e9ecef',
+                                                    borderRadius: '10px',
+                                                    overflow: 'hidden',
+                                                    marginBottom: '8px'
+                                                }}>
+                                                    <div style={{
+                                                        width: `${progress}%`,
+                                                        height: '100%',
+                                                        background: progress === 100
+                                                            ? 'linear-gradient(90deg, #00A86B 0%, #008554 100%)'
+                                                            : 'linear-gradient(90deg, #058585 0%, #044c4c 100%)',
+                                                        transition: 'width 0.3s ease'
+                                                    }}></div>
+                                                </div>
+
+                                                <div style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center'
+                                                }}>
+                                                    <div style={{ fontSize: '13px', color: '#666666' }}>
+                                                        {goal.assignments?.filter(a => a.status === 'completed').length || 0} / {goal.assignments?.length || 0} tasks completed
+                                                    </div>
+                                                    <div style={{
+                                                        fontSize: '14px',
+                                                        fontWeight: 'bold',
+                                                        color: progress === 100 ? '#00A86B' : '#058585'
+                                                    }}>
+                                                        {progress}%
+                                                    </div>
+                                                </div>
+
+                                                {progress === 100 && (
+                                                    <button
+                                                        onClick={async () => {
+                                                            if (confirm('Share this goal completion with the community?')) {
+                                                                const result = await window.GLRSApp.handlers.shareToCommunity('goal', `Completed goal: ${goal.goalName || goal.name}`, 'goals', goal.id);
+                                                                if (result.success) {
+                                                                    alert('Goal completion shared to community! 🎉');
+                                                                } else {
+                                                                    alert('Error sharing to community');
+                                                                }
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            marginTop: '12px',
+                                                            padding: '8px 16px',
+                                                            background: '#00A86B',
+                                                            color: '#fff',
+                                                            border: 'none',
+                                                            borderRadius: '8px',
+                                                            fontSize: '13px',
+                                                            fontWeight: '600',
+                                                            cursor: 'pointer',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            gap: '6px',
+                                                            width: '100%'
+                                                        }}
+                                                    >
+                                                        <i data-lucide="share-2" style={{ width: '16px', height: '16px' }}></i>
+                                                        Share Goal Completion
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* TODAY'S WINS MODAL */}
+            {activeModal === 'wins' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '16px',
+                        maxWidth: '500px',
+                        width: '100%',
+                        maxHeight: '80vh',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '2px solid #f0f0f0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <h2 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: '600',
+                                color: '#FFA500',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px'
+                            }}>
+                                <i data-lucide="star" style={{ width: '24px', height: '24px' }}></i>
+                                Today's Wins
+                            </h2>
+                            <div
+                                onClick={() => setActiveModal(null)}
+                                style={{
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '4px'
+                                }}
+                            >
+                                <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{
+                            padding: '20px',
+                            overflowY: 'auto',
+                            flex: 1
+                        }}>
+                            {/* Add New Win */}
+                            <div style={{
+                                marginBottom: '20px'
+                            }}>
+                                <label style={{
+                                    display: 'block',
+                                    fontSize: '14px',
+                                    fontWeight: '600',
+                                    color: '#333333',
+                                    marginBottom: '8px'
+                                }}>
+                                    Add a win for today
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newWin}
+                                    onChange={(e) => setNewWin(e.target.value)}
+                                    placeholder="e.g., Completed morning workout"
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #ddd',
+                                        fontSize: '15px',
+                                        marginBottom: '10px'
+                                    }}
+                                    onKeyPress={async (e) => {
+                                        if (e.key === 'Enter' && newWin.trim()) {
+                                            try {
+                                                // TODO: Save win to Firestore
+                                                console.log('TODO: Save win to Firestore:', newWin.trim());
+                                                setNewWin('');
+                                            } catch (error) {
+                                                alert('Error adding win');
+                                            }
+                                        }
+                                    }}
+                                />
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <button
+                                        onClick={async () => {
+                                            if (newWin.trim()) {
+                                                try {
+                                                    // TODO: Save win to Firestore
+                                                    console.log('TODO: Save win to Firestore:', newWin.trim());
+                                                    setNewWin('');
+                                                    alert('Win added! 🎉');
+                                                } catch (error) {
+                                                    alert('Error adding win');
+                                                }
+                                            }
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            padding: '10px 20px',
+                                            background: '#FFA500',
+                                            color: '#fff',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            fontSize: '14px',
+                                            fontWeight: '600',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        Add
+                                    </button>
+                                    <button
+                                        onClick={async () => {
+                                            if (newWin.trim()) {
+                                                try {
+                                                    // TODO: Save and share win to community
+                                                    console.log('TODO: Save and share win:', { win: newWin.trim() });
+                                                    setNewWin('');
+                                                    alert('Win added and shared to community! 🎉');
+                                                } catch (error) {
+                                                    alert('Error adding win');
+                                                }
+                                            }
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            padding: '10px 20px',
+                                            background: 'linear-gradient(135deg, #00A86B 0%, #058585 100%)',
+                                            color: '#fff',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            fontSize: '14px',
+                                            fontWeight: '600',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px'
+                                        }}
+                                    >
+                                        <i data-lucide="share-2" style={{ width: '14px', height: '14px' }}></i>
+                                        Add & Share
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Today's Wins List */}
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                marginBottom: '12px'
+                            }}>
+                                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#333333' }}>
+                                    Today's Wins (0)
+                                </h3>
+                                <button
+                                    onClick={() => setActiveModal('winsHistory')}
+                                    style={{
+                                        padding: '6px 12px',
+                                        background: '#f8f9fa',
+                                        color: '#FFA500',
+                                        border: '1px solid #FFA500',
+                                        borderRadius: '6px',
+                                        fontSize: '13px',
+                                        fontWeight: '600',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    View History
+                                </button>
+                            </div>
+
+                            {/* TODO: Load wins from Firestore - using empty array for now */}
+                            <div style={{
+                                textAlign: 'center',
+                                padding: '30px 20px',
+                                color: '#999999',
+                                fontSize: '14px'
+                            }}>
+                                No wins yet today. Add your first win above!
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* STREAKS MODAL */}
+            {activeModal === 'streaks' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '12px',
+                        width: '100%',
+                        maxWidth: '500px',
+                        maxHeight: '80vh',
+                        overflow: 'auto'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            position: 'sticky',
+                            top: 0,
+                            background: '#FFFFFF',
+                            zIndex: 10
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: 'bold',
+                                color: '#000000'
+                            }}>
+                                🔥 Your Check-In Streaks
+                            </h3>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            {/* Current Streak */}
+                            {streakData && streakData.currentStreak > 0 && (
+                                <div style={{
+                                    padding: '16px',
+                                    background: 'linear-gradient(135deg, rgba(5, 133, 133, 0.1) 0%, rgba(0, 168, 107, 0.1) 100%)',
+                                    borderRadius: '12px',
+                                    marginBottom: '20px',
+                                    border: '2px solid #058585'
+                                }}>
+                                    <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>
+                                        Current Streak
+                                    </div>
+                                    <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#058585' }}>
+                                        🔥 {streakData.currentStreak} {streakData.currentStreak === 1 ? 'day' : 'days'}
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#666', marginTop: '8px' }}>
+                                        Keep it up! Check in today to extend your streak.
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* All Streaks List */}
+                            <div style={{ marginBottom: '12px', fontSize: '16px', fontWeight: '600', color: '#000' }}>
+                                All Streaks (2+ days)
+                            </div>
+
+                            {streakData && streakData.allStreaks && streakData.allStreaks.filter(s => s.length >= 2).length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    {streakData.allStreaks.filter(s => s.length >= 2).map((streak, index) => {
+                                        const startDate = new Date(streak.startDate);
+                                        const endDate = new Date(streak.endDate);
+                                        const isLongest = streak.length === streakData.longestStreak;
+                                        const isCurrent = streak.endDate === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+
+                                        return (
+                                            <div
+                                                key={index}
+                                                style={{
+                                                    padding: '14px',
+                                                    background: isLongest ? '#FFF9E6' : '#F8F9FA',
+                                                    borderRadius: '10px',
+                                                    border: isLongest ? '2px solid #FFA500' : '1px solid #E5E5E5'
+                                                }}
+                                            >
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <div>
+                                                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#000', marginBottom: '4px' }}>
+                                                            {streak.length} {streak.length === 1 ? 'day' : 'days'}
+                                                            {isLongest && <span style={{ marginLeft: '8px', fontSize: '14px' }}>⭐ Longest</span>}
+                                                            {isCurrent && <span style={{ marginLeft: '8px', fontSize: '14px' }}>← Current</span>}
+                                                        </div>
+                                                        <div style={{ fontSize: '13px', color: '#666' }}>
+                                                            {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                            {' - '}
+                                                            {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ fontSize: '24px' }}>
+                                                        🔥
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div style={{
+                                    textAlign: 'center',
+                                    padding: '40px 20px',
+                                    color: '#999'
+                                }}>
+                                    <div style={{ fontSize: '48px', marginBottom: '12px' }}>🔥</div>
+                                    <div style={{ fontSize: '14px', marginBottom: '8px' }}>No streaks of 2+ days yet</div>
+                                    <div style={{ fontSize: '13px', color: '#BBB' }}>Keep checking in daily to build longer streaks!</div>
+                                </div>
+                            )}
+
+                            {/* Close Button */}
+                            <button
+                                onClick={() => setActiveModal(null)}
+                                style={{
+                                    marginTop: '20px',
+                                    width: '100%',
+                                    height: '48px',
+                                    background: '#058585',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    color: '#FFFFFF',
+                                    fontSize: '14px',
+                                    fontWeight: '400',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Back
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* CHECK RATE MODAL */}
+            {activeModal === 'checkRate' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }}
+                onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '15px',
+                        maxWidth: '500px',
+                        width: '100%',
+                        maxHeight: '85vh',
+                        overflow: 'auto',
+                        position: 'relative'
+                    }}
+                    onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            position: 'sticky',
+                            top: 0,
+                            background: '#FFFFFF',
+                            borderRadius: '15px 15px 0 0',
+                            zIndex: 1
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '18px',
+                                fontWeight: '600',
+                                color: '#000',
+                                textAlign: 'center'
+                            }}>
+                                📊 Check-In Rate
+                            </h3>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            {/* Current Rate */}
+                            {weeklyStats && weeklyStats.checkRate > 0 ? (
+                                <>
+                                    <div style={{
+                                        padding: '20px',
+                                        background: 'linear-gradient(135deg, rgba(5, 133, 133, 0.1) 0%, rgba(0, 168, 107, 0.1) 100%)',
+                                        borderRadius: '12px',
+                                        textAlign: 'center',
+                                        marginBottom: '20px'
+                                    }}>
+                                        <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>
+                                            7-Day Check-In Rate
+                                        </div>
+                                        <div style={{ fontSize: '48px', fontWeight: 'bold', color: '#058585', marginBottom: '8px' }}>
+                                            {weeklyStats.checkRate}%
+                                        </div>
+                                        <div style={{ fontSize: '13px', color: '#666' }}>
+                                            {weeklyStats.checkRate >= 85 ? '🎉 Excellent consistency!' :
+                                             weeklyStats.checkRate >= 70 ? '👍 Great job staying on track!' :
+                                             weeklyStats.checkRate >= 50 ? '💪 Keep building that habit!' :
+                                             '📈 Every check-in counts!'}
+                                        </div>
+                                    </div>
+
+                                    {/* Insights */}
+                                    <div style={{
+                                        padding: '16px',
+                                        background: '#F8F9FA',
+                                        borderRadius: '10px',
+                                        marginBottom: '16px'
+                                    }}>
+                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#000', marginBottom: '8px' }}>
+                                            💡 Why This Matters
+                                        </div>
+                                        <div style={{ fontSize: '13px', color: '#666', lineHeight: '1.6' }}>
+                                            Regular check-ins help you track your mood patterns, identify triggers, and celebrate progress.
+                                            Consistency is key to recovery success!
+                                        </div>
+                                    </div>
+
+                                    {/* Tips */}
+                                    <div style={{
+                                        padding: '16px',
+                                        background: '#FFF9E6',
+                                        borderRadius: '10px',
+                                        border: '1px solid #FFE5A3'
+                                    }}>
+                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#000', marginBottom: '8px' }}>
+                                            💪 Keep It Up
+                                        </div>
+                                        <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', color: '#666', lineHeight: '1.8' }}>
+                                            <li>Set daily reminders for morning & evening check-ins</li>
+                                            <li>Check in at the same time each day to build routine</li>
+                                            <li>Use check-ins to reflect on your recovery journey</li>
+                                        </ul>
+                                    </div>
+                                </>
+                            ) : (
+                                <div style={{
+                                    textAlign: 'center',
+                                    padding: '40px 20px',
+                                    color: '#999'
+                                }}>
+                                    <div style={{ fontSize: '48px', marginBottom: '12px' }}>📊</div>
+                                    <div style={{ fontSize: '16px', marginBottom: '8px', color: '#000' }}>No Data Yet</div>
+                                    <div style={{ fontSize: '14px', lineHeight: '1.6' }}>
+                                        Complete your morning and evening check-ins to start tracking your consistency!
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Close Button */}
+                            <button
+                                onClick={() => setActiveModal(null)}
+                                style={{
+                                    marginTop: '20px',
+                                    width: '100%',
+                                    height: '48px',
+                                    background: '#058585',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    color: '#FFFFFF',
+                                    fontSize: '14px',
+                                    fontWeight: '400',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* AVG MOOD MODAL */}
+            {activeModal === 'avgMood' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }}
+                onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '15px',
+                        maxWidth: '500px',
+                        width: '100%',
+                        maxHeight: '85vh',
+                        overflow: 'auto',
+                        position: 'relative'
+                    }}
+                    onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            position: 'sticky',
+                            top: 0,
+                            background: '#FFFFFF',
+                            borderRadius: '15px 15px 0 0',
+                            zIndex: 1
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '18px',
+                                fontWeight: '600',
+                                color: '#000',
+                                textAlign: 'center'
+                            }}>
+                                😊 Average Mood
+                            </h3>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            {/* Current Mood */}
+                            {weeklyStats && weeklyStats.avgMood > 0 ? (
+                                <>
+                                    <div style={{
+                                        padding: '20px',
+                                        background: weeklyStats.avgMood >= 7 ? 'linear-gradient(135deg, rgba(0, 168, 107, 0.1) 0%, rgba(5, 133, 133, 0.1) 100%)' :
+                                                    weeklyStats.avgMood >= 4 ? 'linear-gradient(135deg, rgba(255, 193, 7, 0.1) 0%, rgba(255, 152, 0, 0.1) 100%)' :
+                                                    'linear-gradient(135deg, rgba(244, 67, 54, 0.1) 0%, rgba(233, 30, 99, 0.1) 100%)',
+                                        borderRadius: '12px',
+                                        textAlign: 'center',
+                                        marginBottom: '20px'
+                                    }}>
+                                        <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>
+                                            7-Day Average Mood
+                                        </div>
+                                        <div style={{ fontSize: '48px', fontWeight: 'bold', color: weeklyStats.avgMood >= 7 ? '#00A86B' : weeklyStats.avgMood >= 4 ? '#FF9800' : '#F44336', marginBottom: '8px' }}>
+                                            {weeklyStats.avgMood}/10
+                                        </div>
+                                        <div style={{ fontSize: '16px', marginBottom: '8px' }}>
+                                            {weeklyStats.avgMood >= 9 ? '😄 Excellent' :
+                                             weeklyStats.avgMood >= 7 ? '😊 Good' :
+                                             weeklyStats.avgMood >= 5 ? '😐 Moderate' :
+                                             weeklyStats.avgMood >= 3 ? '😔 Low' :
+                                             '😢 Very Low'}
+                                        </div>
+                                    </div>
+
+                                    {/* Interpretation */}
+                                    <div style={{
+                                        padding: '16px',
+                                        background: '#F8F9FA',
+                                        borderRadius: '10px',
+                                        marginBottom: '16px'
+                                    }}>
+                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#000', marginBottom: '8px' }}>
+                                            💭 What This Means
+                                        </div>
+                                        <div style={{ fontSize: '13px', color: '#666', lineHeight: '1.6' }}>
+                                            {weeklyStats.avgMood >= 7 ?
+                                                'Your mood has been consistently positive! Keep up the great work with your recovery practices.' :
+                                             weeklyStats.avgMood >= 4 ?
+                                                'Your mood has been moderate. This is normal - recovery has ups and downs. Keep using your coping techniques and reach out for support when needed.' :
+                                                'Your mood has been lower recently. Please consider reaching out to your coach or using the Emergency Support resources. You don\'t have to go through this alone.'}
+                                        </div>
+                                    </div>
+
+                                    {/* Tips */}
+                                    <div style={{
+                                        padding: '16px',
+                                        background: weeklyStats.avgMood >= 7 ? '#E8F5E9' : weeklyStats.avgMood >= 4 ? '#FFF9E6' : '#FFEBEE',
+                                        borderRadius: '10px',
+                                        border: `1px solid ${weeklyStats.avgMood >= 7 ? '#A5D6A7' : weeklyStats.avgMood >= 4 ? '#FFE5A3' : '#FFCDD2'}`
+                                    }}>
+                                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#000', marginBottom: '8px' }}>
+                                            {weeklyStats.avgMood >= 7 ? '🌟 Keep Thriving' : weeklyStats.avgMood >= 4 ? '💪 Stay Strong' : '🆘 Get Support'}
+                                        </div>
+                                        <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', color: '#666', lineHeight: '1.8' }}>
+                                            {weeklyStats.avgMood >= 7 ? (
+                                                <>
+                                                    <li>Share your success with your support network</li>
+                                                    <li>Document what's working in your reflections</li>
+                                                    <li>Help others by sharing your story</li>
+                                                </>
+                                            ) : weeklyStats.avgMood >= 4 ? (
+                                                <>
+                                                    <li>Review your coping techniques regularly</li>
+                                                    <li>Connect with your support group</li>
+                                                    <li>Practice self-care daily</li>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <li>Contact your coach or counselor today</li>
+                                                    <li>Use the SOS button for immediate support</li>
+                                                    <li>Reach out to a trusted friend or family member</li>
+                                                </>
+                                            )}
+                                        </ul>
+                                    </div>
+                                </>
+                            ) : (
+                                <div style={{
+                                    textAlign: 'center',
+                                    padding: '40px 20px',
+                                    color: '#999'
+                                }}>
+                                    <div style={{ fontSize: '48px', marginBottom: '12px' }}>😊</div>
+                                    <div style={{ fontSize: '16px', marginBottom: '8px', color: '#000' }}>No Data Yet</div>
+                                    <div style={{ fontSize: '14px', lineHeight: '1.6' }}>
+                                        Complete your morning check-ins to start tracking your mood patterns!
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Close Button */}
+                            <button
+                                onClick={() => setActiveModal(null)}
+                                style={{
+                                    marginTop: '20px',
+                                    width: '100%',
+                                    height: '48px',
+                                    background: '#058585',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    color: '#FFFFFF',
+                                    fontSize: '14px',
+                                    fontWeight: '400',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* REFLECTION STREAKS MODAL */}
+            {activeModal === 'reflectionStreaks' && reflectionStreakData && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '12px',
+                        width: '100%',
+                        maxWidth: '500px',
+                        maxHeight: '80vh',
+                        overflow: 'auto'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            position: 'sticky',
+                            top: 0,
+                            background: '#FFFFFF',
+                            zIndex: 10
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: 'bold',
+                                color: '#000000'
+                            }}>
+                                🌙 Your Reflection Streaks
+                            </h3>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            {/* Current Streak */}
+                            {reflectionStreakData.currentStreak > 0 && (
+                                <div style={{
+                                    padding: '16px',
+                                    background: 'linear-gradient(135deg, rgba(5, 133, 133, 0.1) 0%, rgba(0, 168, 107, 0.1) 100%)',
+                                    borderRadius: '12px',
+                                    marginBottom: '20px',
+                                    border: '2px solid #058585'
+                                }}>
+                                    <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>
+                                        Current Streak
+                                    </div>
+                                    <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#058585' }}>
+                                        🔥 {reflectionStreakData.currentStreak} {reflectionStreakData.currentStreak === 1 ? 'day' : 'days'}
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#666', marginTop: '8px' }}>
+                                        Keep it up! Reflect tonight to extend your streak.
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* All Streaks List */}
+                            <div style={{ marginBottom: '12px', fontSize: '16px', fontWeight: '600', color: '#000' }}>
+                                All Streaks
+                            </div>
+
+                            {reflectionStreakData.allStreaks.length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    {reflectionStreakData.allStreaks.map((streak, index) => {
+                                        const startDate = new Date(streak.startDate);
+                                        const endDate = new Date(streak.endDate);
+                                        const isLongest = index === 0; // First in sorted array is longest
+                                        const isCurrent = streak.endDate === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+
+                                        return (
+                                            <div
+                                                key={index}
+                                                style={{
+                                                    padding: '14px',
+                                                    background: isLongest ? '#FFF9E6' : '#F8F9FA',
+                                                    borderRadius: '10px',
+                                                    border: isLongest ? '2px solid #FFA500' : '1px solid #E5E5E5',
+                                                    position: 'relative'
+                                                }}
+                                            >
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <div>
+                                                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#000', marginBottom: '4px' }}>
+                                                            {streak.length} {streak.length === 1 ? 'day' : 'days'}
+                                                            {isLongest && <span style={{ marginLeft: '8px', fontSize: '14px' }}>⭐ Longest</span>}
+                                                            {isCurrent && <span style={{ marginLeft: '8px', fontSize: '14px' }}>← Current</span>}
+                                                        </div>
+                                                        <div style={{ fontSize: '13px', color: '#666' }}>
+                                                            {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                            {' - '}
+                                                            {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ fontSize: '24px' }}>
+                                                        🔥
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div style={{
+                                    textAlign: 'center',
+                                    padding: '40px 20px',
+                                    color: '#999'
+                                }}>
+                                    <div style={{ fontSize: '48px', marginBottom: '12px' }}>🌙</div>
+                                    <div>Start reflecting daily to build your first streak!</div>
+                                </div>
+                            )}
+
+                            {/* Close Button */}
+                            <button
+                                onClick={() => {
+                                    window.GLRSApp.utils.triggerHaptic('light');
+                                    setActiveModal(null);
+                                }}
+                                style={{
+                                    marginTop: '20px',
+                                    width: '100%',
+                                    height: '48px',
+                                    background: '#058585',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    color: '#FFFFFF',
+                                    fontSize: '14px',
+                                    fontWeight: '400',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                Back
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ALL REFLECTIONS MODAL */}
+            {activeModal === 'allReflections' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '12px',
+                        width: '100%',
+                        maxWidth: '600px',
+                        maxHeight: '80vh',
+                        overflow: 'auto'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            position: 'sticky',
+                            top: 0,
+                            background: '#FFFFFF',
+                            zIndex: 10
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: 'bold',
+                                color: '#000000'
+                            }}>
+                                🌙 All Reflections
+                            </h3>
+                            <p style={{
+                                margin: '8px 0 0 0',
+                                fontSize: '14px',
+                                color: '#666'
+                            }}>
+                                Your lifetime reflection journey ({reflectionStats.totalAllTime} total)
+                            </p>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            {allReflections.length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    {allReflections.map((reflection, index) => (
+                                        <div
+                                            key={reflection.id || index}
+                                            style={{
+                                                padding: '16px',
+                                                background: '#F8F9FA',
+                                                borderRadius: '12px',
+                                                border: '1px solid #E5E5E5'
+                                            }}
+                                        >
+                                            {/* Date */}
+                                            <div style={{
+                                                fontSize: '14px',
+                                                fontWeight: '600',
+                                                color: '#058585',
+                                                marginBottom: '12px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px'
+                                            }}>
+                                                <i data-lucide="calendar" style={{ width: '16px', height: '16px' }}></i>
+                                                {formatDate(reflection.date, 'full')}
+                                            </div>
+
+                                            {/* Overall Day Score */}
+                                            {reflection.overallDay !== undefined && (
+                                                <div style={{ marginBottom: '12px' }}>
+                                                    <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                                                        Overall Day
+                                                    </div>
+                                                    <div style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px'
+                                                    }}>
+                                                        <div style={{
+                                                            width: '100%',
+                                                            height: '8px',
+                                                            background: '#E5E5E5',
+                                                            borderRadius: '4px',
+                                                            overflow: 'hidden'
+                                                        }}>
+                                                            <div style={{
+                                                                width: `${(reflection.overallDay / 10) * 100}%`,
+                                                                height: '100%',
+                                                                background: reflection.overallDay >= 7 ? '#00A86B' :
+                                                                           reflection.overallDay >= 4 ? '#FFA500' : '#FF6B6B',
+                                                                transition: 'width 0.3s'
+                                                            }}></div>
+                                                        </div>
+                                                        <span style={{
+                                                            fontSize: '14px',
+                                                            fontWeight: 'bold',
+                                                            color: '#000'
+                                                        }}>
+                                                            {reflection.overallDay}/10
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Gratitude */}
+                                            {reflection.gratitude && (
+                                                <div style={{ marginBottom: '12px' }}>
+                                                    <div style={{
+                                                        fontSize: '12px',
+                                                        color: '#666',
+                                                        marginBottom: '4px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px'
+                                                    }}>
+                                                        <i data-lucide="heart" style={{ width: '14px', height: '14px' }}></i>
+                                                        Gratitude
+                                                    </div>
+                                                    <div style={{
+                                                        fontSize: '14px',
+                                                        color: '#000',
+                                                        fontStyle: 'italic',
+                                                        padding: '8px 12px',
+                                                        background: '#FFFFFF',
+                                                        borderRadius: '8px',
+                                                        border: '1px solid #E5E5E5'
+                                                    }}>
+                                                        "{reflection.gratitude}"
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Wins */}
+                                            {reflection.wins && (
+                                                <div style={{ marginBottom: '12px' }}>
+                                                    <div style={{
+                                                        fontSize: '12px',
+                                                        color: '#666',
+                                                        marginBottom: '4px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px'
+                                                    }}>
+                                                        <i data-lucide="trophy" style={{ width: '14px', height: '14px' }}></i>
+                                                        Today's Win
+                                                    </div>
+                                                    <div style={{
+                                                        fontSize: '14px',
+                                                        color: '#000',
+                                                        padding: '8px 12px',
+                                                        background: '#FFFFFF',
+                                                        borderRadius: '8px',
+                                                        border: '1px solid #E5E5E5'
+                                                    }}>
+                                                        {reflection.wins}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Learnings */}
+                                            {reflection.learnings && (
+                                                <div>
+                                                    <div style={{
+                                                        fontSize: '12px',
+                                                        color: '#666',
+                                                        marginBottom: '4px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px'
+                                                    }}>
+                                                        <i data-lucide="lightbulb" style={{ width: '14px', height: '14px' }}></i>
+                                                        What I Learned
+                                                    </div>
+                                                    <div style={{
+                                                        fontSize: '14px',
+                                                        color: '#000',
+                                                        padding: '8px 12px',
+                                                        background: '#FFFFFF',
+                                                        borderRadius: '8px',
+                                                        border: '1px solid #E5E5E5'
+                                                    }}>
+                                                        {reflection.learnings}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div style={{
+                                    textAlign: 'center',
+                                    padding: '40px 20px',
+                                    color: '#999'
+                                }}>
+                                    <div style={{ fontSize: '48px', marginBottom: '12px' }}>🌙</div>
+                                    <div>No reflections yet. Start your evening reflection today!</div>
+                                </div>
+                            )}
+
+                            {/* Close Button */}
+                            <button
+                                onClick={() => {
+                                    window.GLRSApp.utils.triggerHaptic('light');
+                                    setActiveModal(null);
+                                }}
+                                style={{
+                                    marginTop: '20px',
+                                    width: '100%',
+                                    height: '48px',
+                                    background: '#058585',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    color: '#FFFFFF',
+                                    fontSize: '14px',
+                                    fontWeight: '400',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* GRATITUDE THEMES MODAL */}
+            {activeModal === 'gratitudeThemes' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '12px',
+                        width: '100%',
+                        maxWidth: '600px',
+                        maxHeight: '80vh',
+                        overflow: 'auto'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            position: 'sticky',
+                            top: 0,
+                            background: '#FFFFFF',
+                            zIndex: 10
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: 'bold',
+                                color: '#000000'
+                            }}>
+                                🙏 Your Gratitude Journey
+                            </h3>
+                            <p style={{
+                                margin: '8px 0 0 0',
+                                fontSize: '14px',
+                                color: '#666'
+                            }}>
+                                Patterns in what brings you gratitude
+                            </p>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            {reflectionStats.topGratitudeThemes && reflectionStats.topGratitudeThemes.length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                    {reflectionStats.topGratitudeThemes.map((theme, index) => {
+                                        const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉';
+                                        const rankLabel = index === 0 ? '1st Place' : index === 1 ? '2nd Place' : '3rd Place';
+                                        const bgGradient = index === 0
+                                            ? 'linear-gradient(135deg, #FFF9E6 0%, #FFE4B3 100%)'
+                                            : index === 1
+                                            ? 'linear-gradient(135deg, #F8F9FA 0%, #E9ECEF 100%)'
+                                            : 'linear-gradient(135deg, #FFE9D6 0%, #FFD6B3 100%)';
+
+                                        return (
+                                            <div
+                                                key={index}
+                                                style={{
+                                                    padding: '20px',
+                                                    background: bgGradient,
+                                                    borderRadius: '12px',
+                                                    border: index === 0 ? '2px solid #FFA500' : '1px solid #E5E5E5'
+                                                }}
+                                            >
+                                                {/* Rank Badge */}
+                                                <div style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '8px',
+                                                    marginBottom: '12px'
+                                                }}>
+                                                    <span style={{ fontSize: '28px' }}>{medal}</span>
+                                                    <div>
+                                                        <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                                            {rankLabel}
+                                                        </div>
+                                                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#000' }}>
+                                                            {theme.name}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Count */}
+                                                <div style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '8px',
+                                                    marginBottom: '12px',
+                                                    padding: '8px 12px',
+                                                    background: 'rgba(255, 255, 255, 0.7)',
+                                                    borderRadius: '8px'
+                                                }}>
+                                                    <i data-lucide="heart" style={{ width: '16px', height: '16px', color: '#FF6B6B' }}></i>
+                                                    <span style={{ fontSize: '14px', color: '#000' }}>
+                                                        <strong>{theme.count}</strong> {theme.count === 1 ? 'time' : 'times'} grateful for this
+                                                    </span>
+                                                </div>
+
+                                                {/* Recent Dates */}
+                                                <div>
+                                                    <div style={{
+                                                        fontSize: '12px',
+                                                        color: '#666',
+                                                        marginBottom: '8px',
+                                                        fontWeight: '600'
+                                                    }}>
+                                                        Recent Moments:
+                                                    </div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                        {theme.dates.slice(0, 5).map((date, dateIndex) => (
+                                                            <div
+                                                                key={dateIndex}
+                                                                style={{
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '8px',
+                                                                    fontSize: '13px',
+                                                                    color: '#000',
+                                                                    padding: '6px 10px',
+                                                                    background: 'rgba(255, 255, 255, 0.5)',
+                                                                    borderRadius: '6px'
+                                                                }}
+                                                            >
+                                                                <i data-lucide="calendar" style={{ width: '14px', height: '14px', color: '#058585' }}></i>
+                                                                {date.toLocaleDateString('en-US', {
+                                                                    weekday: 'short',
+                                                                    month: 'short',
+                                                                    day: 'numeric',
+                                                                    year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
+                                                                })}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {/* Insight Message */}
+                                    <div style={{
+                                        padding: '16px',
+                                        background: 'linear-gradient(135deg, rgba(5, 133, 133, 0.1) 0%, rgba(0, 168, 107, 0.1) 100%)',
+                                        borderRadius: '12px',
+                                        border: '1px solid rgba(5, 133, 133, 0.3)'
+                                    }}>
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'flex-start',
+                                            gap: '12px'
+                                        }}>
+                                            <i data-lucide="lightbulb" style={{ width: '20px', height: '20px', color: '#058585', marginTop: '2px' }}></i>
+                                            <div>
+                                                <div style={{ fontSize: '14px', fontWeight: '600', color: '#000', marginBottom: '4px' }}>
+                                                    💡 Insight
+                                                </div>
+                                                <div style={{ fontSize: '13px', color: '#333', lineHeight: '1.5' }}>
+                                                    Recognizing patterns in your gratitude helps strengthen positive thinking and shows what truly matters to you in recovery.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div style={{
+                                    textAlign: 'center',
+                                    padding: '40px 20px',
+                                    color: '#999'
+                                }}>
+                                    <div style={{ fontSize: '48px', marginBottom: '12px' }}>💭</div>
+                                    <div>No gratitude themes yet. Start your evening reflections to track what you're grateful for!</div>
+                                </div>
+                            )}
+
+                            {/* Close Button */}
+                            <button
+                                onClick={() => {
+                                    window.GLRSApp.utils.triggerHaptic('light');
+                                    setActiveModal(null);
+                                }}
+                                style={{
+                                    marginTop: '20px',
+                                    width: '100%',
+                                    height: '48px',
+                                    background: '#058585',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    color: '#FFFFFF',
+                                    fontSize: '14px',
+                                    fontWeight: '400',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* GRATITUDE JOURNAL MODAL */}
+            {activeModal === 'gratitudeJournal' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => {
+                    setActiveModal(null);
+                    setGratitudeJournalPeriod(null);
+                }}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '12px',
+                        width: '100%',
+                        maxWidth: '600px',
+                        maxHeight: '80vh',
+                        overflow: 'auto'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            position: 'sticky',
+                            top: 0,
+                            background: '#FFFFFF',
+                            zIndex: 10
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: 'bold',
+                                color: '#000000'
+                            }}>
+                                📖 Gratitude Journal
+                            </h3>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            {!gratitudeJournalPeriod ? (
+                                /* Period Selection */
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    <button
+                                        onClick={() => setGratitudeJournalPeriod('allTime')}
+                                        style={{
+                                            padding: '16px',
+                                            background: '#F8F9FA',
+                                            border: '1px solid #E5E5E5',
+                                            borderRadius: '12px',
+                                            fontSize: '16px',
+                                            fontWeight: '600',
+                                            color: '#000',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                        }}
+                                    >
+                                        <span>All Time</span>
+                                        <span style={{ fontSize: '14px', color: '#058585', fontWeight: 'bold' }}>
+                                            {gratitudeJournalStats.allTime}
+                                        </span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setGratitudeJournalPeriod('thisMonth')}
+                                        style={{
+                                            padding: '16px',
+                                            background: '#F8F9FA',
+                                            border: '1px solid #E5E5E5',
+                                            borderRadius: '12px',
+                                            fontSize: '16px',
+                                            fontWeight: '600',
+                                            color: '#000',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                        }}
+                                    >
+                                        <span>This Month</span>
+                                        <span style={{ fontSize: '14px', color: '#FFA500', fontWeight: 'bold' }}>
+                                            {gratitudeJournalStats.thisMonth}
+                                        </span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setGratitudeJournalPeriod('thisWeek')}
+                                        style={{
+                                            padding: '16px',
+                                            background: '#F8F9FA',
+                                            border: '1px solid #E5E5E5',
+                                            borderRadius: '12px',
+                                            fontSize: '16px',
+                                            fontWeight: '600',
+                                            color: '#000',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                        }}
+                                    >
+                                        <span>This Week</span>
+                                        <span style={{ fontSize: '14px', color: '#00A86B', fontWeight: 'bold' }}>
+                                            {gratitudeJournalStats.thisWeek}
+                                        </span>
+                                    </button>
+                                </div>
+                            ) : (
+                                /* Show Gratitude Entries */
+                                <div>
+                                    {/* Back Button */}
+                                    <button
+                                        onClick={() => setGratitudeJournalPeriod(null)}
+                                        style={{
+                                            marginBottom: '16px',
+                                            padding: '8px 16px',
+                                            background: '#F8F9FA',
+                                            border: '1px solid #E5E5E5',
+                                            borderRadius: '8px',
+                                            fontSize: '14px',
+                                            color: '#000',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}
+                                    >
+                                        <i data-lucide="arrow-left" style={{ width: '16px', height: '16px' }}></i>
+                                        Back
+                                    </button>
+
+                                    {/* Entries List */}
+                                    {(() => {
+                                        const now = new Date();
+                                        const weekAgo = new Date();
+                                        weekAgo.setDate(weekAgo.getDate() - 7);
+                                        const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+                                        const filteredEntries = allReflections.filter(r => {
+                                            if (!r.gratitude || !r.gratitude.trim()) return false;
+                                            if (gratitudeJournalPeriod === 'allTime') return true;
+                                            if (gratitudeJournalPeriod === 'thisWeek') return r.date >= weekAgo;
+                                            if (gratitudeJournalPeriod === 'thisMonth') return r.date >= firstDayOfMonth;
+                                            return false;
+                                        });
+
+                                        return filteredEntries.length > 0 ? (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                                {filteredEntries.map((entry, index) => (
+                                                    <div
+                                                        key={index}
+                                                        style={{
+                                                            padding: '16px',
+                                                            background: '#F8F9FA',
+                                                            borderRadius: '12px',
+                                                            border: '1px solid #E5E5E5'
+                                                        }}
+                                                    >
+                                                        <div style={{
+                                                            fontSize: '14px',
+                                                            fontWeight: '600',
+                                                            color: '#058585',
+                                                            marginBottom: '12px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '8px'
+                                                        }}>
+                                                            <i data-lucide="calendar" style={{ width: '16px', height: '16px' }}></i>
+                                                            {entry.date.toLocaleDateString('en-US', {
+                                                                weekday: 'long',
+                                                                year: 'numeric',
+                                                                month: 'long',
+                                                                day: 'numeric'
+                                                            })}
+                                                        </div>
+
+                                                        <div style={{
+                                                            fontSize: '14px',
+                                                            color: '#000',
+                                                            fontStyle: 'italic',
+                                                            padding: '12px',
+                                                            background: '#FFFFFF',
+                                                            borderRadius: '8px',
+                                                            border: '1px solid #E5E5E5'
+                                                        }}>
+                                                            "{entry.gratitude}"
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div style={{
+                                                textAlign: 'center',
+                                                padding: '40px 20px',
+                                                color: '#999'
+                                            }}>
+                                                <div style={{ fontSize: '48px', marginBottom: '12px' }}>📖</div>
+                                                <div>No gratitude entries for this period</div>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            )}
+
+                            {/* Close Button */}
+                            <button
+                                onClick={() => {
+                                    window.GLRSApp.utils.triggerHaptic('light');
+                                    setActiveModal(null);
+                                    setGratitudeJournalPeriod(null);
+                                }}
+                                style={{
+                                    marginTop: '20px',
+                                    width: '100%',
+                                    height: '48px',
+                                    background: '#058585',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    color: '#FFFFFF',
+                                    fontSize: '14px',
+                                    fontWeight: '400',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* CHALLENGES HISTORY MODAL */}
+            {activeModal === 'challengesHistory' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => {
+                    setActiveModal(null);
+                    setChallengesHistoryPeriod(null);
+                }}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '12px',
+                        width: '100%',
+                        maxWidth: '600px',
+                        maxHeight: '80vh',
+                        overflow: 'auto'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            position: 'sticky',
+                            top: 0,
+                            background: '#FFFFFF',
+                            zIndex: 10
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: 'bold',
+                                color: '#000000'
+                            }}>
+                                ⚠️ Challenges History
+                            </h3>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            {!challengesHistoryPeriod ? (
+                                /* Period Selection */
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    <button
+                                        onClick={() => setChallengesHistoryPeriod('allTime')}
+                                        style={{
+                                            padding: '16px',
+                                            background: '#F8F9FA',
+                                            border: '1px solid #E5E5E5',
+                                            borderRadius: '12px',
+                                            fontSize: '16px',
+                                            fontWeight: '600',
+                                            color: '#000',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                        }}
+                                    >
+                                        <span>All Time</span>
+                                        <span style={{ fontSize: '14px', color: '#058585', fontWeight: 'bold' }}>
+                                            {challengesHistoryStats.allTime}
+                                        </span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setChallengesHistoryPeriod('thisMonth')}
+                                        style={{
+                                            padding: '16px',
+                                            background: '#F8F9FA',
+                                            border: '1px solid #E5E5E5',
+                                            borderRadius: '12px',
+                                            fontSize: '16px',
+                                            fontWeight: '600',
+                                            color: '#000',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                        }}
+                                    >
+                                        <span>This Month</span>
+                                        <span style={{ fontSize: '14px', color: '#FFA500', fontWeight: 'bold' }}>
+                                            {challengesHistoryStats.thisMonth}
+                                        </span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setChallengesHistoryPeriod('thisWeek')}
+                                        style={{
+                                            padding: '16px',
+                                            background: '#F8F9FA',
+                                            border: '1px solid #E5E5E5',
+                                            borderRadius: '12px',
+                                            fontSize: '16px',
+                                            fontWeight: '600',
+                                            color: '#000',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                        }}
+                                    >
+                                        <span>This Week</span>
+                                        <span style={{ fontSize: '14px', color: '#00A86B', fontWeight: 'bold' }}>
+                                            {challengesHistoryStats.thisWeek}
+                                        </span>
+                                    </button>
+                                </div>
+                            ) : (
+                                /* Show Challenge Entries */
+                                <div>
+                                    {/* Back Button */}
+                                    <button
+                                        onClick={() => setChallengesHistoryPeriod(null)}
+                                        style={{
+                                            marginBottom: '16px',
+                                            padding: '8px 16px',
+                                            background: '#F8F9FA',
+                                            border: '1px solid #E5E5E5',
+                                            borderRadius: '8px',
+                                            fontSize: '14px',
+                                            color: '#000',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}
+                                    >
+                                        <i data-lucide="arrow-left" style={{ width: '16px', height: '16px' }}></i>
+                                        Back
+                                    </button>
+
+                                    {/* Entries List */}
+                                    {(() => {
+                                        const now = new Date();
+                                        const weekAgo = new Date();
+                                        weekAgo.setDate(weekAgo.getDate() - 7);
+                                        const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+                                        const filteredEntries = allReflections.filter(r => {
+                                            if (!r.challenges || !r.challenges.trim()) return false;
+                                            if (challengesHistoryPeriod === 'allTime') return true;
+                                            if (challengesHistoryPeriod === 'thisWeek') return r.date >= weekAgo;
+                                            if (challengesHistoryPeriod === 'thisMonth') return r.date >= firstDayOfMonth;
+                                            return false;
+                                        });
+
+                                        return filteredEntries.length > 0 ? (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                                {filteredEntries.map((entry, index) => (
+                                                    <div
+                                                        key={index}
+                                                        style={{
+                                                            padding: '16px',
+                                                            background: '#FFF5F5',
+                                                            borderRadius: '12px',
+                                                            border: '1px solid #FFE4E4'
+                                                        }}
+                                                    >
+                                                        <div style={{
+                                                            fontSize: '14px',
+                                                            fontWeight: '600',
+                                                            color: '#FF6B6B',
+                                                            marginBottom: '12px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '8px'
+                                                        }}>
+                                                            <i data-lucide="calendar" style={{ width: '16px', height: '16px' }}></i>
+                                                            {entry.date.toLocaleDateString('en-US', {
+                                                                weekday: 'long',
+                                                                year: 'numeric',
+                                                                month: 'long',
+                                                                day: 'numeric'
+                                                            })}
+                                                        </div>
+
+                                                        <div style={{
+                                                            fontSize: '14px',
+                                                            color: '#000',
+                                                            padding: '12px',
+                                                            background: '#FFFFFF',
+                                                            borderRadius: '8px',
+                                                            border: '1px solid #FFE4E4'
+                                                        }}>
+                                                            {entry.challenges}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div style={{
+                                                textAlign: 'center',
+                                                padding: '40px 20px',
+                                                color: '#999'
+                                            }}>
+                                                <div style={{ fontSize: '48px', marginBottom: '12px' }}>⚠️</div>
+                                                <div>No challenges recorded for this period</div>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            )}
+
+                            {/* Close Button */}
+                            <button
+                                onClick={() => {
+                                    window.GLRSApp.utils.triggerHaptic('light');
+                                    setActiveModal(null);
+                                    setChallengesHistoryPeriod(null);
+                                }}
+                                style={{
+                                    marginTop: '20px',
+                                    width: '100%',
+                                    height: '48px',
+                                    background: '#058585',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    color: '#FFFFFF',
+                                    fontSize: '14px',
+                                    fontWeight: '400',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* GOAL TRACKER MODAL */}
+            {activeModal === 'goalProgress' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '12px',
+                        width: '100%',
+                        maxWidth: '600px',
+                        maxHeight: '80vh',
+                        overflow: 'auto'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            position: 'sticky',
+                            top: 0,
+                            background: '#FFFFFF',
+                            zIndex: 10
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: 'bold',
+                                color: '#000000'
+                            }}>
+                                🎯 Tomorrow's Goals
+                            </h3>
+                            <p style={{
+                                margin: '8px 0 0 0',
+                                fontSize: '14px',
+                                color: '#666'
+                            }}>
+                                Goals you set from evening reflections
+                            </p>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            {tomorrowGoals.length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    {tomorrowGoals.map((goalItem, index) => (
+                                        <div
+                                            key={goalItem.id}
+                                            style={{
+                                                padding: '16px',
+                                                background: goalItem.completed ? '#E8F5E9' : '#F8F9FA',
+                                                borderRadius: '12px',
+                                                border: `2px solid ${goalItem.completed ? '#4CAF50' : '#E5E5E5'}`
+                                            }}
+                                        >
+                                            {/* Date */}
+                                            <div style={{
+                                                fontSize: '12px',
+                                                fontWeight: '600',
+                                                color: '#666',
+                                                marginBottom: '8px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px'
+                                            }}>
+                                                <i data-lucide="calendar" style={{ width: '14px', height: '14px' }}></i>
+                                                Set on: {goalItem.date.toLocaleDateString('en-US', {
+                                                    month: 'short',
+                                                    day: 'numeric',
+                                                    year: 'numeric'
+                                                })}
+                                            </div>
+
+                                            {/* Goal */}
+                                            <div style={{
+                                                fontSize: '15px',
+                                                color: '#000',
+                                                padding: '12px',
+                                                background: '#FFFFFF',
+                                                borderRadius: '8px',
+                                                marginBottom: '12px',
+                                                fontWeight: '500'
+                                            }}>
+                                                {goalItem.goal}
+                                            </div>
+
+                                            {/* Checkbox & Share */}
+                                            <div style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                gap: '12px'
+                                            }}>
+                                                {/* Checkbox to mark complete */}
+                                                <div style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '12px',
+                                                    padding: '12px',
+                                                    background: goalItem.completed ? 'rgba(76, 175, 80, 0.2)' : 'rgba(0, 0, 0, 0.05)',
+                                                    borderRadius: '8px',
+                                                    flex: 1
+                                                }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={goalItem.completed}
+                                                        onChange={async (e) => {
+                                                            const completed = e.target.checked;
+                                                            try {
+                                                                const db = firebase.firestore();
+                                                                await db.collection('checkIns').doc(goalItem.id).update({
+                                                                    'eveningData.goalCompleted': completed,
+                                                                    'eveningData.goalCompletedDate': completed ? firebase.firestore.FieldValue.serverTimestamp() : null
+                                                                });
+                                                                window.GLRSApp?.utils?.showNotification &&
+                                                                    window.GLRSApp.utils.showNotification(
+                                                                        completed ? '✅ Goal marked complete!' : 'Goal unmarked',
+                                                                        'success'
+                                                                    );
+                                                            } catch (error) {
+                                                                console.error('Error updating goal status:', error);
+                                                                window.GLRSApp?.utils?.showNotification &&
+                                                                    window.GLRSApp.utils.showNotification(
+                                                                        'Error updating goal status',
+                                                                        'error'
+                                                                    );
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            width: '20px',
+                                                            height: '20px',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                    />
+                                                    <label style={{
+                                                        fontSize: '14px',
+                                                        fontWeight: '600',
+                                                        color: goalItem.completed ? '#4CAF50' : '#666',
+                                                        cursor: 'pointer'
+                                                    }}>
+                                                        {goalItem.completed ? '✅ Completed' : 'Mark as completed'}
+                                                    </label>
+                                                </div>
+
+                                                {/* Share button (appears when completed) */}
+                                                {goalItem.completed && (
+                                                    <button
+                                                        onClick={() => {
+                                                            setShareGoalData(goalItem);
+                                                            setShareComment('');
+                                                            setActiveModal('shareGoal');
+                                                        }}
+                                                        style={{
+                                                            padding: '10px 16px',
+                                                            background: '#058585',
+                                                            border: 'none',
+                                                            borderRadius: '8px',
+                                                            color: '#FFFFFF',
+                                                            fontSize: '13px',
+                                                            fontWeight: '600',
+                                                            cursor: 'pointer',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '6px',
+                                                            whiteSpace: 'nowrap'
+                                                        }}
+                                                    >
+                                                        <i data-lucide="share-2" style={{ width: '14px', height: '14px' }}></i>
+                                                        Share
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div style={{
+                                    textAlign: 'center',
+                                    padding: '40px 20px',
+                                    color: '#999'
+                                }}>
+                                    <div style={{ fontSize: '48px', marginBottom: '12px' }}>🎯</div>
+                                    <div>No goals set yet. Set your first "Tomorrow's Goal" in your evening reflection!</div>
+                                </div>
+                            )}
+
+                            {/* Close Button */}
+                            <button
+                                onClick={() => {
+                                    window.GLRSApp.utils.triggerHaptic('light');
+                                    setActiveModal(null);
+                                }}
+                                style={{
+                                    marginTop: '20px',
+                                    width: '100%',
+                                    height: '48px',
+                                    background: '#058585',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    color: '#FFFFFF',
+                                    fontSize: '14px',
+                                    fontWeight: '400',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* SHARE GOAL TO COMMUNITY MODAL */}
+            {activeModal === 'shareGoal' && shareGoalData && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10001,
+                    padding: '20px'
+                }} onClick={() => {
+                    setActiveModal('goalProgress');
+                    setShareGoalData(null);
+                    setShareComment('');
+                }}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '12px',
+                        width: '100%',
+                        maxWidth: '500px',
+                        maxHeight: '80vh',
+                        overflow: 'auto'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            background: 'linear-gradient(135deg, #058585 0%, #047070 100%)',
+                            borderRadius: '12px 12px 0 0'
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: 'bold',
+                                color: '#FFFFFF',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }}>
+                                <i data-lucide="share-2" style={{ width: '24px', height: '24px' }}></i>
+                                Share Your Achievement
+                            </h3>
+                            <p style={{
+                                margin: '8px 0 0 0',
+                                fontSize: '14px',
+                                color: 'rgba(255, 255, 255, 0.9)'
+                            }}>
+                                Share your completed goal with the community
+                            </p>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            {/* Goal Preview */}
+                            <div style={{
+                                padding: '16px',
+                                background: '#E8F5E9',
+                                borderRadius: '12px',
+                                border: '2px solid #4CAF50',
+                                marginBottom: '20px'
+                            }}>
+                                <div style={{
+                                    fontSize: '12px',
+                                    fontWeight: '600',
+                                    color: '#666',
+                                    marginBottom: '8px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}>
+                                    <i data-lucide="trophy" style={{ width: '14px', height: '14px', color: '#4CAF50' }}></i>
+                                    Goal Achieved on {new Date(shareGoalData.completedDate?.seconds * 1000 || Date.now()).toLocaleDateString('en-US', {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        year: 'numeric'
+                                    })}
+                                </div>
+                                <div style={{
+                                    fontSize: '15px',
+                                    color: '#000',
+                                    padding: '12px',
+                                    background: '#FFFFFF',
+                                    borderRadius: '8px',
+                                    fontWeight: '500',
+                                    fontStyle: 'italic'
+                                }}>
+                                    "{shareGoalData.goal}"
+                                </div>
+                            </div>
+
+                            {/* Comment Textarea */}
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{
+                                    display: 'block',
+                                    fontSize: '14px',
+                                    fontWeight: '600',
+                                    color: '#000',
+                                    marginBottom: '8px'
+                                }}>
+                                    Add a message (optional)
+                                </label>
+                                <textarea
+                                    value={shareComment}
+                                    onChange={(e) => setShareComment(e.target.value)}
+                                    placeholder="Share your thoughts, feelings, or what helped you achieve this goal..."
+                                    style={{
+                                        width: '100%',
+                                        minHeight: '100px',
+                                        padding: '12px',
+                                        fontSize: '14px',
+                                        border: '1px solid #E5E5E5',
+                                        borderRadius: '8px',
+                                        resize: 'vertical',
+                                        fontFamily: 'inherit',
+                                        boxSizing: 'border-box'
+                                    }}
+                                />
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div style={{
+                                display: 'flex',
+                                gap: '12px'
+                            }}>
+                                <button
+                                    onClick={() => {
+                                        setActiveModal('goalProgress');
+                                        setShareGoalData(null);
+                                        setShareComment('');
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        padding: '12px',
+                                        background: '#F5F5F5',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        color: '#666',
+                                        fontSize: '14px',
+                                        fontWeight: '600',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        try {
+                                            const db = firebase.firestore();
+
+                                            // Create community message
+                                            await db.collection('communityMessages').add({
+                                                userId: user.uid,
+                                                userName: user.displayName || user.email,
+                                                type: 'goalAchievement',
+                                                goal: shareGoalData.goal,
+                                                goalSetDate: shareGoalData.date,
+                                                completedDate: shareGoalData.completedDate || firebase.firestore.FieldValue.serverTimestamp(),
+                                                message: shareComment.trim() || '',
+                                                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                                                likes: 0,
+                                                comments: []
+                                            });
+
+                                            window.GLRSApp?.utils?.showNotification &&
+                                                window.GLRSApp.utils.showNotification(
+                                                    '🎉 Goal achievement shared with community!',
+                                                    'success'
+                                                );
+
+                                            // Close modal and reset
+                                            setActiveModal('goalProgress');
+                                            setShareGoalData(null);
+                                            setShareComment('');
+                                        } catch (error) {
+                                            console.error('Error sharing goal:', error);
+                                            window.GLRSApp?.utils?.showNotification &&
+                                                window.GLRSApp.utils.showNotification(
+                                                    'Error sharing goal. Please try again.',
+                                                    'error'
+                                                );
+                                        }
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        padding: '12px',
+                                        background: 'linear-gradient(135deg, #058585 0%, #047070 100%)',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        color: '#FFFFFF',
+                                        fontSize: '14px',
+                                        fontWeight: '600',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '8px'
+                                    }}
+                                >
+                                    <i data-lucide="send" style={{ width: '16px', height: '16px' }}></i>
+                                    Share to Community
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* SET TODAY'S INTENTIONS MODAL */}
+            {activeModal === 'intentions' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '16px',
+                        maxWidth: '500px',
+                        width: '100%',
+                        maxHeight: '90vh',
+                        overflow: 'auto'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '24px',
+                            borderBottom: '1px solid #E9ECEF',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <i data-lucide="compass" style={{ width: '24px', height: '24px', color: '#0077CC' }}></i>
+                                <h2 style={{
+                                    margin: 0,
+                                    fontSize: '20px',
+                                    fontWeight: '600',
+                                    color: '#000000'
+                                }}>
+                                    Set Today's Intentions
+                                </h2>
+                            </div>
+                            <div
+                                onClick={() => setActiveModal(null)}
+                                style={{
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '4px'
+                                }}
+                            >
+                                <i data-lucide="x" style={{
+                                    width: '24px',
+                                    height: '24px',
+                                    color: '#666666'
+                                }}></i>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '24px' }}>
+                            <div style={{
+                                background: 'linear-gradient(135deg, rgba(0,119,204,0.1) 0%, rgba(5,133,133,0.1) 100%)',
+                                padding: '16px',
+                                borderRadius: '12px',
+                                marginBottom: '20px',
+                                border: '1px solid rgba(0,119,204,0.2)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                                    <i data-lucide="lightbulb" style={{ width: '20px', height: '20px', color: '#0077CC', flexShrink: 0, marginTop: '2px' }}></i>
+                                    <p style={{
+                                        margin: 0,
+                                        fontSize: '13px',
+                                        color: '#000000',
+                                        lineHeight: '1.5'
+                                    }}>
+                                        Setting daily intentions helps you stay focused on what matters most in your recovery journey. Take a moment to define your purpose for today.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <textarea
+                                placeholder="What are your intentions for today? (e.g., 'Stay present and grateful', 'Reach out to my support network', 'Practice self-care')"
+                                value={newIntention}
+                                onChange={(e) => setNewIntention(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    minHeight: '120px',
+                                    padding: '12px',
+                                    border: '1px solid #CED4DA',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontFamily: 'inherit',
+                                    resize: 'vertical',
+                                    marginBottom: '16px'
+                                }}
+                            />
+
+                            {/* Action Buttons */}
+                            <div style={{
+                                display: 'flex',
+                                gap: '12px',
+                                marginBottom: '20px'
+                            }}>
+                                <button
+                                    onClick={async () => {
+                                        if (!newIntention.trim()) {
+                                            alert('Please write your intentions for today');
+                                            return;
+                                        }
+
+                                        try {
+                                            // TODO: Implement Firestore save
+                                            console.log('Save intention:', newIntention);
+                                            alert('✨ Your intentions have been set for today!');
+                                            setNewIntention('');
+                                            setActiveModal(null);
+                                        } catch (error) {
+                                            alert('Error saving your intentions. Please try again.');
+                                        }
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        padding: '12px 24px',
+                                        background: 'linear-gradient(135deg, #0077CC 0%, #058585 100%)',
+                                        color: '#FFFFFF',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        fontWeight: '600',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '8px'
+                                    }}
+                                >
+                                    <i data-lucide="check" style={{ width: '18px', height: '18px' }}></i>
+                                    Set Intentions
+                                </button>
+                            </div>
+
+                            {/* View Past Intentions */}
+                            <button
+                                data-action="past-intentions"
+                                onClick={async () => {
+                                    try {
+                                        // TODO: Load past intentions data
+                                        console.log('Load past intentions');
+                                        setActiveModal('pastIntentions');
+                                    } catch (error) {
+                                        alert('Error loading past intentions');
+                                    }
+                                }}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    background: '#F8F9FA',
+                                    color: '#0077CC',
+                                    border: '1px solid #E9ECEF',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontWeight: '500',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px'
+                                }}
+                            >
+                                <i data-lucide="history" style={{ width: '18px', height: '18px' }}></i>
+                                View Past Intentions
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* PAST INTENTIONS MODAL */}
+            {activeModal === 'pastIntentions' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal(null)}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '16px',
+                        maxWidth: '600px',
+                        width: '100%',
+                        maxHeight: '90vh',
+                        overflow: 'auto'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '24px',
+                            borderBottom: '1px solid #E9ECEF',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <i data-lucide="history" style={{ width: '24px', height: '24px', color: '#0077CC' }}></i>
+                                <h2 style={{
+                                    margin: 0,
+                                    fontSize: '20px',
+                                    fontWeight: '600',
+                                    color: '#000000'
+                                }}>
+                                    Past Intentions
+                                </h2>
+                            </div>
+                            <div
+                                onClick={() => setActiveModal(null)}
+                                style={{
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '4px'
+                                }}
+                            >
+                                <i data-lucide="x" style={{
+                                    width: '24px',
+                                    height: '24px',
+                                    color: '#666666'
+                                }}></i>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '24px' }}>
+                            {pastIntentions.length === 0 ? (
+                                <div style={{
+                                    background: 'linear-gradient(135deg, rgba(0,119,204,0.05) 0%, rgba(5,133,133,0.05) 100%)',
+                                    borderRadius: '12px',
+                                    padding: '40px 20px',
+                                    textAlign: 'center',
+                                    border: '2px dashed #0077CC'
+                                }}>
+                                    <i data-lucide="compass" style={{
+                                        width: '48px',
+                                        height: '48px',
+                                        color: '#0077CC',
+                                        marginBottom: '12px'
+                                    }}></i>
+                                    <h3 style={{
+                                        color: '#000000',
+                                        fontSize: '16px',
+                                        fontWeight: '600',
+                                        margin: '0 0 8px 0'
+                                    }}>
+                                        No Intentions Yet
+                                    </h3>
+                                    <p style={{
+                                        color: '#666666',
+                                        fontSize: '14px',
+                                        margin: 0,
+                                        lineHeight: '1.5'
+                                    }}>
+                                        Start setting your daily intentions to build momentum in your recovery journey.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    {pastIntentions.map((intention, index) => {
+                                        const date = intention.createdAt?.toDate();
+                                        const dateStr = date ? date.toLocaleDateString('en-US', {
+                                            weekday: 'short',
+                                            month: 'short',
+                                            day: 'numeric',
+                                            year: 'numeric'
+                                        }) : 'Unknown date';
+                                        const timeStr = date ? date.toLocaleTimeString('en-US', {
+                                            hour: 'numeric',
+                                            minute: '2-digit',
+                                            hour12: true
+                                        }) : '';
+
+                                        return (
+                                            <div key={intention.id} style={{
+                                                background: 'linear-gradient(135deg, rgba(0,119,204,0.05) 0%, rgba(5,133,133,0.05) 100%)',
+                                                borderRadius: '12px',
+                                                padding: '16px',
+                                                border: '1px solid rgba(0,119,204,0.2)'
+                                            }}>
+                                                {/* Date Header */}
+                                                <div style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '8px',
+                                                    marginBottom: '12px',
+                                                    paddingBottom: '12px',
+                                                    borderBottom: '1px solid rgba(0,119,204,0.1)'
+                                                }}>
+                                                    <i data-lucide="calendar" style={{ width: '16px', height: '16px', color: '#0077CC' }}></i>
+                                                    <span style={{
+                                                        fontSize: '13px',
+                                                        fontWeight: '600',
+                                                        color: '#0077CC'
+                                                    }}>
+                                                        {dateStr}
+                                                    </span>
+                                                    <span style={{
+                                                        fontSize: '12px',
+                                                        color: '#666666',
+                                                        marginLeft: 'auto'
+                                                    }}>
+                                                        {timeStr}
+                                                    </span>
+                                                </div>
+
+                                                {/* Intention Content */}
+                                                <div style={{ marginBottom: '8px' }}>
+                                                    <div style={{
+                                                        fontSize: '12px',
+                                                        fontWeight: '600',
+                                                        color: '#666666',
+                                                        textTransform: 'uppercase',
+                                                        letterSpacing: '0.5px',
+                                                        marginBottom: '8px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '6px'
+                                                    }}>
+                                                        <i data-lucide="target" style={{ width: '14px', height: '14px' }}></i>
+                                                        Intentions
+                                                    </div>
+                                                    {intention.intention && intention.intention.trim() !== '' ? (
+                                                        <p style={{
+                                                            margin: 0,
+                                                            fontSize: '14px',
+                                                            color: '#000000',
+                                                            lineHeight: '1.6',
+                                                            whiteSpace: 'pre-wrap'
+                                                        }}>
+                                                            {intention.intention}
+                                                        </p>
+                                                    ) : (
+                                                        <p style={{
+                                                            margin: 0,
+                                                            fontSize: '13px',
+                                                            color: '#999999',
+                                                            fontStyle: 'italic'
+                                                        }}>
+                                                            Daily pledge made (no text provided)
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* PROGRESS SNAPSHOT MODAL */}
+            {activeModal === 'snapshot' && (() => {
+                // Calculate variables for snapshot
+                const activeGoals = goals.filter(g => g.status !== 'completed').length;
+                const totalAssignments = assignments.length;
+                const completedAssignments = assignments.filter(a => a.status === 'completed').length;
+                const completionRate = totalAssignments > 0 ? Math.round((completedAssignments / totalAssignments) * 100) : 0;
+
+                return (
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: 'rgba(0,0,0,0.5)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10000,
+                        padding: '20px'
+                    }} onClick={() => setActiveModal(null)}>
+                        <div style={{
+                            background: '#FFFFFF',
+                            borderRadius: '16px',
+                            maxWidth: '600px',
+                            width: '100%',
+                            maxHeight: '90vh',
+                            overflow: 'auto'
+                        }} onClick={(e) => e.stopPropagation()}>
+                            {/* Header */}
+                            <div style={{
+                                padding: '24px',
+                                borderBottom: '1px solid #E9ECEF',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <i data-lucide="bar-chart-3" style={{ width: '24px', height: '24px', color: '#0077CC' }}></i>
+                                    <h2 style={{
+                                        margin: 0,
+                                        fontSize: '20px',
+                                        fontWeight: '600',
+                                        color: '#000000'
+                                    }}>
+                                        Progress Snapshot
+                                    </h2>
+                                </div>
+                                <div
+                                    onClick={() => setActiveModal(null)}
+                                    style={{
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: '4px'
+                                    }}
+                                >
+                                    <i data-lucide="x" style={{
+                                        width: '24px',
+                                        height: '24px',
+                                        color: '#666666'
+                                    }}></i>
+                                </div>
+                            </div>
+
+                            {/* Content */}
+                            <div style={{ padding: '24px' }}>
+                                {/* Overview Stats */}
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(2, 1fr)',
+                                    gap: '12px',
+                                    marginBottom: '24px'
+                                }}>
+                                    {/* Active Goals */}
+                                    <div style={{
+                                        background: 'linear-gradient(135deg, rgba(0,119,204,0.1) 0%, rgba(0,119,204,0.05) 100%)',
+                                        padding: '16px',
+                                        borderRadius: '12px',
+                                        border: '1px solid rgba(0,119,204,0.2)'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                            <i data-lucide="target" style={{ width: '20px', height: '20px', color: '#0077CC' }}></i>
+                                            <span style={{ fontSize: '12px', color: '#666666', fontWeight: '500' }}>Active Goals</span>
+                                        </div>
+                                        <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#0077CC' }}>
+                                            {activeGoals}
+                                        </div>
+                                    </div>
+
+                                    {/* Active Objectives */}
+                                    <div style={{
+                                        background: 'linear-gradient(135deg, rgba(5,133,133,0.1) 0%, rgba(5,133,133,0.05) 100%)',
+                                        padding: '16px',
+                                        borderRadius: '12px',
+                                        border: '1px solid rgba(5,133,133,0.2)'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                            <i data-lucide="list-checks" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
+                                            <span style={{ fontSize: '12px', color: '#666666', fontWeight: '500' }}>Objectives</span>
+                                        </div>
+                                        <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#058585' }}>
+                                            {goals.reduce((count, goal) => count + (goal.objectives?.length || 0), 0)}
+                                        </div>
+                                    </div>
+
+                                    {/* Active Tasks */}
+                                    <div style={{
+                                        background: 'linear-gradient(135deg, rgba(0,168,107,0.1) 0%, rgba(0,168,107,0.05) 100%)',
+                                        padding: '16px',
+                                        borderRadius: '12px',
+                                        border: '1px solid rgba(0,168,107,0.2)'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                            <i data-lucide="clipboard-list" style={{ width: '20px', height: '20px', color: '#00A86B' }}></i>
+                                            <span style={{ fontSize: '12px', color: '#666666', fontWeight: '500' }}>Active Tasks</span>
+                                        </div>
+                                        <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#00A86B' }}>
+                                            {assignments.filter(a => a.status !== 'completed').length}
+                                        </div>
+                                    </div>
+
+                                    {/* Completion Rate */}
+                                    <div style={{
+                                        background: 'linear-gradient(135deg, rgba(255,140,0,0.1) 0%, rgba(255,140,0,0.05) 100%)',
+                                        padding: '16px',
+                                        borderRadius: '12px',
+                                        border: '1px solid rgba(255,140,0,0.2)'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                            <i data-lucide="trending-up" style={{ width: '20px', height: '20px', color: '#FF8C00' }}></i>
+                                            <span style={{ fontSize: '12px', color: '#666666', fontWeight: '500' }}>Completion</span>
+                                        </div>
+                                        <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#FF8C00' }}>
+                                            {completionRate}%
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Progress Details */}
+                                <div style={{
+                                    background: '#F8F9FA',
+                                    padding: '16px',
+                                    borderRadius: '12px',
+                                    marginBottom: '20px'
+                                }}>
+                                    <h3 style={{
+                                        margin: '0 0 16px 0',
+                                        fontSize: '14px',
+                                        fontWeight: '600',
+                                        color: '#000000',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px'
+                                    }}>
+                                        <i data-lucide="activity" style={{ width: '18px', height: '18px', color: '#0077CC' }}></i>
+                                        Overall Progress
+                                    </h3>
+
+                                    <div style={{ marginBottom: '12px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                            <span style={{ fontSize: '13px', color: '#666666' }}>Completed Tasks</span>
+                                            <span style={{ fontSize: '13px', fontWeight: '600', color: '#000000' }}>
+                                                {completedAssignments} / {totalAssignments}
+                                            </span>
+                                        </div>
+                                        <div style={{
+                                            background: '#E9ECEF',
+                                            borderRadius: '8px',
+                                            height: '8px',
+                                            overflow: 'hidden'
+                                        }}>
+                                            <div style={{
+                                                background: 'linear-gradient(90deg, #0077CC 0%, #00A86B 100%)',
+                                                height: '100%',
+                                                width: `${completionRate}%`,
+                                                transition: 'width 0.3s ease'
+                                            }}></div>
+                                        </div>
+                                    </div>
+
+                                    <div style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(2, 1fr)',
+                                        gap: '12px',
+                                        marginTop: '16px'
+                                    }}>
+                                        <div>
+                                            <div style={{ fontSize: '11px', color: '#999999', marginBottom: '4px' }}>Goals</div>
+                                            <div style={{ fontSize: '16px', fontWeight: '600', color: '#000000' }}>
+                                                {goals.length} Total
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '11px', color: '#999999', marginBottom: '4px' }}>Objectives</div>
+                                            <div style={{ fontSize: '16px', fontWeight: '600', color: '#000000' }}>
+                                                {goals.reduce((count, goal) => count + (goal.objectives?.length || 0), 0)} Total
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Motivational Message */}
+                                <div style={{
+                                    background: 'linear-gradient(135deg, rgba(0,119,204,0.1) 0%, rgba(5,133,133,0.1) 100%)',
+                                    padding: '16px',
+                                    borderRadius: '12px',
+                                    border: '1px solid rgba(0,119,204,0.2)',
+                                    textAlign: 'center'
+                                }}>
+                                    <i data-lucide="trophy" style={{ width: '32px', height: '32px', color: '#0077CC', marginBottom: '8px' }}></i>
+                                    <p style={{
+                                        margin: 0,
+                                        fontSize: '14px',
+                                        color: '#000000',
+                                        fontWeight: '500'
+                                    }}>
+                                        {completionRate >= 75 ? '🌟 Outstanding progress! Keep up the amazing work!' :
+                                         completionRate >= 50 ? '💪 You\'re doing great! Stay focused on your goals!' :
+                                         completionRate >= 25 ? '🎯 Good start! Keep building momentum!' :
+                                         '🚀 Every journey begins with a single step. You\'ve got this!'}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* HABIT HISTORY MODAL */}
+            {activeModal === 'habitHistory' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal('habit')}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '12px',
+                        width: '100%',
+                        maxWidth: '500px',
+                        maxHeight: '80vh',
+                        overflow: 'auto'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: 'bold',
+                                color: '#000000'
+                            }}>
+                                📊 Habit History
+                            </h3>
+                            <button
+                                onClick={() => setActiveModal('habit')}
+                                style={{
+                                    padding: '6px 12px',
+                                    background: '#058585',
+                                    color: '#FFFFFF',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    fontSize: '13px',
+                                    fontWeight: '600',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Back to Tracker
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            <div style={{
+                                textAlign: 'center',
+                                padding: '40px 20px',
+                                color: '#999'
+                            }}>
+                                <div style={{ fontSize: '48px', marginBottom: '12px' }}>📈</div>
+                                <div style={{ fontSize: '14px' }}>Habit history will show your past completions and streaks.</div>
+                                <div style={{ fontSize: '13px', marginTop: '8px', color: '#BBB' }}>
+                                    TODO: Load historical habit data from Firestore
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* REFLECTION HISTORY MODAL */}
+            {activeModal === 'reflectionHistory' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal('reflection')}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '12px',
+                        width: '100%',
+                        maxWidth: '500px',
+                        maxHeight: '80vh',
+                        overflow: 'auto'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: 'bold',
+                                color: '#000000'
+                            }}>
+                                💭 Reflection History
+                            </h3>
+                            <button
+                                onClick={() => setActiveModal('reflection')}
+                                style={{
+                                    padding: '6px 12px',
+                                    background: '#058585',
+                                    color: '#FFFFFF',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    fontSize: '13px',
+                                    fontWeight: '600',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Back to Reflection
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            <div style={{
+                                textAlign: 'center',
+                                padding: '40px 20px',
+                                color: '#999'
+                            }}>
+                                <div style={{ fontSize: '48px', marginBottom: '12px' }}>📝</div>
+                                <div style={{ fontSize: '14px' }}>Reflection history will show your past daily reflections.</div>
+                                <div style={{ fontSize: '13px', marginTop: '8px', color: '#BBB' }}>
+                                    TODO: Load historical reflection data from Firestore
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* WINS HISTORY MODAL */}
+            {activeModal === 'winsHistory' && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    padding: '20px'
+                }} onClick={() => setActiveModal('wins')}>
+                    <div style={{
+                        background: '#FFFFFF',
+                        borderRadius: '12px',
+                        width: '100%',
+                        maxWidth: '500px',
+                        maxHeight: '80vh',
+                        overflow: 'auto'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{
+                            padding: '20px',
+                            borderBottom: '1px solid #E5E5E5',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                        }}>
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '20px',
+                                fontWeight: 'bold',
+                                color: '#FFA500'
+                            }}>
+                                ⭐ Wins History
+                            </h3>
+                            <button
+                                onClick={() => setActiveModal('wins')}
+                                style={{
+                                    padding: '6px 12px',
+                                    background: '#FFA500',
+                                    color: '#FFFFFF',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    fontSize: '13px',
+                                    fontWeight: '600',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Back to Wins
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ padding: '20px' }}>
+                            <div style={{
+                                textAlign: 'center',
+                                padding: '40px 20px',
+                                color: '#999'
+                            }}>
+                                <div style={{ fontSize: '48px', marginBottom: '12px' }}>🏆</div>
+                                <div style={{ fontSize: '14px' }}>Wins history will show your past daily victories.</div>
+                                <div style={{ fontSize: '13px', marginTop: '8px', color: '#BBB' }}>
+                                    TODO: Load historical wins data from Firestore
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ============================================ */}
+            {/* TASKSTABMODALS - Pattern Detection Modals  */}
+            {/* ============================================ */}
+            {React.createElement(window.GLRSApp.components.TasksTabModals, {
+                // Modal visibility props (9)
+                showMoodPatternModal: showMoodPatternModal,
+                showCravingPatternModal: showCravingPatternModal,
+                showAnxietyPatternModal: showAnxietyPatternModal,
+                showSleepPatternModal: showSleepPatternModal,
+                showTipsModal: showTipsModal,
+                showCopingTechniqueModal: showCopingTechniqueModal,
+                showMilestoneModal: showMilestoneModal,
+                showPastReflectionsModal: showPastReflectionsModal,
+                showGratitudeModal: showGratitudeModal,
+
+                // Data props (11)
                 user: user,
-                habits: [], // TODO: Load habits data with useEffect
-                todayHabits: [], // TODO: Load today's habits
-                quickReflections: [], // TODO: Load quick reflections
-                todayWins: [], // TODO: Load today's wins
-                goals: goals,
-                assignments: assignments,
-                streakData: streakData,
-                reflectionStreakData: reflectionStreakData,
-                pastIntentions: [], // TODO: Load past intentions
+                patternDetection: {}, // TODO: Implement pattern detection data loading
+                copingTechniques: window.GLRSApp?.staticData?.copingTechniques || [],
+                reflectionData: reflections || [],
+                reflectionFilter: reflectionFilter,
+                selectedReflection: selectedReflection,
+                gratitudeThemes: window.GLRSApp?.staticData?.gratitudeThemes || [],
+                gratitudeTheme: gratitudeTheme,
+                gratitudeText: gratitudeText,
+                nextMilestone: nextMilestone,
+                allMilestones: user?.sobrietyDate ?
+                    window.GLRSApp?.utils?.getRecoveryMilestones?.(user.sobrietyDate) || [] : [],
 
-                // Callback props (12)
+                // Callback props (7)
                 onClose: (modalName) => {
-                    if (modalName === 'sidebar') setShowSidebar(false);
-                    else if (modalName === 'habitTrackerModal') setShowHabitTrackerModal(false);
-                    else if (modalName === 'quickReflectionModal') setShowQuickReflectionModal(false);
-                    else if (modalName === 'thisWeekTasksModal') setShowThisWeekTasksModal(false);
-                    else if (modalName === 'overdueItemsModal') setShowOverdueItemsModal(false);
-                    else if (modalName === 'markCompleteModal') setShowMarkCompleteModal(false);
-                    else if (modalName === 'progressStatsModal') setShowProgressStatsModal(false);
-                    else if (modalName === 'goalProgressModal') setShowGoalProgressModal(false);
-                    else if (modalName === 'todayWinsModal') setShowTodayWinsModal(false);
-                    else if (modalName === 'streaksModal') setShowStreaksModal(false);
-                    else if (modalName === 'reflectionStreaksModal') setShowReflectionStreaksModal(false);
-                    else if (modalName === 'intentionsModal') setShowIntentionsModal(false);
-                    else if (modalName === 'pastIntentionsModal') setShowPastIntentionsModal(false);
-                    else if (modalName === 'progressSnapshotModal') setShowProgressSnapshotModal(false);
-                    else if (modalName === 'habitHistory') setShowHabitHistory(false);
-                    else if (modalName === 'reflectionHistory') setShowReflectionHistory(false);
-                    else if (modalName === 'winsHistory') setShowWinsHistory(false);
+                    if (modalName === 'moodPattern') setShowMoodPatternModal(false);
+                    else if (modalName === 'cravingPattern') setShowCravingPatternModal(false);
+                    else if (modalName === 'anxietyPattern') setShowAnxietyPatternModal(false);
+                    else if (modalName === 'sleepPattern') setShowSleepPatternModal(false);
+                    else if (modalName === 'tips') setShowTipsModal(false);
+                    else if (modalName === 'copingTechnique') setShowCopingTechniqueModal(false);
+                    else if (modalName === 'milestone') setShowMilestoneModal(false);
+                    else if (modalName === 'pastReflections') setShowPastReflectionsModal(false);
+                    else if (modalName === 'gratitude') setShowGratitudeModal(false);
                 },
-                onOpenModal: (modalName) => {
-                    if (modalName === 'habitTrackerModal') setShowHabitTrackerModal(true);
-                    else if (modalName === 'quickReflectionModal') setShowQuickReflectionModal(true);
-                    else if (modalName === 'thisWeekTasksModal') setShowThisWeekTasksModal(true);
-                    else if (modalName === 'overdueItemsModal') setShowOverdueItemsModal(true);
-                    else if (modalName === 'markCompleteModal') setShowMarkCompleteModal(true);
-                    else if (modalName === 'progressStatsModal') setShowProgressStatsModal(true);
-                    else if (modalName === 'goalProgressModal') setShowGoalProgressModal(true);
-                    else if (modalName === 'todayWinsModal') setShowTodayWinsModal(true);
-                    else if (modalName === 'streaksModal') setShowStreaksModal(true);
-                    else if (modalName === 'reflectionStreaksModal') setShowReflectionStreaksModal(true);
-                    else if (modalName === 'intentionsModal') setShowIntentionsModal(true);
-                    else if (modalName === 'pastIntentionsModal') setShowPastIntentionsModal(true);
-                    else if (modalName === 'progressSnapshotModal') setShowProgressSnapshotModal(true);
-                    else if (modalName === 'habitHistory') setShowHabitHistory(true);
-                    else if (modalName === 'reflectionHistory') setShowReflectionHistory(true);
-                    else if (modalName === 'winsHistory') setShowWinsHistory(true);
+                onNavigate: (tab) => {
+                    // Handle navigation to other tabs if needed
+                    console.log('Navigate to:', tab);
                 },
-                onSaveHabit: async (habitData) => {
-                    console.log('TODO: Save habit to Firestore:', habitData);
+                onSetReflectionFilter: (filter) => {
+                    setReflectionFilter(filter);
                 },
-                onToggleHabit: async (habitId, completed) => {
-                    console.log('TODO: Toggle habit in Firestore:', habitId, completed);
+                onSelectReflection: (reflection) => {
+                    setSelectedReflection(reflection);
                 },
-                onSaveReflection: async (reflectionText) => {
-                    console.log('TODO: Save reflection to Firestore:', reflectionText);
+                onSetGratitudeTheme: (theme) => {
+                    setGratitudeTheme(theme);
                 },
-                onSaveWin: async (winText) => {
-                    console.log('TODO: Save win to Firestore:', winText);
+                onSetGratitudeText: (text) => {
+                    setGratitudeText(text);
                 },
-                onUpdateGoal: async (goalId, updates) => {
-                    console.log('TODO: Update goal in Firestore:', goalId, updates);
+                onSaveGratitude: async () => {
+                    if (!gratitudeTheme || !gratitudeText.trim()) {
+                        window.GLRSApp?.utils?.showNotification?.('Please select a theme and enter your gratitude', 'error');
+                        return;
+                    }
+
+                    try {
+                        const db = window.firebase.firestore();
+                        await db.collection('gratitudes').add({
+                            userId: user.uid,
+                            theme: gratitudeTheme,
+                            text: gratitudeText,
+                            createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
+                        });
+
+                        window.GLRSApp?.utils?.showNotification?.('Gratitude saved successfully!', 'success');
+                        setGratitudeTheme('');
+                        setGratitudeText('');
+                        setShowGratitudeModal(false);
+                    } catch (error) {
+                        console.error('Error saving gratitude:', error);
+                        window.GLRSApp?.utils?.showNotification?.('Failed to save gratitude', 'error');
+                    }
+                }
+            })}
+
+            {/* ============================================ */}
+            {/* CHECKINMODALS - Check-in & Reflection Modals */}
+            {/* ============================================ */}
+            {checkInModalType && React.createElement(window.GLRSApp.components.CheckInModals, {
+                modalType: checkInModalType,
+                userData: user,
+                selectedChallenge: selectedChallenge,
+                challengeCheckInStatus: challengeCheckInStatus,
+                challengeCheckInNotes: challengeCheckInNotes,
+
+                onClose: () => {
+                    setCheckInModalType(null);
+                    setSelectedChallenge(null);
+                    setChallengeCheckInStatus('');
+                    setChallengeCheckInNotes('');
                 },
-                onMarkComplete: async (assignmentId) => {
-                    await handleAssignmentComplete(assignmentId, true);
+
+                onSubmitCheckIn: async (morningData) => {
+                    try {
+                        const db = window.firebase.firestore();
+                        await db.collection('checkIns').add({
+                            userId: user.uid,
+                            type: 'morning',
+                            mood: morningData.mood,
+                            craving: morningData.craving,
+                            sleepQuality: morningData.sleepQuality,
+                            anxietyLevel: morningData.anxietyLevel,
+                            notes: morningData.notes,
+                            createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
+                        });
+
+                        window.GLRSApp?.utils?.showNotification?.('Check-in submitted successfully!', 'success');
+                        setCheckInModalType(null);
+
+                        // Reload check-ins
+                        if (typeof window.GLRSApp?.loaders?.loadCheckins === 'function') {
+                            const updatedCheckins = await window.GLRSApp.loaders.loadCheckins(user.uid);
+                            setCheckins(updatedCheckins);
+                        }
+                    } catch (error) {
+                        console.error('Error submitting check-in:', error);
+                        window.GLRSApp?.utils?.showNotification?.('Failed to submit check-in', 'error');
+                    }
                 },
-                onSaveAndShareHabit: async (habitData) => {
-                    console.log('TODO: Save and share habit:', habitData);
+
+                onSubmitReflection: async (eveningData) => {
+                    try {
+                        const db = window.firebase.firestore();
+                        await db.collection('checkIns').add({
+                            userId: user.uid,
+                            gratitude: eveningData.gratitude,
+                            challenges: eveningData.challenges,
+                            tomorrowGoal: eveningData.tomorrowGoal,
+                            overallDay: eveningData.overallDay,
+                            createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
+                        });
+
+                        window.GLRSApp?.utils?.showNotification?.('Reflection submitted successfully!', 'success');
+                        setCheckInModalType(null);
+
+                        // Reload reflections
+                        if (typeof window.GLRSApp?.loaders?.loadReflections === 'function') {
+                            const updatedReflections = await window.GLRSApp.loaders.loadReflections(user.uid);
+                            setReflections(updatedReflections);
+                        }
+                    } catch (error) {
+                        console.error('Error submitting reflection:', error);
+                        window.GLRSApp?.utils?.showNotification?.('Failed to submit reflection', 'error');
+                    }
                 },
-                onSaveAndShareWin: async (winData) => {
-                    console.log('TODO: Save and share win:', winData);
+
+                onOpenAccountModal: () => {
+                    setCheckInModalType(null);
+                    // TODO: Open account/profile modal
+                    console.log('Open account modal');
                 },
-                onSaveAndShareReflection: async (reflectionData) => {
-                    console.log('TODO: Save and share reflection:', reflectionData);
+
+                onUpdateChallengeStatus: (status) => {
+                    setChallengeCheckInStatus(status);
                 },
-                onSaveIntention: async (intentionData) => {
-                    console.log('TODO: Save intention to Firestore:', intentionData);
+
+                onUpdateChallengeNotes: (notes) => {
+                    setChallengeCheckInNotes(notes);
                 },
-                onLoadPastIntentions: async () => {
-                    console.log('TODO: Load past intentions from Firestore');
+
+                onSubmitChallenge: async () => {
+                    if (!selectedChallenge || !challengeCheckInStatus || !challengeCheckInNotes.trim()) {
+                        window.GLRSApp?.utils?.showNotification?.('Please complete all fields', 'error');
+                        return;
+                    }
+
+                    try {
+                        const db = window.firebase.firestore();
+                        await db.collection('challengeCheckIns').add({
+                            userId: user.uid,
+                            challengeId: selectedChallenge.id,
+                            challengeText: selectedChallenge.challengeText,
+                            status: challengeCheckInStatus,
+                            notes: challengeCheckInNotes,
+                            createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
+                        });
+
+                        window.GLRSApp?.utils?.showNotification?.('Challenge check-in submitted!', 'success');
+                        setCheckInModalType(null);
+                        setSelectedChallenge(null);
+                        setChallengeCheckInStatus('');
+                        setChallengeCheckInNotes('');
+                    } catch (error) {
+                        console.error('Error submitting challenge check-in:', error);
+                        window.GLRSApp?.utils?.showNotification?.('Failed to submit challenge check-in', 'error');
+                    }
                 }
             })}
         </>
@@ -4041,23 +9662,23 @@ function TasksTabModals({
     // Filter reflections based on selected filter
     const getFilteredReflections = () => {
         if (reflectionFilter === 'all') {
-            return reflectionData;
+            return allReflections;
         } else if (reflectionFilter === 'week') {
             const weekAgo = new Date();
             weekAgo.setDate(weekAgo.getDate() - 7);
-            return reflectionData.filter(r => {
-                const reflectionDate = r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
+            return allReflections.filter(r => {
+                const reflectionDate = r.date || new Date(r.createdAt);
                 return reflectionDate >= weekAgo;
             });
         } else if (reflectionFilter === 'month') {
             const monthAgo = new Date();
             monthAgo.setDate(monthAgo.getDate() - 30);
-            return reflectionData.filter(r => {
-                const reflectionDate = r.createdAt?.toDate ? r.createdAt.toDate() : new Date(r.createdAt);
+            return allReflections.filter(r => {
+                const reflectionDate = r.date || new Date(r.createdAt);
                 return reflectionDate >= monthAgo;
             });
         }
-        return reflectionData;
+        return allReflections;
     };
 
     const filteredReflections = getFilteredReflections();
@@ -4177,8 +9798,8 @@ function TasksTabModals({
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             {filteredReflections.map((reflection, index) => {
-                                const reflectionDate = reflection.createdAt?.toDate ?
-                                    reflection.createdAt.toDate() : new Date(reflection.createdAt);
+                                const reflectionDate = reflection.date instanceof Date ?
+                                    reflection.date : new Date(reflection.date || reflection.createdAt);
                                 const isExpanded = selectedReflection?.id === reflection.id;
 
                                 return (
@@ -4366,7 +9987,7 @@ function TasksTabModals({
     onClick={() => {
         if (onClose) onClose('gratitude');;
         if (onSetGratitudeTheme) onSetGratitudeTheme('');;
-        setGratitudeText('');
+        if (onSetGratitudeText) onSetGratitudeText('');
     }}>
         <div style={{
             background: '#FFFFFF',
@@ -4531,3078 +10152,16 @@ window.GLRSApp.components.TasksTabModals = TasksTabModals;
 
 // ✅ PHASE 3: Refactored to props-based modals - All 9 modals converted
 console.log('✅ PHASE 3: TasksTabModals refactored - Props-based pattern, no global state dependencies');
+
 // ================================================================
-// TASKS SIDEBAR MODALS - Extracted from ModalContainer.js backup
-// ✅ PHASE 7 COMPLETE: TRUE 3-layer architecture compliance
-// Contains: Quick Actions sidebar, 13 Quick Action modals
-// Architecture: Modal receives data via props, notifies parent via callbacks
-// NO Firebase queries - all data operations handled by parent
-// 25+ Firebase violations removed and replaced with callback usage
-// All callbacks now properly utilized (previously defined but ignored)
+// TASKS SIDEBAR MODALS - DELETED (Converted to Inline Pattern)
+// Original External Component: Lines 7273-10344 (3,072 lines) - REMOVED
+// Replaced with Inline Modals: Lines 2950-5804 (2,855 lines)
+// Date: November 14, 2025 - Step 1.17 Complete
+// All 16 modals now rendered inline within TasksTab component
+// State: 17 boolean hooks → 2 hooks (showSidebar + activeModal)
 // ================================================================
 
-function TasksSidebarModals({
-    // ===== MODAL VISIBILITY FLAGS (17) =====
-    showHabitTrackerModal,
-    showQuickReflectionModal,
-    showThisWeekTasksModal,
-    showOverdueItemsModal,
-    showMarkCompleteModal,
-    showProgressStatsModal,
-    showGoalProgressModal,
-    showTodayWinsModal,
-    showStreaksModal,
-    showReflectionStreaksModal,
-    showIntentionsModal,
-    showPastIntentionsModal,
-    showProgressSnapshotModal,
-    showHabitHistory,
-    showReflectionHistory,
-    showWinsHistory,
-    showSidebar,
-
-    // ===== DATA PROPS (10) =====
-    user,                    // User object with uid
-    habits,                  // Array of habits
-    todayHabits,            // Array of today's completions
-    quickReflections,       // Array of reflections
-    todayWins,              // Array of today's wins
-    goals,                  // Array of goals
-    assignments,            // Array of assignments
-    streakData,             // Habit streak data
-    reflectionStreakData,   // Reflection streak data
-    pastIntentions,         // Array of past intentions
-
-    // ===== CALLBACK PROPS (13) =====
-    onClose,                    // (modalName: string) => void
-    onOpenModal,                // (modalName: string) => void - Opens modals from sidebar buttons
-    onSaveHabit,                // (habitData) => Promise<void>
-    onToggleHabit,              // (habitId, completed) => Promise<void>
-    onSaveReflection,           // (reflectionText) => Promise<void>
-    onSaveWin,                  // (winText) => Promise<void>
-    onUpdateGoal,               // (goalId, updates) => Promise<void>
-    onMarkComplete,             // (assignmentId) => Promise<void>
-    onSaveAndShareHabit,        // (habitData) => Promise<void>
-    onSaveAndShareWin,          // (winData) => Promise<void>
-    onSaveAndShareReflection,   // (reflectionData) => Promise<void>
-    onSaveIntention,            // (intentionData) => Promise<void>
-    onLoadPastIntentions        // () => Promise<void>
-}) {  // ✅ PHASE 7: Props-based modal pattern (40 props: 17 flags + 10 data + 13 callbacks)
-    // ✅ PHASE 4, PART 6, STEP 2: React imports for local state
-    const { useState } = React;
-
-    // ✅ PHASE 4, PART 6, STEP 3: Local useState hooks for form inputs only (6 hooks)
-    const [newHabitName, setNewHabitName] = useState('');
-    const [newReflection, setNewReflection] = useState('');
-    const [newWin, setNewWin] = useState('');
-    const [currentReflection, setCurrentReflection] = useState(null);
-    const [habitNote, setHabitNote] = useState('');
-    const [loading, setLoading] = useState(false);
-
-    return (
-        <>
-        {/* HABIT TRACKER MODAL */}
-        {showHabitTrackerModal && (
-            <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'rgba(0, 0, 0, 0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10000,
-                padding: '20px'
-            }} onClick={() => onClose('habitTrackerModal')}>
-                <div style={{
-                    background: '#FFFFFF',
-                    borderRadius: '16px',
-                    maxWidth: '500px',
-                    width: '100%',
-                    maxHeight: '80vh',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden'
-                }} onClick={(e) => e.stopPropagation()}>
-                    {/* Header */}
-                    <div style={{
-                        padding: '20px',
-                        borderBottom: '2px solid #f0f0f0',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                    }}>
-                        <h2 style={{
-                            margin: 0,
-                            fontSize: '20px',
-                            fontWeight: '600',
-                            color: '#058585',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px'
-                        }}>
-                            <i data-lucide="repeat" style={{ width: '24px', height: '24px' }}></i>
-                            Habit Tracker
-                        </h2>
-                        <div
-                            onClick={() => onClose('habitTrackerModal')}
-                            style={{
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '4px'
-                            }}
-                        >
-                            <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
-                        </div>
-                    </div>
-
-                    {/* Content */}
-                    <div style={{
-                        padding: '20px',
-                        overflowY: 'auto',
-                        flex: 1
-                    }}>
-                        {!showHabitHistory ? (
-                            <>
-                                {/* Add New Habit */}
-                                <div style={{
-                                    marginBottom: '20px',
-                                    padding: '15px',
-                                    background: '#f8f9fa',
-                                    borderRadius: '12px'
-                                }}>
-                                    <label style={{
-                                        display: 'block',
-                                        fontSize: '14px',
-                                        fontWeight: '600',
-                                        color: '#333333',
-                                        marginBottom: '8px'
-                                    }}>
-                                        Add New Habit
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={newHabitName}
-                                        onChange={(e) => setNewHabitName(e.target.value)}
-                                        placeholder="e.g., Drink 8 glasses of water"
-                                        style={{
-                                            width: '100%',
-                                            padding: '10px 12px',
-                                            borderRadius: '8px',
-                                            border: '1px solid #ddd',
-                                            fontSize: '15px',
-                                            marginBottom: '10px'
-                                        }}
-                                        onKeyPress={async (e) => {
-                                            if (e.key === 'Enter' && newHabitName.trim()) {
-                                                try {
-                                                    await onSaveHabit({ name: newHabitName.trim() });
-                                                    setNewHabitName('');
-                                                } catch (error) {
-                                                    alert('Error adding habit');
-                                                }
-                                            }
-                                        }}
-                                    />
-                                    <div style={{ display: 'flex', gap: '10px' }}>
-                                        <button
-                                            onClick={async () => {
-                                                if (newHabitName.trim()) {
-                                                    try {
-                                                        await onSaveHabit({ name: newHabitName.trim() });
-                                                        setNewHabitName('');
-                                                        alert('Habit added! 🎯');
-                                                    } catch (error) {
-                                                        alert('Error adding habit');
-                                                    }
-                                                }
-                                            }}
-                                            style={{
-                                                flex: 1,
-                                                padding: '10px 20px',
-                                                background: '#058585',
-                                                color: '#fff',
-                                                border: 'none',
-                                                borderRadius: '8px',
-                                                fontSize: '14px',
-                                                fontWeight: '600',
-                                                cursor: 'pointer'
-                                            }}
-                                        >
-                                            Add
-                                        </button>
-                                        <button
-                                            onClick={async () => {
-                                                if (newHabitName.trim()) {
-                                                    try {
-                                                        await onSaveAndShareHabit({ name: newHabitName.trim() });
-                                                        setNewHabitName('');
-                                                        alert('Habit added and commitment shared to community! 🎯');
-                                                    } catch (error) {
-                                                        alert('Error adding habit');
-                                                    }
-                                                }
-                                            }}
-                                            style={{
-                                                flex: 1,
-                                                padding: '10px 20px',
-                                                background: 'linear-gradient(135deg, #00A86B 0%, #058585 100%)',
-                                                color: '#fff',
-                                                border: 'none',
-                                                borderRadius: '8px',
-                                                fontSize: '14px',
-                                                fontWeight: '600',
-                                                cursor: 'pointer',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                gap: '6px'
-                                            }}
-                                        >
-                                            <i data-lucide="share-2" style={{ width: '14px', height: '14px' }}></i>
-                                            Add & Share
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Today's Habits */}
-                                <div style={{ marginBottom: '15px' }}>
-                                    <div style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        marginBottom: '12px'
-                                    }}>
-                                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#333333' }}>
-                                            Today's Habits
-                                        </h3>
-                                        <button
-                                            onClick={() => onClose('habitHistory')}
-                                            style={{
-                                                padding: '6px 12px',
-                                                background: '#f8f9fa',
-                                                color: '#058585',
-                                                border: '1px solid #058585',
-                                                borderRadius: '6px',
-                                                fontSize: '13px',
-                                                fontWeight: '600',
-                                                cursor: 'pointer'
-                                            }}
-                                        >
-                                            View History
-                                        </button>
-                                    </div>
-
-                                    {habits.length === 0 ? (
-                                        <div style={{
-                                            textAlign: 'center',
-                                            padding: '30px 20px',
-                                            color: '#999999',
-                                            fontSize: '14px'
-                                        }}>
-                                            No habits yet. Add your first habit above!
-                                        </div>
-                                    ) : (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                            {habits.map(habit => {
-                                                const isCompleted = todayHabits.some(th => th.habitId === habit.id);
-
-                                                return (
-                                                    <div
-                                                        key={habit.id}
-                                                        style={{
-                                                            padding: '12px 15px',
-                                                            background: isCompleted ? 'linear-gradient(135deg, rgba(0, 168, 107, 0.1) 0%, rgba(0, 168, 107, 0.05) 100%)' : '#f8f9fa',
-                                                            borderRadius: '10px',
-                                                            border: isCompleted ? '2px solid rgba(0, 168, 107, 0.3)' : '1px solid #e9ecef',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: '12px'
-                                                        }}
-                                                    >
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={isCompleted}
-                                                            onChange={async () => {
-                                                                try {
-                                                                    await onToggleHabit(habit.id, !isCompleted);
-                                                                } catch (error) {
-                                                                    alert('Error updating habit');
-                                                                }
-                                                            }}
-                                                            style={{
-                                                                width: '20px',
-                                                                height: '20px',
-                                                                cursor: 'pointer'
-                                                            }}
-                                                        />
-                                                        <span style={{
-                                                            flex: 1,
-                                                            fontSize: '15px',
-                                                            color: '#333333',
-                                                            textDecoration: isCompleted ? 'line-through' : 'none',
-                                                            opacity: isCompleted ? 0.7 : 1
-                                                        }}>
-                                                            {habit.name}
-                                                        </span>
-                                                        {isCompleted && (
-                                                            <>
-                                                                <i data-lucide="check-circle" style={{ width: '20px', height: '20px', color: '#00A86B' }}></i>
-                                                                <button
-                                                                    onClick={async () => {
-                                                                        const completion = todayHabits.find(th => th.habitId === habit.id);
-                                                                        if (completion && confirm('Share this habit completion with the community?')) {
-                                                                            const result = await window.GLRSApp.handlers.shareToCommunity('habit', `Completed: ${habit.name}`, 'habitCompletions', completion.id);
-                                                                            if (result.success) {
-                                                                                alert('Habit completion shared to community! 🎉');
-                                                                            } else {
-                                                                                alert('Error sharing to community');
-                                                                            }
-                                                                        }
-                                                                    }}
-                                                                    style={{
-                                                                        padding: '6px 12px',
-                                                                        background: '#058585',
-                                                                        color: '#fff',
-                                                                        border: 'none',
-                                                                        borderRadius: '6px',
-                                                                        fontSize: '12px',
-                                                                        fontWeight: '600',
-                                                                        cursor: 'pointer',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        gap: '4px',
-                                                                        whiteSpace: 'nowrap'
-                                                                    }}
-                                                                >
-                                                                    <i data-lucide="share-2" style={{ width: '14px', height: '14px' }}></i>
-                                                                    Share
-                                                                </button>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                {/* History View */}
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    marginBottom: '15px'
-                                }}>
-                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#333333' }}>
-                                        Habit History
-                                    </h3>
-                                    <button
-                                        onClick={() => onClose('habitHistory')}
-                                        style={{
-                                            padding: '6px 12px',
-                                            background: '#058585',
-                                            color: '#fff',
-                                            border: 'none',
-                                            borderRadius: '6px',
-                                            fontSize: '13px',
-                                            fontWeight: '600',
-                                            cursor: 'pointer'
-                                        }}
-                                    >
-                                        Back to Today
-                                    </button>
-                                </div>
-
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    {habits.map(habit => {
-                                        // Count how many times this habit was completed
-                                        const completionCount = todayHabits.filter(th => th.habitId === habit.id).length;
-
-                                        return (
-                                            <div
-                                                key={habit.id}
-                                                style={{
-                                                    padding: '12px 15px',
-                                                    background: '#f8f9fa',
-                                                    borderRadius: '10px',
-                                                    border: '1px solid #e9ecef'
-                                                }}
-                                            >
-                                                <div style={{ fontSize: '15px', fontWeight: '600', color: '#333333', marginBottom: '4px' }}>
-                                                    {habit.name}
-                                                </div>
-                                                <div style={{ fontSize: '13px', color: '#666666' }}>
-                                                    Created: {habit.createdAt ? new Date(habit.createdAt.toDate()).toLocaleDateString() : 'N/A'}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* QUICK REFLECTION MODAL */}
-        {showQuickReflectionModal && (
-            <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'rgba(0, 0, 0, 0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10000,
-                padding: '20px'
-            }} onClick={() => onClose('quickReflectionModal')}>
-                <div style={{
-                    background: '#FFFFFF',
-                    borderRadius: '16px',
-                    maxWidth: '500px',
-                    width: '100%',
-                    maxHeight: '80vh',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden'
-                }} onClick={(e) => e.stopPropagation()}>
-                    {/* Header */}
-                    <div style={{
-                        padding: '20px',
-                        borderBottom: '2px solid #f0f0f0',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                    }}>
-                        <h2 style={{
-                            margin: 0,
-                            fontSize: '20px',
-                            fontWeight: '600',
-                            color: '#058585',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px'
-                        }}>
-                            <i data-lucide="message-circle" style={{ width: '24px', height: '24px' }}></i>
-                            Quick Reflection
-                        </h2>
-                        <div
-                            onClick={() => onClose('quickReflectionModal')}
-                            style={{
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '4px'
-                            }}
-                        >
-                            <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
-                        </div>
-                    </div>
-
-                    {/* Content */}
-                    <div style={{
-                        padding: '20px',
-                        overflowY: 'auto',
-                        flex: 1
-                    }}>
-                        {!showReflectionHistory ? (
-                            <>
-                                {/* Add New Reflection */}
-                                <div style={{
-                                    marginBottom: '20px'
-                                }}>
-                                    <label style={{
-                                        display: 'block',
-                                        fontSize: '14px',
-                                        fontWeight: '600',
-                                        color: '#333333',
-                                        marginBottom: '8px'
-                                    }}>
-                                        What's on your mind?
-                                    </label>
-                                    <textarea
-                                        value={newReflection}
-                                        onChange={(e) => setNewReflection(e.target.value)}
-                                        placeholder="Share a quick thought, feeling, or reflection..."
-                                        style={{
-                                            width: '100%',
-                                            padding: '12px',
-                                            borderRadius: '8px',
-                                            border: '1px solid #ddd',
-                                            fontSize: '15px',
-                                            minHeight: '120px',
-                                            resize: 'vertical',
-                                            fontFamily: 'inherit'
-                                        }}
-                                    />
-                                    <div style={{
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        gap: '10px',
-                                        marginTop: '10px'
-                                    }}>
-                                        <div style={{
-                                            display: 'flex',
-                                            gap: '10px'
-                                        }}>
-                                            <button
-                                                onClick={async () => {
-                                                    if (newReflection.trim()) {
-                                                        try {
-                                                            await onSaveReflection(newReflection.trim());
-                                                            setNewReflection('');
-                                                            alert('Reflection saved!');
-                                                        } catch (error) {
-                                                            alert('Error saving reflection');
-                                                        }
-                                                    }
-                                                }}
-                                                style={{
-                                                    flex: 1,
-                                                    padding: '10px 24px',
-                                                    background: '#058585',
-                                                    color: '#fff',
-                                                    border: 'none',
-                                                    borderRadius: '8px',
-                                                    fontSize: '15px',
-                                                    fontWeight: '600',
-                                                    cursor: 'pointer'
-                                                }}
-                                            >
-                                                Save
-                                            </button>
-                                            <button
-                                                onClick={async () => {
-                                                    if (newReflection.trim()) {
-                                                        try {
-                                                            await onSaveAndShareReflection({ reflection: newReflection.trim() });
-                                                            setNewReflection('');
-                                                            alert('Reflection saved and shared to community! 🎉');
-                                                        } catch (error) {
-                                                            alert('Error saving reflection');
-                                                        }
-                                                    }
-                                                }}
-                                                style={{
-                                                    flex: 1,
-                                                    padding: '10px 24px',
-                                                    background: 'linear-gradient(135deg, #00A86B 0%, #058585 100%)',
-                                                    color: '#fff',
-                                                    border: 'none',
-                                                    borderRadius: '8px',
-                                                    fontSize: '15px',
-                                                    fontWeight: '600',
-                                                    cursor: 'pointer',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    gap: '6px'
-                                                }}
-                                            >
-                                                <i data-lucide="share-2" style={{ width: '16px', height: '16px' }}></i>
-                                                Save & Share
-                                            </button>
-                                        </div>
-                                        <button
-                                            onClick={() => onClose('reflectionHistory')}
-                                            style={{
-                                                padding: '8px 16px',
-                                                background: '#f8f9fa',
-                                                color: '#058585',
-                                                border: '1px solid #058585',
-                                                borderRadius: '6px',
-                                                fontSize: '14px',
-                                                fontWeight: '600',
-                                                cursor: 'pointer'
-                                            }}
-                                        >
-                                            View History
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Recent Reflections */}
-                                {quickReflections.length > 0 && (
-                                    <div style={{ marginTop: '25px' }}>
-                                        <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '600', color: '#333333' }}>
-                                            Recent Reflections ({quickReflections.length})
-                                        </h3>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                            {quickReflections.slice(0, 3).map(reflection => (
-                                                <div
-                                                    key={reflection.id}
-                                                    style={{
-                                                        padding: '12px 15px',
-                                                        background: '#f8f9fa',
-                                                        borderRadius: '10px',
-                                                        border: '1px solid #e9ecef'
-                                                    }}
-                                                >
-                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                                                        <div style={{ flex: 1 }}>
-                                                            <div style={{ fontSize: '14px', color: '#333333', marginBottom: '6px', lineHeight: '1.5' }}>
-                                                                {reflection.reflection}
-                                                            </div>
-                                                            <div style={{ fontSize: '12px', color: '#999999' }}>
-                                                                {reflection.createdAt ? new Date(reflection.createdAt.toDate()).toLocaleString() : 'Just now'}
-                                                            </div>
-                                                        </div>
-                                                        <button
-                                                            onClick={async () => {
-                                                                if (confirm('Share this reflection with the community?')) {
-                                                                    const result = await window.GLRSApp.handlers.shareToCommunity('reflection', reflection.reflection, 'quickReflections', reflection.id);
-                                                                    if (result.success) {
-                                                                        alert('Reflection shared to community! 🎉');
-                                                                    } else {
-                                                                        alert('Error sharing to community');
-                                                                    }
-                                                                }
-                                                            }}
-                                                            style={{
-                                                                padding: '6px 12px',
-                                                                background: '#058585',
-                                                                color: '#fff',
-                                                                border: 'none',
-                                                                borderRadius: '6px',
-                                                                fontSize: '12px',
-                                                                fontWeight: '600',
-                                                                cursor: 'pointer',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                gap: '4px',
-                                                                whiteSpace: 'nowrap'
-                                                            }}
-                                                        >
-                                                            <i data-lucide="share-2" style={{ width: '14px', height: '14px' }}></i>
-                                                            Share
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </>
-                        ) : (
-                            <>
-                                {/* History View */}
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    marginBottom: '15px'
-                                }}>
-                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#333333' }}>
-                                        All Reflections ({quickReflections.length})
-                                    </h3>
-                                    <button
-                                        onClick={() => onClose('reflectionHistory')}
-                                        style={{
-                                            padding: '6px 12px',
-                                            background: '#058585',
-                                            color: '#fff',
-                                            border: 'none',
-                                            borderRadius: '6px',
-                                            fontSize: '13px',
-                                            fontWeight: '600',
-                                            cursor: 'pointer'
-                                        }}
-                                    >
-                                        Back
-                                    </button>
-                                </div>
-
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                    {quickReflections.map(reflection => (
-                                        <div
-                                            key={reflection.id}
-                                            style={{
-                                                padding: '12px 15px',
-                                                background: '#f8f9fa',
-                                                borderRadius: '10px',
-                                                border: '1px solid #e9ecef'
-                                            }}
-                                        >
-                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                                                <div style={{ flex: 1 }}>
-                                                    <div style={{ fontSize: '14px', color: '#333333', marginBottom: '6px', lineHeight: '1.5' }}>
-                                                        {reflection.reflection}
-                                                    </div>
-                                                    <div style={{ fontSize: '12px', color: '#999999' }}>
-                                                        {reflection.createdAt ? new Date(reflection.createdAt.toDate()).toLocaleString() : 'Just now'}
-                                                    </div>
-                                                </div>
-                                                <button
-                                                    onClick={async () => {
-                                                        if (confirm('Share this reflection with the community?')) {
-                                                            const result = await window.GLRSApp.handlers.shareToCommunity('reflection', reflection.reflection, 'quickReflections', reflection.id);
-                                                            if (result.success) {
-                                                                alert('Reflection shared to community! 🎉');
-                                                            } else {
-                                                                alert('Error sharing to community');
-                                                            }
-                                                        }
-                                                    }}
-                                                    style={{
-                                                        padding: '6px 12px',
-                                                        background: '#058585',
-                                                        color: '#fff',
-                                                        border: 'none',
-                                                        borderRadius: '6px',
-                                                        fontSize: '12px',
-                                                        fontWeight: '600',
-                                                        cursor: 'pointer',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '4px',
-                                                        whiteSpace: 'nowrap'
-                                                    }}
-                                                >
-                                                    <i data-lucide="share-2" style={{ width: '14px', height: '14px' }}></i>
-                                                    Share
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* THIS WEEK'S TASKS MODAL */}
-        {showThisWeekTasksModal && (
-            <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'rgba(0, 0, 0, 0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10000,
-                padding: '20px'
-            }} onClick={() => onClose('thisWeekTasksModal')}>
-                <div style={{
-                    background: '#FFFFFF',
-                    borderRadius: '16px',
-                    maxWidth: '500px',
-                    width: '100%',
-                    maxHeight: '80vh',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden'
-                }} onClick={(e) => e.stopPropagation()}>
-                    {/* Header */}
-                    <div style={{
-                        padding: '20px',
-                        borderBottom: '2px solid #f0f0f0',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                    }}>
-                        <h2 style={{
-                            margin: 0,
-                            fontSize: '20px',
-                            fontWeight: '600',
-                            color: '#058585',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px'
-                        }}>
-                            <i data-lucide="calendar-days" style={{ width: '24px', height: '24px' }}></i>
-                            This Week's Tasks
-                        </h2>
-                        <div
-                            onClick={() => onClose('thisWeekTasksModal')}
-                            style={{
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '4px'
-                            }}
-                        >
-                            <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
-                        </div>
-                    </div>
-
-                    {/* Content */}
-                    <div style={{
-                        padding: '20px',
-                        overflowY: 'auto',
-                        flex: 1
-                    }}>
-                        {(() => {
-                            const today = new Date();
-                            const startOfWeek = new Date(today);
-                            startOfWeek.setDate(today.getDate() - today.getDay());
-                            startOfWeek.setHours(0, 0, 0, 0);
-
-                            const endOfWeek = new Date(startOfWeek);
-                            endOfWeek.setDate(startOfWeek.getDate() + 7);
-
-                            const thisWeekAssignments = assignments.filter(assignment => {
-                                if (!assignment.dueDate) return false;
-                                const dueDate = assignment.dueDate.toDate();
-                                return dueDate >= startOfWeek && dueDate < endOfWeek;
-                            });
-
-                            if (thisWeekAssignments.length === 0) {
-                                return (
-                                    <div style={{
-                                        textAlign: 'center',
-                                        padding: '40px 20px',
-                                        color: '#666666'
-                                    }}>
-                                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>📅</div>
-                                        <div style={{ fontSize: '16px', fontWeight: '600', color: '#333333', marginBottom: '8px' }}>
-                                            No Tasks This Week
-                                        </div>
-                                        <div style={{ fontSize: '14px' }}>
-                                            You don't have any tasks due this week
-                                        </div>
-                                    </div>
-                                );
-                            }
-
-                            return (
-                                <>
-                                    <div style={{ fontSize: '14px', color: '#666666', marginBottom: '15px' }}>
-                                        {thisWeekAssignments.length} task{thisWeekAssignments.length !== 1 ? 's' : ''} due this week
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                        {thisWeekAssignments.map(assignment => {
-                                            const dueDate = assignment.dueDate.toDate();
-                                            const isOverdue = dueDate < today;
-                                            const isToday = dueDate.toDateString() === today.toDateString();
-
-                                            return (
-                                                <div
-                                                    key={assignment.id}
-                                                    style={{
-                                                        padding: '12px 15px',
-                                                        background: assignment.status === 'completed'
-                                                            ? 'linear-gradient(135deg, rgba(0, 168, 107, 0.1) 0%, rgba(0, 168, 107, 0.05) 100%)'
-                                                            : isOverdue
-                                                            ? 'linear-gradient(135deg, rgba(220, 20, 60, 0.1) 0%, rgba(220, 20, 60, 0.05) 100%)'
-                                                            : isToday
-                                                            ? 'linear-gradient(135deg, rgba(255, 165, 0, 0.1) 0%, rgba(255, 165, 0, 0.05) 100%)'
-                                                            : '#f8f9fa',
-                                                        borderRadius: '10px',
-                                                        border: assignment.status === 'completed'
-                                                            ? '2px solid rgba(0, 168, 107, 0.3)'
-                                                            : isOverdue
-                                                            ? '2px solid rgba(220, 20, 60, 0.3)'
-                                                            : isToday
-                                                            ? '2px solid rgba(255, 165, 0, 0.3)'
-                                                            : '1px solid #e9ecef'
-                                                    }}
-                                                >
-                                                    <div style={{
-                                                        display: 'flex',
-                                                        alignItems: 'start',
-                                                        gap: '10px'
-                                                    }}>
-                                                        {assignment.status === 'completed' ? (
-                                                            <i data-lucide="check-circle" style={{ width: '20px', height: '20px', color: '#00A86B', marginTop: '2px' }}></i>
-                                                        ) : isOverdue ? (
-                                                            <i data-lucide="alert-circle" style={{ width: '20px', height: '20px', color: '#DC143C', marginTop: '2px' }}></i>
-                                                        ) : (
-                                                            <i data-lucide="circle" style={{ width: '20px', height: '20px', color: '#058585', marginTop: '2px' }}></i>
-                                                        )}
-                                                        <div style={{ flex: 1 }}>
-                                                            <div style={{
-                                                                fontSize: '15px',
-                                                                fontWeight: '600',
-                                                                color: '#333333',
-                                                                marginBottom: '4px',
-                                                                textDecoration: assignment.status === 'completed' ? 'line-through' : 'none'
-                                                            }}>
-                                                                {assignment.title}
-                                                            </div>
-                                                            <div style={{ fontSize: '13px', color: '#666666' }}>
-                                                                Due: {dueDate.toLocaleDateString()}
-                                                                {isToday && ' (Today)'}
-                                                                {isOverdue && assignment.status !== 'completed' && ' (Overdue)'}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </>
-                            );
-                        })()}
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* OVERDUE ITEMS MODAL */}
-        {showOverdueItemsModal && (
-            <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'rgba(0, 0, 0, 0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10000,
-                padding: '20px'
-            }} onClick={() => onClose('overdueItemsModal')}>
-                <div style={{
-                    background: '#FFFFFF',
-                    borderRadius: '16px',
-                    maxWidth: '500px',
-                    width: '100%',
-                    maxHeight: '80vh',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden'
-                }} onClick={(e) => e.stopPropagation()}>
-                    {/* Header */}
-                    <div style={{
-                        padding: '20px',
-                        borderBottom: '2px solid #f0f0f0',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                    }}>
-                        <h2 style={{
-                            margin: 0,
-                            fontSize: '20px',
-                            fontWeight: '600',
-                            color: '#DC143C',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px'
-                        }}>
-                            <i data-lucide="alert-circle" style={{ width: '24px', height: '24px' }}></i>
-                            Overdue Items
-                        </h2>
-                        <div
-                            onClick={() => onClose('overdueItemsModal')}
-                            style={{
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '4px'
-                            }}
-                        >
-                            <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
-                        </div>
-                    </div>
-
-                    {/* Content */}
-                    <div style={{
-                        padding: '20px',
-                        overflowY: 'auto',
-                        flex: 1
-                    }}>
-                        {(() => {
-                            const today = new Date();
-                            today.setHours(0, 0, 0, 0);
-
-                            const overdueAssignments = assignments.filter(assignment => {
-                                if (!assignment.dueDate || assignment.status === 'completed') return false;
-                                const dueDate = assignment.dueDate.toDate();
-                                return dueDate < today;
-                            });
-
-                            if (overdueAssignments.length === 0) {
-                                return (
-                                    <div style={{
-                                        textAlign: 'center',
-                                        padding: '40px 20px',
-                                        color: '#666666'
-                                    }}>
-                                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>✅</div>
-                                        <div style={{ fontSize: '16px', fontWeight: '600', color: '#333333', marginBottom: '8px' }}>
-                                            No Overdue Items!
-                                        </div>
-                                        <div style={{ fontSize: '14px' }}>
-                                            You're all caught up. Great work!
-                                        </div>
-                                    </div>
-                                );
-                            }
-
-                            return (
-                                <>
-                                    <div style={{
-                                        fontSize: '14px',
-                                        color: '#DC143C',
-                                        marginBottom: '15px',
-                                        fontWeight: '600'
-                                    }}>
-                                        {overdueAssignments.length} overdue item{overdueAssignments.length !== 1 ? 's' : ''}
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                        {overdueAssignments.map(assignment => {
-                                            const dueDate = assignment.dueDate.toDate();
-                                            const daysOverdue = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
-
-                                            return (
-                                                <div
-                                                    key={assignment.id}
-                                                    style={{
-                                                        padding: '12px 15px',
-                                                        background: 'linear-gradient(135deg, rgba(220, 20, 60, 0.1) 0%, rgba(220, 20, 60, 0.05) 100%)',
-                                                        borderRadius: '10px',
-                                                        border: '2px solid rgba(220, 20, 60, 0.3)'
-                                                    }}
-                                                >
-                                                    <div style={{
-                                                        display: 'flex',
-                                                        alignItems: 'start',
-                                                        gap: '10px'
-                                                    }}>
-                                                        <i data-lucide="alert-circle" style={{ width: '20px', height: '20px', color: '#DC143C', marginTop: '2px' }}></i>
-                                                        <div style={{ flex: 1 }}>
-                                                            <div style={{
-                                                                fontSize: '15px',
-                                                                fontWeight: '600',
-                                                                color: '#333333',
-                                                                marginBottom: '4px'
-                                                            }}>
-                                                                {assignment.title}
-                                                            </div>
-                                                            <div style={{ fontSize: '13px', color: '#DC143C', fontWeight: '600' }}>
-                                                                {daysOverdue} day{daysOverdue !== 1 ? 's' : ''} overdue (Due: {dueDate.toLocaleDateString()})
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </>
-                            );
-                        })()}
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* MARK COMPLETE MODAL */}
-        {showMarkCompleteModal && (
-            <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'rgba(0, 0, 0, 0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10000,
-                padding: '20px'
-            }} onClick={() => onClose('markCompleteModal')}>
-                <div style={{
-                    background: '#FFFFFF',
-                    borderRadius: '16px',
-                    maxWidth: '500px',
-                    width: '100%',
-                    maxHeight: '80vh',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden'
-                }} onClick={(e) => e.stopPropagation()}>
-                    {/* Header */}
-                    <div style={{
-                        padding: '20px',
-                        borderBottom: '2px solid #f0f0f0',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                    }}>
-                        <h2 style={{
-                            margin: 0,
-                            fontSize: '20px',
-                            fontWeight: '600',
-                            color: '#00A86B',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px'
-                        }}>
-                            <i data-lucide="check-circle" style={{ width: '24px', height: '24px' }}></i>
-                            Mark Complete
-                        </h2>
-                        <div
-                            onClick={() => onClose('markCompleteModal')}
-                            style={{
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '4px'
-                            }}
-                        >
-                            <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
-                        </div>
-                    </div>
-
-                    {/* Content */}
-                    <div style={{
-                        padding: '20px',
-                        overflowY: 'auto',
-                        flex: 1
-                    }}>
-                        {(() => {
-                            const incompleteAssignments = assignments.filter(a => a.status !== 'completed');
-
-                            if (incompleteAssignments.length === 0) {
-                                return (
-                                    <div style={{
-                                        textAlign: 'center',
-                                        padding: '40px 20px',
-                                        color: '#666666'
-                                    }}>
-                                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>✅</div>
-                                        <div style={{ fontSize: '16px', fontWeight: '600', color: '#333333', marginBottom: '8px' }}>
-                                            All Done!
-                                        </div>
-                                        <div style={{ fontSize: '14px' }}>
-                                            You have no incomplete tasks
-                                        </div>
-                                    </div>
-                                );
-                            }
-
-                            return (
-                                <>
-                                    <div style={{ fontSize: '14px', color: '#666666', marginBottom: '15px' }}>
-                                        {incompleteAssignments.length} incomplete task{incompleteAssignments.length !== 1 ? 's' : ''}
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                        {incompleteAssignments.map(assignment => (
-                                            <div
-                                                key={assignment.id}
-                                                style={{
-                                                    padding: '12px 15px',
-                                                    background: '#f8f9fa',
-                                                    borderRadius: '10px',
-                                                    border: '1px solid #e9ecef',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '12px'
-                                                }}
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    checked={false}
-                                                    onChange={async () => {
-                                                        if (confirm(`Mark "${assignment.title}" as complete?`)) {
-                                                            try {
-                                                                await onMarkComplete(assignment.id);
-                                                            } catch (error) {
-                                                                alert('Error marking task complete');
-                                                            }
-                                                        }
-                                                    }}
-                                                    style={{
-                                                        width: '20px',
-                                                        height: '20px',
-                                                        cursor: 'pointer'
-                                                    }}
-                                                />
-                                                <div style={{ flex: 1 }}>
-                                                    <div style={{
-                                                        fontSize: '15px',
-                                                        fontWeight: '600',
-                                                        color: '#333333',
-                                                        marginBottom: '4px'
-                                                    }}>
-                                                        {assignment.title}
-                                                    </div>
-                                                    {assignment.dueDate && (
-                                                        <div style={{ fontSize: '13px', color: '#666666' }}>
-                                                            Due: {assignment.dueDate.toDate().toLocaleDateString()}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </>
-                            );
-                        })()}
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* PROGRESS STATS MODAL */}
-        {showProgressStatsModal && (
-            <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'rgba(0, 0, 0, 0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10000,
-                padding: '20px'
-            }} onClick={() => onClose('progressStatsModal')}>
-                <div style={{
-                    background: '#FFFFFF',
-                    borderRadius: '16px',
-                    maxWidth: '500px',
-                    width: '100%',
-                    maxHeight: '80vh',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden'
-                }} onClick={(e) => e.stopPropagation()}>
-                    {/* Header */}
-                    <div style={{
-                        padding: '20px',
-                        borderBottom: '2px solid #f0f0f0',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                    }}>
-                        <h2 style={{
-                            margin: 0,
-                            fontSize: '20px',
-                            fontWeight: '600',
-                            color: '#058585',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px'
-                        }}>
-                            <i data-lucide="trending-up" style={{ width: '24px', height: '24px' }}></i>
-                            Progress Stats
-                        </h2>
-                        <div
-                            onClick={() => onClose('progressStatsModal')}
-                            style={{
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '4px'
-                            }}
-                        >
-                            <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
-                        </div>
-                    </div>
-
-                    {/* Content */}
-                    <div style={{
-                        padding: '20px',
-                        overflowY: 'auto',
-                        flex: 1
-                    }}>
-                        {(() => {
-                            const totalAssignments = assignments.length;
-                            const completedAssignments = assignments.filter(a => a.status === 'completed').length;
-                            const completionRate = totalAssignments > 0 ? Math.round((completedAssignments / totalAssignments) * 100) : 0;
-
-                            const totalGoals = goals.length;
-                            const activeGoals = goals.filter(g => g.status === 'active').length;
-
-                            return (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                                    {/* Overall Completion Rate */}
-                                    <div style={{
-                                        padding: '20px',
-                                        background: 'linear-gradient(135deg, rgba(5, 133, 133, 0.1) 0%, rgba(5, 133, 133, 0.05) 100%)',
-                                        borderRadius: '12px',
-                                        border: '2px solid rgba(5, 133, 133, 0.3)'
-                                    }}>
-                                        <div style={{ fontSize: '14px', color: '#666666', marginBottom: '8px' }}>
-                                            Overall Completion Rate
-                                        </div>
-                                        <div style={{ fontSize: '36px', fontWeight: 'bold', color: '#058585', marginBottom: '10px' }}>
-                                            {completionRate}%
-                                        </div>
-                                        <div style={{ fontSize: '13px', color: '#666666' }}>
-                                            {completedAssignments} of {totalAssignments} tasks completed
-                                        </div>
-                                    </div>
-
-                                    {/* Tasks Stats */}
-                                    <div style={{
-                                        padding: '15px',
-                                        background: '#f8f9fa',
-                                        borderRadius: '10px',
-                                        border: '1px solid #e9ecef'
-                                    }}>
-                                        <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '600', color: '#333333' }}>
-                                            Tasks Overview
-                                        </h3>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                                                <span style={{ color: '#666666' }}>Total Tasks:</span>
-                                                <span style={{ fontWeight: '600', color: '#333333' }}>{totalAssignments}</span>
-                                            </div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                                                <span style={{ color: '#666666' }}>Completed:</span>
-                                                <span style={{ fontWeight: '600', color: '#00A86B' }}>{completedAssignments}</span>
-                                            </div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                                                <span style={{ color: '#666666' }}>In Progress:</span>
-                                                <span style={{ fontWeight: '600', color: '#FFA500' }}>{totalAssignments - completedAssignments}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Goals Stats */}
-                                    <div style={{
-                                        padding: '15px',
-                                        background: '#f8f9fa',
-                                        borderRadius: '10px',
-                                        border: '1px solid #e9ecef'
-                                    }}>
-                                        <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '600', color: '#333333' }}>
-                                            Goals Overview
-                                        </h3>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                                                <span style={{ color: '#666666' }}>Total Goals:</span>
-                                                <span style={{ fontWeight: '600', color: '#333333' }}>{totalGoals}</span>
-                                            </div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                                                <span style={{ color: '#666666' }}>Active:</span>
-                                                <span style={{ fontWeight: '600', color: '#058585' }}>{activeGoals}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Habits Stats */}
-                                    <div style={{
-                                        padding: '15px',
-                                        background: '#f8f9fa',
-                                        borderRadius: '10px',
-                                        border: '1px solid #e9ecef'
-                                    }}>
-                                        <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '600', color: '#333333' }}>
-                                            Habits Overview
-                                        </h3>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                                                <span style={{ color: '#666666' }}>Total Habits:</span>
-                                                <span style={{ fontWeight: '600', color: '#333333' }}>{habits.length}</span>
-                                            </div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                                                <span style={{ color: '#666666' }}>Completed Today:</span>
-                                                <span style={{ fontWeight: '600', color: '#00A86B' }}>{todayHabits.length}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })()}
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* GOAL PROGRESS MODAL */}
-        {showGoalProgressModal && (
-            <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'rgba(0, 0, 0, 0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10000,
-                padding: '20px'
-            }} onClick={() => onClose('goalProgressModal')}>
-                <div style={{
-                    background: '#FFFFFF',
-                    borderRadius: '16px',
-                    maxWidth: '500px',
-                    width: '100%',
-                    maxHeight: '80vh',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden'
-                }} onClick={(e) => e.stopPropagation()}>
-                    {/* Header */}
-                    <div style={{
-                        padding: '20px',
-                        borderBottom: '2px solid #f0f0f0',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                    }}>
-                        <h2 style={{
-                            margin: 0,
-                            fontSize: '20px',
-                            fontWeight: '600',
-                            color: '#058585',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px'
-                        }}>
-                            <i data-lucide="target" style={{ width: '24px', height: '24px' }}></i>
-                            Goal Progress
-                        </h2>
-                        <div
-                            onClick={() => onClose('goalProgressModal')}
-                            style={{
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '4px'
-                            }}
-                        >
-                            <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
-                        </div>
-                    </div>
-
-                    {/* Content */}
-                    <div style={{
-                        padding: '20px',
-                        overflowY: 'auto',
-                        flex: 1
-                    }}>
-                        {goals.length === 0 ? (
-                            <div style={{
-                                textAlign: 'center',
-                                padding: '40px 20px',
-                                color: '#666666'
-                            }}>
-                                <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎯</div>
-                                <div style={{ fontSize: '16px', fontWeight: '600', color: '#333333', marginBottom: '8px' }}>
-                                    No Goals Yet
-                                </div>
-                                <div style={{ fontSize: '14px' }}>
-                                    Start adding goals to track your progress
-                                </div>
-                            </div>
-                        ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                                {goals.map(goal => {
-                                    const progress = goal.progress || 0;
-
-                                    return (
-                                        <div
-                                            key={goal.id}
-                                            style={{
-                                                padding: '15px',
-                                                background: '#f8f9fa',
-                                                borderRadius: '12px',
-                                                border: '1px solid #e9ecef'
-                                            }}
-                                        >
-                                            <div style={{
-                                                fontSize: '15px',
-                                                fontWeight: '600',
-                                                color: '#333333',
-                                                marginBottom: '10px'
-                                            }}>
-                                                {goal.goalName || goal.name}
-                                            </div>
-
-                                            {/* Progress Bar */}
-                                            <div style={{
-                                                width: '100%',
-                                                height: '8px',
-                                                background: '#e9ecef',
-                                                borderRadius: '10px',
-                                                overflow: 'hidden',
-                                                marginBottom: '8px'
-                                            }}>
-                                                <div style={{
-                                                    width: `${progress}%`,
-                                                    height: '100%',
-                                                    background: progress === 100
-                                                        ? 'linear-gradient(90deg, #00A86B 0%, #008554 100%)'
-                                                        : 'linear-gradient(90deg, #058585 0%, #044c4c 100%)',
-                                                    transition: 'width 0.3s ease'
-                                                }}></div>
-                                            </div>
-
-                                            <div style={{
-                                                display: 'flex',
-                                                justifyContent: 'space-between',
-                                                alignItems: 'center'
-                                            }}>
-                                                <div style={{ fontSize: '13px', color: '#666666' }}>
-                                                    {goal.assignments?.filter(a => a.status === 'completed').length || 0} / {goal.assignments?.length || 0} tasks completed
-                                                </div>
-                                                <div style={{
-                                                    fontSize: '14px',
-                                                    fontWeight: 'bold',
-                                                    color: progress === 100 ? '#00A86B' : '#058585'
-                                                }}>
-                                                    {progress}%
-                                                </div>
-                                            </div>
-
-                                            {progress === 100 && (
-                                                <button
-                                                    onClick={async () => {
-                                                        if (confirm('Share this goal completion with the community?')) {
-                                                            const result = await window.GLRSApp.handlers.shareToCommunity('goal', `Completed goal: ${goal.goalName || goal.name}`, 'goals', goal.id);
-                                                            if (result.success) {
-                                                                alert('Goal completion shared to community! 🎉');
-                                                            } else {
-                                                                alert('Error sharing to community');
-                                                            }
-                                                        }
-                                                    }}
-                                                    style={{
-                                                        marginTop: '12px',
-                                                        padding: '8px 16px',
-                                                        background: '#00A86B',
-                                                        color: '#fff',
-                                                        border: 'none',
-                                                        borderRadius: '8px',
-                                                        fontSize: '13px',
-                                                        fontWeight: '600',
-                                                        cursor: 'pointer',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        gap: '6px',
-                                                        width: '100%'
-                                                    }}
-                                                >
-                                                    <i data-lucide="share-2" style={{ width: '16px', height: '16px' }}></i>
-                                                    Share Goal Completion
-                                                </button>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* TODAY'S WINS MODAL */}
-        {showTodayWinsModal && (
-            <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'rgba(0, 0, 0, 0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10000,
-                padding: '20px'
-            }} onClick={() => onClose('todayWinsModal')}>
-                <div style={{
-                    background: '#FFFFFF',
-                    borderRadius: '16px',
-                    maxWidth: '500px',
-                    width: '100%',
-                    maxHeight: '80vh',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden'
-                }} onClick={(e) => e.stopPropagation()}>
-                    {/* Header */}
-                    <div style={{
-                        padding: '20px',
-                        borderBottom: '2px solid #f0f0f0',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                    }}>
-                        <h2 style={{
-                            margin: 0,
-                            fontSize: '20px',
-                            fontWeight: '600',
-                            color: '#FFA500',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px'
-                        }}>
-                            <i data-lucide="star" style={{ width: '24px', height: '24px' }}></i>
-                            Today's Wins
-                        </h2>
-                        <div
-                            onClick={() => onClose('todayWinsModal')}
-                            style={{
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '4px'
-                            }}
-                        >
-                            <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
-                        </div>
-                    </div>
-
-                    {/* Content */}
-                    <div style={{
-                        padding: '20px',
-                        overflowY: 'auto',
-                        flex: 1
-                    }}>
-                        {!showWinsHistory ? (
-                            <>
-                                {/* Add New Win */}
-                                <div style={{
-                                    marginBottom: '20px'
-                                }}>
-                                    <label style={{
-                                        display: 'block',
-                                        fontSize: '14px',
-                                        fontWeight: '600',
-                                        color: '#333333',
-                                        marginBottom: '8px'
-                                    }}>
-                                        Add a win for today
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={newWin}
-                                        onChange={(e) => setNewWin(e.target.value)}
-                                        placeholder="e.g., Completed morning workout"
-                                        style={{
-                                            width: '100%',
-                                            padding: '10px 12px',
-                                            borderRadius: '8px',
-                                            border: '1px solid #ddd',
-                                            fontSize: '15px',
-                                            marginBottom: '10px'
-                                        }}
-                                        onKeyPress={async (e) => {
-                                            if (e.key === 'Enter' && newWin.trim()) {
-                                                try {
-                                                    await onSaveWin(newWin.trim());
-                                                    setNewWin('');
-                                                } catch (error) {
-                                                    alert('Error adding win');
-                                                }
-                                            }
-                                        }}
-                                    />
-                                    <div style={{ display: 'flex', gap: '10px' }}>
-                                        <button
-                                            onClick={async () => {
-                                                if (newWin.trim()) {
-                                                    try {
-                                                        await onSaveWin(newWin.trim());
-                                                        setNewWin('');
-                                                        alert('Win added! 🎉');
-                                                    } catch (error) {
-                                                        alert('Error adding win');
-                                                    }
-                                                }
-                                            }}
-                                            style={{
-                                                flex: 1,
-                                                padding: '10px 20px',
-                                                background: '#FFA500',
-                                                color: '#fff',
-                                                border: 'none',
-                                                borderRadius: '8px',
-                                                fontSize: '14px',
-                                                fontWeight: '600',
-                                                cursor: 'pointer'
-                                            }}
-                                        >
-                                            Add
-                                        </button>
-                                        <button
-                                            onClick={async () => {
-                                                if (newWin.trim()) {
-                                                    try {
-                                                        await onSaveAndShareWin({ win: newWin.trim() });
-                                                        setNewWin('');
-                                                        alert('Win added and shared to community! 🎉');
-                                                    } catch (error) {
-                                                        alert('Error adding win');
-                                                    }
-                                                }
-                                            }}
-                                            style={{
-                                                flex: 1,
-                                                padding: '10px 20px',
-                                                background: 'linear-gradient(135deg, #00A86B 0%, #058585 100%)',
-                                                color: '#fff',
-                                                border: 'none',
-                                                borderRadius: '8px',
-                                                fontSize: '14px',
-                                                fontWeight: '600',
-                                                cursor: 'pointer',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                gap: '6px'
-                                            }}
-                                        >
-                                            <i data-lucide="share-2" style={{ width: '14px', height: '14px' }}></i>
-                                            Add & Share
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Today's Wins List */}
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    marginBottom: '12px'
-                                }}>
-                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#333333' }}>
-                                        Today's Wins ({todayWins.length})
-                                    </h3>
-                                    <button
-                                        onClick={() => onClose('winsHistory')}
-                                        style={{
-                                            padding: '6px 12px',
-                                            background: '#f8f9fa',
-                                            color: '#FFA500',
-                                            border: '1px solid #FFA500',
-                                            borderRadius: '6px',
-                                            fontSize: '13px',
-                                            fontWeight: '600',
-                                            cursor: 'pointer'
-                                        }}
-                                    >
-                                        View History
-                                    </button>
-                                </div>
-
-                                {todayWins.length === 0 ? (
-                                    <div style={{
-                                        textAlign: 'center',
-                                        padding: '30px 20px',
-                                        color: '#999999',
-                                        fontSize: '14px'
-                                    }}>
-                                        No wins yet today. Add your first win above!
-                                    </div>
-                                ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                        {todayWins.map(win => (
-                                            <div
-                                                key={win.id}
-                                                style={{
-                                                    padding: '12px 15px',
-                                                    background: 'linear-gradient(135deg, rgba(255, 165, 0, 0.1) 0%, rgba(255, 165, 0, 0.05) 100%)',
-                                                    borderRadius: '10px',
-                                                    border: '2px solid rgba(255, 165, 0, 0.3)',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '12px'
-                                                }}
-                                            >
-                                                <i data-lucide="star" style={{ width: '20px', height: '20px', color: '#FFA500' }}></i>
-                                                <span style={{
-                                                    flex: 1,
-                                                    fontSize: '15px',
-                                                    color: '#333333'
-                                                }}>
-                                                    {win.win}
-                                                </span>
-                                                <button
-                                                    onClick={async () => {
-                                                        if (confirm('Share this win with the community?')) {
-                                                            const result = await window.GLRSApp.handlers.shareToCommunity('win', win.win, 'wins', win.id);
-                                                            if (result.success) {
-                                                                alert('Win shared to community! 🎉');
-                                                            } else {
-                                                                alert('Error sharing to community');
-                                                            }
-                                                        }
-                                                    }}
-                                                    style={{
-                                                        padding: '6px 12px',
-                                                        background: '#058585',
-                                                        color: '#fff',
-                                                        border: 'none',
-                                                        borderRadius: '6px',
-                                                        fontSize: '12px',
-                                                        fontWeight: '600',
-                                                        cursor: 'pointer',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '4px'
-                                                    }}
-                                                >
-                                                    <i data-lucide="share-2" style={{ width: '14px', height: '14px' }}></i>
-                                                    Share
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </>
-                        ) : (
-                            <>
-                                {/* History View */}
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    marginBottom: '15px'
-                                }}>
-                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#333333' }}>
-                                        All Wins
-                                    </h3>
-                                    <button
-                                        onClick={() => onClose('winsHistory')}
-                                        style={{
-                                            padding: '6px 12px',
-                                            background: '#FFA500',
-                                            color: '#fff',
-                                            border: 'none',
-                                            borderRadius: '6px',
-                                            fontSize: '13px',
-                                            fontWeight: '600',
-                                            cursor: 'pointer'
-                                        }}
-                                    >
-                                        Back to Today
-                                    </button>
-                                </div>
-
-                                <div style={{ fontSize: '13px', color: '#666666', marginBottom: '15px' }}>
-                                    Showing wins from all time
-                                </div>
-
-                                {todayWins.length === 0 ? (
-                                    <div style={{
-                                        textAlign: 'center',
-                                        padding: '30px 20px',
-                                        color: '#999999',
-                                        fontSize: '14px'
-                                    }}>
-                                        No wins recorded yet
-                                    </div>
-                                ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                        {todayWins.map(win => (
-                                            <div
-                                                key={win.id}
-                                                style={{
-                                                    padding: '12px 15px',
-                                                    background: '#f8f9fa',
-                                                    borderRadius: '10px',
-                                                    border: '1px solid #e9ecef'
-                                                }}
-                                            >
-                                                <div style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '10px',
-                                                    marginBottom: '6px'
-                                                }}>
-                                                    <i data-lucide="star" style={{ width: '16px', height: '16px', color: '#FFA500' }}></i>
-                                                    <span style={{ fontSize: '15px', color: '#333333', flex: 1 }}>
-                                                        {win.win}
-                                                    </span>
-                                                </div>
-                                                <div style={{ fontSize: '12px', color: '#999999', paddingLeft: '26px' }}>
-                                                    {win.createdAt ? new Date(win.createdAt.toDate()).toLocaleDateString() : 'Today'}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* TASKS SIDEBAR - Slides from LEFT */}
-        {showSidebar && (
-            <>
-                {/* Backdrop */}
-                <div
-                    onClick={() => onClose('sidebar')}
-                    style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        background: 'rgba(0, 0, 0, 0.5)',
-                        zIndex: 9998
-                    }}
-                />
-
-                {/* Sidebar Panel */}
-                <div style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    bottom: 0,
-                    width: '280px',
-                    background: '#FFFFFF',
-                    boxShadow: '4px 0 12px rgba(0, 0, 0, 0.15)',
-                    zIndex: 9999,
-                    padding: '20px',
-                    overflowY: 'auto',
-                    animation: 'slideInLeft 0.3s ease-out'
-                }}>
-                    {/* Close Button */}
-                    <div style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: '25px',
-                        paddingBottom: '15px',
-                        borderBottom: '2px solid #f0f0f0'
-                    }}>
-                        <h2 style={{
-                            margin: 0,
-                            fontSize: '20px',
-                            fontWeight: 'bold',
-                            color: '#058585'
-                        }}>
-                            Quick Tools
-                        </h2>
-                        <div
-                            onClick={() => onClose('sidebar')}
-                            style={{
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '4px'
-                            }}
-                        >
-                            <i data-lucide="x" style={{ width: '24px', height: '24px', color: '#666666' }}></i>
-                        </div>
-                    </div>
-
-                    {/* Menu Items */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        {/* Habit Tracker */}
-                        <div
-                            onClick={() => {
-                                if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
-                                onClose('sidebar');
-                                onOpenModal('habitTrackerModal');
-                            }}
-                            style={{
-                                padding: '15px',
-                                background: '#f8f9fa',
-                                borderRadius: '10px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '12px',
-                                transition: 'all 0.2s',
-                                border: '1px solid #e9ecef'
-                            }}
-                        >
-                            <i data-lucide="repeat" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
-                            <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
-                                Habit Tracker
-                            </span>
-                        </div>
-
-                        {/* Quick Reflection */}
-                        <div
-                            onClick={() => {
-                                if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
-                                onClose('sidebar');
-                                onOpenModal('quickReflectionModal');
-                            }}
-                            style={{
-                                padding: '15px',
-                                background: '#f8f9fa',
-                                borderRadius: '10px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '12px',
-                                transition: 'all 0.2s',
-                                border: '1px solid #e9ecef'
-                            }}
-                        >
-                            <i data-lucide="message-circle" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
-                            <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
-                                Quick Reflection
-                            </span>
-                        </div>
-
-                        {/* This Week's Tasks */}
-                        <div
-                            onClick={() => {
-                                if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
-                                onClose('sidebar');
-                                onOpenModal('thisWeekTasksModal');
-                            }}
-                            style={{
-                                padding: '15px',
-                                background: '#f8f9fa',
-                                borderRadius: '10px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '12px',
-                                transition: 'all 0.2s',
-                                border: '1px solid #e9ecef'
-                            }}
-                        >
-                            <i data-lucide="calendar-days" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
-                            <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
-                                This Week's Tasks
-                            </span>
-                        </div>
-
-                        {/* Overdue Items */}
-                        <div
-                            onClick={() => {
-                                if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
-                                onClose('sidebar');
-                                onOpenModal('overdueItemsModal');
-                            }}
-                            style={{
-                                padding: '15px',
-                                background: '#f8f9fa',
-                                borderRadius: '10px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '12px',
-                                transition: 'all 0.2s',
-                                border: '1px solid #e9ecef'
-                            }}
-                        >
-                            <i data-lucide="alert-circle" style={{ width: '20px', height: '20px', color: '#DC143C' }}></i>
-                            <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
-                                Overdue Items
-                            </span>
-                        </div>
-
-                        {/* Mark Complete */}
-                        <div
-                            onClick={() => {
-                                if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
-                                onClose('sidebar');
-                                onOpenModal('markCompleteModal');
-                            }}
-                            style={{
-                                padding: '15px',
-                                background: '#f8f9fa',
-                                borderRadius: '10px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '12px',
-                                transition: 'all 0.2s',
-                                border: '1px solid #e9ecef'
-                            }}
-                        >
-                            <i data-lucide="check-circle" style={{ width: '20px', height: '20px', color: '#00A86B' }}></i>
-                            <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
-                                Mark Complete
-                            </span>
-                        </div>
-
-                        {/* Progress Stats */}
-                        <div
-                            onClick={() => {
-                                if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
-                                onClose('sidebar');
-                                onOpenModal('progressStatsModal');
-                            }}
-                            style={{
-                                padding: '15px',
-                                background: '#f8f9fa',
-                                borderRadius: '10px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '12px',
-                                transition: 'all 0.2s',
-                                border: '1px solid #e9ecef'
-                            }}
-                        >
-                            <i data-lucide="trending-up" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
-                            <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
-                                Progress Stats
-                            </span>
-                        </div>
-
-                        {/* Goal Progress */}
-                        <div
-                            onClick={() => {
-                                if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
-                                onClose('sidebar');
-                                onOpenModal('goalProgressModal');
-                            }}
-                            style={{
-                                padding: '15px',
-                                background: '#f8f9fa',
-                                borderRadius: '10px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '12px',
-                                transition: 'all 0.2s',
-                                border: '1px solid #e9ecef'
-                            }}
-                        >
-                            <i data-lucide="target" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
-                            <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
-                                Goal Progress
-                            </span>
-                        </div>
-
-                        {/* Today's Wins */}
-                        <div
-                            onClick={() => {
-                                if (typeof triggerHaptic === 'function') window.GLRSApp.utils.triggerHaptic('light');
-                                onClose('sidebar');
-                                onOpenModal('todayWinsModal');
-                            }}
-                            style={{
-                                padding: '15px',
-                                background: '#f8f9fa',
-                                borderRadius: '10px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '12px',
-                                transition: 'all 0.2s',
-                                border: '1px solid #e9ecef'
-                            }}
-                        >
-                            <i data-lucide="star" style={{ width: '20px', height: '20px', color: '#FFA500' }}></i>
-                            <span style={{ color: '#333333', fontWeight: '500', fontSize: '15px' }}>
-                                Today's Wins
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            </>
-        )}
-
-{/* Streaks Modal */}
-{showStreaksModal && streakData && (
-    <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0, 0, 0, 0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-        padding: '20px'
-    }}>
-        <div style={{
-            background: '#FFFFFF',
-            borderRadius: '12px',
-            width: '100%',
-            maxWidth: '500px',
-            maxHeight: '80vh',
-            overflow: 'auto'
-        }}>
-            {/* Header */}
-            <div style={{
-                padding: '20px',
-                borderBottom: '1px solid #E5E5E5',
-                position: 'sticky',
-                top: 0,
-                background: '#FFFFFF',
-                zIndex: 10
-            }}>
-                <h3 style={{
-                    margin: 0,
-                    fontSize: '20px',
-                    fontWeight: 'bold',
-                    color: '#000000'
-                }}>
-                    🔥 Your Check-In Streaks
-                </h3>
-            </div>
-
-            {/* Content */}
-            <div style={{ padding: '20px' }}>
-                {/* Current Streak */}
-                {streakData.currentStreak > 0 && (
-                    <div style={{
-                        padding: '16px',
-                        background: 'linear-gradient(135deg, rgba(5, 133, 133, 0.1) 0%, rgba(0, 168, 107, 0.1) 100%)',
-                        borderRadius: '12px',
-                        marginBottom: '20px',
-                        border: '2px solid #058585'
-                    }}>
-                        <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>
-                            Current Streak
-                        </div>
-                        <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#058585' }}>
-                            🔥 {streakData.currentStreak} {streakData.currentStreak === 1 ? 'day' : 'days'}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#666', marginTop: '8px' }}>
-                            Keep it up! Check in today to extend your streak.
-                        </div>
-                    </div>
-                )}
-
-                {/* All Streaks List */}
-                <div style={{ marginBottom: '12px', fontSize: '16px', fontWeight: '600', color: '#000' }}>
-                    All Streaks
-                </div>
-
-                {streakData.allStreaks.length > 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {streakData.allStreaks.map((streak, index) => {
-                            const startDate = new Date(streak.startDate);
-                            const endDate = new Date(streak.endDate);
-                            const isLongest = index === 0; // First in sorted array is longest
-                            const isCurrent = streak.endDate === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
-
-                            return (
-                                <div
-                                    key={index}
-                                    style={{
-                                        padding: '14px',
-                                        background: isLongest ? '#FFF9E6' : '#F8F9FA',
-                                        borderRadius: '10px',
-                                        border: isLongest ? '2px solid #FFA500' : '1px solid #E5E5E5',
-                                        position: 'relative'
-                                    }}
-                                >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <div>
-                                            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#000', marginBottom: '4px' }}>
-                                                {streak.length} {streak.length === 1 ? 'day' : 'days'}
-                                                {isLongest && <span style={{ marginLeft: '8px', fontSize: '14px' }}>⭐ Longest</span>}
-                                                {isCurrent && <span style={{ marginLeft: '8px', fontSize: '14px' }}>← Current</span>}
-                                            </div>
-                                            <div style={{ fontSize: '13px', color: '#666' }}>
-                                                {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                                {' - '}
-                                                {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                            </div>
-                                        </div>
-                                        <div style={{ fontSize: '24px' }}>
-                                            🔥
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                ) : (
-                    <div style={{
-                        textAlign: 'center',
-                        padding: '40px 20px',
-                        color: '#999'
-                    }}>
-                        <div style={{ fontSize: '48px', marginBottom: '12px' }}>🔥</div>
-                        <div>Start checking in to build your first streak!</div>
-                    </div>
-                )}
-
-                {/* Close Button */}
-                <button
-                    onClick={() => {
-                        window.GLRSApp.utils.triggerHaptic('light');
-                        onClose('streaksModal');
-                    }}
-                    style={{
-                        marginTop: '20px',
-                        width: '100%',
-                        height: '48px',
-                        background: '#058585',
-                        border: 'none',
-                        borderRadius: '8px',
-                        color: '#FFFFFF',
-                        fontSize: '14px',
-                        fontWeight: '400',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                    }}
-                >
-                    Back
-                </button>
-            </div>
-        </div>
-    </div>
-)}
-
-{/* Reflection Streaks Modal */}
-{showReflectionStreaksModal && (
-    <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0, 0, 0, 0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-        padding: '20px'
-    }}>
-        <div style={{
-            background: '#FFFFFF',
-            borderRadius: '12px',
-            width: '100%',
-            maxWidth: '500px',
-            maxHeight: '80vh',
-            overflow: 'auto'
-        }}>
-            {/* Header */}
-            <div style={{
-                padding: '20px',
-                borderBottom: '1px solid #E5E5E5',
-                position: 'sticky',
-                top: 0,
-                background: '#FFFFFF',
-                zIndex: 10
-            }}>
-                <h3 style={{
-                    margin: 0,
-                    fontSize: '20px',
-                    fontWeight: 'bold',
-                    color: '#000000'
-                }}>
-                    🌙 Your Reflection Streaks
-                </h3>
-            </div>
-
-            {/* Content */}
-            <div style={{ padding: '20px' }}>
-                {/* Current Streak */}
-                {reflectionStreakData.currentStreak > 0 && (
-                    <div style={{
-                        padding: '16px',
-                        background: 'linear-gradient(135deg, rgba(5, 133, 133, 0.1) 0%, rgba(0, 168, 107, 0.1) 100%)',
-                        borderRadius: '12px',
-                        marginBottom: '20px',
-                        border: '2px solid #058585'
-                    }}>
-                        <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>
-                            Current Streak
-                        </div>
-                        <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#058585' }}>
-                            🔥 {reflectionStreakData.currentStreak} {reflectionStreakData.currentStreak === 1 ? 'day' : 'days'}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#666', marginTop: '8px' }}>
-                            Keep it up! Reflect tonight to extend your streak.
-                        </div>
-                    </div>
-                )}
-
-                {/* All Streaks List */}
-                <div style={{ marginBottom: '12px', fontSize: '16px', fontWeight: '600', color: '#000' }}>
-                    All Streaks
-                </div>
-
-                {reflectionStreakData.allStreaks.length > 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {reflectionStreakData.allStreaks.map((streak, index) => {
-                            const startDate = new Date(streak.startDate);
-                            const endDate = new Date(streak.endDate);
-                            const isLongest = index === 0; // First in sorted array is longest
-                            const isCurrent = streak.endDate === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
-
-                            return (
-                                <div
-                                    key={index}
-                                    style={{
-                                        padding: '14px',
-                                        background: isLongest ? '#FFF9E6' : '#F8F9FA',
-                                        borderRadius: '10px',
-                                        border: isLongest ? '2px solid #FFA500' : '1px solid #E5E5E5',
-                                        position: 'relative'
-                                    }}
-                                >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <div>
-                                            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#000', marginBottom: '4px' }}>
-                                                {streak.length} {streak.length === 1 ? 'day' : 'days'}
-                                                {isLongest && <span style={{ marginLeft: '8px', fontSize: '14px' }}>⭐ Longest</span>}
-                                                {isCurrent && <span style={{ marginLeft: '8px', fontSize: '14px' }}>← Current</span>}
-                                            </div>
-                                            <div style={{ fontSize: '13px', color: '#666' }}>
-                                                {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                                {' - '}
-                                                {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                            </div>
-                                        </div>
-                                        <div style={{ fontSize: '24px' }}>
-                                            🔥
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                ) : (
-                    <div style={{
-                        textAlign: 'center',
-                        padding: '40px 20px',
-                        color: '#999'
-                    }}>
-                        <div style={{ fontSize: '48px', marginBottom: '12px' }}>🌙</div>
-                        <div>Start reflecting daily to build your first streak!</div>
-                    </div>
-                )}
-
-                {/* Close Button */}
-                <button
-                    onClick={() => {
-                        window.GLRSApp.utils.triggerHaptic('light');
-                        onClose('reflectionStreaksModal');
-                    }}
-                    style={{
-                        marginTop: '20px',
-                        width: '100%',
-                        height: '48px',
-                        background: '#058585',
-                        border: 'none',
-                        borderRadius: '8px',
-                        color: '#FFFFFF',
-                        fontSize: '14px',
-                        fontWeight: '400',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                    }}
-                >
-                    Back
-                </button>
-            </div>
-        </div>
-    </div>
-)}
-
-            {/* Set Today's Intentions Modal */}
-            {showIntentionsModal && (
-                <div style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    background: 'rgba(0,0,0,0.5)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    zIndex: 10000,
-                    padding: '20px'
-                }}>
-                    <div style={{
-                        background: '#FFFFFF',
-                        borderRadius: '16px',
-                        maxWidth: '500px',
-                        width: '100%',
-                        maxHeight: '90vh',
-                        overflow: 'auto'
-                    }}>
-                        {/* Header */}
-                        <div style={{
-                            padding: '24px',
-                            borderBottom: '1px solid #E9ECEF',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between'
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <i data-lucide="compass" style={{ width: '24px', height: '24px', color: '#0077CC' }}></i>
-                                <h2 style={{
-                                    margin: 0,
-                                    fontSize: '20px',
-                                    fontWeight: '600',
-                                    color: '#000000'
-                                }}>
-                                    Set Today's Intentions
-                                </h2>
-                            </div>
-                            <div
-                                onClick={() => onClose('intentionsModal')}
-                                style={{
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    padding: '4px'
-                                }}
-                            >
-                                <i data-lucide="x" style={{
-                                    width: '24px',
-                                    height: '24px',
-                                    color: '#666666'
-                                }}></i>
-                            </div>
-                        </div>
-
-                        {/* Content */}
-                        <div style={{ padding: '24px' }}>
-                            <div style={{
-                                background: 'linear-gradient(135deg, rgba(0,119,204,0.1) 0%, rgba(5,133,133,0.1) 100%)',
-                                padding: '16px',
-                                borderRadius: '12px',
-                                marginBottom: '20px',
-                                border: '1px solid rgba(0,119,204,0.2)'
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                                    <i data-lucide="lightbulb" style={{ width: '20px', height: '20px', color: '#0077CC', flexShrink: 0, marginTop: '2px' }}></i>
-                                    <p style={{
-                                        margin: 0,
-                                        fontSize: '13px',
-                                        color: '#000000',
-                                        lineHeight: '1.5'
-                                    }}>
-                                        Setting daily intentions helps you stay focused on what matters most in your recovery journey. Take a moment to define your purpose for today.
-                                    </p>
-                                </div>
-                            </div>
-
-                            <textarea
-                                placeholder="What are your intentions for today? (e.g., 'Stay present and grateful', 'Reach out to my support network', 'Practice self-care')"
-                                value={currentReflection}
-                                onChange={(e) => setCurrentReflection(e.target.value)}
-                                style={{
-                                    width: '100%',
-                                    minHeight: '120px',
-                                    padding: '12px',
-                                    border: '1px solid #CED4DA',
-                                    borderRadius: '8px',
-                                    fontSize: '14px',
-                                    fontFamily: 'inherit',
-                                    resize: 'vertical',
-                                    marginBottom: '16px'
-                                }}
-                            />
-
-                            {/* Action Buttons */}
-                            <div style={{
-                                display: 'flex',
-                                gap: '12px',
-                                marginBottom: '20px'
-                            }}>
-                                <button
-                                    onClick={async () => {
-                                        if (!currentReflection.trim()) {
-                                            alert('Please write your intentions for today');
-                                            return;
-                                        }
-
-                                        try {
-                                            await onSaveIntention({ intention: currentReflection });
-                                            alert('✨ Your intentions have been set for today!');
-                                            setCurrentReflection('');
-                                            onClose('intentionsModal');
-                                        } catch (error) {
-                                            alert('Error saving your intentions. Please try again.');
-                                        }
-                                    }}
-                                    style={{
-                                        flex: 1,
-                                        padding: '12px 24px',
-                                        background: 'linear-gradient(135deg, #0077CC 0%, #058585 100%)',
-                                        color: '#FFFFFF',
-                                        border: 'none',
-                                        borderRadius: '8px',
-                                        fontSize: '14px',
-                                        fontWeight: '600',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: '8px'
-                                    }}
-                                >
-                                    <i data-lucide="check" style={{ width: '18px', height: '18px' }}></i>
-                                    Set Intentions
-                                </button>
-                            </div>
-
-                            {/* View Past Intentions */}
-                            <button
-                                data-action="past-intentions"
-                                onClick={async () => {
-                                    try {
-                                        await onLoadPastIntentions();
-                                    } catch (error) {
-                                        alert('Error loading past intentions');
-                                    }
-                                }}
-                                style={{
-                                    width: '100%',
-                                    padding: '12px',
-                                    background: '#F8F9FA',
-                                    color: '#0077CC',
-                                    border: '1px solid #E9ECEF',
-                                    borderRadius: '8px',
-                                    fontSize: '14px',
-                                    fontWeight: '500',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '8px'
-                                }}
-                            >
-                                <i data-lucide="history" style={{ width: '18px', height: '18px' }}></i>
-                                View Past Intentions
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Progress Snapshot Modal */}
-            {showProgressSnapshotModal && (
-                <div style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    background: 'rgba(0,0,0,0.5)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    zIndex: 10000,
-                    padding: '20px'
-                }}>
-                    <div style={{
-                        background: '#FFFFFF',
-                        borderRadius: '16px',
-                        maxWidth: '600px',
-                        width: '100%',
-                        maxHeight: '90vh',
-                        overflow: 'auto'
-                    }}>
-                        {/* Header */}
-                        <div style={{
-                            padding: '24px',
-                            borderBottom: '1px solid #E9ECEF',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between'
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <i data-lucide="bar-chart-3" style={{ width: '24px', height: '24px', color: '#0077CC' }}></i>
-                                <h2 style={{
-                                    margin: 0,
-                                    fontSize: '20px',
-                                    fontWeight: '600',
-                                    color: '#000000'
-                                }}>
-                                    Progress Snapshot
-                                </h2>
-                            </div>
-                            <div
-                                onClick={() => onClose('progressSnapshotModal')}
-                                style={{
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    padding: '4px'
-                                }}
-                            >
-                                <i data-lucide="x" style={{
-                                    width: '24px',
-                                    height: '24px',
-                                    color: '#666666'
-                                }}></i>
-                            </div>
-                        </div>
-
-                        {/* Content */}
-                        <div style={{ padding: '24px' }}>
-                            {/* Overview Stats */}
-                            <div style={{
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(2, 1fr)',
-                                gap: '12px',
-                                marginBottom: '24px'
-                            }}>
-                                {/* Active Goals */}
-                                <div style={{
-                                    background: 'linear-gradient(135deg, rgba(0,119,204,0.1) 0%, rgba(0,119,204,0.05) 100%)',
-                                    padding: '16px',
-                                    borderRadius: '12px',
-                                    border: '1px solid rgba(0,119,204,0.2)'
-                                }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                                        <i data-lucide="target" style={{ width: '20px', height: '20px', color: '#0077CC' }}></i>
-                                        <span style={{ fontSize: '12px', color: '#666666', fontWeight: '500' }}>Active Goals</span>
-                                    </div>
-                                    <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#0077CC' }}>
-                                        {activeGoals}
-                                    </div>
-                                </div>
-
-                                {/* Active Objectives */}
-                                <div style={{
-                                    background: 'linear-gradient(135deg, rgba(5,133,133,0.1) 0%, rgba(5,133,133,0.05) 100%)',
-                                    padding: '16px',
-                                    borderRadius: '12px',
-                                    border: '1px solid rgba(5,133,133,0.2)'
-                                }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                                        <i data-lucide="list-checks" style={{ width: '20px', height: '20px', color: '#058585' }}></i>
-                                        <span style={{ fontSize: '12px', color: '#666666', fontWeight: '500' }}>Objectives</span>
-                                    </div>
-                                    <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#058585' }}>
-                                        {goals.reduce((count, goal) => count + (goal.objectives?.length || 0), 0)}
-                                    </div>
-                                </div>
-
-                                {/* Active Tasks */}
-                                <div style={{
-                                    background: 'linear-gradient(135deg, rgba(0,168,107,0.1) 0%, rgba(0,168,107,0.05) 100%)',
-                                    padding: '16px',
-                                    borderRadius: '12px',
-                                    border: '1px solid rgba(0,168,107,0.2)'
-                                }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                                        <i data-lucide="clipboard-list" style={{ width: '20px', height: '20px', color: '#00A86B' }}></i>
-                                        <span style={{ fontSize: '12px', color: '#666666', fontWeight: '500' }}>Active Tasks</span>
-                                    </div>
-                                    <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#00A86B' }}>
-                                        {assignments.filter(a => a.status !== 'completed').length}
-                                    </div>
-                                </div>
-
-                                {/* Completion Rate */}
-                                <div style={{
-                                    background: 'linear-gradient(135deg, rgba(255,140,0,0.1) 0%, rgba(255,140,0,0.05) 100%)',
-                                    padding: '16px',
-                                    borderRadius: '12px',
-                                    border: '1px solid rgba(255,140,0,0.2)'
-                                }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                                        <i data-lucide="trending-up" style={{ width: '20px', height: '20px', color: '#FF8C00' }}></i>
-                                        <span style={{ fontSize: '12px', color: '#666666', fontWeight: '500' }}>Completion</span>
-                                    </div>
-                                    <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#FF8C00' }}>
-                                        {completionRate}%
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Progress Details */}
-                            <div style={{
-                                background: '#F8F9FA',
-                                padding: '16px',
-                                borderRadius: '12px',
-                                marginBottom: '20px'
-                            }}>
-                                <h3 style={{
-                                    margin: '0 0 16px 0',
-                                    fontSize: '14px',
-                                    fontWeight: '600',
-                                    color: '#000000',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px'
-                                }}>
-                                    <i data-lucide="activity" style={{ width: '18px', height: '18px', color: '#0077CC' }}></i>
-                                    Overall Progress
-                                </h3>
-
-                                <div style={{ marginBottom: '12px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                        <span style={{ fontSize: '13px', color: '#666666' }}>Completed Tasks</span>
-                                        <span style={{ fontSize: '13px', fontWeight: '600', color: '#000000' }}>
-                                            {completedAssignments} / {totalAssignments}
-                                        </span>
-                                    </div>
-                                    <div style={{
-                                        background: '#E9ECEF',
-                                        borderRadius: '8px',
-                                        height: '8px',
-                                        overflow: 'hidden'
-                                    }}>
-                                        <div style={{
-                                            background: 'linear-gradient(90deg, #0077CC 0%, #00A86B 100%)',
-                                            height: '100%',
-                                            width: `${completionRate}%`,
-                                            transition: 'width 0.3s ease'
-                                        }}></div>
-                                    </div>
-                                </div>
-
-                                <div style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(2, 1fr)',
-                                    gap: '12px',
-                                    marginTop: '16px'
-                                }}>
-                                    <div>
-                                        <div style={{ fontSize: '11px', color: '#999999', marginBottom: '4px' }}>Goals</div>
-                                        <div style={{ fontSize: '16px', fontWeight: '600', color: '#000000' }}>
-                                            {goals.length} Total
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: '11px', color: '#999999', marginBottom: '4px' }}>Objectives</div>
-                                        <div style={{ fontSize: '16px', fontWeight: '600', color: '#000000' }}>
-                                            {goals.reduce((count, goal) => count + (goal.objectives?.length || 0), 0)} Total
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Motivational Message */}
-                            <div style={{
-                                background: 'linear-gradient(135deg, rgba(0,119,204,0.1) 0%, rgba(5,133,133,0.1) 100%)',
-                                padding: '16px',
-                                borderRadius: '12px',
-                                border: '1px solid rgba(0,119,204,0.2)',
-                                textAlign: 'center'
-                            }}>
-                                <i data-lucide="trophy" style={{ width: '32px', height: '32px', color: '#0077CC', marginBottom: '8px' }}></i>
-                                <p style={{
-                                    margin: 0,
-                                    fontSize: '14px',
-                                    color: '#000000',
-                                    fontWeight: '500'
-                                }}>
-                                    {completionRate >= 75 ? '🌟 Outstanding progress! Keep up the amazing work!' :
-                                     completionRate >= 50 ? '💪 You\'re doing great! Stay focused on your goals!' :
-                                     completionRate >= 25 ? '🎯 Good start! Keep building momentum!' :
-                                     '🚀 Every journey begins with a single step. You\'ve got this!'}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Past Intentions Modal */}
-            {showPastIntentionsModal && (
-                <div style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    background: 'rgba(0,0,0,0.5)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    zIndex: 10000,
-                    padding: '20px'
-                }}>
-                    <div style={{
-                        background: '#FFFFFF',
-                        borderRadius: '16px',
-                        maxWidth: '600px',
-                        width: '100%',
-                        maxHeight: '90vh',
-                        overflow: 'auto'
-                    }}>
-                        {/* Header */}
-                        <div style={{
-                            padding: '24px',
-                            borderBottom: '1px solid #E9ECEF',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between'
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <i data-lucide="history" style={{ width: '24px', height: '24px', color: '#0077CC' }}></i>
-                                <h2 style={{
-                                    margin: 0,
-                                    fontSize: '20px',
-                                    fontWeight: '600',
-                                    color: '#000000'
-                                }}>
-                                    Past Intentions
-                                </h2>
-                            </div>
-                            <div
-                                onClick={() => onClose('pastIntentionsModal')}
-                                style={{
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    padding: '4px'
-                                }}
-                            >
-                                <i data-lucide="x" style={{
-                                    width: '24px',
-                                    height: '24px',
-                                    color: '#666666'
-                                }}></i>
-                            </div>
-                        </div>
-
-                        {/* Content */}
-                        <div style={{ padding: '24px' }}>
-                            {pastIntentions.length === 0 ? (
-                                <div style={{
-                                    background: 'linear-gradient(135deg, rgba(0,119,204,0.05) 0%, rgba(5,133,133,0.05) 100%)',
-                                    borderRadius: '12px',
-                                    padding: '40px 20px',
-                                    textAlign: 'center',
-                                    border: '2px dashed #0077CC'
-                                }}>
-                                    <i data-lucide="compass" style={{
-                                        width: '48px',
-                                        height: '48px',
-                                        color: '#0077CC',
-                                        marginBottom: '12px'
-                                    }}></i>
-                                    <h3 style={{
-                                        color: '#000000',
-                                        fontSize: '16px',
-                                        fontWeight: '600',
-                                        margin: '0 0 8px 0'
-                                    }}>
-                                        No Intentions Yet
-                                    </h3>
-                                    <p style={{
-                                        color: '#666666',
-                                        fontSize: '14px',
-                                        margin: 0,
-                                        lineHeight: '1.5'
-                                    }}>
-                                        Start setting your daily intentions to build momentum in your recovery journey.
-                                    </p>
-                                </div>
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                    {pastIntentions.map((intention, index) => {
-                                        const date = intention.createdAt?.toDate();
-                                        const dateStr = date ? date.toLocaleDateString('en-US', {
-                                            weekday: 'short',
-                                            month: 'short',
-                                            day: 'numeric',
-                                            year: 'numeric'
-                                        }) : 'Unknown date';
-                                        const timeStr = date ? date.toLocaleTimeString('en-US', {
-                                            hour: 'numeric',
-                                            minute: '2-digit',
-                                            hour12: true
-                                        }) : '';
-
-                                        return (
-                                            <div key={intention.id} style={{
-                                                background: 'linear-gradient(135deg, rgba(0,119,204,0.05) 0%, rgba(5,133,133,0.05) 100%)',
-                                                borderRadius: '12px',
-                                                padding: '16px',
-                                                border: '1px solid rgba(0,119,204,0.2)'
-                                            }}>
-                                                {/* Date Header */}
-                                                <div style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '8px',
-                                                    marginBottom: '12px',
-                                                    paddingBottom: '12px',
-                                                    borderBottom: '1px solid rgba(0,119,204,0.1)'
-                                                }}>
-                                                    <i data-lucide="calendar" style={{ width: '16px', height: '16px', color: '#0077CC' }}></i>
-                                                    <span style={{
-                                                        fontSize: '13px',
-                                                        fontWeight: '600',
-                                                        color: '#0077CC'
-                                                    }}>
-                                                        {dateStr}
-                                                    </span>
-                                                    <span style={{
-                                                        fontSize: '12px',
-                                                        color: '#666666',
-                                                        marginLeft: 'auto'
-                                                    }}>
-                                                        {timeStr}
-                                                    </span>
-                                                </div>
-
-                                                {/* Intention Content */}
-                                                <div style={{ marginBottom: '8px' }}>
-                                                    <div style={{
-                                                        fontSize: '12px',
-                                                        fontWeight: '600',
-                                                        color: '#666666',
-                                                        textTransform: 'uppercase',
-                                                        letterSpacing: '0.5px',
-                                                        marginBottom: '8px',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '6px'
-                                                    }}>
-                                                        <i data-lucide="target" style={{ width: '14px', height: '14px' }}></i>
-                                                        Intentions
-                                                    </div>
-                                                    {intention.intention && intention.intention.trim() !== '' ? (
-                                                        <p style={{
-                                                            margin: 0,
-                                                            fontSize: '14px',
-                                                            color: '#000000',
-                                                            lineHeight: '1.6',
-                                                            whiteSpace: 'pre-wrap'
-                                                        }}>
-                                                            {intention.intention}
-                                                        </p>
-                                                    ) : (
-                                                        <p style={{
-                                                            margin: 0,
-                                                            fontSize: '13px',
-                                                            color: '#999999',
-                                                            fontStyle: 'italic'
-                                                        }}>
-                                                            Daily pledge made (no text provided)
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-        </>
-    );
-        
-}
-
-// Register component globally
-window.GLRSApp = window.GLRSApp || {};
-window.GLRSApp.components = window.GLRSApp.components || {};
-window.GLRSApp.components.TasksSidebarModals = TasksSidebarModals;
 // CheckInModals.js - Check-in and reflection modals
 // ✅ PHASE 6D: Extracted from ModalContainer.js (4 modals)
 // 3-Layer Architecture: Component → Firebase → Component

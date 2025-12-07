@@ -417,6 +417,7 @@ Without reading this first, CLI will:
 | notifications | App notifications | ✅ | All portals |
 | broadcasts | System announcements | ✅ | Admin |
 | connections | Peer connections | - | PIR |
+| externalMeetings | AA/NA meetings sync | ✅ | Cloud Functions (syncAAMeetings, syncMeetings) |
 | gratitudes | Gratitude entries | ✅ | PIR |
 | reflections | Evening reflections | ✅ | PIR |
 | habits | Habit tracking | ✅ | PIR |
@@ -428,7 +429,7 @@ Without reading this first, CLI will:
 | savingsGoals | Savings goals | ✅ | PIR |
 | moneyMapStops | Money map | ✅ | PIR |
 
-**Total:** 21 collections with security rules in firestore.rules
+**Total:** 22 collections with security rules in firestore.rules
 
 ---
 
@@ -470,6 +471,41 @@ Without reading this first, CLI will:
 
 ---
 
+## MOBILE-FIRST RESPONSIVE STANDARD (Phase 1-6 Complete)
+
+**CRITICAL: All future code changes MUST use responsive patterns.**
+
+### When Adding/Editing ANY Code:
+✅ Use `isMobile` ternaries for dimensions:
+- `padding: isMobile ? '12px' : '16px'`
+- `fontSize: isMobile ? '14px' : '16px'`
+- `gap: isMobile ? '8px' : '12px'`
+
+✅ Use conditional layouts when needed:
+- `flexDirection: isMobile ? 'column' : 'row'`
+- `{isMobile ? <MobileView /> : <DesktopView />}`
+
+❌ NEVER use fixed values for:
+- Padding, margins, gaps
+- Font sizes
+- Container widths
+- Button sizes
+
+### Required Testing Before "Complete":
+1. Test at 375px width (mobile)
+2. Test at 1024px width (desktop)
+3. Verify no horizontal overflow
+4. Verify no console errors
+
+### Breakpoint:
+- Mobile: < 768px
+- Desktop: ≥ 768px
+- isMobile state available in CommunityTab component (line 232)
+
+**Non-responsive code = incomplete task.**
+
+---
+
 ## OUTSTANDING WORK
 
 - [ ] Deploy firestore.rules: `firebase deploy --only firestore:rules`
@@ -481,7 +517,506 @@ Without reading this first, CLI will:
 
 ---
 
+## SHARED DOCUMENT TEMPLATE SYSTEM (/shared/)
+
+**Created: Nov 27, 2025 - WYSIWYG Document Template Refactor Complete**
+
+The document template system (templates.html editor + sign.html viewer) uses shared files to guarantee WYSIWYG consistency.
+
+### Architecture
+
+```
+/shared/
+├── document-constants.js  (195 lines) - GLRS_DOC namespace
+├── block-styles.js        (540 lines) - GLRS_STYLES namespace
+├── block-renderer.js      (825 lines) - GLRS_RENDERER + GLRS_REACT namespaces
+└── pagination.js          (255 lines) - GLRS_PAGINATION namespace
+
+Imported by:
+├── /admin/templates.html  (editor)
+└── /sign.html            (signer viewer)
+```
+
+### document-constants.js (GLRS_DOC)
+- Page dimensions: PAGE_WIDTH (816), PAGE_HEIGHT (1056), PAGE_MARGIN (60)
+- Header/Footer: HEADER_HEIGHT (70), FOOTER_HEIGHT (50)
+- Block heights: BLOCKS.section (85), BLOCKS.heading (50), etc.
+- Typography: TYPOGRAPHY.charsPerLine (75), TYPOGRAPHY.lineHeight (22)
+- Drop zones: DROP_ZONE.resting (24), DROP_ZONE.active (40)
+- Helper functions: getParagraphHeight(), getBulletListHeight(), getBlockHeight()
+
+### block-styles.js (GLRS_STYLES)
+- Colors: COLORS.primary, COLORS.gray50-gray900, etc.
+- Content styles: getSectionStyle(), getHeadingStyle(), PARAGRAPH_STYLE, BULLET_LIST_STYLES
+- Field styles: getSignatureBoxStyle(), getInputStyle(), getCheckboxStyle()
+- Editor styles: getCanvasBlockStyle(), BLOCK_TYPE_INDICATOR_STYLE
+- Header/Footer: getPageHeaderStyle(), getPageFooterStyle()
+
+### block-renderer.js (GLRS_RENDERER + GLRS_REACT)
+**GLRS_RENDERER** - Returns render definitions (plain objects):
+- renderSection(), renderHeading(), renderParagraph(), renderBulletList()
+- renderSignatureField(), renderInitialsField(), renderDateField()
+- renderTextInputField(), renderCheckboxField(), renderDropdownField()
+- renderBlock() - Main dispatcher for all block types
+
+**GLRS_REACT** - Converts definitions to React elements:
+- createElement() - Converts render definition to React element
+- renderBlock() - Renders block as React element
+- isFieldType() / isContentType() - Block type helpers
+
+### pagination.js (GLRS_PAGINATION)
+Core functions (delegate to GLRS_DOC):
+- getBlockHeight(), getParagraphHeight(), getBulletListHeight()
+- getUsableContentHeight(), paginateBlocks()
+
+Helper functions:
+- getPageStartIndex() - Global start index for a page
+- getPageCount() - Total pages for blocks
+- getPageForBlock() - Find which page contains a block
+- getPaginationStats() - Detailed pagination statistics
+
+### WYSIWYG Guarantee
+
+Both templates.html (editor) and sign.html (viewer) import the same shared files:
+
+```html
+<script src="/shared/document-constants.js"></script>
+<script src="/shared/block-styles.js"></script>
+<script src="/shared/block-renderer.js"></script>
+<script src="/shared/pagination.js"></script>
+```
+
+This ensures:
+- **Identical dimensions** - Same page size, margins, header/footer heights
+- **Identical styles** - Same fonts, colors, spacing for all block types
+- **Identical rendering** - Same React elements for content blocks
+- **Identical pagination** - Same blocks on each page
+
+**What you see in the editor = What the signer sees**
+
+### Console Verification
+
+On page load, verify these console messages:
+- `[GLRS_DOC] Document constants loaded`
+- `[GLRS_STYLES] Block styles loaded`
+- `[GLRS_RENDERER] Block renderer loaded`
+- `[GLRS_PAGINATION] Pagination module loaded`
+
+---
+
+## SAFETY SYSTEM ARCHITECTURE (Phase 8A-8F Complete)
+
+**Implemented: December 2025 - Crisis Detection, AI Safety, & Admin Dashboard**
+
+The GLRS Lighthouse safety system provides multi-layered protection for users in recovery, including crisis keyword detection, AI response filtering, real-time alerts, and admin monitoring.
+
+### System Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| Crisis Keywords | `/functions/safety/crisisKeywords.js` | 169 keywords across 4 tiers |
+| Detection Logic | `/functions/safety/detectCrisis.js` | Scanning, negation handling, alert creation |
+| Notifications | `/functions/safety/sendCrisisNotifications.js` | Push, Email, SMS, In-App delivery |
+| Daily Digest | `/functions/safety/dailyCrisisDigest.js` | Tier 3 summary emails (6 AM) |
+| OpenAI Chat Safety | `/functions/openai/chat.js` | Pre/post-LLM filtering, SAFETY_PREFIX |
+| OpenAI Assistants | `/functions/openai/assistants.js` | Anchor chat with crisis bypass |
+| Client Filter | `/Index/pir-portal/src/lib/safetyFilter.ts` | Post-response filtering |
+| Admin Dashboard | `/admin/src/pages/alerts/` | Real-time monitoring UI |
+
+### Alert Tiers
+
+| Tier | Name | Keywords | Response Time | Notifications |
+|------|------|----------|---------------|---------------|
+| 1 | Critical | 47 | Immediate | Push + Email + SMS + In-App |
+| 2 | High | 55 | 30 minutes | Push + Email + In-App |
+| 3 | Moderate | 43 | 24 hours | Daily Digest + In-App |
+| 4 | Standard | 24 | Routine | Log only |
+| **Total** | | **169** | | |
+
+### Keyword Categories
+
+**Tier 1 (Critical):** suicide, selfHarm, danger, substanceCrisis
+**Tier 2 (High):** passiveSuicidal, historicalHarm, hopelessness, relapseCrisis, abuseIndicators
+**Tier 3 (Moderate):** concerningMood, substanceConcerns, supportIssues, mentalHealth
+**Tier 4 (Standard):** generalChallenges, positiveIndicators
+
+### Detection Features
+
+- **Case-insensitive matching** - Detects any capitalization
+- **Word boundaries** - Prevents "therapist" matching "the"
+- **Fuzzy matching** - 0.85 threshold for typos
+- **Negation detection** - 3-word window before keyword
+- **Context extraction** - Captures surrounding text for alerts
+
+### AI Safety Integration
+
+**Pre-LLM Safety:**
+```javascript
+// In chat.js and assistants.js
+const crisisScan = scanForCrisis(message);
+if (crisisScan.detected && crisisScan.tier <= 2) {
+  // Bypass LLM, return crisis response immediately
+  return CRISIS_RESPONSES[crisisScan.tier];
+}
+```
+
+**Post-LLM Safety:**
+```javascript
+// Filter AI responses for harmful content
+const filterResult = filterResponse(aiResponse);
+if (!filterResult.passed) {
+  return SAFE_FALLBACKS.harmful;
+}
+```
+
+### Test Suite
+
+| Test File | Purpose | Location |
+|-----------|---------|----------|
+| crisisKeywords.test.js | Keyword tier validation | `/functions/safety/__tests__/` |
+| detectCrisis.test.js | Detection logic, negation, boundaries | `/functions/safety/__tests__/` |
+| notifications.test.js | Notification matrix, delivery | `/functions/safety/__tests__/` |
+| adversarial.test.js | Red-team/jailbreak resistance | `/functions/safety/__tests__/` |
+| falsePositives.test.js | Recovery content exclusion | `/functions/safety/__tests__/` |
+| load.test.js | Performance benchmarks | `/functions/safety/__tests__/` |
+
+**Run Tests:**
+```bash
+cd /functions
+npm test -- --testPathPattern=safety
+```
+
+### Documentation
+
+| Document | Purpose | Location |
+|----------|---------|----------|
+| CRISIS_RESPONSE_RUNBOOK.md | Operational procedures | `/docs/safety/` |
+| KEYWORD_MAINTENANCE.md | Adding/tuning keywords | `/docs/safety/` |
+| COMPLIANCE_CHECKLIST.md | HIPAA, SAMHSA, regulatory | `/docs/safety/` |
+
+### Key Crisis Resources (In All Responses)
+
+- **988** - Suicide & Crisis Lifeline (call or text)
+- **741741** - Crisis Text Line (text HOME)
+- **911** - Emergency services
+
+---
+
 ## RECENT CHANGES
+
+**2025-12-02: SAFETY SYSTEM TESTING & DOCUMENTATION - COMPLETE (Phase 8F)**
+
+**Mission:** Comprehensive testing and documentation of the crisis detection safety system
+
+**Implementation Status:** COMPLETE - All 6 test files and 3 documentation files created
+
+**Test Files Created:**
+- `/functions/safety/__tests__/crisisKeywords.test.js` - Keyword tier validation
+- `/functions/safety/__tests__/detectCrisis.test.js` - Detection logic with negation/boundaries
+- `/functions/safety/__tests__/notifications.test.js` - Multi-channel notification matrix
+- `/functions/safety/__tests__/adversarial.test.js` - Red-team prompt injection resistance
+- `/functions/safety/__tests__/falsePositives.test.js` - Recovery content false positive prevention
+- `/functions/safety/__tests__/load.test.js` - Performance benchmarks (>100 msg/sec)
+
+**Documentation Created:**
+- `/docs/safety/CRISIS_RESPONSE_RUNBOOK.md` - Operational response procedures
+- `/docs/safety/KEYWORD_MAINTENANCE.md` - Keyword database management
+- `/docs/safety/COMPLIANCE_CHECKLIST.md` - HIPAA, SAMHSA, regulatory compliance
+
+---
+
+**2025-11-29: PIR PORTAL REACT/TYPESCRIPT MIGRATION - COMPLETE (PHASES 1-13)** ✅
+
+**Mission:** Complete migration of PIR Portal from vanilla JS (75,000+ lines) to modern React/TypeScript with shadcn/ui
+
+**Implementation Status:** COMPLETE - All 13 phases deployed to production
+
+**Deployment URL:** https://glrs-pir-system.web.app
+
+### New PIR Portal Structure (`/Index/pir-portal/`)
+
+```
+src/
+├── app/                    # App shell (routes, providers)
+├── components/
+│   ├── common/            # Shared UI components (8 files)
+│   ├── forms/             # Form components (4 files)
+│   ├── layout/            # Layout components (3 files)
+│   └── ui/                # shadcn/ui components (25 files)
+├── contexts/              # React contexts (1 file)
+├── features/
+│   ├── auth/              # Authentication (2 files)
+│   ├── community/         # Community tab (8 files, 2 modals)
+│   ├── journey/           # Journey tab (46 files, 17 modals)
+│   ├── meetings/          # Meetings tab (11 files)
+│   ├── messages/          # Messages tab (12 files, 2 modals)
+│   ├── profile/           # Profile tab (19 files, 16 modals)
+│   ├── resources/         # Resources tab (6 files, 1 modal)
+│   └── tasks/             # Tasks tab (42 files, 35 modals)
+├── hooks/                 # Global hooks (7 files)
+├── lib/                   # Firebase + utilities (3 files)
+└── types/                 # TypeScript types (2 files)
+```
+
+### Total Files Created
+| Category | Count |
+|----------|-------|
+| TypeScript/TSX Files | 180+ |
+| UI Components | 25 (shadcn/ui) |
+| Feature Components | 85+ |
+| **Total Modals** | **75** |
+| Custom Hooks | 24 |
+| Type Definitions | 50+ interfaces |
+
+### Modals by Feature
+| Feature | Modals | Count |
+|---------|--------|-------|
+| Journey | Life, Wellness, Finance | 17 |
+| Tasks | Check-ins, Habits, Stats | 35 |
+| Profile | Settings, Account, Privacy | 16 |
+| Messages | Lightbox, New Conversation | 2 |
+| Community | Group Details, Image Preview | 2 |
+| Resources | Resource Viewer | 1 |
+| **TOTAL** | | **75** |
+
+### PWA Configuration
+- **App Name:** GLRS Lighthouse
+- **Theme Color:** #069494
+- **Icons:** 192x192, 512x512 (with maskable variants)
+- **Service Worker:** Workbox-based with runtime caching
+- **Install Prompt:** Auto-prompts on mobile after 3 seconds
+
+### Firebase Cloud Messaging
+- **FCM Integration:** Full foreground/background support
+- **Token Storage:** Stored in user documents
+- **Notification Toast:** In-app notification display
+- **Permission Prompt:** Contextual opt-in flow
+
+### Build Output
+```
+dist/
+├── index.html                1.74 KB
+├── manifest.webmanifest      0.71 KB
+├── sw.js                     (generated service worker)
+├── assets/
+│   ├── index-*.css          109.92 KB (gzip: 16.85 KB)
+│   ├── vendor-*.js           30.61 KB (gzip: 11.17 KB)
+│   ├── firebase-*.js        380.04 KB (gzip: 117.55 KB)
+│   ├── charts-*.js          402.94 KB (gzip: 109.03 KB)
+│   └── index-*.js           892.87 KB (gzip: 244.77 KB)
+```
+
+### OHANA Rule Compliance
+- ✅ All 75 modals from original codebase migrated
+- ✅ All 8 tabs functional (Home, Journey, Tasks, Community, Messages, Meetings, Resources, Profile)
+- ✅ Real-time Firestore subscriptions working
+- ✅ Firebase Auth integration complete
+- ✅ PWA installable on mobile devices
+- ✅ Push notifications configured
+
+### Key Technologies
+- React 18 + TypeScript 5
+- Vite 7 + vite-plugin-pwa
+- shadcn/ui + Tailwind CSS
+- Firebase 10 (Auth, Firestore, Storage, FCM)
+- Recharts for data visualization
+- React Router 6 for navigation
+
+---
+
+**2025-11-27: WYSIWYG DOCUMENT TEMPLATE SYSTEM - COMPLETE (PHASES 1-6)** ✅
+
+**Mission:** Refactor document template system to guarantee WYSIWYG consistency between editor and signer views
+
+**Implementation Status:** COMPLETE - All 6 phases deployed to production
+
+**Files Created:**
+- `/shared/document-constants.js` (195 lines) - Page dimensions, block heights
+- `/shared/block-styles.js` (540 lines) - Visual styles for all blocks
+- `/shared/block-renderer.js` (825 lines) - Rendering logic + React adapter
+- `/shared/pagination.js` (255 lines) - Pagination functions
+- **Total: 1,815 lines of shared code**
+
+**Files Modified:**
+- `/admin/templates.html` - Now imports shared files, uses GLRS_* namespaces
+- `/sign.html` - Now imports shared files, uses GLRS_* namespaces
+
+**Key Fixes:**
+- HEADER_HEIGHT mismatch (was 44 vs 70) - Now unified at 70px
+- FOOTER_HEIGHT mismatch (was 28 vs 50) - Now unified at 50px
+- Drop zones too small (was 6px) - Now 24-40px per WCAG standards
+- Block styles duplicated - Now single source of truth
+- Pagination logic duplicated - Now single source of truth
+
+**Industry Standards Applied:**
+- US Letter @ 96 DPI (816x1056px)
+- Header 70px (~0.73") / Footer 50px (~0.52")
+- Drop zones 24-48px (WCAG accessibility)
+- 75 chars/line (optimal readability)
+- CKEditor "content styles" pattern
+
+---
+
+**2025-11-19: HOME TAB REDESIGN - COMPLETE (PHASES 1-5)** ✅
+
+**Mission:** Complete redesign of Home tab into modern dashboard with Daily Actions, Quick Launch, and polished Hero section
+
+**Implementation Status:** COMPLETE - All 5 phases deployed to production
+
+**File Modified:**
+- `/Index/tabs/HomeTab.js` - Redesigned from scratch (~1,050 lines, 100% mobile-responsive)
+
+**Phases Completed:**
+
+**Phase 1: Cleanup & Mobile Foundation** ✅
+- Removed 5 redundant sections (~217 lines): Milestone Timeline, Mood Tracker, Quick Tools, Recovery Resources, Stats Grid
+- Added isMobile state hook and resize listener
+- Prepared for new dashboard layout
+- Lines removed: 217
+
+**Phase 2: Daily Actions Cards** ✅
+- Built 4 conditional navigational cards (lines 408-765):
+  1. Morning Check-In (Sun icon, orange gradient) - Shows when no morning check-in today
+  2. Today's Tasks (ClipboardList icon, teal gradient) - Shows task count, navigates to Guides
+  3. Meetings Today (Calendar icon, purple gradient) - Shows meeting count, navigates to Connect
+  4. Evening Reflection (Moon icon, indigo gradient) - Shows when no evening reflection
+- Firebase queries for today's data: check-ins, tasks, meetings (GLRS + saved AA/NA)
+- "All caught up" empty state when all cards hidden
+- Loading state with spinner
+- Mobile-first with isMobile ternaries throughout
+- Touch targets: 80px mobile / 100px desktop
+- Lines added: ~370
+
+**Phase 3: Quick Launch Icon Grid** ✅
+- Built 6-icon grid for instant navigation (lines 767-1039):
+  1. Guides (Book icon, teal gradient)
+  2. Journey (Map icon, blue gradient)
+  3. Connect (Users icon, orange gradient)
+  4. Meetings (Calendar icon, purple gradient) - Navigate + scroll
+  5. Progress (TrendingUp icon, green gradient) - Navigate + scroll
+  6. SOS (AlertCircle icon, RED gradient) - Opens crisis modal
+- 3x2 grid layout (consistent across all viewports)
+- Hover effects: scale(1.05) with enhanced shadows
+- Haptic feedback on all buttons
+- Touch targets: 80px mobile / 100px desktop
+- Lines added: ~272
+
+**Phase 4: Hero & Guide Section Refinement** ✅
+- Updated coach card to "Your Guide" with Lighthouse icon (lines 334-409)
+- Added isMobile ternaries to all Hero sections
+- Sobriety counter with Award icon (gold, 64-80px sizing)
+- Daily quote with Quote icon (subtle white accent)
+- Next milestone with gold icon accent
+- All emojis replaced with Lucide icons
+- Contact button mobile-friendly (44px min-height)
+- Lines modified: ~170
+
+**Phase 5: Final Testing & Polish** ✅
+- Removed 6 unused state variables: selectedMood, moneySaved, checkInStreak, totalCheckIns, complianceRate, loading
+- Removed 2 unused useEffect hooks (checkInStreak, checkInStats loaders)
+- Removed unused moneySaved calculation
+- Verified all 19 Lucide icon references
+- Verified all isMobile ternaries in place
+- All Firebase queries reviewed and validated
+- Code cleanup: no TODOs, no commented code
+- Documentation updated
+- Lines removed: ~90
+
+**Technical Summary:**
+
+**State Management:**
+- 9 active state variables (down from 15)
+- 5 Phase 2 states for Daily Actions data
+- All unused states removed
+
+**Firebase Queries (6 total):**
+1. User data + sobriety days
+2. Coach info
+3. Active broadcasts
+4. Daily quotes
+5. Milestones
+6. Daily Actions data (check-ins, tasks, meetings)
+
+**Icons Used (19 Lucide icons):**
+- megaphone, lighthouse, phone, award, quote, zap, sun, clipboard-list, calendar, moon, check-circle, grid, book-open, map, users, trending-up, alert-circle, target (dynamic), lock
+
+**Mobile Responsiveness:**
+- 100% of inline styles use isMobile ternaries
+- Touch targets: 80px mobile, 60-100px desktop
+- All sections tested at 375px, 768px, 1024px+
+
+**Code Metrics:**
+- Starting lines: ~1,775 (after Phase 1)
+- Ending lines: ~1,050
+- Net reduction: ~725 lines (29% smaller)
+- New features added: Daily Actions (4 cards), Quick Launch (6 icons)
+- Code quality: No unused variables, no TODOs, fully responsive
+
+**Design Philosophy:**
+- Mobile-first responsive design
+- Lucide icons only (no emojis)
+- Consistent gradients and shadows
+- Touch-friendly interactions
+- Clean, professional UI
+
+**Production URL:** https://app.glrecoveryservices.com
+
+---
+
+**2025-11-18: AA MEETINGS SCRAPER - DEPLOYED (ALL 5 SITES)** ✅
+
+**Mission:** Implement Cloud Function to sync AA meetings from 5 Bay Area Intergroups
+
+**Implementation Status:** COMPLETE - All 5 sites deployed and scheduled (4 JSON + 1 HTML)
+
+**Files Created:**
+- `/functions/syncAAMeetings.js` (491 lines) - Main sync function with HTML scraping
+- `/functions/test-aa-sync.js` (232 lines) - Test script for JSON fetching
+- `/functions/test-firestore-write.js` (209 lines) - Test script for Firestore writes
+- `/functions/test-sanmateo-scraper.js` (162 lines) - Test script for HTML scraping
+- `/functions/PHASE3_DATA_STRUCTURE_COMPARISON.md` - Data structure compatibility doc
+
+**Data Sources (5 AA Intergroups - 4 JSON + 1 HTML):**
+- SF/Marin AA: 893 meetings (JSON - sheets.code4recovery.org)
+- East Bay AA: 896 meetings (JSON - eastbayaa.org)
+- Santa Clara AA: 719 meetings (JSON - sheets.code4recovery.org)
+- Santa Cruz AA: 344 meetings (JSON - aasantacruz.org)
+- San Mateo AA: 286 meetings (HTML scraping - aa-san-mateo.org) ✨ NEW
+- **Total: 3,138 AA meetings**
+
+**Technical Details:**
+- Cloud Function: `syncAAMeetings` (1st Gen, Node.js 20, 256MB)
+- Schedule: Every Sunday at 3:00 AM Pacific (cron: 0 3 * * 0)
+- Trigger: Cloud Scheduler (Pub/Sub)
+- Dependencies: axios, cheerio (for HTML parsing)
+- Firestore Collection: `externalMeetings` (same as NA meetings)
+- Document IDs: aa-{site}-{index} (e.g., aa-sfmarin-001, aa-sanmateo-001)
+- Rate Limiting: 2.5 seconds between sites, 0.5 seconds between day fetches (HTML)
+- Error Handling: Per-site failure recovery
+
+**Data Structure:**
+- 100% compatible with existing NA meeting structure
+- Additional field: `types` (AA meeting type codes: O, C, S, etc.)
+- All meetings include: source, type, name, day, time, location, address, coordinates, isVirtual, conferenceUrl, notes, lastUpdated
+
+**Phase Completion:**
+- ✅ Phase 0: Analysis & Discovery (found 4 JSON APIs + 1 HTML site)
+- ✅ Phase 1: Infrastructure & Configuration
+- ✅ Phase 2: JSON Fetching Logic (tested: 2,852 meetings from 4 JSON sites)
+- ✅ Phase 3: Data Normalization & Firestore Writes
+- ✅ Phase 4: Deployment & Scheduling (4 JSON sites)
+- ✅ Phase 5: HTML Scraping Implementation (San Mateo AA - 286 meetings)
+  - Added cheerio dependency to package.json
+  - Created fetchHTMLSiteData() function (7-day fetch loop)
+  - Regex extraction of embedded JavaScript locations data
+  - Tested successfully: 286 meetings across all days
+  - Deployed with updated syncAAMeetings.js (491 lines)
+
+**First Scheduled Run:** Next Sunday at 3:00 AM Pacific (automatic)
+
+**Verification:** Check Firestore `externalMeetings` collection for 3,138 new documents with aa-* prefixes
+
+---
 
 **2025-11-11: COMPREHENSIVE ARCHITECTURAL ANALYSIS COMPLETE** ✅
 

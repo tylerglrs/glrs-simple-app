@@ -108,9 +108,14 @@ function ProfileView() {  // ✅ PHASE 7: Refactored with modals wired + error h
     const [userData, setUserData] = useState(null);
     const [coachInfo, setCoachInfo] = useState(null);
     const [googleConnected, setGoogleConnected] = useState(false);
+    const [appleConnected, setAppleConnected] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [showModal, setShowModal] = useState(null);
+    const [activeProfileTab, setActiveProfileTab] = useState('settings'); // 'settings' | 'profile'
+
+    // Mobile responsiveness state
+    const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
     const [profileStats, setProfileStats] = useState({
         checkInRate: 0,
@@ -118,6 +123,13 @@ function ProfileView() {  // ✅ PHASE 7: Refactored with modals wired + error h
         currentStreak: 0,
         avgMood: 0,
         avgCraving: 0
+    });
+
+    // Reflection streak data state
+    const [reflectionStreakData, setReflectionStreakData] = useState({
+        currentStreak: 0,
+        longestStreak: 0,
+        allStreaks: []
     });
 
     // Load current user from Firebase auth
@@ -133,6 +145,54 @@ function ProfileView() {  // ✅ PHASE 7: Refactored with modals wired + error h
         return () => unsubscribeAuth();
     }, []);
 
+    // Initialize Lucide icons on component mount (for always-visible icons)
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
+                console.log('✅ ProfileTab: Initial Lucide icons initialized');
+            }
+        }, 100);
+
+        return () => clearTimeout(timer);
+    }, []);
+
+    // Mobile responsiveness resize listener
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    // Re-initialize Lucide icons when modals open
+    useEffect(() => {
+        if (showModal) {
+            // Small delay to ensure DOM has updated
+            const timer = setTimeout(() => {
+                if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
+                    lucide.createIcons();
+                    console.log('✅ ProfileTab: Lucide icons initialized for modal');
+                } else {
+                    console.warn('⚠️ ProfileTab: Lucide library not available');
+                }
+            }, 150);
+
+            return () => clearTimeout(timer);
+        }
+    }, [showModal]);
+
+    // Listen for cross-tab modal opening (from NotificationsTab settings icon)
+    useEffect(() => {
+        const handleOpenModal = (e) => {
+            if (e.detail?.modalType) {
+                setShowModal(e.detail.modalType);
+            }
+        };
+
+        window.addEventListener('openProfileModal', handleOpenModal);
+        return () => window.removeEventListener('openProfileModal', handleOpenModal);
+    }, []);
+
     // Load user profile data
     useEffect(() => {
         if (!user) return;
@@ -146,6 +206,28 @@ function ProfileView() {  // ✅ PHASE 7: Refactored with modals wired + error h
                     const data = userDoc.data();
                     setUserData(data);
                     setGoogleConnected(!!data.googleCalendar?.connected);
+                    setAppleConnected(!!data.appleCalendar?.connected);
+
+                    // Auto-detect timezone if not set
+                    if (!data.timezone) {
+                        try {
+                            const detectedTimezone = window.GLRSApp?.utils?.getUserTimezone() || 'America/Los_Angeles';
+                            await db.collection('users').doc(user.uid).update({
+                                timezone: detectedTimezone,
+                                timezoneDetectedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                                timezoneManualOverride: false
+                            });
+                            console.log(`✅ Auto-detected timezone: ${detectedTimezone}`);
+                            // Update local state with new timezone
+                            setUserData(prev => ({
+                                ...prev,
+                                timezone: detectedTimezone,
+                                timezoneManualOverride: false
+                            }));
+                        } catch (tzError) {
+                            console.warn('Failed to auto-detect timezone:', tzError);
+                        }
+                    }
                 }
             } catch (error) {
                 console.error('Error loading user data:', error);
@@ -203,7 +285,156 @@ function ProfileView() {  // ✅ PHASE 7: Refactored with modals wired + error h
         if (!user) return;
         loadProfileStats();
     }, [user]);
-    
+
+    // STEP 1.7H: Initialize Lucide icons after render
+    useEffect(() => {
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+            setTimeout(() => {
+                window.lucide.createIcons();
+            }, 100);
+        }
+    }, [showModal, userData]);
+
+    // Calculate reflection streak data from check-ins
+    useEffect(() => {
+        if (!user) return;
+
+        const calculateReflectionStreaks = async () => {
+            try {
+                const db = firebase.firestore();
+
+                // Get ALL check-ins with eveningData for this user
+                const snapshot = await db.collection('checkIns')
+                    .where('userId', '==', user.uid)
+                    .orderBy('createdAt', 'desc')
+                    .get();
+
+                // Extract dates that have reflections (eveningData)
+                const reflectionDates = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.eveningData && data.createdAt) {
+                        const date = data.createdAt.toDate();
+                        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                        if (!reflectionDates.includes(dateStr)) {
+                            reflectionDates.push(dateStr);
+                        }
+                    }
+                });
+
+                if (reflectionDates.length === 0) {
+                    setReflectionStreakData({
+                        currentStreak: 0,
+                        longestStreak: 0,
+                        allStreaks: []
+                    });
+                    return;
+                }
+
+                // Sort dates (newest first)
+                reflectionDates.sort((a, b) => b.localeCompare(a));
+
+                // Calculate streaks
+                const allStreaks = [];
+                let currentStreakLength = 0;
+                let longestStreakLength = 0;
+                let tempStreak = {
+                    length: 0,
+                    startDate: null,
+                    endDate: null
+                };
+
+                // Get today's and yesterday's date strings
+                const today = new Date();
+                const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                const yesterday = new Date(today);
+                yesterday.setDate(yesterday.getDate() - 1);
+                const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+                // Process dates to find streaks
+                for (let i = 0; i < reflectionDates.length; i++) {
+                    const currentDate = reflectionDates[i];
+
+                    if (tempStreak.length === 0) {
+                        tempStreak = {
+                            length: 1,
+                            startDate: currentDate,
+                            endDate: currentDate
+                        };
+                    } else {
+                        const current = new Date(currentDate);
+                        const previous = new Date(tempStreak.startDate);
+                        const diffTime = previous - current;
+                        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+                        if (diffDays === 1) {
+                            tempStreak.length++;
+                            tempStreak.startDate = currentDate;
+                        } else {
+                            allStreaks.push({ ...tempStreak });
+                            if (tempStreak.length > longestStreakLength) {
+                                longestStreakLength = tempStreak.length;
+                            }
+                            tempStreak = {
+                                length: 1,
+                                startDate: currentDate,
+                                endDate: currentDate
+                            };
+                        }
+                    }
+
+                    if (i === reflectionDates.length - 1) {
+                        allStreaks.push({ ...tempStreak });
+                        if (tempStreak.length > longestStreakLength) {
+                            longestStreakLength = tempStreak.length;
+                        }
+                    }
+                }
+
+                // Determine current streak (must include today or yesterday)
+                if (allStreaks.length > 0) {
+                    const mostRecentStreak = allStreaks[0];
+                    if (mostRecentStreak.endDate === todayStr || mostRecentStreak.endDate === yesterdayStr) {
+                        currentStreakLength = mostRecentStreak.length;
+                    }
+                }
+
+                // Filter streaks to show only 2+ days
+                const filteredStreaks = allStreaks
+                    .filter(s => s.length >= 2)
+                    .sort((a, b) => b.length - a.length);
+
+                setReflectionStreakData({
+                    currentStreak: currentStreakLength,
+                    longestStreak: longestStreakLength,
+                    allStreaks: filteredStreaks
+                });
+
+                console.log('✅ Reflection streaks calculated:', {
+                    current: currentStreakLength,
+                    longest: longestStreakLength,
+                    totalStreaks: filteredStreaks.length
+                });
+
+            } catch (error) {
+                console.error('Error calculating reflection streaks:', error);
+                window.handleFirebaseError && window.handleFirebaseError(error, 'calculateReflectionStreaks');
+            }
+        };
+
+        calculateReflectionStreaks();
+
+        // Set up listener to recalculate when check-ins change
+        const db = firebase.firestore();
+        const unsubscribe = db.collection('checkIns')
+            .where('userId', '==', user.uid)
+            .onSnapshot(() => {
+                calculateReflectionStreaks();
+            });
+
+        return () => unsubscribe();
+    }, [user]);
+
     const loadProfileStats = async () => {
         if (!user?.uid) return;
 
@@ -375,10 +606,57 @@ const calculateLifetimeTaskCompletion = async (userId) => {
     }
 };
 
-    const handleFileInputChange = (e) => {
+    const handleFileInputChange = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-        handleImageSelect(file);  // Call app object function
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+        alert('Please select an image file (JPG, PNG, etc.)');
+        return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+        alert('Image size must be less than 5MB');
+        return;
+    }
+
+    try {
+        // Show uploading feedback
+        console.log('Uploading profile picture...');
+
+        // Upload to Firebase Storage
+        const storage = firebase.storage();
+        const storageRef = storage.ref();
+        const fileExtension = file.name.split('.').pop();
+        const fileName = `profile_${user.uid}_${Date.now()}.${fileExtension}`;
+        const imageRef = storageRef.child(`profile-pictures/${fileName}`);
+
+        // Upload file
+        const uploadTask = await imageRef.put(file);
+
+        // Get download URL
+        const downloadURL = await uploadTask.ref.getDownloadURL();
+
+        // Update user profile in Firestore
+        await db.collection('users').doc(user.uid).update({
+            profileImageUrl: downloadURL,
+            profilePictureUpdatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Reload user data to show new profile picture
+        const userDoc = await db.collection('users').doc(user.uid).get();
+        if (userDoc.exists) {
+            setUserData(userDoc.data());
+        }
+
+        console.log('✅ Profile picture uploaded successfully');
+        alert('Profile picture updated successfully!');
+    } catch (error) {
+        console.error('Error uploading profile picture:', error);
+        window.handleFirebaseError && window.handleFirebaseError(error, 'ProfileView.handleFileInputChange');
+        alert('Failed to upload profile picture. Please try again.');
     }
 };
 
@@ -425,6 +703,27 @@ const handleChangePassword = async (currentPassword, newPassword) => {
         console.error('Error changing password:', error);
         window.handleFirebaseError && window.handleFirebaseError(error, 'ProfileView.handleChangePassword');
         throw error;
+    }
+};
+
+// Handler for DeleteAccountModal - performs actual account deletion
+const onDeleteAccount = async (userId) => {
+    try {
+        // Re-authenticate user with password (already validated by modal)
+        // Modal has already validated password, so we can proceed with deletion
+
+        // Delete all user data from Firestore first
+        await db.collection('users').doc(userId).delete();
+
+        // Delete Firebase Auth account
+        await user.delete();
+
+        // Redirect to homepage after successful deletion
+        window.location.href = '/';
+    } catch (error) {
+        console.error('Delete account error:', error);
+        window.handleFirebaseError && window.handleFirebaseError(error, 'ProfileView.onDeleteAccount');
+        throw error; // Re-throw so modal can display error
     }
 };
 
@@ -487,6 +786,54 @@ const handleAddEmergencyContact = async (newContact) => {
     }
 };
 
+// Handler for profile visibility settings (PHASE 5)
+const handleUpdateProfileVisibility = async (visibilitySettings) => {
+    try {
+        await db.collection('users').doc(user.uid).update({
+            profileVisibility: visibilitySettings
+        });
+        // Reload user data
+        const userDoc = await db.collection('users').doc(user.uid).get();
+        if (userDoc.exists) {
+            setUserData(userDoc.data());
+        }
+    } catch (error) {
+        console.error('Error updating profile visibility:', error);
+        window.handleFirebaseError && window.handleFirebaseError(error, 'ProfileView.handleUpdateProfileVisibility');
+        throw error;
+    }
+};
+
+// Handler for Google Calendar settings update (Step 2.1D)
+const handleUpdateGoogleCalendar = async () => {
+    try {
+        // Reload user data after calendar settings are saved
+        const userDoc = await db.collection('users').doc(user.uid).get();
+        if (userDoc.exists) {
+            setUserData(userDoc.data());
+        }
+    } catch (error) {
+        console.error('Error reloading user data:', error);
+        window.handleFirebaseError && window.handleFirebaseError(error, 'ProfileView.handleUpdateGoogleCalendar');
+        throw error;
+    }
+};
+
+// Handler for privacy settings (Step 1.3)
+const handleUpdatePrivacySettings = async (updates) => {
+    try {
+        await db.collection('users').doc(user.uid).update(updates);
+        // Reload user data
+        const userDoc = await db.collection('users').doc(user.uid).get();
+        if (userDoc.exists) {
+            setUserData(userDoc.data());
+        }
+    } catch (error) {
+        console.error('Error updating privacy settings:', error);
+        window.handleFirebaseError && window.handleFirebaseError(error, 'ProfileView.handleUpdatePrivacySettings');
+        throw error;
+    }
+};
 
 const profileCompletion = calculateProfileCompletion();
 
@@ -496,21 +843,24 @@ if (loading) {
         <div style={{
             textAlign: 'center',
             color: 'white',
-            padding: '60px 20px',
+            padding: isMobile ? '40px 12px' : '60px 20px',
             background: 'rgba(255,255,255,0.1)',
-            borderRadius: '20px',
-            margin: '20px'
+            borderRadius: isMobile ? '15px' : '20px',
+            margin: isMobile ? '12px' : '20px'
         }}>
             <div className="spinner" style={{
-                width: '48px',
-                height: '48px',
+                width: isMobile ? '40px' : '48px',
+                height: isMobile ? '40px' : '48px',
                 border: '4px solid rgba(255,255,255,0.3)',
                 borderTop: '4px solid white',
                 borderRadius: '50%',
                 animation: 'spin 1s linear infinite',
                 margin: '0 auto 20px auto'
             }}></div>
-            <p style={{ fontSize: '16px', opacity: 0.9 }}>Loading profile...</p>
+            <p style={{
+                fontSize: isMobile ? '14px' : '16px',
+                opacity: 0.9
+            }}>Loading profile...</p>
         </div>
     );
 }
@@ -520,28 +870,28 @@ if (error) {
     return (
         <div style={{
             background: 'rgba(255,255,255,0.95)',
-            borderRadius: '20px',
-            padding: '40px',
+            borderRadius: isMobile ? '15px' : '20px',
+            padding: isMobile ? '30px 20px' : '40px',
             textAlign: 'center',
-            margin: '20px'
+            margin: isMobile ? '12px' : '20px'
         }}>
             <i data-lucide="alert-circle" style={{
-                width: '64px',
-                height: '64px',
+                width: isMobile ? '48px' : '64px',
+                height: isMobile ? '48px' : '64px',
                 color: '#ef4444',
-                marginBottom: '20px'
+                marginBottom: isMobile ? '15px' : '20px'
             }}></i>
             <h3 style={{
                 color: '#ef4444',
                 margin: '0 0 12px 0',
-                fontSize: '20px'
+                fontSize: isMobile ? '18px' : '20px'
             }}>
                 Error Loading Profile
             </h3>
             <p style={{
                 color: '#666',
                 margin: '0 0 24px 0',
-                fontSize: '16px',
+                fontSize: isMobile ? '14px' : '16px',
                 lineHeight: '1.5'
             }}>
                 {error}
@@ -553,15 +903,16 @@ if (error) {
                     // The useEffect will re-run and reload profile data
                 }}
                 style={{
-                    padding: '12px 24px',
+                    padding: isMobile ? '10px 20px' : '12px 24px',
                     background: '#764ba2',
                     color: 'white',
                     border: 'none',
-                    borderRadius: '10px',
+                    borderRadius: isMobile ? '8px' : '10px',
                     cursor: 'pointer',
-                    fontSize: '16px',
+                    fontSize: isMobile ? '14px' : '16px',
                     fontWeight: 'bold',
-                    transition: 'all 0.3s'
+                    transition: 'all 0.3s',
+                    minHeight: isMobile ? '44px' : 'auto'
                 }}
             >
                 Retry
@@ -572,306 +923,928 @@ if (error) {
 
 return (
     <>
+        {/* PROFILE SETTINGS VIEW - Only show when activeProfileTab === 'settings' */}
+        {activeProfileTab === 'settings' && (
         <div className="profile-menu">
-            <div className="profile-header">
-                <div className="profile-avatar" onClick={() => {
-                    const fileInput = document.getElementById('profile-avatar-input');
-                    if (fileInput) fileInput.click();
+            {/* Shared ProfileHeaderBar - Hamburger + Profile + User Dropdown */}
+            {window.GLRSApp?.components?.ProfileHeaderBar &&
+                React.createElement(window.GLRSApp.components.ProfileHeaderBar, {
+                    title: 'Profile',
+                    onEditProfile: () => setActiveProfileTab('profile'),
+                    onShowSettings: () => {}, // Already in settings view
+                    onLogout: () => window.GLRSApp?.authUtils?.handleLogout(),
+                    isMobile: isMobile
+                })
+            }
+
+            {/* STEP 1.7H: REDESIGNED HEADER - TEAL gradient with enhanced legibility */}
+            <div className="profile-header" style={{
+                background: 'linear-gradient(135deg, #058585 0%, #047272 100%)',
+                padding: isMobile ? '20px 16px' : '32px 20px',
+                borderRadius: '0',
+                marginBottom: '0'
+            }}>
+                <div style={{
+                    display: 'flex',
+                    flexDirection: isMobile ? 'column' : 'row',
+                    alignItems: isMobile ? 'center' : 'flex-start',
+                    gap: '16px'
                 }}>
-                    {userData?.profileImageUrl ? (
-                        <img src={userData.profileImageUrl} alt="Profile" />
-                    ) : (
-                        (userData?.displayName || userData?.firstName || user?.email || 'U').charAt(0).toUpperCase()
-                    )}
-                    <div className="profile-avatar-upload">
-                        <i data-lucide="camera" style={{width: '16px', height: '16px'}}></i>
-                    </div>
-                </div>
-                <input
-                    id="profile-avatar-input"
-                    type="file"
-                    accept="image/*"
-                    className="upload-input"
-                    onChange={handleFileInputChange}
-                    style={{display: 'none'}}
-                />
-                <div className="profile-name">
-                    {userData?.displayName || userData?.firstName || 'User'}
-                </div>
-                <div className="profile-email">{user?.email}</div>
-                
-                {/* Profile Completion Indicator */}
-                {profileCompletion < 100 && (
-                    <div style={{marginTop: '10px'}}>
-                        <div style={{fontSize: '12px', opacity: 0.8, marginBottom: '5px'}}>
-                            Profile {profileCompletion}% Complete
+                    {/* 96px Avatar with teal edit icon */}
+                    <div style={{position: 'relative'}}>
+                        <div
+                            className="profile-avatar"
+                            onClick={() => {
+                                const fileInput = document.getElementById('profile-avatar-input');
+                                if (fileInput) fileInput.click();
+                            }}
+                            style={{
+                                width: '96px',
+                                height: '96px',
+                                fontSize: '36px',
+                                cursor: 'pointer',
+                                border: '4px solid white',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                            }}
+                        >
+                            {userData?.profileImageUrl ? (
+                                <img src={userData.profileImageUrl} alt="Profile" style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover',
+                                    borderRadius: '50%'
+                                }} />
+                            ) : (
+                                (userData?.displayName || userData?.firstName || user?.email || 'U').charAt(0).toUpperCase()
+                            )}
                         </div>
+                        {/* STEP 1.7F: Teal edit icon with shadow */}
                         <div style={{
-                            background: 'rgba(255,255,255,0.1)',
-                            borderRadius: '10px',
-                            height: '8px',
-                            overflow: 'hidden'
+                            position: 'absolute',
+                            bottom: '0',
+                            right: '0',
+                            width: '32px',
+                            height: '32px',
+                            background: '#058585',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+                            cursor: 'pointer'
+                        }} onClick={() => {
+                            const fileInput = document.getElementById('profile-avatar-input');
+                            if (fileInput) fileInput.click();
                         }}>
-                            <div style={{
-                                background: 'linear-gradient(135deg, #f4c430 0%, #ff9500 100%)',
-                                width: `${profileCompletion}%`,
-                                height: '100%',
-                                transition: 'width 0.3s ease'
-                            }}/>
+                            <i data-lucide="edit-3" style={{width: '16px', height: '16px', color: '#ffffff'}}></i>
                         </div>
+                        <input
+                            id="profile-avatar-input"
+                            type="file"
+                            accept="image/*"
+                            className="upload-input"
+                            onChange={handleFileInputChange}
+                            style={{display: 'none'}}
+                        />
                     </div>
-                )}
-                
-                {/* Sobriety Info */}
-                {userData?.sobrietyDate && (
+
+                    {/* Profile info section */}
                     <div style={{
-                        marginTop: '15px',
-                        padding: '10px',
-                        background: 'rgba(76, 175, 80, 0.1)',
-                        borderRadius: '10px',
-                        border: '1px solid rgba(76, 175, 80, 0.3)'
+                        flex: 1,
+                        textAlign: isMobile ? 'center' : 'left',
+                        color: '#ffffff'
                     }}>
-                        <div style={{fontSize: '24px', fontWeight: 'bold', color: '#4CAF50'}}>
-                            {window.getSobrietyDays(userData.sobrietyDate)} Days Clean
+                        {/* STEP 1.7F: User name with text shadow for legibility */}
+                        <div style={{
+                            fontSize: isMobile ? '22px' : '24px',
+                            fontWeight: 'bold',
+                            marginBottom: '4px',
+                            textShadow: '0 2px 4px rgba(0,0,0,0.3)'
+                        }}>
+                            {userData?.displayName || userData?.firstName || 'User'}
                         </div>
-                        <div style={{fontSize: '12px', opacity: 0.8, marginTop: '5px'}}>
-                            Since {new Date(userData.sobrietyDate).toLocaleDateString('en-US', {
-                                timeZone: 'UTC',
-                                year: 'numeric',
-                                month: 'long',
-                                day: 'numeric'
-                            })}
+
+                        {/* STEP 1.7F: Sobriety info with text shadow */}
+                        {userData?.sobrietyDate && (
+                            <div style={{
+                                fontSize: '16px',
+                                color: 'rgba(255,255,255,0.9)',
+                                marginBottom: '8px',
+                                textShadow: '0 1px 3px rgba(0,0,0,0.3)'
+                            }}>
+                                {window.getSobrietyDays(userData.sobrietyDate)} days sober • Since {new Date(userData.sobrietyDate).toLocaleDateString('en-US', {
+                                    timeZone: 'UTC',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    year: 'numeric'
+                                })}
+                            </div>
+                        )}
+
+                        {/* STEP 1.7F: Coach info with user-check icon and text shadow */}
+                        {coachInfo && (
+                            <div style={{
+                                fontSize: '14px',
+                                color: 'rgba(255,255,255,0.85)',
+                                marginBottom: '8px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: isMobile ? 'center' : 'flex-start',
+                                gap: '6px',
+                                textShadow: '0 1px 3px rgba(0,0,0,0.3)'
+                            }}>
+                                <i data-lucide="user-check" style={{width: '16px', height: '16px'}}></i>
+                                Coach: {coachInfo.displayName || coachInfo.firstName + ' ' + coachInfo.lastName}
+                            </div>
+                        )}
+
+                        {/* STEP 1.7F: Status badges with solid backgrounds and shadows */}
+                        <div style={{
+                            display: 'flex',
+                            gap: '8px',
+                            marginTop: '16px',
+                            flexWrap: 'wrap',
+                            justifyContent: isMobile ? 'center' : 'flex-start'
+                        }}>
+                            {/* STEP 1.7H: Timezone badge - Clearer label */}
+                            {userData?.timezone && (
+                                <div style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '6px 12px',
+                                    background: '#058585',
+                                    color: 'white',
+                                    borderRadius: '20px',
+                                    fontSize: '12px',
+                                    fontWeight: '600',
+                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                }}>
+                                    <i data-lucide="globe" style={{width: '14px', height: '14px'}}></i>
+                                    Timezone: {userData.timezone.split('/')[1]?.replace('_', ' ') || userData.timezone}
+                                </div>
+                            )}
+
+                            {/* Calendar status badge - Green */}
+                            {googleConnected && (
+                                <div style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '6px 12px',
+                                    background: '#10b981',
+                                    color: 'white',
+                                    borderRadius: '20px',
+                                    fontSize: '12px',
+                                    fontWeight: '600',
+                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                }}>
+                                    <i data-lucide="calendar" style={{width: '14px', height: '14px'}}></i>
+                                    Calendar Connected
+                                </div>
+                            )}
+
+                            {/* Profile completion badge - Amber */}
+                            {profileCompletion < 100 && (
+                                <div style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '6px 12px',
+                                    background: '#f59e0b',
+                                    color: 'white',
+                                    borderRadius: '20px',
+                                    fontSize: '12px',
+                                    fontWeight: '600',
+                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                }}>
+                                    <i data-lucide="check-circle" style={{width: '14px', height: '14px'}}></i>
+                                    {profileCompletion}% Complete
+                                </div>
+                            )}
                         </div>
                     </div>
-                )}
-            </div>  {/* THIS WAS MISSING - Closing profile-header */}
-            
-            {/* Stats Section */}
-            <div className="menu-section">
-                <div className="menu-title">My Stats</div>
+                </div>
+            </div>  {/* Closing profile-header */}
+
+            {/* PROFILE SUB-NAVIGATION */}
+            <div style={{
+                background: '#058585',
+                display: 'flex',
+                justifyContent: 'space-around',
+                alignItems: 'center',
+                height: '48px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <button
+                    onClick={() => {
+                        window.GLRSApp.utils.triggerHaptic('light');
+                        setActiveProfileTab('settings');
+                    }}
+                    style={{
+                        flex: 1,
+                        height: '100%',
+                        background: 'none',
+                        border: 'none',
+                        color: activeProfileTab === 'settings' ? '#FFFFFF' : 'rgba(255,255,255,0.7)',
+                        fontSize: isMobile ? '13px' : '14px',
+                        fontWeight: activeProfileTab === 'settings' ? 'bold' : '400',
+                        cursor: 'pointer',
+                        position: 'relative',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    Profile Settings
+                    {activeProfileTab === 'settings' && (
+                        <div style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            width: '60%',
+                            height: '2px',
+                            background: '#FFFFFF'
+                        }} />
+                    )}
+                </button>
+
+                <button
+                    onClick={() => {
+                        window.GLRSApp.utils.triggerHaptic('light');
+                        setActiveProfileTab('profile');
+                    }}
+                    style={{
+                        flex: 1,
+                        height: '100%',
+                        background: 'none',
+                        border: 'none',
+                        color: activeProfileTab === 'profile' ? '#FFFFFF' : 'rgba(255,255,255,0.7)',
+                        fontSize: isMobile ? '13px' : '14px',
+                        fontWeight: activeProfileTab === 'profile' ? 'bold' : '400',
+                        cursor: 'pointer',
+                        position: 'relative',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    My Profile
+                    {activeProfileTab === 'profile' && (
+                        <div style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            width: '60%',
+                            height: '2px',
+                            background: '#FFFFFF'
+                        }} />
+                    )}
+                </button>
+            </div>
+
+            {/* SETTINGS TAB CONTENT */}
+            {activeProfileTab === 'settings' && (
+            <>
+            {/* REDESIGNED SETTINGS - 7 Organized Cards with 48px colored icon circles */}
+            <div className="menu-section" style={{
+                padding: isMobile ? '16px' : '20px'
+            }}>
+                <div className="menu-title" style={{
+                    fontSize: '18px',
+                    fontWeight: 'bold',
+                    color: '#f4c430',
+                    marginBottom: '16px',
+                    paddingLeft: '0'
+                }}>Settings</div>
+
+                {/* STEP 1.7E: Settings Cards - Facebook Quality with Rounded Square Gradient Icons */}
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: isMobile ? '12px' : '16px'
+                }}>
+                    {/* 1. Account Settings Card - Blue Gradient */}
+                    <div onClick={() => setShowModal('personalInfo')} style={{
+                        height: isMobile ? '72px' : '88px',
+                        padding: '16px',
+                        background: '#ffffff',
+                        borderRadius: '16px',
+                        border: '1px solid #e5e7eb',
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = '#058585';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(5, 133, 133, 0.15)';
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                    }}>
+                        <div style={{
+                            width: isMobile ? '48px' : '56px',
+                            height: isMobile ? '48px' : '56px',
+                            borderRadius: '16px',
+                            background: 'linear-gradient(135deg, #4A90E2 0%, #357ABD 100%)',
+                            boxShadow: '0 2px 8px rgba(74, 144, 226, 0.25)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="user" style={{
+                                width: isMobile ? '24px' : '28px',
+                                height: isMobile ? '24px' : '28px',
+                                color: '#ffffff',
+                                strokeWidth: 2
+                            }}></i>
+                        </div>
+                        <div style={{flex: 1}}>
+                            <div style={{fontSize: '16px', fontWeight: '700', marginBottom: '4px', color: '#111827'}}>Account</div>
+                            <div style={{fontSize: '13px', color: '#6b7280'}}>Email, password, basic info</div>
+                        </div>
+                        <i data-lucide="chevron-right" style={{width: '20px', height: '20px', color: '#9ca3af'}}></i>
+                    </div>
+
+                    {/* 2. Recovery Settings Card - Green Gradient */}
+                    <div onClick={() => setShowModal('recoveryInfo')} style={{
+                        height: isMobile ? '72px' : '88px',
+                        padding: '16px',
+                        background: '#ffffff',
+                        borderRadius: '16px',
+                        border: '1px solid #e5e7eb',
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = '#058585';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(5, 133, 133, 0.15)';
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                    }}>
+                        <div style={{
+                            width: isMobile ? '48px' : '56px',
+                            height: isMobile ? '48px' : '56px',
+                            borderRadius: '16px',
+                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            boxShadow: '0 2px 8px rgba(16, 185, 129, 0.25)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="heart" style={{
+                                width: isMobile ? '24px' : '28px',
+                                height: isMobile ? '24px' : '28px',
+                                color: '#ffffff',
+                                strokeWidth: 2
+                            }}></i>
+                        </div>
+                        <div style={{flex: 1}}>
+                            <div style={{fontSize: '16px', fontWeight: '700', marginBottom: '4px', color: '#111827'}}>Recovery</div>
+                            <div style={{fontSize: '13px', color: '#6b7280'}}>Sobriety date, substances, daily cost</div>
+                        </div>
+                        <i data-lucide="chevron-right" style={{width: '20px', height: '20px', color: '#9ca3af'}}></i>
+                    </div>
+
+                    {/* 3. Coach & Emergency Card - Purple Gradient */}
+                    <div onClick={() => setShowModal('emergency')} style={{
+                        height: isMobile ? '72px' : '88px',
+                        padding: '16px',
+                        background: '#ffffff',
+                        borderRadius: '16px',
+                        border: '1px solid #e5e7eb',
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = '#058585';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(5, 133, 133, 0.15)';
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                    }}>
+                        <div style={{
+                            width: isMobile ? '48px' : '56px',
+                            height: isMobile ? '48px' : '56px',
+                            borderRadius: '16px',
+                            background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                            boxShadow: '0 2px 8px rgba(139, 92, 246, 0.25)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="users" style={{
+                                width: isMobile ? '24px' : '28px',
+                                height: isMobile ? '24px' : '28px',
+                                color: '#ffffff',
+                                strokeWidth: 2
+                            }}></i>
+                        </div>
+                        <div style={{flex: 1}}>
+                            <div style={{fontSize: '16px', fontWeight: '700', marginBottom: '4px', color: '#111827'}}>Coach & Emergency</div>
+                            <div style={{fontSize: '13px', color: '#6b7280'}}>Assigned coach, emergency contacts</div>
+                        </div>
+                        <i data-lucide="chevron-right" style={{width: '20px', height: '20px', color: '#9ca3af'}}></i>
+                    </div>
+
+                    {/* 4. Notifications Card - Orange Gradient */}
+                    <div onClick={() => setShowModal('notificationSettings')} style={{
+                        height: isMobile ? '72px' : '88px',
+                        padding: '16px',
+                        background: '#ffffff',
+                        borderRadius: '16px',
+                        border: '1px solid #e5e7eb',
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = '#058585';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(5, 133, 133, 0.15)';
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                    }}>
+                        <div style={{
+                            width: isMobile ? '48px' : '56px',
+                            height: isMobile ? '48px' : '56px',
+                            borderRadius: '16px',
+                            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                            boxShadow: '0 2px 8px rgba(245, 158, 11, 0.25)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="bell" style={{
+                                width: isMobile ? '24px' : '28px',
+                                height: isMobile ? '24px' : '28px',
+                                color: '#ffffff',
+                                strokeWidth: 2
+                            }}></i>
+                        </div>
+                        <div style={{flex: 1}}>
+                            <div style={{fontSize: '16px', fontWeight: '700', marginBottom: '4px', color: '#111827'}}>Notifications</div>
+                            <div style={{fontSize: '13px', color: '#6b7280'}}>Alerts, reminders, quiet hours</div>
+                        </div>
+                        <i data-lucide="chevron-right" style={{width: '20px', height: '20px', color: '#9ca3af'}}></i>
+                    </div>
+
+                    {/* 5. Calendar Card - Teal Gradient */}
+                    <div onClick={() => setShowModal('googleCalendar')} style={{
+                        height: isMobile ? '72px' : '88px',
+                        padding: '16px',
+                        background: '#ffffff',
+                        borderRadius: '16px',
+                        border: '1px solid #e5e7eb',
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = '#058585';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(5, 133, 133, 0.15)';
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                    }}>
+                        <div style={{
+                            width: isMobile ? '48px' : '56px',
+                            height: isMobile ? '48px' : '56px',
+                            borderRadius: '16px',
+                            background: 'linear-gradient(135deg, #058585 0%, #047272 100%)',
+                            boxShadow: '0 2px 8px rgba(5, 133, 133, 0.25)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="calendar" style={{
+                                width: isMobile ? '24px' : '28px',
+                                height: isMobile ? '24px' : '28px',
+                                color: '#ffffff',
+                                strokeWidth: 2
+                            }}></i>
+                        </div>
+                        <div style={{flex: 1}}>
+                            <div style={{fontSize: '16px', fontWeight: '700', marginBottom: '4px', color: '#111827'}}>Calendar</div>
+                            <div style={{fontSize: '13px', color: '#6b7280'}}>
+                                Timezone, Google Calendar sync
+                                {googleConnected && <span style={{color: '#10b981', marginLeft: '8px', fontWeight: '600'}}>• Connected</span>}
+                            </div>
+                        </div>
+                        <i data-lucide="chevron-right" style={{width: '20px', height: '20px', color: '#9ca3af'}}></i>
+                    </div>
+
+
+                    {/* Apple Calendar Card */}
+                    <div
+                        onClick={() => setShowModal('appleCalendar')}
+                        style={{
+                            background: '#ffffff',
+                            padding: '20px',
+                            borderRadius: '12px',
+                            border: '1px solid #e5e7eb',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '16px'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = '#000000';
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = '#e5e7eb';
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = 'none';
+                        }}
+                    >
+                        <div style={{
+                            width: '56px',
+                            height: '56px',
+                            borderRadius: '12px',
+                            background: 'linear-gradient(135deg, #000000 0%, #434343 100%)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="calendar" style={{ width: '28px', height: '28px', color: '#ffffff' }}></i>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <h3 style={{
+                                fontSize: '16px',
+                                fontWeight: '600',
+                                color: '#111827',
+                                margin: '0 0 4px 0'
+                            }}>
+                                Apple Calendar
+                            </h3>
+                            <p style={{
+                                fontSize: '14px',
+                                color: '#6b7280',
+                                margin: 0
+                            }}>
+                                {userData?.appleCalendar?.connected
+                                    ? `Connected as ${userData.appleCalendar.appleId}`
+                                    : 'Sync events with iCloud Calendar'}
+                            </p>
+                        </div>
+                        <i data-lucide="chevron-right" style={{ width: '20px', height: '20px', color: '#9ca3af' }}></i>
+                    </div>
+                    {/* 6. Privacy Card - Red Gradient */}
+                    <div onClick={() => setShowModal('privacySettings')} style={{
+                        height: isMobile ? '72px' : '88px',
+                        padding: '16px',
+                        background: '#ffffff',
+                        borderRadius: '16px',
+                        border: '1px solid #e5e7eb',
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = '#058585';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(5, 133, 133, 0.15)';
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                    }}>
+                        <div style={{
+                            width: isMobile ? '48px' : '56px',
+                            height: isMobile ? '48px' : '56px',
+                            borderRadius: '16px',
+                            background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                            boxShadow: '0 2px 8px rgba(220, 38, 38, 0.25)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="shield" style={{
+                                width: isMobile ? '24px' : '28px',
+                                height: isMobile ? '24px' : '28px',
+                                color: '#ffffff',
+                                strokeWidth: 2
+                            }}></i>
+                        </div>
+                        <div style={{flex: 1}}>
+                            <div style={{fontSize: '16px', fontWeight: '700', marginBottom: '4px', color: '#111827'}}>Privacy</div>
+                            <div style={{fontSize: '13px', color: '#6b7280'}}>
+                                Visibility, data sharing, blocked users
+                                {userData?.privacy?.profileVisibility &&
+                                    <span style={{color: '#6b7280', marginLeft: '8px', fontWeight: '600'}}>• {userData.privacy.profileVisibility}</span>
+                                }
+                            </div>
+                        </div>
+                        <i data-lucide="chevron-right" style={{width: '20px', height: '20px', color: '#9ca3af'}}></i>
+                    </div>
+
+                    {/* 7. Data & Account Card - Gray Gradient */}
+                    <div onClick={() => setShowModal('dataManagement')} style={{
+                        height: isMobile ? '72px' : '88px',
+                        padding: '16px',
+                        background: '#ffffff',
+                        borderRadius: '16px',
+                        border: '1px solid #e5e7eb',
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = '#058585';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(5, 133, 133, 0.15)';
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                    }}>
+                        <div style={{
+                            width: isMobile ? '48px' : '56px',
+                            height: isMobile ? '48px' : '56px',
+                            borderRadius: '16px',
+                            background: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
+                            boxShadow: '0 2px 8px rgba(107, 114, 128, 0.25)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="download" style={{
+                                width: isMobile ? '24px' : '28px',
+                                height: isMobile ? '24px' : '28px',
+                                color: '#ffffff',
+                                strokeWidth: 2
+                            }}></i>
+                        </div>
+                        <div style={{flex: 1}}>
+                            <div style={{fontSize: '16px', fontWeight: '700', marginBottom: '4px', color: '#111827'}}>Data & Account</div>
+                            <div style={{fontSize: '13px', color: '#6b7280'}}>Export data, delete account, cache</div>
+                        </div>
+                        <i data-lucide="chevron-right" style={{width: '20px', height: '20px', color: '#9ca3af'}}></i>
+                    </div>
+                </div>
+            </div>
+
+            {/* STEP 1.7H: ACCOUNT ACTIVITY - Compact teal-branded account metrics */}
+            <div className="menu-section" style={{
+                padding: isMobile ? '16px' : '20px'
+            }}>
+                {/* Section header */}
+                <div className="menu-title" style={{
+                    fontSize: '20px',
+                    fontWeight: 'bold',
+                    color: '#f4c430',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
+                    textShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                    marginBottom: '16px',
+                    paddingLeft: '0'
+                }}>Account Activity</div>
+
                 <div style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(2, 1fr)',
-                    gap: '10px',
-                    padding: '0 15px',
-                    marginBottom: '15px'
+                    gap: '12px'
                 }}>
+                    {/* Account Age */}
                     <div style={{
-                        background: 'rgba(255,255,255,0.05)',
-                        borderRadius: '10px',
-                        padding: '10px',
-                        textAlign: 'center'
+                        height: '60px',
+                        padding: '12px 16px',
+                        background: 'linear-gradient(135deg, rgba(5,133,133,0.08) 0%, rgba(4,114,114,0.05) 100%)',
+                        border: '1px solid rgba(5,133,133,0.2)',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px'
                     }}>
-                        <div style={{fontSize: '20px', fontWeight: 'bold', color: '#f4c430'}}>
-                            {profileStats.checkInRate}%
+                        <div style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '8px',
+                            background: '#058585',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="calendar-days" style={{width: '20px', height: '20px', color: 'white', strokeWidth: 2}}></i>
                         </div>
-                        <div style={{fontSize: '11px', opacity: 0.7}}>Check-in Rate</div>
-                    </div>
-                    
-                    <div style={{
-                        background: 'rgba(255,255,255,0.05)',
-                        borderRadius: '10px',
-                        padding: '10px',
-                        textAlign: 'center'
-                    }}>
-                        <div style={{fontSize: '20px', fontWeight: 'bold', color: '#4CAF50'}}>
-                            {profileStats.assignmentRate}%
-                        </div>
-                        <div style={{fontSize: '11px', opacity: 0.7}}>Lifetime Task</div>
-                    </div>
-                    
-                    <div style={{
-                        background: 'rgba(255,255,255,0.05)',
-                        borderRadius: '10px',
-                        padding: '10px',
-                        textAlign: 'center'
-                    }}>
-                        <div style={{fontSize: '20px', fontWeight: 'bold', color: '#ff9500'}}>
-                            {profileStats.currentStreak}
-                        </div>
-                        <div style={{fontSize: '11px', opacity: 0.7}}>Day Streak</div>
-                    </div>
-                    
-                    <div style={{
-                        background: 'rgba(255,255,255,0.05)',
-                        borderRadius: '10px',
-                        padding: '10px',
-                        textAlign: 'center'
-                    }}>
-                        <div style={{fontSize: '20px', fontWeight: 'bold', color: '#9c27b0'}}>
-                            {profileStats.avgMood}/10
-                        </div>
-                        <div style={{fontSize: '11px', opacity: 0.7}}>Avg Mood</div>
-                    </div>
-                </div>
-            </div>
-                
-                {/* Coach Section */}
-                {coachInfo && (
-                    <div className="menu-section">
-                        <div className="menu-title">My Coach</div>
-                        <div style={{background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '15px', margin: '0 10px'}}>
-                            <div style={{fontWeight: 'bold', marginBottom: '5px'}}>
-                                {coachInfo.displayName || coachInfo.firstName + ' ' + coachInfo.lastName}
+                        <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '2px'}}>
+                            <div style={{fontSize: '18px', fontWeight: '700', color: '#058585'}}>
+                                {(() => {
+                                    if (!userData?.createdAt) return 0;
+                                    // Handle Firestore Timestamp objects
+                                    const createdDate = userData.createdAt.toDate
+                                        ? userData.createdAt.toDate()  // Firestore Timestamp
+                                        : new Date(userData.createdAt);  // ISO string or number
+                                    // Check if valid date
+                                    if (isNaN(createdDate.getTime())) return 0;
+                                    // Calculate days since account creation
+                                    const millisecondsPerDay = 1000 * 60 * 60 * 24;
+                                    return Math.floor((Date.now() - createdDate.getTime()) / millisecondsPerDay);
+                                })()}
                             </div>
-                            {coachInfo.credentials && (
-                                <div style={{fontSize: '14px', opacity: 0.8, marginBottom: '5px'}}>
-                                    {coachInfo.credentials}
-                                </div>
-                            )}
-                            {coachInfo.phone && (
-                                <div style={{fontSize: '14px'}}>
-                                    📞 <a href={`tel:${coachInfo.phone}`} style={{color: '#f4c430', textDecoration: 'none'}}>
-                                        {coachInfo.phone}
-                                    </a>
-                                </div>
-                            )}
+                            <div style={{fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px'}}>
+                                DAYS ACTIVE
+                            </div>
                         </div>
                     </div>
-                )}
-                
-                {/* Account Settings */}
-                <div className="menu-section">
-                    <div className="menu-title">Account</div>
-                    <button className="menu-item" onClick={() => setShowModal('personalInfo')}>
-                        <div className="menu-item-left">
-                            <span className="menu-icon"><i data-lucide="user" style={{width: '18px', height: '18px'}}></i></span>
-                            <span>Personal Information</span>
-                        </div>
-                        <span className="menu-arrow">›</span>
-                    </button>
-                    <button className="menu-item" onClick={() => setShowModal('recoveryInfo')}>
-                        <div className="menu-item-left">
-                            <span className="menu-icon"><i data-lucide="target" style={{width: '18px', height: '18px'}}></i></span>
-                            <span>Recovery Settings</span>
-                        </div>
-                        <span className="menu-arrow">›</span>
-                    </button>
-                    <button className="menu-item" onClick={() => setShowModal('password')}>
-                        <div className="menu-item-left">
-                            <span className="menu-icon"><i data-lucide="lock" style={{width: '18px', height: '18px'}}></i></span>
-                            <span>Password & Security</span>
-                        </div>
-                        <span className="menu-arrow">›</span>
-                    </button>
-                    <button className="menu-item" onClick={() => setShowModal('notificationSettings')}>
-    <div className="menu-item-left">
-        <span className="menu-icon"><i data-lucide="bell" style={{width: '18px', height: '18px'}}></i></span>
-        <span>Notification Settings</span>
-    </div>
-    <span className="menu-arrow">›</span>
-</button>
 
-{/* NEW: Google Calendar Integration */}
-<button className="menu-item" onClick={() => setShowModal('googleCalendar')}>
-    <div className="menu-item-left">
-        <span className="menu-icon"><i data-lucide="calendar" style={{width: '18px', height: '18px'}}></i></span>
-        <span>Google Calendar</span>
-    </div>
-    <span className="menu-arrow" style={{
-        color: googleConnected ? '#4CAF50' : 'rgba(255,255,255,0.5)',
-        fontWeight: googleConnected ? 'bold' : 'normal'
-    }}>
-        {googleConnected ? '✓ Connected' : 'Not Connected'}
-    </span>
-</button>
-
-<button className="menu-item" onClick={() => setShowModal('emergency')}>
-    <div className="menu-item-left">
-        <span className="menu-icon"><i data-lucide="alert-circle" style={{width: '18px', height: '18px'}}></i></span>
-        <span>Emergency Contacts</span>
-    </div>
-    <span className="menu-arrow">›</span>
-</button>
+                    {/* Profile Completion */}
+                    <div style={{
+                        height: '60px',
+                        padding: '12px 16px',
+                        background: 'linear-gradient(135deg, rgba(5,133,133,0.08) 0%, rgba(4,114,114,0.05) 100%)',
+                        border: '1px solid rgba(5,133,133,0.2)',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px'
+                    }}>
+                        <div style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '8px',
+                            background: '#058585',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="user-check" style={{width: '20px', height: '20px', color: 'white', strokeWidth: 2}}></i>
+                        </div>
+                        <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '2px'}}>
+                            <div style={{fontSize: '18px', fontWeight: '700', color: '#058585'}}>
+                                {profileCompletion}%
+                            </div>
+                            <div style={{fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px'}}>
+                                PROFILE DONE
+                            </div>
+                        </div>
                     </div>
-                {/* Support & Resources */}
-                <div className="menu-section">
-                    <div className="menu-title">Support</div>
-                    <button className="menu-item" onClick={() => setShowModal('help')}>
-                        <div className="menu-item-left">
-                            <span className="menu-icon"><i data-lucide="help-circle" style={{width: '18px', height: '18px'}}></i></span>
-                            <span>Help & Support</span>
-                        </div>
-                        <span className="menu-arrow">›</span>
-                    </button>
-                    <button className="menu-item" onClick={() => setShowModal('feedback')}>
-                        <div className="menu-item-left">
-                            <span className="menu-icon"><i data-lucide="message-square" style={{width: '18px', height: '18px'}}></i></span>
-                            <span>Send Feedback</span>
-                        </div>
-                        <span className="menu-arrow">›</span>
-                    </button>
-                    <button className="menu-item" onClick={() => setShowModal('export')}>
-                        <div className="menu-item-left">
-                            <span className="menu-icon"><i data-lucide="download" style={{width: '18px', height: '18px'}}></i></span>
-                            <span>Export My Data</span>
-                        </div>
-                        <span className="menu-arrow">›</span>
-                    </button>
-                </div>
 
-                {/* About Section */}
-                <div className="menu-section">
-                    <div className="menu-title">About</div>
-                    <button className="menu-item" onClick={() => {
-                        // Use existing LegalModal from shared/Modals.js
-                        if (window.GLRSApp?.modals?.LegalModal) {
-                            window.GLRSApp.modals.LegalModal({type: 'terms', onClose: () => {}});
-                        }
+                    {/* Last Active */}
+                    <div style={{
+                        height: '60px',
+                        padding: '12px 16px',
+                        background: 'linear-gradient(135deg, rgba(5,133,133,0.08) 0%, rgba(4,114,114,0.05) 100%)',
+                        border: '1px solid rgba(5,133,133,0.2)',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px'
                     }}>
-                        <div className="menu-item-left">
-                            <span className="menu-icon"><i data-lucide="file-text" style={{width: '18px', height: '18px'}}></i></span>
-                            <span>Terms of Service</span>
+                        <div style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '8px',
+                            background: '#058585',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="clock" style={{width: '20px', height: '20px', color: 'white', strokeWidth: 2}}></i>
                         </div>
-                        <span className="menu-arrow">›</span>
-                    </button>
-                    <button className="menu-item" onClick={() => {
-                        // Use existing LegalModal from shared/Modals.js
-                        if (window.GLRSApp?.modals?.LegalModal) {
-                            window.GLRSApp.modals.LegalModal({type: 'privacy', onClose: () => {}});
-                        }
-                    }}>
-                        <div className="menu-item-left">
-                            <span className="menu-icon"><i data-lucide="shield" style={{width: '18px', height: '18px'}}></i></span>
-                            <span>Privacy Policy</span>
+                        <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '2px'}}>
+                            <div style={{fontSize: '18px', fontWeight: '700', color: '#058585'}}>
+                                Today
+                            </div>
+                            <div style={{fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px'}}>
+                                LAST ACTIVE
+                            </div>
                         </div>
-                        <span className="menu-arrow">›</span>
-                    </button>
-                    <button className="menu-item" onClick={() => {
-                        // Simple alert for now - can be replaced with dedicated modal later
-                        alert('Guiding Light Recovery Services\n\nSupporting working professionals in their recovery journey.\n\nVisit: glrecoveryservices.com');
-                    }}>
-                        <div className="menu-item-left">
-                            <span className="menu-icon"><i data-lucide="info" style={{width: '18px', height: '18px'}}></i></span>
-                            <span>About GLRS</span>
-                        </div>
-                        <span className="menu-arrow">›</span>
-                    </button>
-                </div>
+                    </div>
 
-                {/* Sign Out & Delete Account */}
-                <div className="menu-section">
-                    <button className="btn-danger" onClick={window.GLRSApp.authUtils.handleLogout}>
-                        Sign Out
-                    </button>
-                    <button
-                        style={{
-                            width: '100%',
-                            padding: '14px',
-                            background: 'transparent',
-                            border: '1px solid rgba(255, 71, 87, 0.5)',
-                            borderRadius: '10px',
-                            color: '#ff4757',
-                            fontWeight: 'bold',
-                            cursor: 'pointer',
-                            marginTop: '10px'
-                        }}
-                        onClick={() => setShowModal('deleteAccount')}
-                    >
-                        Delete Account
-                    </button>
+                    {/* Settings Configured */}
+                    <div style={{
+                        height: '60px',
+                        padding: '12px 16px',
+                        background: 'linear-gradient(135deg, rgba(5,133,133,0.08) 0%, rgba(4,114,114,0.05) 100%)',
+                        border: '1px solid rgba(5,133,133,0.2)',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px'
+                    }}>
+                        <div style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '8px',
+                            background: '#058585',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="flame" style={{width: '20px', height: '20px', color: 'white', strokeWidth: 2}}></i>
+                        </div>
+                        <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '2px'}}>
+                            <div style={{fontSize: '18px', fontWeight: '700', color: '#058585'}}>
+                                {reflectionStreakData?.currentStreak || 0}
+                            </div>
+                            <div style={{fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px'}}>
+                                CHECK-IN STREAK
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
+
+            {/* SIGN OUT & DANGER ZONE */}
+            <div className="menu-section" style={{
+                padding: isMobile ? '16px' : '20px',
+                paddingTop: '24px'
+            }}>
+                <button
+                    className="btn-danger"
+                    onClick={window.GLRSApp.authUtils.handleLogout}
+                    style={{
+                        width: '100%',
+                        padding: isMobile ? '12px' : '14px',
+                        background: 'linear-gradient(135deg, #058585 0%, #047272 100%)',
+                        border: 'none',
+                        borderRadius: '12px',
+                        color: '#ffffff',
+                        fontWeight: '600',
+                        fontSize: isMobile ? '14px' : '16px',
+                        cursor: 'pointer',
+                        minHeight: isMobile ? '48px' : '50px',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                    onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                >
+                    Sign Out
+                </button>
+            </div>
+            </>
+            )}
+
+        </div>
+        )}
+        {/* End Profile Settings View */}
+
+        {/* MY PROFILE TAB CONTENT - Full screen page */}
+        {activeProfileTab === 'profile' && user && (
+            window.GLRSApp.components.UserProfileView &&
+                React.createElement(window.GLRSApp.components.UserProfileView, {
+                    userId: user.uid,
+                    currentUser: user,
+                    userData: userData,
+                    onBack: () => setActiveProfileTab('settings'),
+                    headerVariant: 'teal'
+                })
+        )}
 
             {/* Render Modals */}
             {showModal && (
@@ -884,10 +1857,13 @@ return (
                     onUpdateRecoveryInfo={handleUpdateRecoveryInfo}
                     onChangePassword={handleChangePassword}
                     onUpdateNotificationSettings={handleUpdateNotificationSettings}
+                    onUpdatePrivacySettings={handleUpdatePrivacySettings}
                     onSubmitFeedback={handleSubmitFeedback}
                     onDeleteAccount={handleDeleteAccount}
                     onOpenModal={setShowModal}
                     onAddEmergencyContact={handleAddEmergencyContact}
+                    onUpdateProfileVisibility={handleUpdateProfileVisibility}
+                    onUpdateGoogleCalendar={handleUpdateGoogleCalendar}
                 />
             )}
         </>
@@ -914,15 +1890,53 @@ function ProfileModals({
     onUpdateRecoveryInfo,
     onChangePassword,
     onUpdateNotificationSettings,
+    onUpdatePrivacySettings,
     onSubmitFeedback,
     onDeleteAccount,
     onOpenModal,
-    onAddEmergencyContact
+    onAddEmergencyContact,
+    onUpdateProfileVisibility,
+    onUpdateGoogleCalendar
 }) {
+    // STEP 1.9: Add animation state for fade-in/scale-in effects
+    const [isAnimating, setIsAnimating] = React.useState(false);
+
+    // STEP 1.9: Animation timing - trigger fade-in after render
+    React.useEffect(() => {
+        if (modalType) {
+            setTimeout(() => setIsAnimating(true), 10);
+        } else {
+            setIsAnimating(false);
+        }
+    }, [modalType]);
+
+    // STEP 1.9: Body scroll lock when modal is open
+    React.useEffect(() => {
+        if (modalType) {
+            document.body.style.overflow = 'hidden';
+        }
+        return () => {
+            document.body.style.overflow = '';
+        };
+    }, [modalType]);
+
+    // STEP 1.9: ESC key handler to close modal
+    React.useEffect(() => {
+        const handleEsc = (e) => {
+            if (e.key === 'Escape' && modalType) {
+                onClose();
+            }
+        };
+        document.addEventListener('keydown', handleEsc);
+        return () => document.removeEventListener('keydown', handleEsc);
+    }, [modalType, onClose]);
+
     const renderModalContent = () => {
         switch(modalType) {
             case 'account':
-                return <AccountModal onClose={onClose} onOpenModal={onOpenModal} userData={userData} />;
+                return <PersonalInfoModal userData={userData} user={user} onClose={onClose} onUpdate={onUpdatePersonalInfo} />;
+            case 'activity':
+                return <AccountActivityModal onClose={onClose} onOpenModal={onOpenModal} userData={userData} user={user} />;
             case 'emergency':
                 return <EmergencyModal userData={userData} user={user} onClose={onClose} onAddEmergencyContact={onAddEmergencyContact} />;
             case 'personalInfo':
@@ -933,8 +1947,16 @@ function ProfileModals({
                 return <PasswordModal user={user} onClose={onClose} onSubmit={onChangePassword} />;
             case 'notificationSettings':
                 return <NotificationSettingsModal userData={userData} user={user} onClose={onClose} onUpdate={onUpdateNotificationSettings} />;
+            case 'privacySettings':
+                return <PrivacySettingsModal userData={userData} user={user} onClose={onClose} onUpdate={onUpdatePrivacySettings} />;
+            case 'dataManagement':
+                return <DataManagementModal userData={userData} user={user} onClose={onClose} onOpenModal={onOpenModal} />;
+            case 'profileVisibility':
+                return <ProfileVisibilityModal userData={userData} user={user} onClose={onClose} onUpdate={onUpdateProfileVisibility} />;
             case 'googleCalendar':
-                return <GoogleCalendarModal onClose={onClose} />;
+                return <GoogleCalendarModal userData={userData} user={user} onClose={onClose} onUpdate={onUpdateGoogleCalendar} />;
+            case 'appleCalendar':
+                return <AppleConnectModal userData={userData} user={user} onClose={onClose} />;
             case 'help':
                 return <HelpModal onClose={onClose} />;
             case 'feedback':
@@ -947,542 +1969,2450 @@ function ProfileModals({
                 return null;
         }
     };
-    return renderModalContent();
-}
 
-/** AccountModal - Edit account settings (name, phone, address) */
-function AccountModal({ userData, onClose, onOpenModal }) {
-    const [formData, setFormData] = React.useState({});
+    // STEP 1.9: Don't render if no modal is active
+    if (!modalType) return null;
 
+    // STEP 1.9: Return modal with backdrop + container wrapper
     return (
-        <div>
-            <h3 style={{marginBottom: '20px'}}>Account Settings</h3>
-            <div className="form-group">
-                <label className="form-label">Display Name</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.displayName || userData?.displayName || ''}
-                    onChange={(e) => setFormData({...formData, displayName: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">First Name</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.firstName || userData?.firstName || ''}
-                    onChange={(e) => setFormData({...formData, firstName: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">Last Name</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.lastName || userData?.lastName || ''}
-                    onChange={(e) => setFormData({...formData, lastName: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">Phone</label>
-                <input
-                    type="tel"
-                    className="form-input"
-                    value={formData.phone || userData?.phone || ''}
-                    onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">Street Address</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.street || userData?.address?.street || ''}
-                    onChange={(e) => setFormData({...formData, street: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">City</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.city || userData?.address?.city || ''}
-                    onChange={(e) => setFormData({...formData, city: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">State</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.state || userData?.address?.state || ''}
-                    onChange={(e) => setFormData({...formData, state: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">ZIP</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.zip || userData?.address?.zip || ''}
-                    onChange={(e) => setFormData({...formData, zip: e.target.value})}
-                />
-            </div>
-            <button
-                className="btn-primary"
-                onClick={() => {
-                    const updates = {
-                        displayName: formData.displayName,
-                        firstName: formData.firstName,
-                        lastName: formData.lastName,
-                        phone: formData.phone,
-                        address: {
-                            street: formData.street,
-                            city: formData.city,
-                            state: formData.state,
-                            zip: formData.zip
-                        }
-                    };
-                    // Call parent callback with updates
-                    if (window.GLRSApp && window.GLRSApp.handlers && window.GLRSApp.handlers.updateAccountSettings) {
-                        window.GLRSApp.handlers.updateAccountSettings(updates);
-                    }
-                    onClose();
+        <div
+            className="modal-backdrop"
+            onClick={onClose}
+            style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(0, 0, 0, 0.5)',
+                zIndex: 9998,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: isAnimating ? 1 : 0,
+                transition: 'opacity 200ms ease-out'
+            }}
+        >
+            <div
+                className="modal-container"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                    position: 'relative',
+                    zIndex: 9999,
+                    background: '#ffffff',
+                    borderRadius: '16px',
+                    maxWidth: '600px',
+                    maxHeight: '90vh',
+                    width: '90%',
+                    boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+                    overflow: 'hidden',
+                    transform: isAnimating ? 'scale(1)' : 'scale(0.95)',
+                    opacity: isAnimating ? 1 : 0,
+                    transition: 'all 200ms ease-out'
                 }}
             >
-                Save Changes
-            </button>
+                {renderModalContent()}
+            </div>
         </div>
     );
 }
 
-/** EmergencyModal - Manage emergency contacts with add functionality */
-function EmergencyModal({ userData, user, onClose, onAddEmergencyContact }) {
-    const [formData, setFormData] = React.useState({});
+/** AccountActivityModal - Display account activity stats and information */
+function AccountActivityModal({ userData, user, onClose, onOpenModal }) {
+    // STEP 1.10: Initialize form data with current userData
+    const [formData, setFormData] = React.useState({
+        firstName: userData?.firstName || '',
+        lastName: userData?.lastName || '',
+        phone: userData?.phone || '',
+        email: userData?.email || user?.email || '',
+        street: userData?.address?.street || '',
+        city: userData?.address?.city || '',
+        state: userData?.address?.state || '',
+        zip: userData?.address?.zip || ''
+    });
 
-    const handleAddContact = async () => {
-        const newContact = {
-            name: formData.contactName,
-            phone: formData.contactPhone,
-            relationship: formData.contactRelationship
-        };
+    const [saving, setSaving] = React.useState(false);
 
+    // STEP 1.23: Mobile detection for responsive layout
+    const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+
+    React.useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    // STEP 1.10: Save handler with direct Firestore update
+    const handleSave = async () => {
+        setSaving(true);
         try {
-            await onAddEmergencyContact(newContact);
-            alert('Emergency contact added');
+            const updates = {
+                firstName: formData.firstName,
+                lastName: formData.lastName,
+                displayName: `${formData.firstName} ${formData.lastName}`,
+                phone: formData.phone,
+                address: {
+                    street: formData.street,
+                    city: formData.city,
+                    state: formData.state,
+                    zip: formData.zip
+                }
+            };
+
+            await db.collection('users').doc(user.uid).update(updates);
+            window.showNotification('Account updated successfully', 'success');
             onClose();
         } catch (error) {
-            console.error('Error adding emergency contact:', error);
-            window.handleFirebaseError && window.handleFirebaseError(error, 'EmergencyModal.handleAddContact');
-            alert('Failed to add contact');
+            console.error('Error saving account:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'AccountModal.handleSave');
+            alert('Failed to save changes. Please try again.');
+        } finally {
+            setSaving(false);
         }
     };
 
-    return (
-        <div>
-            <h3 style={{marginBottom: '20px'}}>Emergency Contacts</h3>
-            {userData?.emergencyContacts?.map((contact, index) => (
-                <div key={index} style={{
-                    background: 'rgba(255,255,255,0.1)',
-                    borderRadius: '10px',
-                    padding: '15px',
-                    marginBottom: '10px'
-                }}>
-                    <div style={{fontWeight: 'bold'}}>{contact.name}</div>
-                    <div>{contact.phone}</div>
-                    <div style={{opacity: 0.8, fontSize: '14px'}}>{contact.relationship}</div>
-                </div>
-            ))}
+    // STEP 1.10: Initialize Lucide icons after render
+    React.useEffect(() => {
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+            window.lucide.createIcons();
+        }
+    }, []);
 
-            <h4 style={{marginTop: '20px', marginBottom: '15px'}}>Add New Contact</h4>
-            <div className="form-group">
-                <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Name"
-                    value={formData.contactName || ''}
-                    onChange={(e) => setFormData({...formData, contactName: e.target.value})}
-                />
+    return (
+        <>
+            {/* STEP 1.10: HEADER - Title + Close Button */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '24px',
+                borderBottom: '1px solid #e5e7eb'
+            }}>
+                <h2 style={{
+                    fontSize: '24px',
+                    fontWeight: '700',
+                    color: '#111827',
+                    margin: 0
+                }}>
+                    Account Settings
+                </h2>
+                <button
+                    onClick={onClose}
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        borderRadius: '8px',
+                        transition: 'background 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                >
+                    <i data-lucide="x" style={{width: '24px', height: '24px', color: '#6b7280'}}></i>
+                </button>
             </div>
-            <div className="form-group">
-                <input
-                    type="tel"
-                    className="form-input"
-                    placeholder="Phone"
-                    value={formData.contactPhone || ''}
-                    onChange={(e) => setFormData({...formData, contactPhone: e.target.value})}
-                />
+
+            {/* STEP 1.10: BODY - Scrollable Form */}
+            <div style={{
+                padding: '24px',
+                overflowY: 'auto',
+                maxHeight: 'calc(90vh - 160px)'
+            }}>
+                {/* Personal Info */}
+                <div style={{ marginBottom: '20px' }}>
+                    <label style={{
+                        display: 'block',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '6px'
+                    }}>
+                        First Name
+                    </label>
+                    <input
+                        type="text"
+                        value={formData.firstName}
+                        onChange={(e) => setFormData({...formData, firstName: e.target.value})}
+                        style={{
+                            width: '100%',
+                            padding: '10px 14px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '15px',
+                            color: '#111827',
+                            transition: 'border-color 0.2s',
+                            boxSizing: 'border-box'
+                        }}
+                        onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                        onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                    />
+                </div>
+
+                <div style={{ marginBottom: '20px' }}>
+                    <label style={{
+                        display: 'block',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '6px'
+                    }}>
+                        Last Name
+                    </label>
+                    <input
+                        type="text"
+                        value={formData.lastName}
+                        onChange={(e) => setFormData({...formData, lastName: e.target.value})}
+                        style={{
+                            width: '100%',
+                            padding: '10px 14px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '15px',
+                            color: '#111827',
+                            transition: 'border-color 0.2s',
+                            boxSizing: 'border-box'
+                        }}
+                        onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                        onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                    />
+                </div>
+
+                <div style={{ marginBottom: '20px' }}>
+                    <label style={{
+                        display: 'block',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '6px'
+                    }}>
+                        Phone
+                    </label>
+                    <input
+                        type="tel"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                        placeholder="(555) 555-5555"
+                        style={{
+                            width: '100%',
+                            padding: '10px 14px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '15px',
+                            color: '#111827',
+                            transition: 'border-color 0.2s',
+                            boxSizing: 'border-box'
+                        }}
+                        onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                        onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                    />
+                </div>
+
+                <div style={{ marginBottom: '20px' }}>
+                    <label style={{
+                        display: 'block',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '6px'
+                    }}>
+                        Email (Cannot be changed)
+                    </label>
+                    <input
+                        type="email"
+                        value={formData.email}
+                        disabled
+                        style={{
+                            width: '100%',
+                            padding: '10px 14px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '15px',
+                            color: '#6b7280',
+                            background: '#f9fafb',
+                            cursor: 'not-allowed',
+                            boxSizing: 'border-box'
+                        }}
+                    />
+                </div>
+
+                {/* Address Section */}
+                <div style={{
+                    marginTop: '32px',
+                    marginBottom: '20px',
+                    paddingTop: '20px',
+                    borderTop: '1px solid #e5e7eb'
+                }}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#111827',
+                        marginBottom: '16px'
+                    }}>
+                        Address
+                    </h3>
+
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{
+                            display: 'block',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#374151',
+                            marginBottom: '6px'
+                        }}>
+                            Street Address
+                        </label>
+                        <input
+                            type="text"
+                            value={formData.street}
+                            onChange={(e) => setFormData({...formData, street: e.target.value})}
+                            placeholder="123 Main St"
+                            style={{
+                                width: '100%',
+                                padding: '10px 14px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '8px',
+                                fontSize: '15px',
+                                color: '#111827',
+                                transition: 'border-color 0.2s',
+                                boxSizing: 'border-box'
+                            }}
+                            onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                            onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                        />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                        <div>
+                            <label style={{
+                                display: 'block',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                color: '#374151',
+                                marginBottom: '6px'
+                            }}>
+                                City
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.city}
+                                onChange={(e) => setFormData({...formData, city: e.target.value})}
+                                placeholder="San Francisco"
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 14px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '15px',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    boxSizing: 'border-box'
+                                }}
+                                onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                                onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                            />
+                        </div>
+
+                        <div>
+                            <label style={{
+                                display: 'block',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                color: '#374151',
+                                marginBottom: '6px'
+                            }}>
+                                State
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.state}
+                                onChange={(e) => setFormData({...formData, state: e.target.value.toUpperCase()})}
+                                placeholder="CA"
+                                maxLength="2"
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 14px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '15px',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    textTransform: 'uppercase',
+                                    boxSizing: 'border-box'
+                                }}
+                                onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                                onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                            />
+                        </div>
+
+                        <div>
+                            <label style={{
+                                display: 'block',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                color: '#374151',
+                                marginBottom: '6px'
+                            }}>
+                                ZIP
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.zip}
+                                onChange={(e) => setFormData({...formData, zip: e.target.value})}
+                                placeholder="94102"
+                                maxLength="10"
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 14px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '15px',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    boxSizing: 'border-box'
+                                }}
+                                onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                                onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                            />
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div className="form-group">
-                <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Relationship"
-                    value={formData.contactRelationship || ''}
-                    onChange={(e) => setFormData({...formData, contactRelationship: e.target.value})}
-                />
+
+            {/* STEP 1.10: FOOTER - Cancel + Save Buttons */}
+            {/* STEP 1.23: Responsive gap (8px mobile, 12px desktop) */}
+            <div style={{
+                display: 'flex',
+                gap: isMobile ? '8px' : '12px',
+                justifyContent: 'flex-end',
+                padding: '20px 24px',
+                borderTop: '1px solid #e5e7eb',
+                background: '#f9fafb'
+            }}>
+                <button
+                    onClick={onClose}
+                    style={{
+                        padding: '12px 24px',
+                        background: '#e5e7eb',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        color: '#374151',
+                        fontSize: '15px',
+                        transition: 'background 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#d1d5db'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#e5e7eb'}
+                >
+                    Cancel
+                </button>
+                <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    style={{
+                        padding: '12px 24px',
+                        background: saving ? '#9ca3af' : '#058585',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontWeight: '600',
+                        cursor: saving ? 'not-allowed' : 'pointer',
+                        fontSize: '15px',
+                        opacity: saving ? 0.6 : 1,
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        if (!saving) e.currentTarget.style.background = '#047272';
+                    }}
+                    onMouseLeave={(e) => {
+                        if (!saving) e.currentTarget.style.background = '#058585';
+                    }}
+                >
+                    {saving ? 'Saving...' : 'Save Changes'}
+                </button>
             </div>
-            <button
-                className="btn-primary"
-                onClick={handleAddContact}
-            >
-                Add Contact
-            </button>
-        </div>
+        </>
+    );
+}
+
+/** EmergencyModal - Manage emergency contacts with add functionality */
+/** EmergencyModal - Manage emergency contacts (add, edit, delete, set primary) */
+function EmergencyModal({ userData, user, onClose, onAddEmergencyContact }) {
+    // STEP 1.12: Initialize state
+    const [contacts, setContacts] = React.useState(userData?.emergencyContacts || []);
+    const [isAdding, setIsAdding] = React.useState(false);
+    const [editingIndex, setEditingIndex] = React.useState(null);
+    const [formData, setFormData] = React.useState({
+        name: '',
+        phone: '',
+        relationship: '',
+        isPrimary: false
+    });
+    const [saving, setSaving] = React.useState(false);
+    // Mobile detection for responsive layout
+    const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+
+    React.useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    // STEP 1.12: Save all contacts to Firestore
+    const handleSaveContacts = async () => {
+        setSaving(true);
+        try {
+            await db.collection('users').doc(user.uid).update({
+                emergencyContacts: contacts
+            });
+            window.showNotification('Emergency contacts updated successfully', 'success');
+            onClose();
+        } catch (error) {
+            console.error('Error saving emergency contacts:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'EmergencyModal.handleSaveContacts');
+            alert('Failed to save changes. Please try again.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    // STEP 1.12: Add new contact
+    const handleAddContact = () => {
+        if (!formData.name || !formData.phone) {
+            alert('Name and phone are required');
+            return;
+        }
+
+        const newContact = {
+            name: formData.name,
+            phone: formData.phone,
+            relationship: formData.relationship,
+            isPrimary: formData.isPrimary
+        };
+
+        // If setting as primary, remove primary from other contacts
+        const updatedContacts = formData.isPrimary
+            ? contacts.map(c => ({ ...c, isPrimary: false }))
+            : contacts;
+
+        setContacts([...updatedContacts, newContact]);
+        setFormData({ name: '', phone: '', relationship: '', isPrimary: false });
+        setIsAdding(false);
+    };
+
+    // STEP 1.12: Update existing contact
+    const handleUpdateContact = () => {
+        if (!formData.name || !formData.phone) {
+            alert('Name and phone are required');
+            return;
+        }
+
+        const updatedContact = {
+            name: formData.name,
+            phone: formData.phone,
+            relationship: formData.relationship,
+            isPrimary: formData.isPrimary
+        };
+
+        const updatedContacts = contacts.map((contact, idx) => {
+            if (idx === editingIndex) {
+                return updatedContact;
+            }
+            // If setting new primary, remove primary from others
+            if (formData.isPrimary && contact.isPrimary) {
+                return { ...contact, isPrimary: false };
+            }
+            return contact;
+        });
+
+        setContacts(updatedContacts);
+        setFormData({ name: '', phone: '', relationship: '', isPrimary: false });
+        setEditingIndex(null);
+    };
+
+    // STEP 1.12: Delete contact
+    const handleDeleteContact = (index) => {
+        if (confirm('Are you sure you want to delete this contact?')) {
+            setContacts(contacts.filter((_, idx) => idx !== index));
+        }
+    };
+
+    // STEP 1.12: Start editing contact
+    const startEditing = (index) => {
+        const contact = contacts[index];
+        setFormData({
+            name: contact.name,
+            phone: contact.phone,
+            relationship: contact.relationship || '',
+            isPrimary: contact.isPrimary || false
+        });
+        setEditingIndex(index);
+        setIsAdding(false);
+    };
+
+    // STEP 1.12: Cancel add/edit
+    const cancelForm = () => {
+        setFormData({ name: '', phone: '', relationship: '', isPrimary: false });
+        setIsAdding(false);
+        setEditingIndex(null);
+    };
+
+    // STEP 1.12: Initialize Lucide icons after render
+    React.useEffect(() => {
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+            window.lucide.createIcons();
+        }
+    }, [isAdding, editingIndex, contacts]);
+
+    return (
+        <>
+            {/* STEP 1.12: HEADER - Title + Close Button */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '24px',
+                borderBottom: '1px solid #e5e7eb'
+            }}>
+                <h2 style={{
+                    fontSize: '24px',
+                    fontWeight: '700',
+                    color: '#111827',
+                    margin: 0
+                }}>
+                    Emergency Contacts
+                </h2>
+                <button
+                    onClick={onClose}
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        borderRadius: '8px',
+                        transition: 'background 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                >
+                    <i data-lucide="x" style={{width: '24px', height: '24px', color: '#6b7280'}}></i>
+                </button>
+            </div>
+
+            {/* STEP 1.12: BODY - Scrollable Contact List */}
+            <div style={{
+                padding: '24px',
+                overflowY: 'auto',
+                maxHeight: 'calc(90vh - 160px)'
+            }}>
+                {/* Assigned Coach Info (Read-Only) */}
+                {userData?.assignedCoach && (
+                    <div style={{
+                        background: '#f0fdfa',
+                        border: '1px solid #99f6e4',
+                        borderRadius: '8px',
+                        padding: '16px',
+                        marginBottom: '24px'
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            marginBottom: '8px'
+                        }}>
+                            <i data-lucide="user-check" style={{width: '18px', height: '18px', color: '#0d9488'}}></i>
+                            <span style={{
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                color: '#0d9488'
+                            }}>
+                                Assigned Coach
+                            </span>
+                        </div>
+                        <div style={{ fontSize: '15px', color: '#111827', fontWeight: '600' }}>
+                            {userData.assignedCoachName || 'Your Coach'}
+                        </div>
+                        <div style={{ fontSize: '14px', color: '#6b7280', marginTop: '4px' }}>
+                            Always available for support
+                        </div>
+                    </div>
+                )}
+
+                {/* Emergency Contacts List */}
+                {!isAdding && editingIndex === null && (
+                    <>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: '16px'
+                        }}>
+                            <h3 style={{
+                                fontSize: '16px',
+                                fontWeight: '600',
+                                color: '#111827',
+                                margin: 0
+                            }}>
+                                Your Emergency Contacts
+                            </h3>
+                            <button
+                                onClick={() => setIsAdding(true)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '8px 16px',
+                                    background: '#058585',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    fontSize: '14px',
+                                    fontWeight: '600',
+                                    cursor: 'pointer',
+                                    transition: 'background 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#047272'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = '#058585'}
+                            >
+                                <i data-lucide="plus" style={{width: '16px', height: '16px'}}></i>
+                                Add Contact
+                            </button>
+                        </div>
+
+                        {contacts.length === 0 ? (
+                            <div style={{
+                                textAlign: 'center',
+                                padding: '40px 20px',
+                                color: '#6b7280'
+                            }}>
+                                <i data-lucide="user-plus" style={{width: '48px', height: '48px', margin: '0 auto 16px', opacity: 0.5}}></i>
+                                <p style={{ margin: 0, fontSize: '15px' }}>No emergency contacts added yet</p>
+                                <p style={{ margin: '8px 0 0', fontSize: '14px', opacity: 0.8 }}>Add someone you trust to contact in case of emergency</p>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {contacts.map((contact, index) => (
+                                    <div
+                                        key={index}
+                                        style={{
+                                            background: '#f9fafb',
+                                            border: '1px solid #e5e7eb',
+                                            borderRadius: '8px',
+                                            padding: '16px',
+                                            position: 'relative'
+                                        }}
+                                    >
+                                        {contact.isPrimary && (
+                                            <div style={{
+                                                position: 'absolute',
+                                                top: '12px',
+                                                right: '12px',
+                                                background: '#fef3c7',
+                                                color: '#92400e',
+                                                padding: '4px 10px',
+                                                borderRadius: '12px',
+                                                fontSize: '12px',
+                                                fontWeight: '600',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '4px'
+                                            }}>
+                                                <i data-lucide="star" style={{width: '12px', height: '12px'}}></i>
+                                                Primary
+                                            </div>
+                                        )}
+                                        <div style={{
+                                            fontSize: '16px',
+                                            fontWeight: '600',
+                                            color: '#111827',
+                                            marginBottom: '6px',
+                                            paddingRight: contact.isPrimary ? '100px' : '0'
+                                        }}>
+                                            {contact.name}
+                                        </div>
+                                        <div style={{
+                                            fontSize: '14px',
+                                            color: '#6b7280',
+                                            marginBottom: '4px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px'
+                                        }}>
+                                            <i data-lucide="phone" style={{width: '14px', height: '14px'}}></i>
+                                            {contact.phone}
+                                        </div>
+                                        {contact.relationship && (
+                                            <div style={{
+                                                fontSize: '14px',
+                                                color: '#6b7280',
+                                                marginBottom: '12px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '6px'
+                                            }}>
+                                                <i data-lucide="users" style={{width: '14px', height: '14px'}}></i>
+                                                {contact.relationship}
+                                            </div>
+                                        )}
+                                        <div style={{
+                                            display: 'flex',
+                                            gap: '8px',
+                                            marginTop: '12px',
+                                            paddingTop: '12px',
+                                            borderTop: '1px solid #e5e7eb'
+                                        }}>
+                                            <button
+                                                onClick={() => startEditing(index)}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '8px 16px',
+                                                    background: 'white',
+                                                    border: '1px solid #d1d5db',
+                                                    borderRadius: '6px',
+                                                    fontSize: '14px',
+                                                    fontWeight: '600',
+                                                    color: '#374151',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '6px'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.background = '#f9fafb';
+                                                    e.currentTarget.style.borderColor = '#058585';
+                                                    e.currentTarget.style.color = '#058585';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.background = 'white';
+                                                    e.currentTarget.style.borderColor = '#d1d5db';
+                                                    e.currentTarget.style.color = '#374151';
+                                                }}
+                                            >
+                                                <i data-lucide="edit-2" style={{width: '14px', height: '14px'}}></i>
+                                                Edit
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteContact(index)}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '8px 16px',
+                                                    background: 'white',
+                                                    border: '1px solid #d1d5db',
+                                                    borderRadius: '6px',
+                                                    fontSize: '14px',
+                                                    fontWeight: '600',
+                                                    color: '#374151',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '6px'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.background = '#fef2f2';
+                                                    e.currentTarget.style.borderColor = '#dc2626';
+                                                    e.currentTarget.style.color = '#dc2626';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.background = 'white';
+                                                    e.currentTarget.style.borderColor = '#d1d5db';
+                                                    e.currentTarget.style.color = '#374151';
+                                                }}
+                                            >
+                                                <i data-lucide="trash-2" style={{width: '14px', height: '14px'}}></i>
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </>
+                )}
+
+                {/* Add/Edit Contact Form */}
+                {(isAdding || editingIndex !== null) && (
+                    <div style={{
+                        background: '#f9fafb',
+                        border: '2px solid #058585',
+                        borderRadius: '8px',
+                        padding: '20px'
+                    }}>
+                        <h3 style={{
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            color: '#111827',
+                            marginBottom: '16px'
+                        }}>
+                            {editingIndex !== null ? 'Edit Contact' : 'Add New Contact'}
+                        </h3>
+
+                        {/* Name */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={{
+                                display: 'block',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                color: '#374151',
+                                marginBottom: '6px'
+                            }}>
+                                Name <span style={{color: '#dc2626'}}>*</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.name}
+                                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                                placeholder="Jane Doe"
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 14px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '15px',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    boxSizing: 'border-box',
+                                    background: 'white'
+                                }}
+                                onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                                onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                            />
+                        </div>
+
+                        {/* Phone */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={{
+                                display: 'block',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                color: '#374151',
+                                marginBottom: '6px'
+                            }}>
+                                Phone <span style={{color: '#dc2626'}}>*</span>
+                            </label>
+                            <input
+                                type="tel"
+                                value={formData.phone}
+                                onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                                placeholder="(555) 123-4567"
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 14px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '15px',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    boxSizing: 'border-box',
+                                    background: 'white'
+                                }}
+                                onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                                onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                            />
+                        </div>
+
+                        {/* Relationship */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={{
+                                display: 'block',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                color: '#374151',
+                                marginBottom: '6px'
+                            }}>
+                                Relationship (Optional)
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.relationship}
+                                onChange={(e) => setFormData({...formData, relationship: e.target.value})}
+                                placeholder="Sister, Friend, Sponsor, etc."
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 14px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '15px',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    boxSizing: 'border-box',
+                                    background: 'white'
+                                }}
+                                onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                                onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                            />
+                        </div>
+
+                        {/* Primary Contact Toggle */}
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            padding: '12px',
+                            background: 'white',
+                            border: '1px solid #e5e7eb',
+                            borderRadius: '8px',
+                            marginBottom: '16px'
+                        }}>
+                            <input
+                                type="checkbox"
+                                id="isPrimary"
+                                checked={formData.isPrimary}
+                                onChange={(e) => setFormData({...formData, isPrimary: e.target.checked})}
+                                style={{
+                                    width: '18px',
+                                    height: '18px',
+                                    cursor: 'pointer',
+                                    accentColor: '#058585'
+                                }}
+                            />
+                            <label htmlFor="isPrimary" style={{
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                color: '#374151',
+                                cursor: 'pointer',
+                                flex: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}>
+                                <i data-lucide="star" style={{width: '14px', height: '14px', color: '#f59e0b'}}></i>
+                                Set as Primary Contact
+                            </label>
+                        </div>
+
+                        {/* Form Buttons */}
+                        <div style={{ display: 'flex', gap: '12px' }}>
+                            <button
+                                onClick={cancelForm}
+                                style={{
+                                    flex: 1,
+                                    padding: '10px 20px',
+                                    background: 'white',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontWeight: '600',
+                                    cursor: 'pointer',
+                                    color: '#374151',
+                                    fontSize: '15px',
+                                    transition: 'all 0.2s'
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = '#f3f4f6';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'white';
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={editingIndex !== null ? handleUpdateContact : handleAddContact}
+                                style={{
+                                    flex: 1,
+                                    padding: '10px 20px',
+                                    background: '#058585',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    fontWeight: '600',
+                                    cursor: 'pointer',
+                                    fontSize: '15px',
+                                    transition: 'background 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#047272'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = '#058585'}
+                            >
+                                {editingIndex !== null ? 'Update Contact' : 'Add Contact'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* STEP 1.12: FOOTER - Cancel + Save Buttons */}
+            {/* STEP 1.23: Responsive gap (8px mobile, 12px desktop) */}
+            <div style={{
+                display: 'flex',
+                gap: isMobile ? '8px' : '12px',
+                justifyContent: 'flex-end',
+                padding: '20px 24px',
+                borderTop: '1px solid #e5e7eb',
+                background: '#f9fafb'
+            }}>
+                <button
+                    onClick={onClose}
+                    style={{
+                        padding: '12px 24px',
+                        background: '#e5e7eb',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        color: '#374151',
+                        fontSize: '15px',
+                        transition: 'background 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#d1d5db'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#e5e7eb'}
+                >
+                    Cancel
+                </button>
+                <button
+                    onClick={handleSaveContacts}
+                    disabled={saving}
+                    style={{
+                        padding: '12px 24px',
+                        background: saving ? '#9ca3af' : '#058585',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontWeight: '600',
+                        cursor: saving ? 'not-allowed' : 'pointer',
+                        fontSize: '15px',
+                        opacity: saving ? 0.6 : 1,
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        if (!saving) e.currentTarget.style.background = '#047272';
+                    }}
+                    onMouseLeave={(e) => {
+                        if (!saving) e.currentTarget.style.background = '#058585';
+                    }}
+                >
+                    {saving ? 'Saving...' : 'Save Changes'}
+                </button>
+            </div>
+        </>
     );
 }
 
 /** PersonalInfoModal - Edit personal info (name, DOB, gender, address, insurance) */
 function PersonalInfoModal({ userData, user, onClose, onUpdate }) {
-    const [formData, setFormData] = React.useState({});
+    const [formData, setFormData] = React.useState({
+        firstName: userData?.firstName || '',
+        lastName: userData?.lastName || '',
+        displayName: userData?.displayName || '',
+        phone: userData?.phone || '',
+        dateOfBirth: userData?.dateOfBirth || '',
+        gender: userData?.gender || '',
+        timezone: userData?.timezone || window.GLRSApp?.utils?.getUserTimezone() || 'America/Los_Angeles',
+        dateFormat: userData?.dateFormat || 'MM/DD/YYYY',
+        timeFormat: userData?.timeFormat || '12h',
+        street: userData?.address?.street || '',
+        city: userData?.address?.city || '',
+        state: userData?.address?.state || '',
+        zip: userData?.address?.zip || '',
+        insurance: userData?.insurance || '',
+        insuranceId: userData?.insuranceId || ''
+    });
+    const [saving, setSaving] = React.useState(false);
+    const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+
+    React.useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            const updates = {};
+            
+            // Basic fields
+            if (formData.firstName) updates.firstName = formData.firstName;
+            if (formData.lastName) updates.lastName = formData.lastName;
+            if (formData.displayName) updates.displayName = formData.displayName;
+            if (formData.phone) updates.phone = formData.phone;
+            if (formData.dateOfBirth) updates.dateOfBirth = formData.dateOfBirth;
+            if (formData.gender) updates.gender = formData.gender;
+            if (formData.timezone) {
+                updates.timezone = formData.timezone;
+                updates.timezoneManualOverride = true;
+                updates.timezoneDetectedAt = firebase.firestore.FieldValue.serverTimestamp();
+            }
+            if (formData.dateFormat) updates.dateFormat = formData.dateFormat;
+            if (formData.timeFormat) updates.timeFormat = formData.timeFormat;
+            if (formData.insurance) updates.insurance = formData.insurance;
+            if (formData.insuranceId) updates.insuranceId = formData.insuranceId;
+
+            // Address object
+            const hasAddressData = formData.street || formData.city || formData.state || formData.zip;
+            if (hasAddressData) {
+                updates.address = {
+                    street: formData.street || '',
+                    city: formData.city || '',
+                    state: formData.state || '',
+                    zip: formData.zip || ''
+                };
+            }
+
+            if (Object.keys(updates).length > 0 && onUpdate) {
+                await onUpdate(updates);
+            }
+
+            onClose();
+        } catch (error) {
+            console.error('Error saving personal info:', error);
+            alert('Failed to save changes: ' + error.message);
+        } finally {
+            setSaving(false);
+        }
+    };
 
     return (
-        <div>
-            <h3 style={{marginBottom: '20px'}}>Personal Information</h3>
-            <div className="form-group">
-                <label className="form-label">First Name</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.firstName || userData?.firstName || ''}
-                    onChange={(e) => setFormData({...formData, firstName: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">Last Name</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.lastName || userData?.lastName || ''}
-                    onChange={(e) => setFormData({...formData, lastName: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">Display Name</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.displayName || userData?.displayName || ''}
-                    onChange={(e) => setFormData({...formData, displayName: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">Phone</label>
-                <input
-                    type="tel"
-                    className="form-input"
-                    value={formData.phone || userData?.phone || ''}
-                    onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">Date of Birth</label>
-                <input
-                    type="date"
-                    className="form-input"
-                    value={formData.dateOfBirth || userData?.dateOfBirth || ''}
-                    onChange={(e) => setFormData({...formData, dateOfBirth: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">Gender</label>
-                <select
-                    className="form-select"
-                    value={formData.gender || userData?.gender || ''}
-                    onChange={(e) => setFormData({...formData, gender: e.target.value})}
+        <>
+            {/* HEADER - Teal Gradient */}
+            <div style={{
+                background: 'linear-gradient(135deg, #058585 0%, #047070 100%)',
+                padding: '24px',
+                borderRadius: '16px 16px 0 0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+            }}>
+                <h2 style={{
+                    fontSize: isMobile ? '20px' : '24px',
+                    fontWeight: '700',
+                    color: '#ffffff',
+                    margin: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                }}>
+                    <i data-lucide="user" style={{width: '28px', height: '28px', color: '#ffffff'}}></i>
+                    Account Information
+                </h2>
+                <button
+                    onClick={onClose}
+                    style={{
+                        background: 'rgba(255, 255, 255, 0.2)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '8px',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)'}
                 >
-                    <option value="">Select Gender</option>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                    <option value="non-binary">Non-Binary</option>
-                    <option value="prefer-not">Prefer Not to Say</option>
-                </select>
+                    <i data-lucide="x" style={{width: '24px', height: '24px', color: '#ffffff'}}></i>
+                </button>
             </div>
-            <div className="form-group">
-                <label className="form-label">Street Address</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.street || userData?.address?.street || ''}
-                    onChange={(e) => setFormData({...formData, street: e.target.value})}
-                />
+
+            {/* BODY - Scrollable */}
+            <div style={{
+                padding: '24px',
+                overflowY: 'auto',
+                maxHeight: 'calc(90vh - 220px)',
+                background: '#f9fafb'
+            }}>
+                {/* SECTION: Basic Information */}
+                <div style={{
+                    background: '#ffffff',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    marginBottom: '16px',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid #e5e7eb'
+                }}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#111827',
+                        marginBottom: '16px',
+                        paddingBottom: '12px',
+                        borderBottom: '2px solid #058585',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <i data-lucide="user-circle" style={{width: '20px', height: '20px', color: '#058585'}}></i>
+                        Basic Information
+                    </h3>
+                    <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px'}}>
+                        <div>
+                            <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                                First Name <span style={{color: '#dc2626'}}>*</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.firstName}
+                                onChange={(e) => setFormData({...formData, firstName: e.target.value})}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    fontSize: '15px',
+                                    border: '2px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    background: '#fff',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#058585'}
+                                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                            />
+                        </div>
+                        <div>
+                            <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                                Last Name <span style={{color: '#dc2626'}}>*</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.lastName}
+                                onChange={(e) => setFormData({...formData, lastName: e.target.value})}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    fontSize: '15px',
+                                    border: '2px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    background: '#fff',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#058585'}
+                                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                            />
+                        </div>
+                    </div>
+                    <div style={{marginTop: '16px'}}>
+                        <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                            Display Name
+                        </label>
+                        <input
+                            type="text"
+                            value={formData.displayName}
+                            onChange={(e) => setFormData({...formData, displayName: e.target.value})}
+                            placeholder="How others see you in the community"
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                fontSize: '15px',
+                                border: '2px solid #e5e7eb',
+                                borderRadius: '8px',
+                                background: '#fff',
+                                color: '#111827',
+                                transition: 'border-color 0.2s',
+                                outline: 'none'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#058585'}
+                            onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                        />
+                        <small style={{fontSize: '12px', color: '#6b7280', marginTop: '4px', display: 'block'}}>
+                            This is how other members will see you in posts and messages
+                        </small>
+                    </div>
+                </div>
+
+                {/* SECTION: Contact Information */}
+                <div style={{
+                    background: '#ffffff',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    marginBottom: '16px',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid #e5e7eb'
+                }}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#111827',
+                        marginBottom: '16px',
+                        paddingBottom: '12px',
+                        borderBottom: '2px solid #058585',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <i data-lucide="phone" style={{width: '20px', height: '20px', color: '#058585'}}></i>
+                        Contact Information
+                    </h3>
+                    <div>
+                        <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                            Email Address
+                        </label>
+                        <input
+                            type="email"
+                            value={user?.email || ''}
+                            readOnly
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                fontSize: '15px',
+                                border: '2px solid #e5e7eb',
+                                borderRadius: '8px',
+                                background: '#f3f4f6',
+                                color: '#6b7280',
+                                cursor: 'not-allowed'
+                            }}
+                        />
+                        <small style={{fontSize: '12px', color: '#6b7280', marginTop: '4px', display: 'block'}}>
+                            Email cannot be changed here. Contact support if needed.
+                        </small>
+                    </div>
+                    <div style={{marginTop: '16px'}}>
+                        <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                            Phone Number
+                        </label>
+                        <input
+                            type="tel"
+                            value={formData.phone}
+                            onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                            placeholder="(555) 123-4567"
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                fontSize: '15px',
+                                border: '2px solid #e5e7eb',
+                                borderRadius: '8px',
+                                background: '#fff',
+                                color: '#111827',
+                                transition: 'border-color 0.2s',
+                                outline: 'none'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#058585'}
+                            onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                        />
+                    </div>
+                </div>
+
+                {/* SECTION: Personal Details */}
+                <div style={{
+                    background: '#ffffff',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    marginBottom: '16px',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid #e5e7eb'
+                }}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#111827',
+                        marginBottom: '16px',
+                        paddingBottom: '12px',
+                        borderBottom: '2px solid #058585',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <i data-lucide="cake" style={{width: '20px', height: '20px', color: '#058585'}}></i>
+                        Personal Details
+                    </h3>
+                    <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px'}}>
+                        <div>
+                            <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                                Date of Birth
+                            </label>
+                            <input
+                                type="date"
+                                value={formData.dateOfBirth}
+                                onChange={(e) => setFormData({...formData, dateOfBirth: e.target.value})}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    fontSize: '15px',
+                                    border: '2px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    background: '#fff',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#058585'}
+                                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                            />
+                        </div>
+                        <div>
+                            <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                                Gender
+                            </label>
+                            <select
+                                value={formData.gender}
+                                onChange={(e) => setFormData({...formData, gender: e.target.value})}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    fontSize: '15px',
+                                    border: '2px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    background: '#fff',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#058585'}
+                                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                            >
+                                <option value="">Select Gender</option>
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                                <option value="non-binary">Non-Binary</option>
+                                <option value="prefer-not">Prefer Not to Say</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                {/* SECTION: Location */}
+                <div style={{
+                    background: '#ffffff',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    marginBottom: '16px',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid #e5e7eb'
+                }}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#111827',
+                        marginBottom: '16px',
+                        paddingBottom: '12px',
+                        borderBottom: '2px solid #058585',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <i data-lucide="map-pin" style={{width: '20px', height: '20px', color: '#058585'}}></i>
+                        Location
+                    </h3>
+                    <div>
+                        <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                            Street Address
+                        </label>
+                        <input
+                            type="text"
+                            value={formData.street}
+                            onChange={(e) => setFormData({...formData, street: e.target.value})}
+                            placeholder="123 Main St"
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                fontSize: '15px',
+                                border: '2px solid #e5e7eb',
+                                borderRadius: '8px',
+                                background: '#fff',
+                                color: '#111827',
+                                transition: 'border-color 0.2s',
+                                outline: 'none'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#058585'}
+                            onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                        />
+                    </div>
+                    <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr 1fr', gap: '16px', marginTop: '16px'}}>
+                        <div>
+                            <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                                City
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.city}
+                                onChange={(e) => setFormData({...formData, city: e.target.value})}
+                                placeholder="San Francisco"
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    fontSize: '15px',
+                                    border: '2px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    background: '#fff',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#058585'}
+                                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                            />
+                        </div>
+                        <div>
+                            <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                                State
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.state}
+                                onChange={(e) => setFormData({...formData, state: e.target.value})}
+                                placeholder="CA"
+                                maxLength={2}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    fontSize: '15px',
+                                    border: '2px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    background: '#fff',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    outline: 'none',
+                                    textTransform: 'uppercase'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#058585'}
+                                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                            />
+                        </div>
+                        <div>
+                            <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                                ZIP Code
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.zip}
+                                onChange={(e) => setFormData({...formData, zip: e.target.value})}
+                                placeholder="94102"
+                                maxLength={5}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    fontSize: '15px',
+                                    border: '2px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    background: '#fff',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#058585'}
+                                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                {/* SECTION: Preferences */}
+                <div style={{
+                    background: '#ffffff',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    marginBottom: '16px',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid #e5e7eb'
+                }}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#111827',
+                        marginBottom: '16px',
+                        paddingBottom: '12px',
+                        borderBottom: '2px solid #058585',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <i data-lucide="settings" style={{width: '20px', height: '20px', color: '#058585'}}></i>
+                        Display Preferences
+                    </h3>
+                    <div>
+                        <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                            Timezone
+                        </label>
+                        <select
+                            value={formData.timezone}
+                            onChange={(e) => setFormData({...formData, timezone: e.target.value})}
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                fontSize: '15px',
+                                border: '2px solid #e5e7eb',
+                                borderRadius: '8px',
+                                background: '#fff',
+                                color: '#111827',
+                                transition: 'border-color 0.2s',
+                                outline: 'none'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#058585'}
+                            onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                        >
+                            <optgroup label="US Mainland">
+                                <option value="America/New_York">Eastern Time (ET)</option>
+                                <option value="America/Chicago">Central Time (CT)</option>
+                                <option value="America/Denver">Mountain Time (MT)</option>
+                                <option value="America/Phoenix">Arizona (no DST)</option>
+                                <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                            </optgroup>
+                            <optgroup label="US Territories">
+                                <option value="America/Anchorage">Alaska Time (AKT)</option>
+                                <option value="Pacific/Honolulu">Hawaii Time (HT)</option>
+                            </optgroup>
+                            <optgroup label="Other">
+                                <option value="America/Puerto_Rico">Puerto Rico</option>
+                                <option value="Pacific/Guam">Guam</option>
+                            </optgroup>
+                        </select>
+                        <small style={{fontSize: '12px', color: '#6b7280', marginTop: '4px', display: 'block'}}>
+                            {userData?.timezoneManualOverride ? '✓ Manually set' : '↻ Auto-detected'} • Used for timestamps and reminders
+                        </small>
+                    </div>
+                    <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px', marginTop: '16px'}}>
+                        <div>
+                            <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                                Date Format
+                            </label>
+                            <select
+                                value={formData.dateFormat}
+                                onChange={(e) => setFormData({...formData, dateFormat: e.target.value})}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    fontSize: '15px',
+                                    border: '2px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    background: '#fff',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#058585'}
+                                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                            >
+                                <option value="MM/DD/YYYY">MM/DD/YYYY (US)</option>
+                                <option value="DD/MM/YYYY">DD/MM/YYYY (International)</option>
+                                <option value="YYYY-MM-DD">YYYY-MM-DD (ISO)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                                Time Format
+                            </label>
+                            <select
+                                value={formData.timeFormat}
+                                onChange={(e) => setFormData({...formData, timeFormat: e.target.value})}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    fontSize: '15px',
+                                    border: '2px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    background: '#fff',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#058585'}
+                                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                            >
+                                <option value="12h">12 Hour (AM/PM)</option>
+                                <option value="24h">24 Hour (Military)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                {/* SECTION: Insurance (Optional) */}
+                <div style={{
+                    background: '#ffffff',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    marginBottom: '16px',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid #e5e7eb'
+                }}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#111827',
+                        marginBottom: '16px',
+                        paddingBottom: '12px',
+                        borderBottom: '2px solid #058585',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <i data-lucide="shield-check" style={{width: '20px', height: '20px', color: '#058585'}}></i>
+                        Insurance Information
+                        <span style={{fontSize: '12px', fontWeight: '400', color: '#6b7280', marginLeft: 'auto'}}>Optional</span>
+                    </h3>
+                    <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px'}}>
+                        <div>
+                            <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                                Provider Name
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.insurance}
+                                onChange={(e) => setFormData({...formData, insurance: e.target.value})}
+                                placeholder="e.g., Blue Cross"
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    fontSize: '15px',
+                                    border: '2px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    background: '#fff',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#058585'}
+                                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                            />
+                        </div>
+                        <div>
+                            <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px'}}>
+                                Member ID
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.insuranceId}
+                                onChange={(e) => setFormData({...formData, insuranceId: e.target.value})}
+                                placeholder="Insurance member ID"
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    fontSize: '15px',
+                                    border: '2px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    background: '#fff',
+                                    color: '#111827',
+                                    transition: 'border-color 0.2s',
+                                    outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#058585'}
+                                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                            />
+                        </div>
+                    </div>
+                    <small style={{fontSize: '12px', color: '#6b7280', marginTop: '8px', display: 'block'}}>
+                        <i data-lucide="lock" style={{width: '12px', height: '12px'}}></i> Your insurance information is encrypted and secure
+                    </small>
+                </div>
             </div>
-            <div className="form-group">
-                <label className="form-label">City</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.city || userData?.address?.city || ''}
-                    onChange={(e) => setFormData({...formData, city: e.target.value})}
-                />
+
+            {/* FOOTER - Action Buttons */}
+            <div style={{
+                padding: '20px 24px',
+                borderTop: '1px solid #e5e7eb',
+                background: '#ffffff',
+                borderRadius: '0 0 16px 16px',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '12px'
+            }}>
+                <button
+                    onClick={onClose}
+                    disabled={saving}
+                    style={{
+                        padding: '12px 24px',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        border: '2px solid #e5e7eb',
+                        borderRadius: '8px',
+                        background: '#ffffff',
+                        color: '#374151',
+                        cursor: saving ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.2s',
+                        opacity: saving ? 0.5 : 1
+                    }}
+                    onMouseEnter={(e) => !saving && (e.currentTarget.style.background = '#f9fafb')}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
+                >
+                    Cancel
+                </button>
+                <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    style={{
+                        padding: '12px 32px',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        border: 'none',
+                        borderRadius: '8px',
+                        background: 'linear-gradient(135deg, #058585 0%, #047070 100%)',
+                        color: '#ffffff',
+                        cursor: saving ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.2s',
+                        boxShadow: '0 2px 4px rgba(5, 133, 133, 0.2)',
+                        opacity: saving ? 0.7 : 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}
+                    onMouseEnter={(e) => !saving && (e.currentTarget.style.transform = 'translateY(-1px)', e.currentTarget.style.boxShadow = '0 4px 8px rgba(5, 133, 133, 0.3)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 4px rgba(5, 133, 133, 0.2)')}
+                >
+                    {saving ? (
+                        <>
+                            <i data-lucide="loader" className="rotating" style={{width: '18px', height: '18px'}}></i>
+                            Saving...
+                        </>
+                    ) : (
+                        <>
+                            <i data-lucide="check" style={{width: '18px', height: '18px'}}></i>
+                            Save Changes
+                        </>
+                    )}
+                </button>
             </div>
-            <div className="form-group">
-                <label className="form-label">State</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.state || userData?.address?.state || ''}
-                    onChange={(e) => setFormData({...formData, state: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">ZIP Code</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.zip || userData?.address?.zip || ''}
-                    onChange={(e) => setFormData({...formData, zip: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">Insurance Provider (Optional)</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.insurance || userData?.insurance || ''}
-                    onChange={(e) => setFormData({...formData, insurance: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">Insurance ID (Optional)</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.insuranceId || userData?.insuranceId || ''}
-                    onChange={(e) => setFormData({...formData, insuranceId: e.target.value})}
-                />
-            </div>
-            <button
-                className="btn-primary"
-                onClick={async () => {
-                    try {
-                        // Build update object with proper validation
-                        const updates = {};
-
-                        // Handle simple fields - only add if they have values
-                        if (formData.firstName !== undefined && formData.firstName !== '') {
-                            updates.firstName = formData.firstName;
-                        }
-                        if (formData.lastName !== undefined && formData.lastName !== '') {
-                            updates.lastName = formData.lastName;
-                        }
-                        if (formData.displayName !== undefined && formData.displayName !== '') {
-                            updates.displayName = formData.displayName;
-                        }
-                        if (formData.phone !== undefined && formData.phone !== '') {
-                            updates.phone = formData.phone;
-                        }
-                        if (formData.dateOfBirth !== undefined && formData.dateOfBirth !== '') {
-                            updates.dateOfBirth = formData.dateOfBirth;
-                        }
-                        if (formData.gender !== undefined && formData.gender !== '') {
-                            updates.gender = formData.gender;
-                        }
-                        if (formData.insurance !== undefined && formData.insurance !== '') {
-                            updates.insurance = formData.insurance;
-                        }
-                        if (formData.insuranceId !== undefined && formData.insuranceId !== '') {
-                            updates.insuranceId = formData.insuranceId;
-                        }
-
-                        // Handle address as a nested object - CRITICAL for admin.html sync
-                        // Only update address if at least one field is provided
-                        const addressFields = ['street', 'city', 'state', 'zip'];
-                        const hasAddressData = addressFields.some(field =>
-                            formData[field] !== undefined && formData[field] !== ''
-                        );
-
-                        if (hasAddressData) {
-                            // Get existing address to merge with
-                            const existingAddress = userData?.address || {};
-
-                            updates.address = {
-                                street: formData.street !== undefined ? formData.street : (existingAddress.street || ''),
-                                city: formData.city !== undefined ? formData.city : (existingAddress.city || ''),
-                                state: formData.state !== undefined ? formData.state : (existingAddress.state || ''),
-                                zip: formData.zip !== undefined ? formData.zip : (existingAddress.zip || '')
-                            };
-                        }
-
-                        // Only proceed if there are updates to make
-                        if (Object.keys(updates).length === 0) {
-                            alert('No changes to save');
-                            return;
-                        }
-
-                        // Call parent callback with updates
-                        await onUpdate(updates);
-
-                        // Provide specific feedback
-                        const savedFields = Object.keys(updates);
-                        alert(`Successfully updated: ${savedFields.join(', ')}`);
-
-                        onClose();
-                    } catch (error) {
-                        // Provide specific error feedback
-                        if (error.code === 'permission-denied') {
-                            alert('Permission denied. Please try logging out and back in.');
-                        } else if (error.code === 'not-found') {
-                            alert('User record not found. Please contact support.');
-                        } else {
-                            alert(`Failed to update information: ${error.message}`);
-                        }
-                    }
-                }}
-            >
-                Save Changes
-            </button>
-        </div>
+        </>
     );
 }
 
+
 /** RecoveryInfoModal - Edit recovery settings (sobriety date, substance, daily cost, sponsor) */
+/** RecoveryInfoModal - Edit recovery information (sobriety date, substance, sponsor, etc.) */
 function RecoveryInfoModal({ userData, user, onClose, onUpdate }) {
-    const [formData, setFormData] = React.useState({});
+    // STEP 1.11: Initialize form data with current userData
+    const [formData, setFormData] = React.useState({
+        sobrietyDateTime: userData?.sobrietyDate ? new Date(userData.sobrietyDate).toISOString().slice(0, 16) : '',
+        substance: userData?.substance || '',
+        recoveryProgram: userData?.recoveryProgram || '',
+        sponsorName: userData?.sponsorName || '',
+        sponsorPhone: userData?.sponsorPhone || '',
+        recoveryGoals: userData?.recoveryGoals || '',
+        triggers: userData?.triggers || '',
+        dailyCost: userData?.dailyCost || ''
+    });
+
+    const [saving, setSaving] = React.useState(false);
+
+    // STEP 1.23: Mobile detection for responsive layout
+    const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+
+    React.useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    // STEP 1.11: Save handler with Firestore update
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            const updates = {};
+
+            // Convert datetime-local to ISO string for consistent storage
+            if (formData.sobrietyDateTime) {
+                const sobrietyDate = new Date(formData.sobrietyDateTime);
+                updates.sobrietyDate = sobrietyDate.toISOString();
+            }
+
+            // Only add fields that have values
+            if (formData.substance) {
+                updates.substance = formData.substance;
+            }
+            if (formData.recoveryProgram) {
+                updates.recoveryProgram = formData.recoveryProgram;
+            }
+            if (formData.sponsorName) {
+                updates.sponsorName = formData.sponsorName;
+            }
+            if (formData.sponsorPhone) {
+                updates.sponsorPhone = formData.sponsorPhone;
+            }
+            if (formData.recoveryGoals) {
+                updates.recoveryGoals = formData.recoveryGoals;
+            }
+            if (formData.triggers) {
+                updates.triggers = formData.triggers;
+            }
+
+            // Handle dailyCost change with edge case warning
+            if (formData.dailyCost !== undefined && formData.dailyCost !== '') {
+                const newDailyCost = parseFloat(formData.dailyCost);
+                const oldDailyCost = userData.dailyCost || 0;
+
+                // If dailyCost is changing and user has actualMoneySaved data
+                if (oldDailyCost > 0 && newDailyCost !== oldDailyCost) {
+                    const currentActualSaved = userData.actualMoneySaved || 0;
+                    const ratio = newDailyCost / oldDailyCost;
+                    const adjustedAmount = Math.round(currentActualSaved * ratio);
+
+                    const warningMessage = `⚠️ Changing Daily Cost Impact:\n\n` +
+                        `Old: $${oldDailyCost}/day → New: $${newDailyCost}/day\n\n` +
+                        `This will change all your savings calculations.\n\n` +
+                        `Your current actual savings: $${currentActualSaved.toLocaleString()}\n\n` +
+                        `Would you like to adjust your actual savings proportionally?\n\n` +
+                        `Adjusted amount: $${adjustedAmount.toLocaleString()}\n\n` +
+                        `Click OK to adjust, Cancel to keep $${currentActualSaved.toLocaleString()}`;
+
+                    const shouldAdjust = confirm(warningMessage);
+
+                    if (shouldAdjust) {
+                        // Adjust actualMoneySaved proportionally
+                        updates.actualMoneySaved = adjustedAmount;
+                    }
+                }
+
+                updates.dailyCost = newDailyCost;
+            }
+
+            // Only proceed if there are updates
+            if (Object.keys(updates).length === 0) {
+                alert('No changes to save');
+                setSaving(false);
+                return;
+            }
+
+            // Call parent callback with updates
+            await onUpdate(updates);
+
+            window.showNotification('Recovery information updated successfully', 'success');
+            onClose();
+        } catch (error) {
+            console.error('Error updating recovery information:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'RecoveryInfoModal.handleSave');
+            alert('Failed to save changes. Please try again.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    // STEP 1.11: Initialize Lucide icons after render
+    React.useEffect(() => {
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+            window.lucide.createIcons();
+        }
+    }, []);
 
     return (
-        <div>
-            <h3 style={{marginBottom: '20px'}}>Recovery Settings</h3>
-            <div className="form-group">
-                <label className="form-label">
-                    Sobriety Date & Time
-                    <small style={{display: 'block', opacity: 0.8, marginTop: '5px', fontSize: '12px'}}>
+        <>
+            {/* STEP 1.11: HEADER - Title + Close Button */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '24px',
+                borderBottom: '1px solid #e5e7eb'
+            }}>
+                <h2 style={{
+                    fontSize: '24px',
+                    fontWeight: '700',
+                    color: '#111827',
+                    margin: 0
+                }}>
+                    Recovery Information
+                </h2>
+                <button
+                    onClick={onClose}
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        borderRadius: '8px',
+                        transition: 'background 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                >
+                    <i data-lucide="x" style={{width: '24px', height: '24px', color: '#6b7280'}}></i>
+                </button>
+            </div>
+
+            {/* STEP 1.11: BODY - Scrollable Form */}
+            <div style={{
+                padding: '24px',
+                overflowY: 'auto',
+                maxHeight: 'calc(90vh - 160px)'
+            }}>
+                {/* Sobriety Date & Time */}
+                <div style={{ marginBottom: '20px' }}>
+                    <label style={{
+                        display: 'block',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '6px'
+                    }}>
+                        Sobriety Date & Time <span style={{color: '#dc2626'}}>*</span>
+                    </label>
+                    <small style={{
+                        display: 'block',
+                        fontSize: '12px',
+                        color: '#6b7280',
+                        marginBottom: '8px'
+                    }}>
                         Enter the date and time 24 hours after your last use
                     </small>
-                </label>
-                <input
-                    type="datetime-local"
-                    className="form-input"
-                    value={formData.sobrietyDateTime ||
-                           (userData?.sobrietyDate ?
-                            new Date(userData.sobrietyDate).toISOString().slice(0, 16) : '')}
-                    onChange={(e) => setFormData({...formData, sobrietyDateTime: e.target.value})}
-                />
+                    <input
+                        type="datetime-local"
+                        value={formData.sobrietyDateTime}
+                        onChange={(e) => setFormData({...formData, sobrietyDateTime: e.target.value})}
+                        style={{
+                            width: '100%',
+                            padding: '10px 14px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '15px',
+                            color: '#111827',
+                            transition: 'border-color 0.2s',
+                            boxSizing: 'border-box'
+                        }}
+                        onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                        onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                    />
+                </div>
+
+                {/* Primary Substance */}
+                <div style={{ marginBottom: '20px' }}>
+                    <label style={{
+                        display: 'block',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '6px'
+                    }}>
+                        Primary Substance
+                    </label>
+                    <select
+                        value={formData.substance}
+                        onChange={(e) => setFormData({...formData, substance: e.target.value})}
+                        style={{
+                            width: '100%',
+                            padding: '10px 14px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '15px',
+                            color: '#111827',
+                            transition: 'border-color 0.2s',
+                            boxSizing: 'border-box',
+                            background: 'white'
+                        }}
+                        onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                        onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                    >
+                        <option value="">Select Substance</option>
+                        <option value="alcohol">Alcohol</option>
+                        <option value="opioids">Opioids</option>
+                        <option value="stimulants">Stimulants</option>
+                        <option value="cannabis">Cannabis</option>
+                        <option value="benzodiazepines">Benzodiazepines</option>
+                        <option value="multiple">Multiple Substances</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+
+                {/* Recovery Program */}
+                <div style={{ marginBottom: '20px' }}>
+                    <label style={{
+                        display: 'block',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '6px'
+                    }}>
+                        Recovery Program
+                    </label>
+                    <select
+                        value={formData.recoveryProgram}
+                        onChange={(e) => setFormData({...formData, recoveryProgram: e.target.value})}
+                        style={{
+                            width: '100%',
+                            padding: '10px 14px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '15px',
+                            color: '#111827',
+                            transition: 'border-color 0.2s',
+                            boxSizing: 'border-box',
+                            background: 'white'
+                        }}
+                        onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                        onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                    >
+                        <option value="">Select Program (Optional)</option>
+                        <option value="aa">Alcoholics Anonymous (AA)</option>
+                        <option value="na">Narcotics Anonymous (NA)</option>
+                        <option value="smart">SMART Recovery</option>
+                        <option value="celebrate">Celebrate Recovery</option>
+                        <option value="refuge">Refuge Recovery</option>
+                        <option value="lifering">LifeRing Secular Recovery</option>
+                        <option value="women">Women for Sobriety</option>
+                        <option value="other">Other Program</option>
+                        <option value="none">Not in a program</option>
+                    </select>
+                </div>
+
+                {/* Daily Cost of Use */}
+                <div style={{ marginBottom: '20px' }}>
+                    <label style={{
+                        display: 'block',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '6px'
+                    }}>
+                        Daily Cost of Use ($)
+                    </label>
+                    <small style={{
+                        display: 'block',
+                        fontSize: '12px',
+                        color: '#6b7280',
+                        marginBottom: '8px'
+                    }}>
+                        Used to calculate money saved in recovery
+                    </small>
+                    <div style={{ position: 'relative' }}>
+                        <span style={{
+                            position: 'absolute',
+                            left: '14px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            color: '#6b7280',
+                            fontSize: '15px',
+                            pointerEvents: 'none'
+                        }}>
+                            $
+                        </span>
+                        <input
+                            type="number"
+                            value={formData.dailyCost}
+                            onChange={(e) => setFormData({...formData, dailyCost: e.target.value})}
+                            placeholder="20"
+                            min="0"
+                            step="0.01"
+                            style={{
+                                width: '100%',
+                                padding: '10px 14px 10px 28px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '8px',
+                                fontSize: '15px',
+                                color: '#111827',
+                                transition: 'border-color 0.2s',
+                                boxSizing: 'border-box'
+                            }}
+                            onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                            onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                        />
+                    </div>
+                </div>
+
+                {/* Sponsor Section */}
+                <div style={{
+                    marginTop: '32px',
+                    marginBottom: '20px',
+                    paddingTop: '20px',
+                    borderTop: '1px solid #e5e7eb'
+                }}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#111827',
+                        marginBottom: '16px'
+                    }}>
+                        Sponsor Information
+                    </h3>
+
+                    {/* Sponsor Name */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{
+                            display: 'block',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#374151',
+                            marginBottom: '6px'
+                        }}>
+                            Sponsor Name (Optional)
+                        </label>
+                        <input
+                            type="text"
+                            value={formData.sponsorName}
+                            onChange={(e) => setFormData({...formData, sponsorName: e.target.value})}
+                            placeholder="John Doe"
+                            style={{
+                                width: '100%',
+                                padding: '10px 14px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '8px',
+                                fontSize: '15px',
+                                color: '#111827',
+                                transition: 'border-color 0.2s',
+                                boxSizing: 'border-box'
+                            }}
+                            onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                            onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                        />
+                    </div>
+
+                    {/* Sponsor Phone */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{
+                            display: 'block',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#374151',
+                            marginBottom: '6px'
+                        }}>
+                            Sponsor Phone (Optional)
+                        </label>
+                        <input
+                            type="tel"
+                            value={formData.sponsorPhone}
+                            onChange={(e) => setFormData({...formData, sponsorPhone: e.target.value})}
+                            placeholder="(555) 123-4567"
+                            style={{
+                                width: '100%',
+                                padding: '10px 14px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '8px',
+                                fontSize: '15px',
+                                color: '#111827',
+                                transition: 'border-color 0.2s',
+                                boxSizing: 'border-box'
+                            }}
+                            onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                            onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                        />
+                    </div>
+                </div>
+
+                {/* Recovery Goals */}
+                <div style={{ marginBottom: '20px' }}>
+                    <label style={{
+                        display: 'block',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '6px'
+                    }}>
+                        Recovery Goals (Optional)
+                    </label>
+                    <small style={{
+                        display: 'block',
+                        fontSize: '12px',
+                        color: '#6b7280',
+                        marginBottom: '8px'
+                    }}>
+                        What do you hope to achieve in your recovery?
+                    </small>
+                    <textarea
+                        value={formData.recoveryGoals}
+                        onChange={(e) => setFormData({...formData, recoveryGoals: e.target.value})}
+                        placeholder="e.g., Rebuild relationships with family, get my job back, improve my health..."
+                        rows="4"
+                        style={{
+                            width: '100%',
+                            padding: '10px 14px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '15px',
+                            color: '#111827',
+                            transition: 'border-color 0.2s',
+                            boxSizing: 'border-box',
+                            resize: 'vertical',
+                            fontFamily: 'inherit'
+                        }}
+                        onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                        onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                    />
+                </div>
+
+                {/* Triggers */}
+                <div style={{ marginBottom: '20px' }}>
+                    <label style={{
+                        display: 'block',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '6px'
+                    }}>
+                        Known Triggers (Optional)
+                    </label>
+                    <small style={{
+                        display: 'block',
+                        fontSize: '12px',
+                        color: '#6b7280',
+                        marginBottom: '8px'
+                    }}>
+                        Situations, people, or emotions that may trigger cravings
+                    </small>
+                    <textarea
+                        value={formData.triggers}
+                        onChange={(e) => setFormData({...formData, triggers: e.target.value})}
+                        placeholder="e.g., Stress at work, certain social situations, specific locations..."
+                        rows="4"
+                        style={{
+                            width: '100%',
+                            padding: '10px 14px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '15px',
+                            color: '#111827',
+                            transition: 'border-color 0.2s',
+                            boxSizing: 'border-box',
+                            resize: 'vertical',
+                            fontFamily: 'inherit'
+                        }}
+                        onFocus={(e) => e.currentTarget.style.borderColor = '#058585'}
+                        onBlur={(e) => e.currentTarget.style.borderColor = '#d1d5db'}
+                    />
+                </div>
             </div>
-            <div className="form-group">
-                <label className="form-label">Primary Substance</label>
-                <select
-                    className="form-select"
-                    value={formData.substance || userData?.substance || ''}
-                    onChange={(e) => setFormData({...formData, substance: e.target.value})}
+
+            {/* STEP 1.11: FOOTER - Cancel + Save Buttons */}
+            {/* STEP 1.23: Responsive gap (8px mobile, 12px desktop) */}
+            <div style={{
+                display: 'flex',
+                gap: isMobile ? '8px' : '12px',
+                justifyContent: 'flex-end',
+                padding: '20px 24px',
+                borderTop: '1px solid #e5e7eb',
+                background: '#f9fafb'
+            }}>
+                <button
+                    onClick={onClose}
+                    style={{
+                        padding: '12px 24px',
+                        background: '#e5e7eb',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        color: '#374151',
+                        fontSize: '15px',
+                        transition: 'background 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#d1d5db'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#e5e7eb'}
                 >
-                    <option value="">Select Substance</option>
-                    <option value="alcohol">Alcohol</option>
-                    <option value="opioids">Opioids</option>
-                    <option value="stimulants">Stimulants</option>
-                    <option value="cannabis">Cannabis</option>
-                    <option value="benzodiazepines">Benzodiazepines</option>
-                    <option value="multiple">Multiple Substances</option>
-                    <option value="other">Other</option>
-                </select>
+                    Cancel
+                </button>
+                <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    style={{
+                        padding: '12px 24px',
+                        background: saving ? '#9ca3af' : '#058585',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontWeight: '600',
+                        cursor: saving ? 'not-allowed' : 'pointer',
+                        fontSize: '15px',
+                        opacity: saving ? 0.6 : 1,
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        if (!saving) e.currentTarget.style.background = '#047272';
+                    }}
+                    onMouseLeave={(e) => {
+                        if (!saving) e.currentTarget.style.background = '#058585';
+                    }}
+                >
+                    {saving ? 'Saving...' : 'Save Changes'}
+                </button>
             </div>
-            <div className="form-group">
-                <label className="form-label">Daily Cost of Use ($)</label>
-                <input
-                    type="number"
-                    className="form-input"
-                    placeholder="Amount spent per day (e.g., 20)"
-                    value={formData.dailyCost || userData?.dailyCost || ''}
-                    onChange={(e) => setFormData({...formData, dailyCost: parseFloat(e.target.value)})}
-                />
-                <small style={{color: 'rgba(255,255,255,0.6)', display: 'block', marginTop: '5px'}}>
-                    Used to calculate money saved in recovery
-                </small>
-            </div>
-
-            <div className="form-group">
-                <label className="form-label">Sponsor Name (Optional)</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    value={formData.sponsorName || userData?.sponsorName || ''}
-                    onChange={(e) => setFormData({...formData, sponsorName: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">Sponsor Phone (Optional)</label>
-                <input
-                    type="tel"
-                    className="form-input"
-                    value={formData.sponsorPhone || userData?.sponsorPhone || ''}
-                    onChange={(e) => setFormData({...formData, sponsorPhone: e.target.value})}
-                />
-            </div>
-            <button
-                className="btn-primary"
-                onClick={async () => {
-                    try {
-                        const updates = {};
-
-                        // Convert datetime-local to ISO string for consistent storage
-                        if (formData.sobrietyDateTime) {
-                            const sobrietyDate = new Date(formData.sobrietyDateTime);
-                            updates.sobrietyDate = sobrietyDate.toISOString();
-                        }
-
-                        // Only add fields that have values
-                        if (formData.substance !== undefined && formData.substance !== '') {
-                            updates.substance = formData.substance;
-                        }
-
-                        // Handle dailyCost change with edge case warning
-                        if (formData.dailyCost !== undefined && formData.dailyCost !== '') {
-                            const newDailyCost = parseFloat(formData.dailyCost);
-                            const oldDailyCost = userData.dailyCost || 0;
-
-                            // If dailyCost is changing and user has actualMoneySaved data
-                            if (oldDailyCost > 0 && newDailyCost !== oldDailyCost) {
-                                const currentActualSaved = userData.actualMoneySaved || 0;
-                                const ratio = newDailyCost / oldDailyCost;
-                                const adjustedAmount = Math.round(currentActualSaved * ratio);
-
-                                const warningMessage = `⚠️ Changing Daily Cost Impact:\n\n` +
-                                    `Old: $${oldDailyCost}/day → New: $${newDailyCost}/day\n\n` +
-                                    `This will change all your savings calculations.\n\n` +
-                                    `Your current actual savings: $${currentActualSaved.toLocaleString()}\n\n` +
-                                    `Would you like to adjust your actual savings proportionally?\n\n` +
-                                    `Adjusted amount: $${adjustedAmount.toLocaleString()}\n\n` +
-                                    `Click OK to adjust, Cancel to keep $${currentActualSaved.toLocaleString()}`;
-
-                                const shouldAdjust = confirm(warningMessage);
-
-                                if (shouldAdjust) {
-                                    // Adjust actualMoneySaved proportionally
-                                    updates.actualMoneySaved = adjustedAmount;
-                                }
-                            }
-
-                            updates.dailyCost = newDailyCost;
-                        }
-                        if (formData.sponsorName !== undefined && formData.sponsorName !== '') {
-                            updates.sponsorName = formData.sponsorName;
-                        }
-                        if (formData.sponsorPhone !== undefined && formData.sponsorPhone !== '') {
-                            updates.sponsorPhone = formData.sponsorPhone;
-                        }
-
-                        // Only proceed if there are updates
-                        if (Object.keys(updates).length === 0) {
-                            alert('No changes to save');
-                            return;
-                        }
-
-                        // Call parent callback with updates
-                        await onUpdate(updates);
-
-                        alert('Recovery settings updated!');
-                        onClose();
-                    } catch (error) {
-                        console.error('Error updating recovery settings:', error);
-                        window.handleFirebaseError && window.handleFirebaseError(error, 'RecoveryInfoModal.handleSave');
-                        alert('Failed to update settings: ' + error.message);
-                    }
-                }}
-            >
-                Save Changes
-            </button>
-        </div>
+        </>
     );
 }
 
@@ -1554,194 +4484,3678 @@ function PasswordModal({ user, onClose, onSubmit }) {
     );
 }
 
-/** NotificationSettingsModal - Configure notification times, alert preferences, timezone */
-function NotificationSettingsModal({ userData, user, onClose, onUpdate }) {
-    const [formData, setFormData] = React.useState({});
-
+/** NotificationSettingsModal - Configure notification times, alert preferences */
+/** NotificationSettingsModal - Configure notification preferences and reminders */
+/** AccordionSection - Reusable collapsible section component */
+function AccordionSection({ title, enabled, total, isExpanded, onToggle, children }) {
     return (
-        <div>
-            <h3 style={{marginBottom: '20px'}}>Notification Settings</h3>
-
-            <h4 style={{marginBottom: '15px', color: '#f4c430'}}>Daily Reminders</h4>
-            <div className="form-group">
-                <label className="form-label">Morning Check-in Time</label>
-                <input
-                    type="time"
-                    className="form-input"
-                    value={formData.morningCheckInTime || userData?.notifications?.morningCheckIn || '08:00'}
-                    onChange={(e) => setFormData({...formData, morningCheckInTime: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">Evening Reflection Time</label>
-                <input
-                    type="time"
-                    className="form-input"
-                    value={formData.eveningReflectionTime || userData?.notifications?.eveningReflection || '20:00'}
-                    onChange={(e) => setFormData({...formData, eveningReflectionTime: e.target.value})}
-                />
-            </div>
-            <div className="form-group">
-                <label className="form-label">Daily Pledge Reminder</label>
-                <input
-                    type="time"
-                    className="form-input"
-                    value={formData.pledgeTime || userData?.notifications?.dailyPledge || '09:00'}
-                    onChange={(e) => setFormData({...formData, pledgeTime: e.target.value})}
-                />
-            </div>
-
-            <h4 style={{marginBottom: '15px', marginTop: '25px', color: '#f4c430'}}>Alert Preferences</h4>
-            <div style={{display: 'flex', flexDirection: 'column', gap: '15px'}}>
-                <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                    <input
-                        type="checkbox"
-                        checked={formData.assignmentAlerts !== false}
-                        onChange={(e) => setFormData({...formData, assignmentAlerts: e.target.checked})}
-                    />
-                    Assignment due date reminders
-                </label>
-                <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                    <input
-                        type="checkbox"
-                        checked={formData.milestoneAlerts !== false}
-                        onChange={(e) => setFormData({...formData, milestoneAlerts: e.target.checked})}
-                    />
-                    Milestone celebration alerts
-                </label>
-                <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                    <input
-                        type="checkbox"
-                        checked={formData.messageAlerts !== false}
-                        onChange={(e) => setFormData({...formData, messageAlerts: e.target.checked})}
-                    />
-                    New message notifications
-                </label>
-                <label style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                    <input
-                        type="checkbox"
-                        checked={formData.missedCheckInAlerts !== false}
-                        onChange={(e) => setFormData({...formData, missedCheckInAlerts: e.target.checked})}
-                    />
-                    Missed check-in reminders
-                </label>
-            </div>
-
-            <h4 style={{marginBottom: '15px', marginTop: '25px', color: '#f4c430'}}>Time Zone</h4>
-            <div className="form-group">
-                <select
-                    className="form-select"
-                    value={formData.timezone || userData?.timezone || 'America/Los_Angeles'}
-                    onChange={(e) => setFormData({...formData, timezone: e.target.value})}
-                >
-                    <option value="America/Los_Angeles">Pacific Time</option>
-                    <option value="America/Denver">Mountain Time</option>
-                    <option value="America/Chicago">Central Time</option>
-                    <option value="America/New_York">Eastern Time</option>
-                    <option value="America/Phoenix">Arizona</option>
-                    <option value="Pacific/Honolulu">Hawaii</option>
-                    <option value="America/Anchorage">Alaska</option>
-                </select>
-            </div>
-
-            <button
-                className="btn-primary"
-                onClick={async () => {
-                    try {
-                        const updates = {
-                            notifications: {
-                                morningCheckIn: formData.morningCheckInTime,
-                                eveningReflection: formData.eveningReflectionTime,
-                                dailyPledge: formData.pledgeTime,
-                                assignmentAlerts: formData.assignmentAlerts,
-                                milestoneAlerts: formData.milestoneAlerts,
-                                messageAlerts: formData.messageAlerts,
-                                missedCheckInAlerts: formData.missedCheckInAlerts
-                            },
-                            timezone: formData.timezone
-                        };
-                        await onUpdate(updates);
-                        alert('Notification settings updated!');
-                        onClose();
-                    } catch (error) {
-                        console.error('Error updating notification settings:', error);
-                        window.handleFirebaseError && window.handleFirebaseError(error, 'NotificationSettingsModal.handleSave');
-                        alert('Failed to update settings');
-                    }
+        <div style={{ borderBottom: '1px solid #e5e7eb' }}>
+            {/* Header Row */}
+            <div
+                onClick={onToggle}
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '16px 20px',
+                    cursor: 'pointer',
+                    background: 'white',
+                    transition: 'background 0.15s'
                 }}
+                onMouseEnter={(e) => e.currentTarget.style.background = '#f9fafb'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
             >
-                Save Settings
-            </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    {/* Chevron */}
+                    <i
+                        data-lucide={isExpanded ? 'chevron-down' : 'chevron-right'}
+                        style={{
+                            width: '18px',
+                            height: '18px',
+                            color: '#6b7280',
+                            transition: 'transform 0.2s ease-out'
+                        }}
+                    ></i>
+                    {/* Title */}
+                    <span style={{ fontSize: '16px', fontWeight: '600', color: '#111827' }}>
+                        {title}
+                    </span>
+                    {/* Enabled Count Badge */}
+                    <span style={{ fontSize: '13px', fontWeight: '500', color: '#6b7280' }}>
+                        [{enabled}/{total}]
+                    </span>
+                </div>
+            </div>
+            {/* Expandable Content */}
+            <div style={{
+                maxHeight: isExpanded ? '2000px' : '0',
+                overflow: 'hidden',
+                transition: 'max-height 0.2s ease-out'
+            }}>
+                <div style={{ padding: '16px 20px 20px 20px', background: '#fafbfc' }}>
+                    {children}
+                </div>
+            </div>
         </div>
     );
 }
 
-/** GoogleCalendarModal - Google Calendar integration (coming soon) */
-function GoogleCalendarModal({ onClose }) {
+/** ToggleRow - Reusable toggle component with label and helper text */
+function ToggleRow({ checked, onChange, label, helper, disabled = false, isBold = false }) {
     return (
-        <div>
-            <h3 style={{marginBottom: '20px'}}>Google Calendar Integration</h3>
-
-            {/* Coming Soon Card */}
-            <div style={{
-                background: 'rgba(244, 196, 48, 0.1)',
-                border: '1px solid rgba(244, 196, 48, 0.3)',
-                borderRadius: '10px',
-                padding: '30px',
-                marginBottom: '20px',
-                textAlign: 'center'
-            }}>
-                <div style={{marginBottom: '15px'}}>
-                    <i data-lucide="construction" style={{width: '64px', height: '64px', color: 'var(--color-warning)'}}></i>
-                </div>
+        <label style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '12px',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            opacity: disabled ? 0.5 : 1
+        }}>
+            <input
+                type="checkbox"
+                checked={checked}
+                onChange={onChange}
+                disabled={disabled}
+                style={{
+                    width: '18px',
+                    height: '18px',
+                    marginTop: '2px',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    accentColor: '#058585',
+                    flexShrink: 0
+                }}
+            />
+            <div style={{ flex: 1 }}>
                 <div style={{
-                    fontSize: '24px',
-                    fontWeight: 'bold',
-                    marginBottom: '10px',
-                    color: '#f4c430'
-                }}>
-                    Coming Soon!
-                </div>
-                <div style={{fontSize: '16px', opacity: 0.9, lineHeight: '1.6'}}>
-                    We're working on Google Calendar integration.<br/>
-                    This feature will be available soon.
-                </div>
-            </div>
-
-            {/* What's Coming Info */}
-            <div style={{
-                background: 'rgba(33, 150, 243, 0.1)',
-                border: '1px solid rgba(33, 150, 243, 0.3)',
-                borderRadius: '10px',
-                padding: '20px',
-                marginBottom: '20px'
-            }}>
-                <h4 style={{color: '#2196F3', marginBottom: '15px', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px'}}>
-                    <i data-lucide="calendar" style={{width: '18px', height: '18px'}}></i>
-                    What's Coming
-                </h4>
-                <ul style={{
                     fontSize: '14px',
-                    opacity: 0.9,
-                    paddingLeft: '20px',
-                    margin: '10px 0',
-                    lineHeight: '2'
+                    color: disabled ? '#9ca3af' : '#374151',
+                    fontWeight: isBold ? '600' : 'normal'
                 }}>
-                    <li>Sync recovery milestones to your personal calendar</li>
-                    <li>Automatic reminders for scheduled meetings</li>
-                    <li>Support group session notifications</li>
-                    <li>One-click calendar integration</li>
-                </ul>
+                    {label}
+                </div>
+                {helper && (
+                    <small style={{
+                        display: 'block',
+                        marginTop: '4px',
+                        color: '#6b7280',
+                        fontSize: '12px',
+                        lineHeight: '1.4'
+                    }}>
+                        {helper}
+                    </small>
+                )}
+            </div>
+        </label>
+    );
+}
+
+/** NotificationSettingsModal - Professional accordion-based notification settings */
+function NotificationSettingsModal({ userData, user, onClose, onUpdate }) {
+    // Initialize form data with all 36 notification preferences
+    const [formData, setFormData] = React.useState({
+        // MASTER TOGGLE (1)
+        notificationsEnabled: userData?.notifications?.enabled !== false,
+
+        // DAILY REMINDERS (2) - dailyPledge DELETED Nov 23, 2025
+        morningCheckInTime: userData?.notifications?.morningCheckIn || '08:00',
+        eveningReflectionTime: userData?.notifications?.eveningReflection || '20:00',
+
+        // ASSIGNMENTS (3)
+        assignmentDue1DayAlerts: userData?.notifications?.assignmentDue1DayAlerts !== false,
+        assignmentDueTodayAlerts: userData?.notifications?.assignmentDueTodayAlerts !== false,
+        assignmentOverdueAlerts: userData?.notifications?.assignmentOverdueAlerts !== false,
+
+        // MILESTONES (3)
+        milestoneAlerts: userData?.notifications?.milestoneAlerts !== false,
+        milestoneTime: userData?.notifications?.milestoneTime || '09:00',
+        milestoneApproachingAlerts: userData?.notifications?.milestoneApproachingAlerts !== false,
+
+        // MEETINGS (4)
+        meetingScheduledAlerts: userData?.notifications?.meetingScheduledAlerts !== false,
+        meetingDaySummaryAlerts: userData?.notifications?.meetingDaySummaryAlerts !== false,
+        meeting1HourAlerts: userData?.notifications?.meeting1HourAlerts !== false,
+        meetingAttendedAlerts: userData?.notifications?.meetingAttendedAlerts !== false,
+
+        // COMMUNITY (5)
+        allCommunityAlerts: userData?.notifications?.allCommunityAlerts !== false,
+        communityPostAlerts: userData?.notifications?.communityPostAlerts !== false,
+        supportGroupPostAlerts: userData?.notifications?.supportGroupPostAlerts !== false,
+        myDayPostAlerts: userData?.notifications?.myDayPostAlerts !== false,
+        communityInteractionAlerts: userData?.notifications?.communityActivity !== false,
+
+        // MESSAGES (1)
+        messageAlerts: userData?.notifications?.messageAlerts !== false,
+
+        // MISSED ACTIVITY - DELETED Nov 23, 2025 (missedCheckInAlerts, missedReflectionAlerts)
+
+        // DELIVERY SETTINGS (5)
+        quietHoursEnabled: userData?.notifications?.quietHours?.enabled !== false,
+        quietHoursStart: userData?.notifications?.quietHours?.start || '22:00',
+        quietHoursEnd: userData?.notifications?.quietHours?.end || '08:00',
+        notificationSounds: userData?.notifications?.sounds !== false,
+        vibration: userData?.notifications?.vibration !== false,
+
+        // EMAIL REPORTS (3)
+        emailDigestEnabled: userData?.notifications?.emailDigest?.enabled !== false,
+        emailDigestFrequency: userData?.notifications?.emailDigest?.frequency || 'weekly',
+        weeklyReport: userData?.notifications?.weeklyReport !== false
+    });
+
+    // Accordion state (3 sections - Phase 7: simplified from 8)
+    const [expandedSections, setExpandedSections] = React.useState({
+        messages: false,
+        delivery: false,
+        emailReports: false
+    });
+
+    const [saving, setSaving] = React.useState(false);
+    const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+
+    // Helper: Calculate enabled count per section (Phase 7: simplified)
+    const getEnabledCount = (section) => {
+        switch (section) {
+            case 'messages':
+                return formData.messageAlerts ? 1 : 0;
+            case 'delivery':
+                return [
+                    formData.quietHoursEnabled,
+                    formData.notificationSounds,
+                    formData.vibration
+                ].filter(Boolean).length;
+            case 'emailReports':
+                return [
+                    formData.emailDigestEnabled,
+                    formData.weeklyReport
+                ].filter(Boolean).length;
+            default:
+                return 0;
+        }
+    };
+
+    // Helper: Get total count per section (Phase 7: simplified)
+    const getTotalCount = (section) => {
+        const counts = {
+            messages: 1,
+            delivery: 3,
+            emailReports: 2
+        };
+        return counts[section] || 0;
+    };
+
+    // Save handler with all 36 notification preferences
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            const updates = {
+                notifications: {
+                    // MASTER TOGGLE
+                    enabled: formData.notificationsEnabled,
+
+                    // DAILY REMINDERS - dailyPledge DELETED Nov 23, 2025
+                    morningCheckIn: formData.morningCheckInTime,
+                    eveningReflection: formData.eveningReflectionTime,
+
+                    // ASSIGNMENTS (SPLIT INTO 3)
+                    assignmentDue1DayAlerts: formData.assignmentDue1DayAlerts,
+                    assignmentDueTodayAlerts: formData.assignmentDueTodayAlerts,
+                    assignmentOverdueAlerts: formData.assignmentOverdueAlerts,
+
+                    // MILESTONES
+                    milestoneAlerts: formData.milestoneAlerts,
+                    milestoneTime: formData.milestoneTime,
+                    milestoneApproachingAlerts: formData.milestoneApproachingAlerts,
+
+                    // MEETINGS (4 NEW)
+                    meetingScheduledAlerts: formData.meetingScheduledAlerts,
+                    meetingDaySummaryAlerts: formData.meetingDaySummaryAlerts,
+                    meeting1HourAlerts: formData.meeting1HourAlerts,
+                    meetingAttendedAlerts: formData.meetingAttendedAlerts,
+
+                    // COMMUNITY (SPLIT INTO 5)
+                    allCommunityAlerts: formData.allCommunityAlerts,
+                    communityPostAlerts: formData.communityPostAlerts,
+                    supportGroupPostAlerts: formData.supportGroupPostAlerts,
+                    myDayPostAlerts: formData.myDayPostAlerts,
+                    communityActivity: formData.communityInteractionAlerts,
+
+                    // MESSAGES
+                    messageAlerts: formData.messageAlerts,
+
+                    // MISSED ACTIVITY - DELETED Nov 23, 2025 (missedCheckInAlerts, missedReflectionAlerts)
+
+                    // DELIVERY SETTINGS
+                    quietHours: {
+                        enabled: formData.quietHoursEnabled,
+                        start: formData.quietHoursStart,
+                        end: formData.quietHoursEnd
+                    },
+                    sounds: formData.notificationSounds,
+                    vibration: formData.vibration,
+
+                    // EMAIL REPORTS
+                    emailDigest: {
+                        enabled: formData.emailDigestEnabled,
+                        frequency: formData.emailDigestFrequency
+                    },
+                    weeklyReport: formData.weeklyReport
+                }
+            };
+            await onUpdate(updates);
+            window.showNotification('Notification settings updated successfully', 'success');
+            onClose();
+        } catch (error) {
+            console.error('Error updating notification settings:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'NotificationSettingsModal.handleSave');
+            alert('Failed to save changes. Please try again.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    // Initialize Lucide icons after render and when sections expand
+    React.useEffect(() => {
+        const timer = setTimeout(() => {
+            if (window.lucide && typeof window.lucide.createIcons === 'function') {
+                window.lucide.createIcons();
+            }
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [expandedSections]);
+
+    // Handle window resize for mobile detection
+    React.useEffect(() => {
+        const handleResize = () => {
+            setIsMobile(window.innerWidth < 768);
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    return (
+        <>
+            {/* STEP 1.13: HEADER - Title + Close Button */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '24px',
+                borderBottom: '1px solid #e5e7eb'
+            }}>
+                <h2 style={{
+                    fontSize: '24px',
+                    fontWeight: '700',
+                    color: '#111827',
+                    margin: 0
+                }}>
+                    Message & Email Settings
+                </h2>
+                <button
+                    onClick={onClose}
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        borderRadius: '8px',
+                        transition: 'background 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                >
+                    <i data-lucide="x" style={{width: '24px', height: '24px', color: '#6b7280'}}></i>
+                </button>
             </div>
 
-            {/* Close Button */}
-            <button
-                className="btn-primary"
-                onClick={onClose}
-            >
-                Got It
-            </button>
+            {/* STEP 1.13: BODY - Scrollable Settings */}
+            <div style={{
+                overflowY: 'auto',
+                maxHeight: 'calc(90vh - 160px)'
+            }}>
+                {/* Master Toggle - Always visible at top */}
+                <div style={{
+                    padding: '24px',
+                    borderBottom: '1px solid #e5e7eb'
+                }}>
+                    <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        cursor: 'pointer',
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#111827'
+                    }}>
+                        <input
+                            type="checkbox"
+                            checked={formData.notificationsEnabled}
+                            onChange={(e) => setFormData({...formData, notificationsEnabled: e.target.checked})}
+                            style={{
+                                width: '20px',
+                                height: '20px',
+                                cursor: 'pointer',
+                                accentColor: '#058585'
+                            }}
+                        />
+                        Enable Alerts
+                    </label>
+                    <small style={{
+                        color: '#6b7280',
+                        fontSize: '12px',
+                        marginLeft: '32px',
+                        display: 'block',
+                        marginTop: '6px'
+                    }}>
+                        Master switch to control message alerts and sounds
+                    </small>
+                </div>
+
+                {/* Phase 7: In-app notification sections REMOVED (Daily Reminders, Assignments, Milestones, Meetings, Community) */}
+                {/* Only Messages, Delivery Settings, and Email Reports remain */}
+
+                {/* Messages Section */}
+                <AccordionSection
+                    title="Messages"
+                    enabled={getEnabledCount('messages')}
+                    total={getTotalCount('messages')}
+                    isExpanded={expandedSections.messages}
+                    onToggle={() => setExpandedSections({
+                        ...expandedSections,
+                        messages: !expandedSections.messages
+                    })}
+                >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <ToggleRow
+                            checked={formData.messageAlerts}
+                            onChange={(e) => setFormData({...formData, messageAlerts: e.target.checked})}
+                            label="New message notifications"
+                            helper="Alert when you receive a new message from your coach or peers"
+                        />
+                    </div>
+                </AccordionSection>
+
+                {/* Delivery Settings Section */}
+                <AccordionSection
+                    title="Delivery Settings"
+                    enabled={getEnabledCount('delivery')}
+                    total={getTotalCount('delivery')}
+                    isExpanded={expandedSections.delivery}
+                    onToggle={() => setExpandedSections({
+                        ...expandedSections,
+                        delivery: !expandedSections.delivery
+                    })}
+                >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {/* Quiet Hours */}
+                        <div style={{
+                            padding: '12px',
+                            background: '#f9fafb',
+                            border: '1px solid #e5e7eb',
+                            borderRadius: '8px'
+                        }}>
+                            <label style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                marginBottom: formData.quietHoursEnabled ? '12px' : '0',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                color: '#374151',
+                                fontWeight: '600'
+                            }}>
+                                <input
+                                    type="checkbox"
+                                    checked={formData.quietHoursEnabled}
+                                    onChange={(e) => setFormData({...formData, quietHoursEnabled: e.target.checked})}
+                                    style={{
+                                        width: '18px',
+                                        height: '18px',
+                                        cursor: 'pointer',
+                                        accentColor: '#058585'
+                                    }}
+                                />
+                                Enable Quiet Hours
+                            </label>
+
+                            {formData.quietHoursEnabled && (
+                                <div style={{
+                                    marginLeft: '30px',
+                                    display: 'grid',
+                                    gridTemplateColumns: '1fr 1fr',
+                                    gap: '12px'
+                                }}>
+                                    <div>
+                                        <label style={{
+                                            display: 'block',
+                                            fontSize: '12px',
+                                            fontWeight: '600',
+                                            color: '#374151',
+                                            marginBottom: '4px'
+                                        }}>
+                                            Start Time
+                                        </label>
+                                        <input
+                                            type="time"
+                                            value={formData.quietHoursStart}
+                                            onChange={(e) => setFormData({...formData, quietHoursStart: e.target.value})}
+                                            style={{
+                                                width: '100%',
+                                                padding: '6px 10px',
+                                                border: '1px solid #d1d5db',
+                                                borderRadius: '6px',
+                                                fontSize: '13px',
+                                                color: '#111827'
+                                            }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{
+                                            display: 'block',
+                                            fontSize: '12px',
+                                            fontWeight: '600',
+                                            color: '#374151',
+                                            marginBottom: '4px'
+                                        }}>
+                                            End Time
+                                        </label>
+                                        <input
+                                            type="time"
+                                            value={formData.quietHoursEnd}
+                                            onChange={(e) => setFormData({...formData, quietHoursEnd: e.target.value})}
+                                            style={{
+                                                width: '100%',
+                                                padding: '6px 10px',
+                                                border: '1px solid #d1d5db',
+                                                borderRadius: '6px',
+                                                fontSize: '13px',
+                                                color: '#111827'
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                            <small style={{
+                                color: '#6b7280',
+                                fontSize: '11px',
+                                display: 'block',
+                                marginTop: '8px'
+                            }}>
+                                No push notifications or sounds during quiet hours
+                            </small>
+                        </div>
+
+                        {/* Sound & Vibration */}
+                        <ToggleRow
+                            checked={formData.notificationSounds}
+                            onChange={(e) => setFormData({...formData, notificationSounds: e.target.checked})}
+                            label="Notification Sounds"
+                            helper="Play sound when notifications arrive"
+                        />
+
+                        <ToggleRow
+                            checked={formData.vibration}
+                            onChange={(e) => setFormData({...formData, vibration: e.target.checked})}
+                            label="Vibration"
+                            helper="Vibrate when notifications arrive"
+                        />
+                    </div>
+                </AccordionSection>
+
+                {/* Email Reports Section */}
+                <AccordionSection
+                    title="Email Reports"
+                    enabled={getEnabledCount('emailReports')}
+                    total={getTotalCount('emailReports')}
+                    isExpanded={expandedSections.emailReports}
+                    onToggle={() => setExpandedSections({
+                        ...expandedSections,
+                        emailReports: !expandedSections.emailReports
+                    })}
+                >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {/* Email Digest */}
+                        <div>
+                            <label style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                marginBottom: formData.emailDigestEnabled ? '12px' : '0',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                color: '#374151',
+                                fontWeight: '600'
+                            }}>
+                                <input
+                                    type="checkbox"
+                                    checked={formData.emailDigestEnabled}
+                                    onChange={(e) => setFormData({...formData, emailDigestEnabled: e.target.checked})}
+                                    style={{
+                                        width: '18px',
+                                        height: '18px',
+                                        cursor: 'pointer',
+                                        accentColor: '#058585'
+                                    }}
+                                />
+                                Email Digest
+                            </label>
+
+                            {formData.emailDigestEnabled && (
+                                <div style={{ marginLeft: '30px' }}>
+                                    <label style={{
+                                        display: 'block',
+                                        fontSize: '12px',
+                                        fontWeight: '600',
+                                        color: '#374151',
+                                        marginBottom: '4px'
+                                    }}>
+                                        Frequency
+                                    </label>
+                                    <select
+                                        value={formData.emailDigestFrequency}
+                                        onChange={(e) => setFormData({...formData, emailDigestFrequency: e.target.value})}
+                                        style={{
+                                            width: '160px',
+                                            padding: '6px 10px',
+                                            border: '1px solid #d1d5db',
+                                            borderRadius: '6px',
+                                            fontSize: '13px',
+                                            color: '#111827',
+                                            background: 'white'
+                                        }}
+                                    >
+                                        <option value="daily">Daily</option>
+                                        <option value="weekly">Weekly</option>
+                                        <option value="monthly">Monthly</option>
+                                    </select>
+                                </div>
+                            )}
+                            <small style={{
+                                color: '#6b7280',
+                                fontSize: '11px',
+                                display: 'block',
+                                marginTop: '8px',
+                                marginLeft: formData.emailDigestEnabled ? '30px' : '0'
+                            }}>
+                                Receive email summary of your recovery progress
+                            </small>
+                        </div>
+
+                        <ToggleRow
+                            checked={formData.weeklyReport}
+                            onChange={(e) => setFormData({...formData, weeklyReport: e.target.checked})}
+                            label="Weekly Progress Report"
+                            helper="In-app notification with your weekly summary (Sundays at 9:00 AM)"
+                        />
+                    </div>
+                </AccordionSection>
+            </div>
+
+            {/* STEP 1.13: FOOTER - Cancel + Save Buttons */}
+            {/* STEP 1.23: Responsive gap (8px mobile, 12px desktop) */}
+            <div style={{
+                display: 'flex',
+                gap: isMobile ? '8px' : '12px',
+                justifyContent: 'flex-end',
+                padding: '20px 24px',
+                borderTop: '1px solid #e5e7eb',
+                background: '#f9fafb'
+            }}>
+                <button
+                    onClick={onClose}
+                    style={{
+                        padding: '12px 24px',
+                        background: '#e5e7eb',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        color: '#374151',
+                        fontSize: '15px',
+                        transition: 'background 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#d1d5db'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#e5e7eb'}
+                >
+                    Cancel
+                </button>
+                <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    style={{
+                        padding: '12px 24px',
+                        background: saving ? '#9ca3af' : '#058585',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontWeight: '600',
+                        cursor: saving ? 'not-allowed' : 'pointer',
+                        fontSize: '15px',
+                        opacity: saving ? 0.6 : 1,
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        if (!saving) e.currentTarget.style.background = '#047272';
+                    }}
+                    onMouseLeave={(e) => {
+                        if (!saving) e.currentTarget.style.background = '#058585';
+                    }}
+                >
+                    {saving ? 'Saving...' : 'Save Changes'}
+                </button>
+            </div>
+        </>
+    );
+}
+
+/** PrivacySettingsModal - Control profile visibility and data sharing */
+/** PrivacySettingsModal - Privacy settings and blocked users management */
+function PrivacySettingsModal({ userData, user, onClose, onUpdate }) {
+    // STEP 1.15: Initialize form data with current userData
+    const [formData, setFormData] = React.useState({
+        profileVisibility: userData?.privacy?.profileVisibility || 'coach_only',
+        showSobrietyDate: userData?.privacy?.showSobrietyDate !== false,
+        showProgressStats: userData?.privacy?.showProgressStats || false,
+        communityParticipation: userData?.privacy?.communityParticipation !== false,
+        allowDirectMessages: userData?.privacy?.allowDirectMessages !== false,
+        anonymousPosting: userData?.privacy?.anonymousPosting || false
+    });
+    const [blockedUsers, setBlockedUsers] = React.useState(userData?.privacy?.blockedUsers || []);
+    const [saving, setSaving] = React.useState(false);
+
+    // STEP 1.23: Mobile detection for responsive layout
+    const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+
+    React.useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    // STEP 1.15: Save handler
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            const updates = {
+                privacy: {
+                    profileVisibility: formData.profileVisibility,
+                    showSobrietyDate: formData.showSobrietyDate,
+                    showProgressStats: formData.showProgressStats,
+                    communityParticipation: formData.communityParticipation,
+                    allowDirectMessages: formData.allowDirectMessages,
+                    anonymousPosting: formData.anonymousPosting,
+                    shareProgressWithCoach: true, // Always true, locked
+                    blockedUsers: blockedUsers
+                }
+            };
+            await onUpdate(updates);
+            window.showNotification('Privacy settings updated successfully', 'success');
+            onClose();
+        } catch (error) {
+            console.error('Error updating privacy settings:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'PrivacySettingsModal.handleSave');
+            alert('Failed to update privacy settings. Please try again.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    React.useEffect(() => {
+        window.lucide?.createIcons();
+    }, [blockedUsers]);
+
+    return (
+        <>
+            {/* STEP 1.15: HEADER */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '24px',
+                borderBottom: '1px solid #e5e7eb'
+            }}>
+                <h2 style={{
+                    fontSize: '24px',
+                    fontWeight: '700',
+                    color: '#111827',
+                    margin: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                }}>
+                    <i data-lucide="shield" style={{width: '28px', height: '28px', color: '#dc2626'}}></i>
+                    Privacy Settings
+                </h2>
+                <button
+                    onClick={onClose}
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '8px',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    <i data-lucide="x" style={{width: '24px', height: '24px', color: '#6b7280'}}></i>
+                </button>
+            </div>
+
+            {/* STEP 1.15: BODY */}
+            <div style={{
+                padding: '24px',
+                overflowY: 'auto',
+                maxHeight: 'calc(90vh - 160px)'
+            }}>
+                {/* Profile Visibility Section */}
+                <div style={{marginBottom: '32px'}}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '16px',
+                        paddingBottom: '8px',
+                        borderBottom: '2px solid #e5e7eb'
+                    }}>
+                        Profile Visibility
+                    </h3>
+
+                    {/* Profile Visibility Dropdown */}
+                    <div style={{marginBottom: '20px'}}>
+                        <label style={{
+                            display: 'block',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#374151',
+                            marginBottom: '8px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}>
+                            <i data-lucide="eye" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                            Who can see your profile
+                        </label>
+                        <select
+                            value={formData.profileVisibility}
+                            onChange={(e) => setFormData({...formData, profileVisibility: e.target.value})}
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                fontSize: '15px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '8px',
+                                background: '#fff',
+                                color: '#111827',
+                                outline: 'none',
+                                transition: 'border-color 0.2s'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#058585'}
+                            onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
+                        >
+                            <option value="everyone">Everyone</option>
+                            <option value="coach_only">Coach Only</option>
+                            <option value="private">Private</option>
+                        </select>
+                        <div style={{fontSize: '13px', color: '#6b7280', marginTop: '6px'}}>
+                            Control who can see your profile information
+                        </div>
+                    </div>
+
+                    {/* Show Sobriety Date */}
+                    <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        marginBottom: '20px',
+                        cursor: 'pointer'
+                    }}>
+                        <input
+                            type="checkbox"
+                            checked={formData.showSobrietyDate}
+                            onChange={(e) => setFormData({...formData, showSobrietyDate: e.target.checked})}
+                            style={{
+                                width: '18px',
+                                height: '18px',
+                                accentColor: '#058585',
+                                cursor: 'pointer'
+                            }}
+                        />
+                        <div style={{flex: 1}}>
+                            <div style={{fontSize: '15px', color: '#374151', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                <i data-lucide="calendar" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                                Show Sobriety Date
+                            </div>
+                            <div style={{fontSize: '13px', color: '#6b7280', marginTop: '4px'}}>
+                                Display your sobriety start date on your profile
+                            </div>
+                        </div>
+                    </label>
+
+                    {/* Show Progress Stats */}
+                    <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        cursor: 'pointer'
+                    }}>
+                        <input
+                            type="checkbox"
+                            checked={formData.showProgressStats}
+                            onChange={(e) => setFormData({...formData, showProgressStats: e.target.checked})}
+                            style={{
+                                width: '18px',
+                                height: '18px',
+                                accentColor: '#058585',
+                                cursor: 'pointer'
+                            }}
+                        />
+                        <div style={{flex: 1}}>
+                            <div style={{fontSize: '15px', color: '#374151', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                <i data-lucide="bar-chart" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                                Show Progress Stats
+                            </div>
+                            <div style={{fontSize: '13px', color: '#6b7280', marginTop: '4px'}}>
+                                Display your milestone achievements and streaks publicly
+                            </div>
+                        </div>
+                    </label>
+                </div>
+
+                {/* Community Privacy Section */}
+                <div style={{marginBottom: '32px'}}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '16px',
+                        paddingBottom: '8px',
+                        borderBottom: '2px solid #e5e7eb'
+                    }}>
+                        Community Privacy
+                    </h3>
+
+                    {/* Community Participation */}
+                    <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        marginBottom: '20px',
+                        cursor: 'pointer'
+                    }}>
+                        <input
+                            type="checkbox"
+                            checked={formData.communityParticipation}
+                            onChange={(e) => setFormData({...formData, communityParticipation: e.target.checked})}
+                            style={{
+                                width: '18px',
+                                height: '18px',
+                                accentColor: '#058585',
+                                cursor: 'pointer'
+                            }}
+                        />
+                        <div style={{flex: 1}}>
+                            <div style={{fontSize: '15px', color: '#374151', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                <i data-lucide="users" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                                Community Participation
+                            </div>
+                            <div style={{fontSize: '13px', color: '#6b7280', marginTop: '4px'}}>
+                                Appear in community feed and topic rooms
+                            </div>
+                        </div>
+                    </label>
+
+                    {/* Allow Direct Messages */}
+                    <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        marginBottom: '20px',
+                        cursor: 'pointer'
+                    }}>
+                        <input
+                            type="checkbox"
+                            checked={formData.allowDirectMessages}
+                            onChange={(e) => setFormData({...formData, allowDirectMessages: e.target.checked})}
+                            style={{
+                                width: '18px',
+                                height: '18px',
+                                accentColor: '#058585',
+                                cursor: 'pointer'
+                            }}
+                        />
+                        <div style={{flex: 1}}>
+                            <div style={{fontSize: '15px', color: '#374151', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                <i data-lucide="message-square" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                                Allow Direct Messages
+                            </div>
+                            <div style={{fontSize: '13px', color: '#6b7280', marginTop: '4px'}}>
+                                Let other PIRs send you private messages
+                            </div>
+                        </div>
+                    </label>
+
+                    {/* Anonymous Posting */}
+                    <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        cursor: 'pointer'
+                    }}>
+                        <input
+                            type="checkbox"
+                            checked={formData.anonymousPosting}
+                            onChange={(e) => setFormData({...formData, anonymousPosting: e.target.checked})}
+                            style={{
+                                width: '18px',
+                                height: '18px',
+                                accentColor: '#058585',
+                                cursor: 'pointer'
+                            }}
+                        />
+                        <div style={{flex: 1}}>
+                            <div style={{fontSize: '15px', color: '#374151', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                <i data-lucide="user-x" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                                Anonymous Posting
+                            </div>
+                            <div style={{fontSize: '13px', color: '#6b7280', marginTop: '4px'}}>
+                                Post in community without showing your name
+                            </div>
+                        </div>
+                    </label>
+                </div>
+
+                {/* Data Sharing Section */}
+                <div style={{marginBottom: '32px'}}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '16px',
+                        paddingBottom: '8px',
+                        borderBottom: '2px solid #e5e7eb'
+                    }}>
+                        Data Sharing
+                    </h3>
+
+                    {/* Share Progress with Coach (Locked) */}
+                    <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        opacity: 0.7
+                    }}>
+                        <input
+                            type="checkbox"
+                            checked={true}
+                            disabled={true}
+                            style={{
+                                width: '18px',
+                                height: '18px',
+                                cursor: 'not-allowed'
+                            }}
+                        />
+                        <div style={{flex: 1}}>
+                            <div style={{fontSize: '15px', color: '#374151', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                <i data-lucide="share-2" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                                Share Progress with Coach
+                            </div>
+                            <div style={{fontSize: '13px', color: '#6b7280', marginTop: '4px'}}>
+                                Your coach always has access to your progress (required for service)
+                            </div>
+                        </div>
+                    </label>
+                </div>
+
+                {/* Blocked Users Section */}
+                <div style={{
+                    background: 'rgba(220, 38, 38, 0.1)',
+                    border: '1px solid rgba(220, 38, 38, 0.3)',
+                    borderRadius: '12px',
+                    padding: '20px'
+                }}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#dc2626',
+                        marginBottom: '16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <i data-lucide="ban" style={{width: '18px', height: '18px'}}></i>
+                        Blocked Users
+                    </h3>
+                    {blockedUsers.length === 0 ? (
+                        <p style={{fontSize: '14px', color: '#6b7280', margin: 0}}>
+                            You haven't blocked any users yet.
+                        </p>
+                    ) : (
+                        <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+                            {blockedUsers.map((userId, index) => (
+                                <div key={index} style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    padding: '12px',
+                                    background: 'rgba(0,0,0,0.1)',
+                                    borderRadius: '8px'
+                                }}>
+                                    <span style={{fontSize: '14px', color: '#374151'}}>User ID: {userId}</span>
+                                    <button
+                                        onClick={() => {
+                                            const updated = blockedUsers.filter((id) => id !== userId);
+                                            setBlockedUsers(updated);
+                                        }}
+                                        style={{
+                                            padding: '6px 16px',
+                                            fontSize: '13px',
+                                            fontWeight: '600',
+                                            background: '#dc2626',
+                                            color: '#fff',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        Unblock
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    <div style={{fontSize: '13px', color: '#6b7280', marginTop: '12px'}}>
+                        Users you've blocked cannot see your profile or message you
+                    </div>
+                </div>
+            </div>
+
+            {/* STEP 1.15: FOOTER */}
+            {/* STEP 1.23: Responsive gap (8px mobile, 12px desktop) */}
+            <div style={{
+                display: 'flex',
+                gap: isMobile ? '8px' : '12px',
+                justifyContent: 'flex-end',
+                padding: '20px 24px',
+                borderTop: '1px solid #e5e7eb',
+                background: '#f9fafb'
+            }}>
+                <button
+                    onClick={onClose}
+                    style={{
+                        padding: '12px 24px',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        color: '#6b7280',
+                        background: '#fff',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    Cancel
+                </button>
+                <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    style={{
+                        padding: '12px 24px',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        color: '#fff',
+                        background: saving ? '#6b7280' : '#058585',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: saving ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    {saving ? 'Saving...' : 'Save Changes'}
+                </button>
+            </div>
+        </>
+    );
+}
+
+/** DataManagementModal - GDPR data export and account management */
+function DataManagementModal({ userData, user, onClose, onOpenModal }) {
+    // STEP 1.16: State management
+    const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+    const [dateRange, setDateRange] = React.useState('all');
+    const [exporting, setExporting] = React.useState(false);
+    const [showPasswordModal, setShowPasswordModal] = React.useState(false);
+
+    const exportUserData = async () => {
+        setExporting(true);
+        try {
+            const exportData = {
+                exportedAt: new Date().toISOString(),
+                exportVersion: "1.0",
+                dateRange: dateRange,
+                user: {},
+                checkIns: [],
+                goals: [],
+                objectives: [],
+                assignments: [],
+                messages: [],
+                topicRoomMessages: [],
+                gratitudes: [],
+                reflections: [],
+                habits: [],
+                habitCompletions: [],
+                quickReflections: [],
+                todayWins: [],
+                pledges: [],
+                breakthroughs: []
+            };
+
+            // Calculate date filter
+            let startDate = null;
+            if (dateRange === '30days') {
+                startDate = new Date();
+                startDate.setDate(startDate.getDate() - 30);
+            } else if (dateRange === '90days') {
+                startDate = new Date();
+                startDate.setDate(startDate.getDate() - 90);
+            }
+
+            // 1. Export user profile
+            const userDoc = await db.collection('users').doc(user.uid).get();
+            exportData.user = userDoc.data();
+
+            // 2. Export check-ins
+            let checkInsQuery = db.collection('checkins').where('userId', '==', user.uid);
+            if (startDate) {
+                checkInsQuery = checkInsQuery.where('timestamp', '>=', startDate);
+            }
+            const checkInsSnap = await checkInsQuery.orderBy('timestamp', 'desc').limit(1000).get();
+            checkInsSnap.forEach(doc => {
+                exportData.checkIns.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 3. Export goals
+            const goalsSnap = await db.collection('goals')
+                .where('userId', '==', user.uid)
+                .orderBy('createdAt', 'desc')
+                .limit(500)
+                .get();
+            goalsSnap.forEach(doc => {
+                exportData.goals.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 4. Export objectives
+            const objectivesSnap = await db.collection('objectives')
+                .where('userId', '==', user.uid)
+                .orderBy('createdAt', 'desc')
+                .limit(500)
+                .get();
+            objectivesSnap.forEach(doc => {
+                exportData.objectives.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 5. Export assignments
+            let assignmentsQuery = db.collection('assignments').where('userId', '==', user.uid);
+            if (startDate) {
+                assignmentsQuery = assignmentsQuery.where('createdAt', '>=', startDate);
+            }
+            const assignmentsSnap = await assignmentsQuery.orderBy('createdAt', 'desc').limit(500).get();
+            assignmentsSnap.forEach(doc => {
+                exportData.assignments.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 6. Export messages
+            let messagesQuery = db.collection('messages').where('senderId', '==', user.uid);
+            if (startDate) {
+                messagesQuery = messagesQuery.where('createdAt', '>=', startDate);
+            }
+            const messagesSnap = await messagesQuery.orderBy('createdAt', 'desc').limit(1000).get();
+            messagesSnap.forEach(doc => {
+                exportData.messages.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 7. Export topic room messages
+            let topicMessagesQuery = db.collection('communityMessages').where('userId', '==', user.uid);
+            if (startDate) {
+                topicMessagesQuery = topicMessagesQuery.where('createdAt', '>=', startDate);
+            }
+            const topicMessagesSnap = await topicMessagesQuery.orderBy('createdAt', 'desc').limit(1000).get();
+            topicMessagesSnap.forEach(doc => {
+                exportData.topicRoomMessages.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 8. Export gratitudes
+            let gratitudesQuery = db.collection('gratitudes').where('userId', '==', user.uid);
+            if (startDate) {
+                gratitudesQuery = gratitudesQuery.where('date', '>=', startDate);
+            }
+            const gratitudesSnap = await gratitudesQuery.orderBy('date', 'desc').limit(500).get();
+            gratitudesSnap.forEach(doc => {
+                exportData.gratitudes.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 9. Export reflections
+            let reflectionsQuery = db.collection('reflections').where('userId', '==', user.uid);
+            if (startDate) {
+                reflectionsQuery = reflectionsQuery.where('date', '>=', startDate);
+            }
+            const reflectionsSnap = await reflectionsQuery.orderBy('date', 'desc').limit(500).get();
+            reflectionsSnap.forEach(doc => {
+                exportData.reflections.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 10. Export habits
+            const habitsSnap = await db.collection('habits')
+                .where('userId', '==', user.uid)
+                .orderBy('createdAt', 'desc')
+                .limit(200).get();
+            habitsSnap.forEach(doc => {
+                exportData.habits.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 11. Export habit completions
+            let habitCompletionsQuery = db.collection('habitCompletions').where('userId', '==', user.uid);
+            if (startDate) {
+                habitCompletionsQuery = habitCompletionsQuery.where('completedAt', '>=', startDate);
+            }
+            const habitCompletionsSnap = await habitCompletionsQuery.orderBy('completedAt', 'desc').limit(1000).get();
+            habitCompletionsSnap.forEach(doc => {
+                exportData.habitCompletions.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 12. Export quick reflections
+            let quickReflectionsQuery = db.collection('quickReflections').where('userId', '==', user.uid);
+            if (startDate) {
+                quickReflectionsQuery = quickReflectionsQuery.where('createdAt', '>=', startDate);
+            }
+            const quickReflectionsSnap = await quickReflectionsQuery.orderBy('createdAt', 'desc').limit(500).get();
+            quickReflectionsSnap.forEach(doc => {
+                exportData.quickReflections.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 13. Export today wins
+            let todayWinsQuery = db.collection('todayWins').where('userId', '==', user.uid);
+            if (startDate) {
+                todayWinsQuery = todayWinsQuery.where('date', '>=', startDate);
+            }
+            const todayWinsSnap = await todayWinsQuery.orderBy('date', 'desc').limit(500).get();
+            todayWinsSnap.forEach(doc => {
+                exportData.todayWins.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 14. Export pledges
+            let pledgesQuery = db.collection('pledges').where('userId', '==', user.uid);
+            if (startDate) {
+                pledgesQuery = pledgesQuery.where('createdAt', '>=', startDate);
+            }
+            const pledgesSnap = await pledgesQuery.orderBy('createdAt', 'desc').limit(500).get();
+            pledgesSnap.forEach(doc => {
+                exportData.pledges.push({ id: doc.id, ...doc.data() });
+            });
+
+            // 15. Export breakthroughs
+            let breakthroughsQuery = db.collection('breakthroughs').where('userId', '==', user.uid);
+            if (startDate) {
+                breakthroughsQuery = breakthroughsQuery.where('createdAt', '>=', startDate);
+            }
+            const breakthroughsSnap = await breakthroughsQuery.orderBy('createdAt', 'desc').limit(500).get();
+            breakthroughsSnap.forEach(doc => {
+                exportData.breakthroughs.push({ id: doc.id, ...doc.data() });
+            });
+
+            // Calculate total records
+            const totalRecords = exportData.checkIns.length + exportData.goals.length +
+                exportData.objectives.length + exportData.assignments.length +
+                exportData.messages.length + exportData.topicRoomMessages.length +
+                exportData.gratitudes.length + exportData.reflections.length +
+                exportData.habits.length + exportData.habitCompletions.length +
+                exportData.quickReflections.length + exportData.todayWins.length +
+                exportData.pledges.length + exportData.breakthroughs.length;
+
+            exportData.totalRecords = totalRecords;
+
+            // Convert to JSON string
+            const jsonString = JSON.stringify(exportData, null, 2);
+
+            // Create blob and download
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `glrs-data-export-${user.uid}-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            alert(`Export successful! ${totalRecords} records exported.`);
+        } catch (error) {
+            console.error('Export error:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'DataManagementModal.exportUserData');
+            alert('Failed to export data: ' + error.message);
+        } finally {
+            setExporting(false);
+        }
+    };
+
+    const handleClearCache = () => {
+        if (confirm('This will log you out and clear all cached data. Continue?')) {
+            try {
+                localStorage.clear();
+                sessionStorage.clear();
+                firebase.auth().signOut();
+                window.location.reload();
+            } catch (error) {
+                alert('Failed to clear cache: ' + error.message);
+            }
+        }
+    };
+
+
+    React.useEffect(() => {
+        window.lucide?.createIcons();
+    }, []);
+
+    return (
+        <>
+            {/* STEP 1.16: HEADER */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '24px',
+                borderBottom: '1px solid #e5e7eb'
+            }}>
+                <h2 style={{
+                    fontSize: '24px',
+                    fontWeight: '700',
+                    color: '#111827',
+                    margin: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                }}>
+                    <i data-lucide="file-text" style={{width: '28px', height: '28px', color: '#6b7280'}}></i>
+                    Data & Account Management
+                </h2>
+                <button
+                    onClick={onClose}
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '8px',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    <i data-lucide="x" style={{width: '24px', height: '24px', color: '#6b7280'}}></i>
+                </button>
+            </div>
+
+            {/* STEP 1.16: BODY */}
+            <div style={{
+                padding: '24px',
+                overflowY: 'auto',
+                maxHeight: 'calc(90vh - 160px)'
+            }}>
+                {/* Data Export Section */}
+                <div style={{marginBottom: '32px'}}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '16px',
+                        paddingBottom: '8px',
+                        borderBottom: '2px solid #e5e7eb'
+                    }}>
+                        Export Your Data
+                    </h3>
+                    <p style={{fontSize: '14px', color: '#6b7280', marginBottom: '16px', lineHeight: '1.6'}}>
+                        Download all your recovery data in JSON format (GDPR compliant). Includes check-ins, goals, messages, and more.
+                    </p>
+
+                    <div style={{marginBottom: '16px'}}>
+                        <label style={{
+                            display: 'block',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#374151',
+                            marginBottom: '8px'
+                        }}>
+                            Time Period
+                        </label>
+                        <select
+                            value={dateRange}
+                            onChange={(e) => setDateRange(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                fontSize: '15px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '8px',
+                                background: '#fff',
+                                color: '#111827',
+                                outline: 'none',
+                                transition: 'border-color 0.2s'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#058585'}
+                            onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
+                        >
+                            <option value="all">All Time</option>
+                            <option value="30days">Last 30 Days</option>
+                            <option value="90days">Last 90 Days</option>
+                        </select>
+                    </div>
+
+                    <button
+                        onClick={exportUserData}
+                        disabled={exporting}
+                        style={{
+                            width: '100%',
+                            padding: '12px 24px',
+                            fontSize: '15px',
+                            fontWeight: '600',
+                            color: '#fff',
+                            background: exporting ? '#6b7280' : '#058585',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: exporting ? 'not-allowed' : 'pointer',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        <i data-lucide="download" style={{width: '18px', height: '18px'}}></i>
+                        {exporting ? 'Exporting Data...' : 'Export All Data (JSON)'}
+                    </button>
+                </div>
+
+                {/* Cache Management Section */}
+                <div style={{marginBottom: '32px'}}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '16px',
+                        paddingBottom: '8px',
+                        borderBottom: '2px solid #e5e7eb'
+                    }}>
+                        Clear Cache
+                    </h3>
+                    <p style={{fontSize: '14px', color: '#6b7280', marginBottom: '16px', lineHeight: '1.6'}}>
+                        Clear all locally stored data and reload the app. Use this if the app is behaving unexpectedly or showing outdated information.
+                    </p>
+
+                    <button
+                        onClick={handleClearCache}
+                        style={{
+                            width: '100%',
+                            padding: '12px 24px',
+                            fontSize: '15px',
+                            fontWeight: '600',
+                            color: '#374151',
+                            background: '#fff',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        <i data-lucide="refresh-cw" style={{width: '18px', height: '18px'}}></i>
+                        Clear Cache & Reload
+                    </button>
+                </div>
+
+                {/* Account Management Section */}
+                <div style={{marginBottom: '32px'}}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '16px',
+                        paddingBottom: '8px',
+                        borderBottom: '2px solid #e5e7eb'
+                    }}>
+                        Account Security
+                    </h3>
+
+                    <button
+                        onClick={() => setShowPasswordModal(true)}
+                        style={{
+                            width: '100%',
+                            padding: '12px 24px',
+                            fontSize: '15px',
+                            fontWeight: '600',
+                            color: '#374151',
+                            background: '#fff',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        <i data-lucide="lock" style={{width: '18px', height: '18px'}}></i>
+                        Change Password
+                    </button>
+                </div>
+
+                {/* Danger Zone */}
+                <div style={{
+                    background: 'rgba(220, 38, 38, 0.1)',
+                    border: '1px solid rgba(220, 38, 38, 0.3)',
+                    borderRadius: '12px',
+                    padding: '20px'
+                }}>
+                    <h3 style={{
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#dc2626',
+                        marginBottom: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <i data-lucide="alert-triangle" style={{width: '18px', height: '18px'}}></i>
+                        Danger Zone
+                    </h3>
+                    <p style={{fontSize: '14px', color: '#6b7280', marginBottom: '16px', lineHeight: '1.6'}}>
+                        Permanently delete your account and all associated data. This action cannot be undone. Your recovery progress, messages, and goals will be lost forever.
+                    </p>
+                    <button
+                        onClick={() => onOpenModal('deleteAccount')}
+                        style={{
+                            width: '100%',
+                            padding: '12px 24px',
+                            fontSize: '15px',
+                            fontWeight: '600',
+                            background: '#dc2626',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        <i data-lucide="trash-2" style={{width: '18px', height: '18px'}}></i>
+                        Delete Account Permanently
+                    </button>
+                </div>
+            </div>
+
+            {/* STEP 1.16: FOOTER */}
+            {/* STEP 1.23: Responsive gap (8px mobile, 12px desktop) */}
+            <div style={{
+                display: 'flex',
+                gap: isMobile ? '8px' : '12px',
+                justifyContent: 'flex-end',
+                padding: '20px 24px',
+                borderTop: '1px solid #e5e7eb',
+                background: '#f9fafb'
+            }}>
+                <button
+                    onClick={onClose}
+                    style={{
+                        padding: '12px 24px',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        color: '#6b7280',
+                        background: '#fff',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    Close
+                </button>
+            </div>
+
+            {/* Password Change Modal (nested) */}
+            {showPasswordModal && (
+                <PasswordChangeModal
+                    user={user}
+                    onClose={() => setShowPasswordModal(false)}
+                />
+            )}
+        </>
+    );
+}
+
+/** PasswordChangeModal - Change account password */
+function PasswordChangeModal({ user, onClose }) {
+    const [passwords, setPasswords] = React.useState({
+        current: '',
+        new: '',
+        confirm: ''
+    });
+    const [error, setError] = React.useState('');
+    const [loading, setLoading] = React.useState(false);
+
+    const handleChangePassword = async () => {
+        // Validation
+        if (!passwords.current || !passwords.new || !passwords.confirm) {
+            setError('All fields are required');
+            return;
+        }
+        if (passwords.new !== passwords.confirm) {
+            setError('New passwords do not match');
+            return;
+        }
+        if (passwords.new.length < 8) {
+            setError('Password must be at least 8 characters');
+            return;
+        }
+
+        setLoading(true);
+        setError('');
+
+        try {
+            const credential = firebase.auth.EmailAuthProvider.credential(
+                user.email,
+                passwords.current
+            );
+
+            // Re-authenticate user
+            await user.reauthenticateWithCredential(credential);
+
+            // Update password
+            await user.updatePassword(passwords.new);
+
+            alert('Password updated successfully');
+            onClose();
+        } catch (error) {
+            if (error.code === 'auth/wrong-password') {
+                setError('Current password is incorrect');
+            } else {
+                console.error('Password change error:', error);
+                window.handleFirebaseError && window.handleFirebaseError(error, 'PasswordChangeModal.handleChangePassword');
+                setError('Failed to update password: ' + error.message);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000
+        }} onClick={onClose}>
+            <div style={{
+                background: '#1a1a2e',
+                borderRadius: '12px',
+                padding: '24px',
+                maxWidth: '500px',
+                width: '90%',
+                maxHeight: '90vh',
+                overflow: 'auto'
+            }} onClick={(e) => e.stopPropagation()}>
+                <h3 style={{marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px'}}>
+                    <i data-lucide="lock" style={{width: '24px', height: '24px', color: '#6b7280'}}></i>
+                    Change Password
+                </h3>
+
+                {error && (
+                    <div style={{
+                        background: 'rgba(220, 38, 38, 0.1)',
+                        border: '1px solid rgba(220, 38, 38, 0.3)',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        color: '#dc2626',
+                        marginBottom: '16px',
+                        fontSize: '13px'
+                    }}>
+                        {error}
+                    </div>
+                )}
+
+                <div className="form-group" style={{marginBottom: '16px'}}>
+                    <label className="form-label">Current Password</label>
+                    <input
+                        type="password"
+                        className="form-input"
+                        value={passwords.current}
+                        onChange={(e) => setPasswords({...passwords, current: e.target.value})}
+                        placeholder="Enter current password"
+                    />
+                </div>
+
+                <div className="form-group" style={{marginBottom: '16px'}}>
+                    <label className="form-label">New Password</label>
+                    <input
+                        type="password"
+                        className="form-input"
+                        value={passwords.new}
+                        onChange={(e) => setPasswords({...passwords, new: e.target.value})}
+                        placeholder="Enter new password (min 8 characters)"
+                    />
+                </div>
+
+                <div className="form-group" style={{marginBottom: '20px'}}>
+                    <label className="form-label">Confirm New Password</label>
+                    <input
+                        type="password"
+                        className="form-input"
+                        value={passwords.confirm}
+                        onChange={(e) => setPasswords({...passwords, confirm: e.target.value})}
+                        placeholder="Re-enter new password"
+                    />
+                </div>
+
+                <div style={{display: 'flex', gap: '12px'}}>
+                    <button
+                        className="btn-primary"
+                        onClick={handleChangePassword}
+                        disabled={loading}
+                        style={{flex: 1}}
+                    >
+                        {loading ? 'Updating...' : 'Update Password'}
+                    </button>
+                    <button
+                        className="btn-secondary"
+                        onClick={onClose}
+                        style={{flex: 1}}
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </div>
         </div>
+    );
+}
+
+/** GoogleCalendarModal - Google Calendar OAuth integration */
+/** GoogleCalendarModal - Google Calendar integration with OAuth and sync settings */
+function GoogleCalendarModal({ userData, user, onClose, onUpdate }) {
+    // STEP 1.14: OAuth state (preserve existing functionality)
+    const [connecting, setConnecting] = React.useState(false);
+    const [disconnecting, setDisconnecting] = React.useState(false);
+    const [error, setError] = React.useState('');
+
+    const isConnected = userData?.googleCalendar?.connected || false;
+    const connectedAt = userData?.googleCalendar?.connectedAt;
+
+    // STEP 1.14: Settings form state
+    const [formData, setFormData] = React.useState({
+        timezone: userData?.timezone || 'America/Los_Angeles',
+        dateFormat: userData?.dateFormat || 'MM/DD/YYYY',
+        timeFormat: userData?.timeFormat || '12h',
+        autoRefresh: userData?.autoRefresh || 60,
+        syncMeetings: userData?.syncMeetings !== false,
+        syncAAMeetings: userData?.syncAAMeetings !== false,
+        syncNAMeetings: userData?.syncNAMeetings !== false
+    });
+    const [saving, setSaving] = React.useState(false);
+
+    // STEP 1.23: Mobile detection for responsive layout
+    const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+
+    // Redesign: Collapsible sections and sync state
+    const [showSyncDetails, setShowSyncDetails] = React.useState(false);
+    const [syncing, setSyncing] = React.useState(false);
+
+    React.useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    // Update formData when userData changes (fixes state persistence)
+    React.useEffect(() => {
+        if (userData) {
+            setFormData({
+                timezone: userData.timezone || 'America/Los_Angeles',
+                dateFormat: userData.dateFormat || 'MM/DD/YYYY',
+                timeFormat: userData.timeFormat || '12h',
+                autoRefresh: userData.autoRefresh || 60,
+                syncMeetings: userData.syncMeetings !== false,
+                syncAAMeetings: userData.syncAAMeetings !== false,
+                syncNAMeetings: userData.syncNAMeetings !== false
+            });
+        }
+    }, [userData]);
+
+    // STEP 1.14: OAuth connect handler (preserve existing)
+    const handleConnectCalendar = async () => {
+        // Safety check: Ensure user is available
+        if (!user || !user.uid) {
+            console.error('User not available for OAuth flow');
+            setError('Authentication error. Please refresh the page and try again.');
+            return;
+        }
+
+        setConnecting(true);
+        setError('');
+
+        try {
+            const scopes = [
+                'https://www.googleapis.com/auth/calendar',
+                'https://www.googleapis.com/auth/calendar.events',
+                'https://www.googleapis.com/auth/userinfo.email'
+            ].join(' ');
+
+            const redirectUri = window.location.origin + '/oauth-callback';
+            // STEP 1.24: Updated OAuth credentials (November 22, 2025)
+            const clientId = '830378577655-ms2vopfhcr5ld21hlv318ov8r22pq224.apps.googleusercontent.com';
+
+            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+                `client_id=${clientId}&` +
+                `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+                `response_type=code&` +
+                `scope=${encodeURIComponent(scopes)}&` +
+                `access_type=offline&` +
+                `prompt=consent&` +
+                `state=${user.uid}`;
+
+            window.location.href = authUrl;
+        } catch (error) {
+            console.error('Failed to initiate OAuth:', error);
+            setError('Failed to connect to Google Calendar: ' + error.message);
+            setConnecting(false);
+        }
+    };
+
+    // STEP 1.14: OAuth disconnect handler (preserve existing)
+    const handleDisconnectCalendar = async () => {
+        // Safety check: Ensure user is available
+        if (!user || !user.uid) {
+            console.error('User not available for disconnect');
+            setError('Authentication error. Please refresh the page and try again.');
+            return;
+        }
+
+        if (!confirm('Are you sure you want to disconnect Google Calendar? Your calendar events will no longer sync.')) {
+            return;
+        }
+
+        setDisconnecting(true);
+        setError('');
+
+        try {
+            await db.collection('users').doc(user.uid).update({
+                'googleCalendar.connected': false,
+                'googleCalendar.disconnectedAt': firebase.firestore.FieldValue.serverTimestamp(),
+                'googleCalendar.accessToken': firebase.firestore.FieldValue.delete(),
+                'googleCalendar.refreshToken': firebase.firestore.FieldValue.delete(),
+                'googleCalendar.expiresAt': firebase.firestore.FieldValue.delete()
+            });
+
+            window.showNotification('Google Calendar disconnected successfully', 'success');
+            onClose();
+        } catch (error) {
+            console.error('Failed to disconnect calendar:', error);
+            setError('Failed to disconnect: ' + error.message);
+        } finally {
+            setDisconnecting(false);
+        }
+    };
+
+    // STEP 1.14: Save settings handler
+    const handleSave = async () => {
+        // Safety check: Ensure user is available
+        if (!user || !user.uid) {
+            console.error('User not available for save');
+            alert('Authentication error. Please refresh the page and try again.');
+            return;
+        }
+
+        setSaving(true);
+        try {
+            // Step 1: Save settings to Firestore
+            await db.collection('users').doc(user.uid).update({
+                timezone: formData.timezone,
+                dateFormat: formData.dateFormat,
+                timeFormat: formData.timeFormat,
+                autoRefresh: parseInt(formData.autoRefresh),
+                syncMeetings: formData.syncMeetings,
+                syncAAMeetings: formData.syncAAMeetings,
+                syncNAMeetings: formData.syncNAMeetings
+            });
+
+            // Step 2: Reload user data to update local state
+            if (onUpdate) {
+                await onUpdate();
+            }
+
+            // Step 3: Trigger calendar sync with new settings
+            try {
+                const syncSettings = firebase.functions().httpsCallable('syncCalendarSettings');
+                await syncSettings({ userId: user.uid });
+                console.log('Calendar sync triggered successfully');
+            } catch (syncError) {
+                console.error('Calendar sync failed (non-fatal):', syncError);
+                // Don't block the save flow if sync fails
+            }
+
+            window.showNotification('Calendar settings updated successfully', 'success');
+            onClose();
+        } catch (error) {
+            console.error('Error saving calendar settings:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'GoogleCalendarModal.handleSave');
+            alert('Failed to save changes. Please try again.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    React.useEffect(() => {
+        window.lucide?.createIcons();
+    }, []);
+
+    return (
+        <>
+            {/* STEP 1.14: HEADER */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '24px',
+                borderBottom: '1px solid #e5e7eb'
+            }}>
+                <h2 style={{
+                    fontSize: '24px',
+                    fontWeight: '700',
+                    color: '#111827',
+                    margin: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                }}>
+                    <i data-lucide="calendar" style={{width: '28px', height: '28px', color: '#2196F3'}}></i>
+                    Google Calendar Integration
+                </h2>
+                <button
+                    onClick={onClose}
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '8px',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    <i data-lucide="x" style={{width: '24px', height: '24px', color: '#6b7280'}}></i>
+                </button>
+            </div>
+
+            {/* STEP 1.14: BODY */}
+            <div style={{
+                padding: '24px',
+                overflowY: 'auto',
+                maxHeight: 'calc(90vh - 160px)'
+            }}>
+                {/* Error Message */}
+                {error && (
+                    <div style={{
+                        background: 'rgba(220, 38, 38, 0.1)',
+                        border: '1px solid rgba(220, 38, 38, 0.3)',
+                        borderRadius: '8px',
+                        padding: '12px',
+                        marginBottom: '20px',
+                        color: '#dc2626',
+                        fontSize: '14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <i data-lucide="alert-circle" style={{width: '16px', height: '16px'}}></i>
+                        {error}
+                    </div>
+                )}
+
+                {/* Hero Section - Connection Status */}
+                {isConnected ? (
+                    <div style={{
+                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        padding: '24px',
+                        borderRadius: '16px',
+                        marginBottom: '20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        boxShadow: '0 4px 12px rgba(16, 185, 129, 0.15)',
+                        cursor: 'pointer',
+                        transition: 'transform 0.2s, box-shadow 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 6px 16px rgba(16, 185, 129, 0.2)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.15)';
+                    }}
+                    >
+                        {/* Icon Container */}
+                        <div style={{
+                            width: '56px',
+                            height: '56px',
+                            background: 'rgba(255,255,255,0.2)',
+                            borderRadius: '14px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="check-circle" style={{width: '32px', height: '32px', color: '#ffffff', strokeWidth: 2.5}}></i>
+                        </div>
+
+                        {/* Text Content */}
+                        <div style={{flex: 1}}>
+                            <div style={{
+                                fontSize: '18px',
+                                fontWeight: '700',
+                                color: '#ffffff',
+                                marginBottom: '4px',
+                                letterSpacing: '-0.02em'
+                            }}>
+                                Calendar Connected
+                            </div>
+                            <div style={{
+                                fontSize: '14px',
+                                color: 'rgba(255,255,255,0.95)',
+                                fontWeight: '500'
+                            }}>
+                                {userData?.googleCalendar?.email || 'Syncing to Google Calendar'}
+                            </div>
+                            {connectedAt && (
+                                <div style={{
+                                    fontSize: '13px',
+                                    color: 'rgba(255,255,255,0.75)',
+                                    marginTop: '4px'
+                                }}>
+                                    Connected {new Date(connectedAt.seconds * 1000).toLocaleDateString('en-US', {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        year: 'numeric'
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Chevron */}
+                        <i data-lucide="chevron-right" style={{width: '20px', height: '20px', color: 'rgba(255,255,255,0.6)'}}></i>
+                    </div>
+                ) : (
+                    <div style={{
+                        background: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
+                        padding: '24px',
+                        borderRadius: '16px',
+                        marginBottom: '20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        boxShadow: '0 4px 12px rgba(107, 114, 128, 0.15)'
+                    }}>
+                        {/* Icon Container */}
+                        <div style={{
+                            width: '56px',
+                            height: '56px',
+                            background: 'rgba(255,255,255,0.2)',
+                            borderRadius: '14px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="calendar-off" style={{width: '32px', height: '32px', color: '#ffffff'}}></i>
+                        </div>
+
+                        {/* Text Content */}
+                        <div style={{flex: 1}}>
+                            <div style={{
+                                fontSize: '18px',
+                                fontWeight: '700',
+                                color: '#ffffff',
+                                marginBottom: '4px',
+                                letterSpacing: '-0.02em'
+                            }}>
+                                Not Connected
+                            </div>
+                            <div style={{
+                                fontSize: '14px',
+                                color: 'rgba(255,255,255,0.85)',
+                                lineHeight: '1.5'
+                            }}>
+                                Connect your Google Calendar to automatically sync GLRS meetings
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Part 2: Settings Grid (2x2 Card Layout) */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)',
+                    gap: '12px',
+                    marginBottom: '24px'
+                }}>
+                    {/* Timezone Card */}
+                    <div style={{
+                        background: '#ffffff',
+                        padding: '16px',
+                        borderRadius: '12px',
+                        border: '1px solid #e5e7eb',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                        e.currentTarget.style.borderColor = '#d1d5db';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.boxShadow = 'none';
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                    }}>
+                        <label style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: '#6b7280',
+                            letterSpacing: '0.5px',
+                            textTransform: 'uppercase',
+                            marginBottom: '8px'
+                        }}>
+                            <i data-lucide="globe" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                            Timezone
+                        </label>
+                        <select
+                            value={formData.timezone}
+                            onChange={(e) => setFormData({...formData, timezone: e.target.value})}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                fontSize: '14px',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: '8px',
+                                background: '#f9fafb',
+                                color: '#111827',
+                                outline: 'none',
+                                transition: 'all 0.2s',
+                                cursor: 'pointer'
+                            }}
+                            onFocus={(e) => {
+                                e.target.style.borderColor = '#3b82f6';
+                                e.target.style.background = '#ffffff';
+                            }}
+                            onBlur={(e) => {
+                                e.target.style.borderColor = '#e5e7eb';
+                                e.target.style.background = '#f9fafb';
+                            }}
+                        >
+                            <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                            <option value="America/Denver">Mountain Time (MT)</option>
+                            <option value="America/Chicago">Central Time (CT)</option>
+                            <option value="America/New_York">Eastern Time (ET)</option>
+                            <option value="America/Phoenix">Arizona (MST - No DST)</option>
+                            <option value="America/Anchorage">Alaska Time (AKT)</option>
+                            <option value="Pacific/Honolulu">Hawaii Time (HST)</option>
+                        </select>
+                    </div>
+
+                    {/* Date Format Card */}
+                    <div style={{
+                        background: '#ffffff',
+                        padding: '16px',
+                        borderRadius: '12px',
+                        border: '1px solid #e5e7eb',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                        e.currentTarget.style.borderColor = '#d1d5db';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.boxShadow = 'none';
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                    }}>
+                        <label style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: '#6b7280',
+                            letterSpacing: '0.5px',
+                            textTransform: 'uppercase',
+                            marginBottom: '8px'
+                        }}>
+                            <i data-lucide="calendar" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                            Date Format
+                        </label>
+                        <select
+                            value={formData.dateFormat}
+                            onChange={(e) => setFormData({...formData, dateFormat: e.target.value})}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                fontSize: '14px',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: '8px',
+                                background: '#f9fafb',
+                                color: '#111827',
+                                outline: 'none',
+                                transition: 'all 0.2s',
+                                cursor: 'pointer'
+                            }}
+                            onFocus={(e) => {
+                                e.target.style.borderColor = '#3b82f6';
+                                e.target.style.background = '#ffffff';
+                            }}
+                            onBlur={(e) => {
+                                e.target.style.borderColor = '#e5e7eb';
+                                e.target.style.background = '#f9fafb';
+                            }}
+                        >
+                            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                            <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                        </select>
+                    </div>
+
+                    {/* Time Format Card */}
+                    <div style={{
+                        background: '#ffffff',
+                        padding: '16px',
+                        borderRadius: '12px',
+                        border: '1px solid #e5e7eb',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                        e.currentTarget.style.borderColor = '#d1d5db';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.boxShadow = 'none';
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                    }}>
+                        <label style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: '#6b7280',
+                            letterSpacing: '0.5px',
+                            textTransform: 'uppercase',
+                            marginBottom: '8px'
+                        }}>
+                            <i data-lucide="clock" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                            Time Format
+                        </label>
+                        <select
+                            value={formData.timeFormat}
+                            onChange={(e) => setFormData({...formData, timeFormat: e.target.value})}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                fontSize: '14px',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: '8px',
+                                background: '#f9fafb',
+                                color: '#111827',
+                                outline: 'none',
+                                transition: 'all 0.2s',
+                                cursor: 'pointer'
+                            }}
+                            onFocus={(e) => {
+                                e.target.style.borderColor = '#3b82f6';
+                                e.target.style.background = '#ffffff';
+                            }}
+                            onBlur={(e) => {
+                                e.target.style.borderColor = '#e5e7eb';
+                                e.target.style.background = '#f9fafb';
+                            }}
+                        >
+                            <option value="12h">12-hour (AM/PM)</option>
+                            <option value="24h">24-hour (Military)</option>
+                        </select>
+                    </div>
+
+                    {/* Auto-refresh Card */}
+                    <div style={{
+                        background: '#ffffff',
+                        padding: '16px',
+                        borderRadius: '12px',
+                        border: '1px solid #e5e7eb',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                        e.currentTarget.style.borderColor = '#d1d5db';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.boxShadow = 'none';
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                    }}>
+                        <label style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            color: '#6b7280',
+                            letterSpacing: '0.5px',
+                            textTransform: 'uppercase',
+                            marginBottom: '8px'
+                        }}>
+                            <i data-lucide="refresh-cw" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                            Auto-Refresh
+                        </label>
+                        <select
+                            value={formData.autoRefresh}
+                            onChange={(e) => setFormData({...formData, autoRefresh: e.target.value})}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                fontSize: '14px',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: '8px',
+                                background: '#f9fafb',
+                                color: '#111827',
+                                outline: 'none',
+                                transition: 'all 0.2s',
+                                cursor: 'pointer'
+                            }}
+                            onFocus={(e) => {
+                                e.target.style.borderColor = '#3b82f6';
+                                e.target.style.background = '#ffffff';
+                            }}
+                            onBlur={(e) => {
+                                e.target.style.borderColor = '#e5e7eb';
+                                e.target.style.background = '#f9fafb';
+                            }}
+                        >
+                            <option value="15">Every 15 minutes</option>
+                            <option value="30">Every 30 minutes</option>
+                            <option value="60">Every hour</option>
+                            <option value="120">Every 2 hours</option>
+                            <option value="240">Every 4 hours</option>
+                        </select>
+                    </div>
+                </div>
+
+                {/* Part 4: iOS Toggle Switches - Sync Preferences (only show when connected) */}
+                {isConnected && (
+                    <div style={{
+                        background: '#ffffff',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '12px',
+                        padding: '20px',
+                        marginBottom: '20px'
+                    }}>
+                        <h3 style={{
+                            fontSize: '16px',
+                            fontWeight: '600',
+                            color: '#111827',
+                            marginBottom: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}>
+                            <i data-lucide="settings" style={{width: '18px', height: '18px', color: '#3b82f6'}}></i>
+                            Sync Preferences
+                        </h3>
+
+                        {/* GLRS Meetings Toggle */}
+                        <div style={{marginBottom: '16px'}}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                marginBottom: '4px'
+                            }}>
+                                <label style={{
+                                    fontSize: '15px',
+                                    fontWeight: '500',
+                                    color: '#111827',
+                                    cursor: 'pointer'
+                                }}>
+                                    GLRS Meetings
+                                </label>
+                                <div
+                                    onClick={() => setFormData({...formData, syncMeetings: !formData.syncMeetings})}
+                                    style={{
+                                        width: '51px',
+                                        height: '31px',
+                                        background: formData.syncMeetings ? '#10b981' : '#d1d5db',
+                                        borderRadius: '31px',
+                                        position: 'relative',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.2s',
+                                        flexShrink: 0
+                                    }}
+                                >
+                                    <div style={{
+                                        width: '27px',
+                                        height: '27px',
+                                        background: '#ffffff',
+                                        borderRadius: '50%',
+                                        position: 'absolute',
+                                        top: '2px',
+                                        left: formData.syncMeetings ? '22px' : '2px',
+                                        transition: 'left 0.2s',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                    }}></div>
+                                </div>
+                            </div>
+                            <div style={{
+                                fontSize: '13px',
+                                color: '#6b7280',
+                                lineHeight: '1.5'
+                            }}>
+                                Coaching sessions and support meetings
+                            </div>
+                        </div>
+
+                        {/* AA Meetings Toggle */}
+                        <div style={{marginBottom: '16px'}}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                marginBottom: '4px'
+                            }}>
+                                <label style={{
+                                    fontSize: '15px',
+                                    fontWeight: '500',
+                                    color: '#111827',
+                                    cursor: 'pointer'
+                                }}>
+                                    AA Meetings
+                                </label>
+                                <div
+                                    onClick={() => setFormData({...formData, syncAAMeetings: !formData.syncAAMeetings})}
+                                    style={{
+                                        width: '51px',
+                                        height: '31px',
+                                        background: formData.syncAAMeetings ? '#10b981' : '#d1d5db',
+                                        borderRadius: '31px',
+                                        position: 'relative',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.2s',
+                                        flexShrink: 0
+                                    }}
+                                >
+                                    <div style={{
+                                        width: '27px',
+                                        height: '27px',
+                                        background: '#ffffff',
+                                        borderRadius: '50%',
+                                        position: 'absolute',
+                                        top: '2px',
+                                        left: formData.syncAAMeetings ? '22px' : '2px',
+                                        transition: 'left 0.2s',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                    }}></div>
+                                </div>
+                            </div>
+                            <div style={{
+                                fontSize: '13px',
+                                color: '#6b7280',
+                                lineHeight: '1.5'
+                            }}>
+                                Alcoholics Anonymous meetings you've saved
+                            </div>
+                        </div>
+
+                        {/* NA Meetings Toggle */}
+                        <div>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                marginBottom: '4px'
+                            }}>
+                                <label style={{
+                                    fontSize: '15px',
+                                    fontWeight: '500',
+                                    color: '#111827',
+                                    cursor: 'pointer'
+                                }}>
+                                    NA Meetings
+                                </label>
+                                <div
+                                    onClick={() => setFormData({...formData, syncNAMeetings: !formData.syncNAMeetings})}
+                                    style={{
+                                        width: '51px',
+                                        height: '31px',
+                                        background: formData.syncNAMeetings ? '#10b981' : '#d1d5db',
+                                        borderRadius: '31px',
+                                        position: 'relative',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.2s',
+                                        flexShrink: 0
+                                    }}
+                                >
+                                    <div style={{
+                                        width: '27px',
+                                        height: '27px',
+                                        background: '#ffffff',
+                                        borderRadius: '50%',
+                                        position: 'absolute',
+                                        top: '2px',
+                                        left: formData.syncNAMeetings ? '22px' : '2px',
+                                        transition: 'left 0.2s',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                    }}></div>
+                                </div>
+                            </div>
+                            <div style={{
+                                fontSize: '13px',
+                                color: '#6b7280',
+                                lineHeight: '1.5'
+                            }}>
+                                Narcotics Anonymous meetings you've saved
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Part 3: Collapsible "What Gets Synced" Accordion */}
+                <div
+                    onClick={() => setShowSyncDetails(!showSyncDetails)}
+                    style={{
+                        background: '#ffffff',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '12px',
+                        padding: '16px 20px',
+                        marginBottom: '20px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                        e.currentTarget.style.borderColor = '#d1d5db';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.boxShadow = 'none';
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                    }}
+                >
+                    {/* Collapsed Header */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between'
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px'
+                        }}>
+                            <i data-lucide="info" style={{width: '20px', height: '20px', color: '#3b82f6'}}></i>
+                            <div>
+                                <div style={{
+                                    fontSize: '16px',
+                                    fontWeight: '600',
+                                    color: '#111827',
+                                    marginBottom: '2px'
+                                }}>
+                                    What Gets Synced
+                                </div>
+                                {!showSyncDetails && (
+                                    <div style={{
+                                        fontSize: '13px',
+                                        color: '#6b7280'
+                                    }}>
+                                        View sync details
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <i
+                            data-lucide={showSyncDetails ? "chevron-up" : "chevron-down"}
+                            style={{
+                                width: '20px',
+                                height: '20px',
+                                color: '#6b7280',
+                                transition: 'transform 0.2s'
+                            }}
+                        ></i>
+                    </div>
+
+                    {/* Expanded Content */}
+                    {showSyncDetails && (
+                        <div style={{
+                            marginTop: '16px',
+                            paddingTop: '16px',
+                            borderTop: '1px solid #e5e7eb'
+                        }}>
+                            {/* GLRS Meetings */}
+                            <div style={{marginBottom: '16px'}}>
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '12px'
+                                }}>
+                                    <i data-lucide="check-circle" style={{
+                                        width: '16px',
+                                        height: '16px',
+                                        color: '#10b981',
+                                        marginTop: '2px',
+                                        flexShrink: 0
+                                    }}></i>
+                                    <div>
+                                        <div style={{
+                                            fontSize: '14px',
+                                            fontWeight: '600',
+                                            color: '#111827',
+                                            marginBottom: '4px'
+                                        }}>
+                                            GLRS Meetings
+                                        </div>
+                                        <div style={{
+                                            fontSize: '13px',
+                                            color: '#6b7280',
+                                            lineHeight: '1.6'
+                                        }}>
+                                            Coaching sessions, check-ins, and support meetings with 30-minute and 60-minute advance reminders
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* External Meetings */}
+                            <div style={{marginBottom: '16px'}}>
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '12px'
+                                }}>
+                                    <i data-lucide="check-circle" style={{
+                                        width: '16px',
+                                        height: '16px',
+                                        color: '#10b981',
+                                        marginTop: '2px',
+                                        flexShrink: 0
+                                    }}></i>
+                                    <div>
+                                        <div style={{
+                                            fontSize: '14px',
+                                            fontWeight: '600',
+                                            color: '#111827',
+                                            marginBottom: '4px'
+                                        }}>
+                                            External Meetings (AA/NA)
+                                        </div>
+                                        <div style={{
+                                            fontSize: '13px',
+                                            color: '#6b7280',
+                                            lineHeight: '1.6'
+                                        }}>
+                                            AA and NA meetings you've saved to your schedule with location and meeting details
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Automatic Updates */}
+                            <div>
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '12px'
+                                }}>
+                                    <i data-lucide="check-circle" style={{
+                                        width: '16px',
+                                        height: '16px',
+                                        color: '#10b981',
+                                        marginTop: '2px',
+                                        flexShrink: 0
+                                    }}></i>
+                                    <div>
+                                        <div style={{
+                                            fontSize: '14px',
+                                            fontWeight: '600',
+                                            color: '#111827',
+                                            marginBottom: '4px'
+                                        }}>
+                                            Automatic Updates
+                                        </div>
+                                        <div style={{
+                                            fontSize: '13px',
+                                            color: '#6b7280',
+                                            lineHeight: '1.6'
+                                        }}>
+                                            Events automatically update when meetings are rescheduled or canceled. All events use your selected timezone ({formData.timezone.split('/')[1].replace(/_/g, ' ')})
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Part 5: Manual Sync Section (Meetings-Only) */}
+                {isConnected && (
+                    <div style={{
+                        background: '#ffffff',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '12px',
+                        padding: '20px',
+                        marginBottom: '20px'
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            marginBottom: '12px'
+                        }}>
+                            <i data-lucide="refresh-cw" style={{width: '18px', height: '18px', color: '#3b82f6'}}></i>
+                            <h4 style={{
+                                fontSize: '16px',
+                                fontWeight: '600',
+                                color: '#111827',
+                                margin: 0
+                            }}>
+                                Manual Sync
+                            </h4>
+                        </div>
+                        <p style={{
+                            fontSize: '13px',
+                            color: '#6b7280',
+                            marginBottom: '16px',
+                            lineHeight: '1.5'
+                        }}>
+                            Manually sync all your meetings to Google Calendar right now
+                        </p>
+
+                        <button
+                            onClick={async () => {
+                                setSyncing(true);
+                                try {
+                                    const syncMeetings = firebase.functions().httpsCallable('manualSyncMeetings');
+                                    const result = await syncMeetings({ userId: user.uid });
+                                    window.showNotification(`Synced ${result.data.count} meetings`, 'success');
+                                } catch (error) {
+                                    window.showNotification('Sync failed. Please try again.', 'error');
+                                } finally {
+                                    setSyncing(false);
+                                }
+                            }}
+                            disabled={syncing}
+                            style={{
+                                width: '100%',
+                                padding: '12px 20px',
+                                fontSize: '15px',
+                                fontWeight: '600',
+                                color: '#ffffff',
+                                background: syncing ? '#9ca3af' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: syncing ? 'not-allowed' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '10px',
+                                transition: 'all 0.2s',
+                                boxShadow: syncing ? 'none' : '0 2px 8px rgba(59, 130, 246, 0.25)',
+                                opacity: syncing ? 0.7 : 1
+                            }}
+                            onMouseEnter={(e) => {
+                                if (!syncing) {
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
+                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.35)';
+                                    e.currentTarget.style.transform = 'translateY(-1px)';
+                                }
+                            }}
+                            onMouseLeave={(e) => {
+                                if (!syncing) {
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+                                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(59, 130, 246, 0.25)';
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                }
+                            }}
+                        >
+                            <i
+                                data-lucide={syncing ? "loader" : "calendar"}
+                                style={{
+                                    width: '18px',
+                                    height: '18px',
+                                    animation: syncing ? 'spin 1s linear infinite' : 'none'
+                                }}
+                            ></i>
+                            {syncing ? 'Syncing...' : 'Sync All Meetings'}
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* Part 6: Footer Buttons */}
+            <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'flex-end',
+                padding: '20px 24px',
+                borderTop: '1px solid #e5e7eb',
+                background: '#f9fafb'
+            }}>
+                {/* Cancel Button */}
+                <button
+                    onClick={onClose}
+                    style={{
+                        padding: '12px 24px',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        color: '#6b7280',
+                        background: '#ffffff',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#f9fafb';
+                        e.currentTarget.style.borderColor = '#9ca3af';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.background = '#ffffff';
+                        e.currentTarget.style.borderColor = '#d1d5db';
+                    }}
+                >
+                    Cancel
+                </button>
+
+                {isConnected ? (
+                    <>
+                        {/* Disconnect Button */}
+                        <button
+                            onClick={handleDisconnectCalendar}
+                            disabled={disconnecting}
+                            style={{
+                                padding: '12px 24px',
+                                fontSize: '15px',
+                                fontWeight: '600',
+                                color: '#ef4444',
+                                background: '#ffffff',
+                                border: '1px solid #ef4444',
+                                borderRadius: '10px',
+                                cursor: disconnecting ? 'not-allowed' : 'pointer',
+                                opacity: disconnecting ? 0.6 : 1,
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }}
+                            onMouseEnter={(e) => {
+                                if (!disconnecting) {
+                                    e.currentTarget.style.background = '#fef2f2';
+                                }
+                            }}
+                            onMouseLeave={(e) => {
+                                if (!disconnecting) {
+                                    e.currentTarget.style.background = '#ffffff';
+                                }
+                            }}
+                        >
+                            <i data-lucide={disconnecting ? "loader" : "x-circle"} style={{
+                                width: '16px',
+                                height: '16px',
+                                animation: disconnecting ? 'spin 1s linear infinite' : 'none'
+                            }}></i>
+                            {disconnecting ? 'Disconnecting...' : 'Disconnect'}
+                        </button>
+
+                        {/* Save Changes Button */}
+                        <button
+                            onClick={handleSave}
+                            disabled={saving}
+                            style={{
+                                padding: '12px 24px',
+                                fontSize: '15px',
+                                fontWeight: '600',
+                                color: '#ffffff',
+                                background: saving ? '#9ca3af' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: saving ? 'not-allowed' : 'pointer',
+                                opacity: saving ? 0.7 : 1,
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                boxShadow: saving ? 'none' : '0 2px 8px rgba(16, 185, 129, 0.25)'
+                            }}
+                            onMouseEnter={(e) => {
+                                if (!saving) {
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
+                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.35)';
+                                    e.currentTarget.style.transform = 'translateY(-1px)';
+                                }
+                            }}
+                            onMouseLeave={(e) => {
+                                if (!saving) {
+                                    e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+                                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(16, 185, 129, 0.25)';
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                }
+                            }}
+                        >
+                            <i data-lucide={saving ? "loader" : "check"} style={{
+                                width: '16px',
+                                height: '16px',
+                                animation: saving ? 'spin 1s linear infinite' : 'none'
+                            }}></i>
+                            {saving ? 'Saving...' : 'Save Changes'}
+                        </button>
+                    </>
+                ) : (
+                    /* Connect Button */
+                    <button
+                        onClick={handleConnectCalendar}
+                        disabled={connecting}
+                        style={{
+                            padding: '12px 24px',
+                            fontSize: '15px',
+                            fontWeight: '600',
+                            color: '#ffffff',
+                            background: connecting ? '#9ca3af' : 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: connecting ? 'not-allowed' : 'pointer',
+                            opacity: connecting ? 0.7 : 1,
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            boxShadow: connecting ? 'none' : '0 2px 8px rgba(33, 150, 243, 0.25)'
+                        }}
+                        onMouseEnter={(e) => {
+                            if (!connecting) {
+                                e.currentTarget.style.background = 'linear-gradient(135deg, #1976D2 0%, #1565C0 100%)';
+                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(33, 150, 243, 0.35)';
+                                e.currentTarget.style.transform = 'translateY(-1px)';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (!connecting) {
+                                e.currentTarget.style.background = 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)';
+                                e.currentTarget.style.boxShadow = '0 2px 8px rgba(33, 150, 243, 0.25)';
+                                e.currentTarget.style.transform = 'translateY(0)';
+                            }
+                        }}
+                    >
+                        <i data-lucide={connecting ? "loader" : "link"} style={{
+                            width: '16px',
+                            height: '16px',
+                            animation: connecting ? 'spin 1s linear infinite' : 'none'
+                        }}></i>
+                        {connecting ? 'Connecting...' : 'Connect Google Calendar'}
+                    </button>
+                )}
+            </div>
+        </>
+    );
+}
+
+/** AppleConnectModal - Connect Apple Calendar via CalDAV */
+function AppleConnectModal({ userData, user, onClose }) {
+    const [formData, setFormData] = React.useState({
+        appleId: userData?.appleCalendar?.appleId || '',
+        appPassword: ''
+    });
+    const [showPassword, setShowPassword] = React.useState(false);
+    const [connecting, setConnecting] = React.useState(false);
+    const [error, setError] = React.useState('');
+    const [showInstructions, setShowInstructions] = React.useState(false);
+
+    const isConnected = userData?.appleCalendar?.connected || false;
+    const connectedAt = userData?.appleCalendar?.connectedAt;
+
+    const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+
+    React.useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    const handleConnect = async () => {
+        if (!formData.appleId || !formData.appPassword) {
+            setError('Please enter both Apple ID and app-specific password');
+            return;
+        }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(formData.appleId)) {
+            setError('Please enter a valid Apple ID email address');
+            return;
+        }
+
+        setConnecting(true);
+        setError('');
+
+        try {
+            const connectAppleCalendar = firebase.functions().httpsCallable('connectAppleCalendar');
+            const result = await connectAppleCalendar({
+                appleId: formData.appleId,
+                appPassword: formData.appPassword,
+                userId: user.uid
+            });
+
+            if (result.data.success) {
+                window.showNotification('Apple Calendar connected successfully', 'success');
+                setFormData({ ...formData, appPassword: '' });
+                onClose();
+            } else {
+                setError(result.data.error || 'Failed to connect to Apple Calendar');
+            }
+        } catch (error) {
+            setError(
+                error.message.includes('invalid credentials')
+                    ? 'Invalid Apple ID or app-specific password. Please check and try again.'
+                    : 'Failed to connect to Apple Calendar. Please try again.'
+            );
+        } finally {
+            setConnecting(false);
+        }
+    };
+
+    const handleDisconnect = async () => {
+        if (!confirm('Are you sure you want to disconnect Apple Calendar? Your calendar events will no longer sync.')) {
+            return;
+        }
+
+        try {
+            await db.collection('users').doc(user.uid).update({
+                'appleCalendar.connected': false,
+                'appleCalendar.connectedAt': firebase.firestore.FieldValue.delete(),
+                'appleCalendar.appleId': firebase.firestore.FieldValue.delete(),
+                'appleCalendar.encryptedPassword': firebase.firestore.FieldValue.delete()
+            });
+
+            window.showNotification('Apple Calendar disconnected successfully', 'success');
+            onClose();
+        } catch (error) {
+            setError('Failed to disconnect: ' + error.message);
+        }
+    };
+
+    React.useEffect(() => {
+        window.lucide?.createIcons();
+    }, [showInstructions]);
+
+    return (
+        <>
+            {/* HEADER */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '24px',
+                borderBottom: '1px solid #e5e7eb'
+            }}>
+                <h2 style={{
+                    fontSize: '24px',
+                    fontWeight: '700',
+                    color: '#111827',
+                    margin: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                }}>
+                    <i data-lucide="calendar" style={{width: '28px', height: '28px', color: '#000000'}}></i>
+                    Apple Calendar Integration
+                </h2>
+                <button
+                    onClick={onClose}
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '8px',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    <i data-lucide="x" style={{width: '24px', height: '24px', color: '#6b7280'}}></i>
+                </button>
+            </div>
+
+            {/* BODY */}
+            <div style={{
+                padding: '24px',
+                overflowY: 'auto',
+                maxHeight: 'calc(90vh - 160px)'
+            }}>
+                {/* Error Message */}
+                {error && (
+                    <div style={{
+                        background: 'rgba(220, 38, 38, 0.1)',
+                        border: '1px solid rgba(220, 38, 38, 0.3)',
+                        borderRadius: '8px',
+                        padding: '12px',
+                        marginBottom: '20px',
+                        color: '#dc2626',
+                        fontSize: '14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <i data-lucide="alert-circle" style={{width: '16px', height: '16px'}}></i>
+                        {error}
+                    </div>
+                )}
+
+                {/* Hero Section - Connection Status */}
+                {isConnected ? (
+                    <div style={{
+                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        padding: '24px',
+                        borderRadius: '16px',
+                        marginBottom: '20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        boxShadow: '0 4px 12px rgba(16, 185, 129, 0.15)',
+                        cursor: 'pointer',
+                        transition: 'transform 0.2s, box-shadow 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 6px 16px rgba(16, 185, 129, 0.2)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.15)';
+                    }}
+                    >
+                        {/* Icon Container */}
+                        <div style={{
+                            width: '56px',
+                            height: '56px',
+                            background: 'rgba(255,255,255,0.2)',
+                            borderRadius: '14px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="check-circle" style={{width: '32px', height: '32px', color: '#ffffff', strokeWidth: 2.5}}></i>
+                        </div>
+
+                        {/* Text Content */}
+                        <div style={{flex: 1}}>
+                            <div style={{
+                                fontSize: '18px',
+                                fontWeight: '700',
+                                color: '#ffffff',
+                                marginBottom: '4px',
+                                letterSpacing: '-0.02em'
+                            }}>
+                                Calendar Connected
+                            </div>
+                            <div style={{
+                                fontSize: '14px',
+                                color: 'rgba(255,255,255,0.95)',
+                                fontWeight: '500'
+                            }}>
+                                {userData?.appleCalendar?.appleId || 'Syncing to Apple Calendar'}
+                            </div>
+                            {connectedAt && (
+                                <div style={{
+                                    fontSize: '13px',
+                                    color: 'rgba(255,255,255,0.75)',
+                                    marginTop: '4px'
+                                }}>
+                                    Connected {new Date(connectedAt.seconds * 1000).toLocaleDateString('en-US', {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        year: 'numeric'
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Chevron */}
+                        <i data-lucide="chevron-right" style={{width: '20px', height: '20px', color: 'rgba(255,255,255,0.6)'}}></i>
+                    </div>
+                ) : (
+                    <div style={{
+                        background: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
+                        padding: '24px',
+                        borderRadius: '16px',
+                        marginBottom: '20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        boxShadow: '0 4px 12px rgba(107, 114, 128, 0.15)'
+                    }}>
+                        {/* Icon Container */}
+                        <div style={{
+                            width: '56px',
+                            height: '56px',
+                            background: 'rgba(255,255,255,0.2)',
+                            borderRadius: '14px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                        }}>
+                            <i data-lucide="calendar-off" style={{width: '32px', height: '32px', color: '#ffffff'}}></i>
+                        </div>
+
+                        {/* Text Content */}
+                        <div style={{flex: 1}}>
+                            <div style={{
+                                fontSize: '18px',
+                                fontWeight: '700',
+                                color: '#ffffff',
+                                marginBottom: '4px',
+                                letterSpacing: '-0.02em'
+                            }}>
+                                Connect Your Calendar
+                            </div>
+                            <div style={{
+                                fontSize: '14px',
+                                color: 'rgba(255,255,255,0.85)',
+                                lineHeight: '1.5'
+                            }}>
+                                Sync your meetings to Apple Calendar
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {!isConnected && (
+                    <>
+                        {/* Apple ID Input Card */}
+                        <div style={{
+                            background: '#ffffff',
+                            padding: '16px',
+                            borderRadius: '12px',
+                            border: '1px solid #e5e7eb',
+                            marginBottom: '12px',
+                            transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                            e.currentTarget.style.borderColor = '#d1d5db';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.boxShadow = 'none';
+                            e.currentTarget.style.borderColor = '#e5e7eb';
+                        }}>
+                            <label style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                fontSize: '13px',
+                                fontWeight: '600',
+                                color: '#6b7280',
+                                letterSpacing: '0.5px',
+                                textTransform: 'uppercase',
+                                marginBottom: '8px'
+                            }}>
+                                <i data-lucide="mail" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                                APPLE ID EMAIL
+                            </label>
+                            <input
+                                type="email"
+                                value={formData.appleId}
+                                onChange={(e) => setFormData({ ...formData, appleId: e.target.value })}
+                                placeholder="your.email@icloud.com"
+                                disabled={connecting}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    fontSize: '14px',
+                                    border: '1px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    background: '#ffffff',
+                                    color: '#111827',
+                                    outline: 'none',
+                                    transition: 'all 0.2s'
+                                }}
+                                onFocus={(e) => {
+                                    e.target.style.borderColor = '#3b82f6';
+                                }}
+                                onBlur={(e) => {
+                                    e.target.style.borderColor = '#e5e7eb';
+                                }}
+                            />
+                        </div>
+
+                        {/* App Password Input Card */}
+                        <div style={{
+                            background: '#ffffff',
+                            padding: '16px',
+                            borderRadius: '12px',
+                            border: '1px solid #e5e7eb',
+                            marginBottom: '20px',
+                            transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                            e.currentTarget.style.borderColor = '#d1d5db';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.boxShadow = 'none';
+                            e.currentTarget.style.borderColor = '#e5e7eb';
+                        }}>
+                            <label style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                fontSize: '13px',
+                                fontWeight: '600',
+                                color: '#6b7280',
+                                letterSpacing: '0.5px',
+                                textTransform: 'uppercase',
+                                marginBottom: '8px'
+                            }}>
+                                <i data-lucide="key" style={{width: '16px', height: '16px', color: '#6b7280'}}></i>
+                                APP-SPECIFIC PASSWORD
+                            </label>
+                            <div style={{ position: 'relative' }}>
+                                <input
+                                    type={showPassword ? 'text' : 'password'}
+                                    value={formData.appPassword}
+                                    onChange={(e) => setFormData({ ...formData, appPassword: e.target.value })}
+                                    placeholder="xxxx-xxxx-xxxx-xxxx"
+                                    disabled={connecting}
+                                    style={{
+                                        width: '100%',
+                                        padding: '12px',
+                                        paddingRight: '45px',
+                                        fontSize: '14px',
+                                        border: '1px solid #e5e7eb',
+                                        borderRadius: '8px',
+                                        background: '#ffffff',
+                                        color: '#111827',
+                                        outline: 'none',
+                                        transition: 'all 0.2s',
+                                        fontFamily: showPassword ? 'inherit' : 'monospace',
+                                        letterSpacing: showPassword ? 'normal' : '2px'
+                                    }}
+                                    onFocus={(e) => {
+                                        e.target.style.borderColor = '#3b82f6';
+                                    }}
+                                    onBlur={(e) => {
+                                        e.target.style.borderColor = '#e5e7eb';
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    disabled={connecting}
+                                    style={{
+                                        position: 'absolute',
+                                        right: '12px',
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        padding: '4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}
+                                >
+                                    <i
+                                        data-lucide={showPassword ? 'eye-off' : 'eye'}
+                                        style={{ width: '18px', height: '18px', color: '#6b7280' }}
+                                    ></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Instructions Section (Collapsible) */}
+                        <div
+                            onClick={() => setShowInstructions(!showInstructions)}
+                            style={{
+                                background: '#ffffff',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: '12px',
+                                padding: '16px 20px',
+                                marginBottom: '20px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                                e.currentTarget.style.borderColor = '#d1d5db';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.boxShadow = 'none';
+                                e.currentTarget.style.borderColor = '#e5e7eb';
+                            }}
+                        >
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between'
+                            }}>
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '12px'
+                                }}>
+                                    <i data-lucide="info" style={{width: '20px', height: '20px', color: '#3b82f6'}}></i>
+                                    <div>
+                                        <div style={{
+                                            fontSize: '16px',
+                                            fontWeight: '600',
+                                            color: '#111827',
+                                            marginBottom: '2px'
+                                        }}>
+                                            How to generate app-specific password
+                                        </div>
+                                        {!showInstructions && (
+                                            <div style={{
+                                                fontSize: '13px',
+                                                color: '#6b7280'
+                                            }}>
+                                                Click to view instructions
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <i
+                                    data-lucide={showInstructions ? "chevron-up" : "chevron-down"}
+                                    style={{
+                                        width: '20px',
+                                        height: '20px',
+                                        color: '#6b7280',
+                                        transition: 'transform 0.2s'
+                                    }}
+                                ></i>
+                            </div>
+
+                            {showInstructions && (
+                                <div style={{
+                                    marginTop: '16px',
+                                    paddingTop: '16px',
+                                    borderTop: '1px solid #e5e7eb'
+                                }}>
+                                    <ol style={{
+                                        margin: 0,
+                                        paddingLeft: '20px',
+                                        fontSize: '14px',
+                                        color: '#374151',
+                                        lineHeight: '1.6'
+                                    }}>
+                                        <li>Go to <a href="https://appleid.apple.com" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6', textDecoration: 'none' }}>appleid.apple.com</a></li>
+                                        <li>Sign in with your Apple ID</li>
+                                        <li>In the Security section, click "Generate Password" under App-Specific Passwords</li>
+                                        <li>Enter a label (e.g., "GLRS Lighthouse")</li>
+                                        <li>Copy the generated password (format: xxxx-xxxx-xxxx-xxxx)</li>
+                                        <li>Paste it in the field above</li>
+                                    </ol>
+                                    <p style={{
+                                        marginTop: '12px',
+                                        marginBottom: 0,
+                                        fontSize: '13px',
+                                        color: '#6b7280',
+                                        fontStyle: 'italic'
+                                    }}>
+                                        Note: You must have two-factor authentication enabled on your Apple ID to generate app-specific passwords.
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
+
+            {/* FOOTER BUTTONS */}
+            <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'flex-end',
+                padding: '20px 24px',
+                borderTop: '1px solid #e5e7eb',
+                background: '#f9fafb'
+            }}>
+                {/* Close Button */}
+                <button
+                    onClick={onClose}
+                    style={{
+                        padding: '12px 24px',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        color: '#6b7280',
+                        background: '#ffffff',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#f9fafb';
+                        e.currentTarget.style.borderColor = '#9ca3af';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.background = '#ffffff';
+                        e.currentTarget.style.borderColor = '#d1d5db';
+                    }}
+                >
+                    Close
+                </button>
+
+                {isConnected ? (
+                    /* Disconnect Button */
+                    <button
+                        onClick={handleDisconnect}
+                        style={{
+                            padding: '12px 24px',
+                            fontSize: '15px',
+                            fontWeight: '600',
+                            color: '#ef4444',
+                            background: '#ffffff',
+                            border: '1px solid #ef4444',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#ef4444';
+                            e.currentTarget.style.color = '#ffffff';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = '#ffffff';
+                            e.currentTarget.style.color = '#ef4444';
+                        }}
+                    >
+                        <i data-lucide="x-circle" style={{width: '16px', height: '16px'}}></i>
+                        Disconnect
+                    </button>
+                ) : (
+                    /* Connect Button */
+                    <button
+                        onClick={handleConnect}
+                        disabled={connecting || !formData.appleId || !formData.appPassword}
+                        style={{
+                            padding: '14px 32px',
+                            fontSize: '15px',
+                            fontWeight: '600',
+                            color: '#ffffff',
+                            background: connecting || !formData.appleId || !formData.appPassword ? '#9ca3af' : 'linear-gradient(135deg, #000000 0%, #434343 100%)',
+                            border: 'none',
+                            borderRadius: '10px',
+                            cursor: connecting || !formData.appleId || !formData.appPassword ? 'not-allowed' : 'pointer',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            boxShadow: connecting || !formData.appleId || !formData.appPassword ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.25)'
+                        }}
+                        onMouseEnter={(e) => {
+                            if (!connecting && formData.appleId && formData.appPassword) {
+                                e.currentTarget.style.background = 'linear-gradient(135deg, #434343 0%, #000000 100%)';
+                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.35)';
+                                e.currentTarget.style.transform = 'translateY(-1px)';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (!connecting && formData.appleId && formData.appPassword) {
+                                e.currentTarget.style.background = 'linear-gradient(135deg, #000000 0%, #434343 100%)';
+                                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.25)';
+                                e.currentTarget.style.transform = 'translateY(0)';
+                            }
+                        }}
+                    >
+                        <i
+                            data-lucide={connecting ? "loader" : "link"}
+                            style={{
+                                width: '18px',
+                                height: '18px',
+                                animation: connecting ? 'spin 1s linear infinite' : 'none'
+                            }}
+                        ></i>
+                        {connecting ? 'Connecting...' : 'Connect Apple Calendar'}
+                    </button>
+                )}
+            </div>
+        </>
     );
 }
 
@@ -1810,6 +8224,15 @@ function HelpModal({ onClose }) {
 /** FeedbackModal - Submit feedback (bug report, feature request, praise, concern) */
 function FeedbackModal({ userData, user, onClose, onSubmit }) {
     const [formData, setFormData] = React.useState({});
+
+    // STEP 1.23: Mobile detection for responsive layout
+    const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+
+    React.useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     return (
         <div>
@@ -1912,74 +8335,615 @@ function ExportModal({ onClose }) {
 
 /** DeleteAccountModal - Delete account with confirmation and warning */
 function DeleteAccountModal({ user, onClose, onDelete }) {
-    const [formData, setFormData] = React.useState({});
+    const [formData, setFormData] = React.useState({
+        email: '',
+        password: '',
+        understood: false
+    });
+    const [isDeleting, setIsDeleting] = React.useState(false);
+    const [error, setError] = React.useState(null);
+    const [isAnimatingIn, setIsAnimatingIn] = React.useState(true);
+
+    // Trigger animation on mount
+    React.useEffect(() => {
+        setIsAnimatingIn(false);
+    }, []);
+
+    // Check if all fields are filled
+    const isValid =
+        formData.email === user.email &&
+        formData.password.length > 0 &&
+        formData.understood === true;
+
+    const handleDelete = async () => {
+        if (!isValid) return;
+
+        setIsDeleting(true);
+        setError(null);
+
+        try {
+            // Re-authenticate user with password before deletion
+            const credential = firebase.auth.EmailAuthProvider.credential(
+                user.email,
+                formData.password
+            );
+            await user.reauthenticateWithCredential(credential);
+
+            // Now perform the deletion
+            await onDelete(user.uid);
+            // Success handled by parent component (redirect)
+        } catch (error) {
+            console.error('Error deleting account:', error);
+            window.handleFirebaseError && window.handleFirebaseError(error, 'DeleteAccountModal.handleDelete');
+
+            // Provide specific error messages
+            if (error.code === 'auth/wrong-password') {
+                setError('Incorrect password. Please try again.');
+            } else if (error.code === 'auth/requires-recent-login') {
+                setError('For security, please sign out and sign in again before deleting your account.');
+            } else {
+                setError('Failed to delete account: ' + (error.message || 'Unknown error'));
+            }
+
+            setIsDeleting(false);
+        }
+    };
+
+    return (
+        <div style={{
+            maxWidth: '540px',
+            maxHeight: '85vh',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            transform: isAnimatingIn ? 'scale(0.95) translateY(-10px)' : 'scale(1) translateY(0)',
+            opacity: isAnimatingIn ? 0 : 1,
+            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            padding: '2px'
+        }}>
+            {/* Professional Header with Teal Theme */}
+            <div style={{
+                marginBottom: '24px',
+                paddingBottom: '20px',
+                borderBottom: '2px solid #b2dfdf',
+                animation: 'fadeSlideDown 0.4s ease-out'
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px',
+                    marginBottom: '12px'
+                }}>
+                    <div style={{
+                        width: '52px',
+                        height: '52px',
+                        borderRadius: '50%',
+                        background: 'linear-gradient(135deg, #e6f7f7 0%, #ccf0f0 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 4px 12px rgba(5, 133, 133, 0.15)',
+                        animation: 'pulse 2s ease-in-out infinite'
+                    }}>
+                        <i data-lucide="shield-alert" style={{width: '26px', height: '26px', color: '#058585'}}></i>
+                    </div>
+                    <h3 style={{margin: 0, fontSize: '26px', fontWeight: '700', color: '#0a4d4d', letterSpacing: '-0.5px'}}>
+                        Delete Account
+                    </h3>
+                </div>
+                <p style={{margin: 0, fontSize: '15px', lineHeight: '1.6', color: '#4b6363'}}>
+                    This action is permanent and cannot be reversed. Please carefully review what will be deleted before proceeding.
+                </p>
+            </div>
+
+            {/* What Gets Deleted - Professional List with Teal Theme */}
+            <div style={{
+                background: 'linear-gradient(135deg, #f0fafa 0%, #e6f7f7 100%)',
+                border: '2px solid #b2dfdf',
+                borderRadius: '14px',
+                padding: '22px',
+                marginBottom: '24px',
+                boxShadow: '0 2px 8px rgba(5, 133, 133, 0.08)',
+                animation: 'fadeSlideUp 0.5s ease-out 0.1s both'
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    marginBottom: '14px'
+                }}>
+                    <i data-lucide="alert-triangle" style={{width: '18px', height: '18px', color: '#058585'}}></i>
+                    <p style={{
+                        margin: 0,
+                        fontSize: '15px',
+                        fontWeight: '700',
+                        color: '#0a4d4d'
+                    }}>
+                        The following data will be permanently deleted:
+                    </p>
+                </div>
+                <ul style={{
+                    margin: 0,
+                    padding: '0 0 0 24px',
+                    fontSize: '14px',
+                    lineHeight: '2',
+                    color: '#1a5757'
+                }}>
+                    <li>Your complete user profile and account settings</li>
+                    <li>All check-in data and daily reflections</li>
+                    <li>Personal goals, milestones, and progress tracking</li>
+                    <li>Assignments from your coach</li>
+                    <li>All messages and conversations</li>
+                    <li>Community posts, comments, and likes</li>
+                    <li>Saved resources and bookmarks</li>
+                    <li>Notification preferences and history</li>
+                    <li>Connected calendar integrations</li>
+                    <li>All uploaded photos and documents</li>
+                </ul>
+            </div>
+
+            {/* Verification Form */}
+            <div style={{
+                marginBottom: '24px',
+                animation: 'fadeSlideUp 0.5s ease-out 0.2s both'
+            }}>
+                <div style={{marginBottom: '18px'}}>
+                    <label style={{
+                        display: 'block',
+                        fontSize: '14px',
+                        fontWeight: '700',
+                        color: '#0a4d4d',
+                        marginBottom: '8px'
+                    }}>
+                        Confirm your email address
+                    </label>
+                    <input
+                        type="email"
+                        placeholder="Type your email to confirm"
+                        value={formData.email}
+                        onChange={(e) => setFormData({...formData, email: e.target.value})}
+                        disabled={isDeleting}
+                        autoComplete="off"
+                        style={{
+                            width: '100%',
+                            padding: '12px 14px',
+                            fontSize: '15px',
+                            border: '2px solid #b2dfdf',
+                            borderRadius: '10px',
+                            background: isDeleting ? '#f9fafb' : '#ffffff',
+                            color: '#111827',
+                            outline: 'none',
+                            transition: 'all 0.3s ease',
+                            boxShadow: '0 1px 3px rgba(5, 133, 133, 0.05)'
+                        }}
+                        onFocus={(e) => {
+                            e.target.style.borderColor = '#058585';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(5, 133, 133, 0.1)';
+                        }}
+                        onBlur={(e) => {
+                            e.target.style.borderColor = '#b2dfdf';
+                            e.target.style.boxShadow = '0 1px 3px rgba(5, 133, 133, 0.05)';
+                        }}
+                    />
+                </div>
+
+                <div style={{marginBottom: '18px'}}>
+                    <label style={{
+                        display: 'block',
+                        fontSize: '14px',
+                        fontWeight: '700',
+                        color: '#0a4d4d',
+                        marginBottom: '8px'
+                    }}>
+                        Enter your password
+                    </label>
+                    <input
+                        type="password"
+                        placeholder="Type your password to confirm"
+                        value={formData.password}
+                        onChange={(e) => setFormData({...formData, password: e.target.value})}
+                        disabled={isDeleting}
+                        autoComplete="new-password"
+                        style={{
+                            width: '100%',
+                            padding: '12px 14px',
+                            fontSize: '15px',
+                            border: '2px solid #b2dfdf',
+                            borderRadius: '10px',
+                            background: isDeleting ? '#f9fafb' : '#ffffff',
+                            color: '#111827',
+                            outline: 'none',
+                            transition: 'all 0.3s ease',
+                            boxShadow: '0 1px 3px rgba(5, 133, 133, 0.05)'
+                        }}
+                        onFocus={(e) => {
+                            e.target.style.borderColor = '#058585';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(5, 133, 133, 0.1)';
+                        }}
+                        onBlur={(e) => {
+                            e.target.style.borderColor = '#b2dfdf';
+                            e.target.style.boxShadow = '0 1px 3px rgba(5, 133, 133, 0.05)';
+                        }}
+                    />
+                </div>
+
+                {/* Confirmation Checkbox */}
+                <label style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '12px',
+                    padding: '16px',
+                    background: 'linear-gradient(135deg, #ffffff 0%, #f9fafa 100%)',
+                    border: '2px solid #e0f2f2',
+                    borderRadius: '12px',
+                    cursor: isDeleting ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.3s ease',
+                    boxShadow: '0 1px 3px rgba(5, 133, 133, 0.05)'
+                }}
+                    onMouseEnter={(e) => {
+                        if (!isDeleting) {
+                            e.currentTarget.style.borderColor = '#b2dfdf';
+                            e.currentTarget.style.boxShadow = '0 2px 6px rgba(5, 133, 133, 0.1)';
+                        }
+                    }}
+                    onMouseLeave={(e) => {
+                        if (!isDeleting) {
+                            e.currentTarget.style.borderColor = '#e0f2f2';
+                            e.currentTarget.style.boxShadow = '0 1px 3px rgba(5, 133, 133, 0.05)';
+                        }
+                    }}
+                >
+                    <input
+                        type="checkbox"
+                        checked={formData.understood}
+                        onChange={(e) => setFormData({...formData, understood: e.target.checked})}
+                        disabled={isDeleting}
+                        style={{
+                            marginTop: '3px',
+                            width: '20px',
+                            height: '20px',
+                            cursor: isDeleting ? 'not-allowed' : 'pointer',
+                            accentColor: '#058585'
+                        }}
+                    />
+                    <span style={{
+                        fontSize: '14px',
+                        lineHeight: '1.6',
+                        color: '#1a5757',
+                        fontWeight: '600'
+                    }}>
+                        I understand this action is permanent and cannot be undone. All my data will be permanently deleted.
+                    </span>
+                </label>
+            </div>
+
+            {/* Error Message */}
+            {error && (
+                <div style={{
+                    padding: '14px 16px',
+                    background: 'linear-gradient(135deg, #fff5f5 0%, #ffe5e5 100%)',
+                    border: '2px solid #ffcccc',
+                    borderRadius: '12px',
+                    marginBottom: '18px',
+                    animation: 'shake 0.5s ease-out'
+                }}>
+                    <div style={{display: 'flex', alignItems: 'flex-start', gap: '10px'}}>
+                        <i data-lucide="alert-circle" style={{width: '20px', height: '20px', color: '#dc2626', marginTop: '2px', flexShrink: 0}}></i>
+                        <p style={{
+                            margin: 0,
+                            fontSize: '14px',
+                            color: '#991b1b',
+                            lineHeight: '1.6',
+                            fontWeight: '500'
+                        }}>
+                            {error}
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {/* Action Buttons */}
+            <div style={{
+                display: 'flex',
+                gap: '14px',
+                flexDirection: 'row',
+                animation: 'fadeSlideUp 0.5s ease-out 0.3s both'
+            }}>
+                {/* Cancel Button - Teal Themed */}
+                <button
+                    onClick={onClose}
+                    disabled={isDeleting}
+                    style={{
+                        flex: 1,
+                        padding: '15px 24px',
+                        background: 'linear-gradient(135deg, #ffffff 0%, #f9fafa 100%)',
+                        border: '2px solid #b2dfdf',
+                        borderRadius: '12px',
+                        color: '#058585',
+                        fontSize: '16px',
+                        fontWeight: '700',
+                        cursor: isDeleting ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                        opacity: isDeleting ? 0.5 : 1,
+                        boxShadow: '0 2px 4px rgba(5, 133, 133, 0.1)'
+                    }}
+                    onMouseEnter={(e) => {
+                        if (!isDeleting) {
+                            e.currentTarget.style.background = 'linear-gradient(135deg, #e6f7f7 0%, #ccf0f0 100%)';
+                            e.currentTarget.style.borderColor = '#058585';
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(5, 133, 133, 0.2)';
+                        }
+                    }}
+                    onMouseLeave={(e) => {
+                        if (!isDeleting) {
+                            e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #f9fafa 100%)';
+                            e.currentTarget.style.borderColor = '#b2dfdf';
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(5, 133, 133, 0.1)';
+                        }
+                    }}
+                >
+                    Cancel
+                </button>
+
+                {/* Delete Button - Sophisticated Warning Style */}
+                <button
+                    onClick={handleDelete}
+                    disabled={!isValid || isDeleting}
+                    style={{
+                        flex: 1,
+                        padding: '15px 24px',
+                        background: isValid && !isDeleting
+                            ? 'linear-gradient(135deg, #058585 0%, #047474 100%)'
+                            : 'linear-gradient(135deg, #e5e7eb 0%, #d1d5db 100%)',
+                        border: 'none',
+                        borderRadius: '12px',
+                        color: isValid && !isDeleting ? '#ffffff' : '#9ca3af',
+                        fontSize: '16px',
+                        fontWeight: '700',
+                        cursor: isValid && !isDeleting ? 'pointer' : 'not-allowed',
+                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                        opacity: isDeleting ? 0.7 : 1,
+                        boxShadow: isValid && !isDeleting ? '0 4px 12px rgba(5, 133, 133, 0.3)' : 'none',
+                        position: 'relative',
+                        overflow: 'hidden'
+                    }}
+                    onMouseEnter={(e) => {
+                        if (isValid && !isDeleting) {
+                            e.currentTarget.style.background = 'linear-gradient(135deg, #047474 0%, #036363 100%)';
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 6px 20px rgba(5, 133, 133, 0.4)';
+                        }
+                    }}
+                    onMouseLeave={(e) => {
+                        if (isValid && !isDeleting) {
+                            e.currentTarget.style.background = 'linear-gradient(135deg, #058585 0%, #047474 100%)';
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(5, 133, 133, 0.3)';
+                        }
+                    }}
+                >
+                    {isDeleting ? (
+                        <span style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'}}>
+                            <i data-lucide="loader-2" style={{width: '18px', height: '18px', animation: 'spin 1s linear infinite'}}></i>
+                            Deleting...
+                        </span>
+                    ) : 'Delete Account'}
+                </button>
+            </div>
+
+            {/* CSS Animations */}
+            <style>{`
+                @keyframes fadeSlideDown {
+                    from {
+                        opacity: 0;
+                        transform: translateY(-10px);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0);
+                    }
+                }
+                @keyframes fadeSlideUp {
+                    from {
+                        opacity: 0;
+                        transform: translateY(10px);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0);
+                    }
+                }
+                @keyframes pulse {
+                    0%, 100% {
+                        transform: scale(1);
+                        opacity: 1;
+                    }
+                    50% {
+                        transform: scale(1.05);
+                        opacity: 0.9;
+                    }
+                }
+                @keyframes shake {
+                    0%, 100% { transform: translateX(0); }
+                    25% { transform: translateX(-5px); }
+                    75% { transform: translateX(5px); }
+                }
+                @keyframes spin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+            `}</style>
+        </div>
+    );
+}
+
+/** ProfileVisibilityModal - Configure what others see in your profile (PHASE 5) */
+function ProfileVisibilityModal({ userData, user, onClose, onUpdate }) {
+    // Get existing visibility settings or use defaults (all true)
+    const existingVisibility = userData?.profileVisibility || {
+        memberSince: true,
+        sobrietyDate: true,
+        recoveryGoals: true,
+        completedGoals: true,
+        timezone: true
+    };
+
+    const [formData, setFormData] = React.useState(existingVisibility);
 
     return (
         <div>
-            <h3 style={{marginBottom: '20px', color: '#ff4757'}}>Delete Account</h3>
-            <div style={{
-                background: 'rgba(255, 71, 87, 0.1)',
-                border: '1px solid rgba(255, 71, 87, 0.3)',
-                borderRadius: '10px',
-                padding: '15px',
-                marginBottom: '20px'
-            }}>
-                <strong style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
-                    <i data-lucide="alert-triangle" style={{width: '18px', height: '18px', color: '#ff4757'}}></i>
-                    This action cannot be undone!
+            <h3 style={{marginBottom: '20px'}}>Profile Visibility</h3>
+            <p style={{fontSize: '14px', opacity: 0.8, marginBottom: '20px'}}>
+                Control what other users can see when they view your profile.
+                <strong style={{display: 'block', marginTop: '8px', color: '#f4c430'}}>
+                    Note: Coaches and administrators can always see all fields.
                 </strong>
-                <p style={{marginTop: '10px', fontSize: '14px'}}>
-                    Deleting your account will permanently remove:
-                </p>
-                <ul style={{fontSize: '14px', marginTop: '10px', paddingLeft: '20px'}}>
-                    <li>All your check-ins and progress data</li>
-                    <li>Goals and assignments</li>
-                    <li>Messages and community posts</li>
-                    <li>Your profile and settings</li>
-                </ul>
+            </p>
+
+            <div style={{display: 'flex', flexDirection: 'column', gap: '15px'}}>
+                <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px',
+                    background: 'rgba(255,255,255,0.05)',
+                    borderRadius: '10px',
+                    cursor: 'pointer'
+                }}>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                        <span style={{fontSize: '20px'}}>📅</span>
+                        <span>Member Since Date</span>
+                    </div>
+                    <input
+                        type="checkbox"
+                        checked={formData.memberSince !== false}
+                        onChange={(e) => setFormData({...formData, memberSince: e.target.checked})}
+                        style={{
+                            width: '20px',
+                            height: '20px',
+                            cursor: 'pointer'
+                        }}
+                    />
+                </label>
+
+                <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px',
+                    background: 'rgba(255,255,255,0.05)',
+                    borderRadius: '10px',
+                    cursor: 'pointer'
+                }}>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                        <span style={{fontSize: '20px'}}>🎖️</span>
+                        <span>Sobriety Date</span>
+                    </div>
+                    <input
+                        type="checkbox"
+                        checked={formData.sobrietyDate !== false}
+                        onChange={(e) => setFormData({...formData, sobrietyDate: e.target.checked})}
+                        style={{
+                            width: '20px',
+                            height: '20px',
+                            cursor: 'pointer'
+                        }}
+                    />
+                </label>
+
+                <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px',
+                    background: 'rgba(255,255,255,0.05)',
+                    borderRadius: '10px',
+                    cursor: 'pointer'
+                }}>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                        <span style={{fontSize: '20px'}}>🎯</span>
+                        <span>Recovery Goals</span>
+                    </div>
+                    <input
+                        type="checkbox"
+                        checked={formData.recoveryGoals !== false}
+                        onChange={(e) => setFormData({...formData, recoveryGoals: e.target.checked})}
+                        style={{
+                            width: '20px',
+                            height: '20px',
+                            cursor: 'pointer'
+                        }}
+                    />
+                </label>
+
+                <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px',
+                    background: 'rgba(255,255,255,0.05)',
+                    borderRadius: '10px',
+                    cursor: 'pointer'
+                }}>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                        <span style={{fontSize: '20px'}}>✅</span>
+                        <span>Completed Goals</span>
+                    </div>
+                    <input
+                        type="checkbox"
+                        checked={formData.completedGoals !== false}
+                        onChange={(e) => setFormData({...formData, completedGoals: e.target.checked})}
+                        style={{
+                            width: '20px',
+                            height: '20px',
+                            cursor: 'pointer'
+                        }}
+                    />
+                </label>
+
+                <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px',
+                    background: 'rgba(255,255,255,0.05)',
+                    borderRadius: '10px',
+                    cursor: 'pointer'
+                }}>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                        <span style={{fontSize: '20px'}}>🌍</span>
+                        <span>Timezone</span>
+                    </div>
+                    <input
+                        type="checkbox"
+                        checked={formData.timezone !== false}
+                        onChange={(e) => setFormData({...formData, timezone: e.target.checked})}
+                        style={{
+                            width: '20px',
+                            height: '20px',
+                            cursor: 'pointer'
+                        }}
+                    />
+                </label>
             </div>
-            <div className="form-group">
-                <label className="form-label">Type "DELETE" to confirm:</label>
-                <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Type DELETE"
-                    value={formData.deleteConfirm || ''}
-                    onChange={(e) => setFormData({...formData, deleteConfirm: e.target.value})}
-                />
-            </div>
+
             <button
-                className="btn-danger"
-                disabled={formData.deleteConfirm !== 'DELETE'}
+                className="btn-primary"
                 onClick={async () => {
-                    if (confirm('Are you absolutely sure? This cannot be undone.')) {
-                        try {
-                            await onDelete(user.uid);
-                            alert('Account deleted. We wish you the best in your recovery journey.');
-                        } catch (error) {
-                            console.error('Error deleting account:', error);
-                            window.handleFirebaseError && window.handleFirebaseError(error, 'DeleteAccountModal.handleDelete');
-                            alert('Failed to delete account. You may need to sign in again.');
-                        }
+                    try {
+                        await onUpdate(formData);
+                        alert('Privacy settings updated!');
+                        onClose();
+                    } catch (error) {
+                        console.error('Error updating visibility settings:', error);
+                        window.handleFirebaseError && window.handleFirebaseError(error, 'ProfileVisibilityModal.handleSave');
+                        alert('Failed to update settings: ' + error.message);
                     }
                 }}
+                style={{marginTop: '20px'}}
             >
-                Permanently Delete Account
-            </button>
-            <button
-                style={{
-                    width: '100%',
-                    padding: '14px',
-                    background: 'transparent',
-                    border: '1px solid rgba(255,255,255,0.3)',
-                    borderRadius: '10px',
-                    color: 'white',
-                    cursor: 'pointer',
-                    marginTop: '10px'
-                }}
-                onClick={onClose}
-            >
-                Cancel
+                Save Settings
             </button>
         </div>
     );
@@ -1990,17 +8954,21 @@ window.GLRSApp = window.GLRSApp || {};
 window.GLRSApp.modals = window.GLRSApp.modals || {};
 window.GLRSApp.modals.ProfileModals = ProfileModals;
 
-// Register all 11 modal components for consistency
-window.GLRSApp.modals.AccountModal = AccountModal;
+// Register all 12 modal components for consistency
+window.GLRSApp.modals.AccountActivityModal = AccountActivityModal;
 window.GLRSApp.modals.EmergencyModal = EmergencyModal;
 window.GLRSApp.modals.PersonalInfoModal = PersonalInfoModal;
 window.GLRSApp.modals.RecoveryInfoModal = RecoveryInfoModal;
 window.GLRSApp.modals.PasswordModal = PasswordModal;
 window.GLRSApp.modals.NotificationSettingsModal = NotificationSettingsModal;
+window.GLRSApp.modals.PrivacySettingsModal = PrivacySettingsModal;
+window.GLRSApp.modals.DataManagementModal = DataManagementModal;
+window.GLRSApp.modals.PasswordChangeModal = PasswordChangeModal;
+window.GLRSApp.modals.ProfileVisibilityModal = ProfileVisibilityModal;
 window.GLRSApp.modals.GoogleCalendarModal = GoogleCalendarModal;
 window.GLRSApp.modals.HelpModal = HelpModal;
 window.GLRSApp.modals.FeedbackModal = FeedbackModal;
 window.GLRSApp.modals.ExportModal = ExportModal;
 window.GLRSApp.modals.DeleteAccountModal = DeleteAccountModal;
 
-console.log('✅ PHASE 7: ProfileTab.js complete - All 13 components registered!');
+console.log('✅ PHASE 5 & 7: ProfileTab.js complete - All 14 components registered (12 modals + ProfileView + ProfileModals)!');

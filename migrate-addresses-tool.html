@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Address Migration Tool - GLRS</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .config-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #333;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            margin-bottom: 15px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #1877F2;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #0e5fcf;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .progress {
+            margin-top: 20px;
+            display: none;
+        }
+        .progress.active {
+            display: block;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: #4CAF50;
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 500;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #1877F2;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            margin-top: 5px;
+        }
+        .log {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+        }
+        .log-success { color: #4CAF50; }
+        .log-error { color: #f44336; }
+        .log-warning { color: #ff9800; }
+        .log-info { color: #2196F3; }
+        .auth-section {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 400px;
+            margin: 100px auto;
+        }
+        .auth-section h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .error {
+            color: #f44336;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        .user-info {
+            background: #e3f2fd;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .user-email {
+            font-weight: 500;
+            color: #1877F2;
+        }
+        .logout-btn {
+            background: #666;
+            padding: 6px 12px;
+            font-size: 14px;
+        }
+        .logout-btn:hover {
+            background: #444;
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Section -->
+    <div id="authSection" class="auth-section" style="display: none;">
+        <h2>🔐 Authentication Required</h2>
+        <p>Please login to run the migration tool</p>
+
+        <label for="loginEmail">Email:</label>
+        <input type="email" id="loginEmail" placeholder="your@email.com">
+
+        <label for="loginPassword">Password:</label>
+        <input type="password" id="loginPassword" placeholder="Enter password" onkeypress="if(event.key === 'Enter') login()">
+
+        <button id="loginBtn" onclick="login()">Login</button>
+        <div id="loginError" class="error"></div>
+    </div>
+
+    <!-- Main Content -->
+    <div id="mainContent" class="container" style="display: none;">
+        <div id="userInfo" class="user-info">
+            <span>Logged in as: <span class="user-email" id="userEmail"></span></span>
+            <button class="logout-btn" onclick="logout()">Logout</button>
+        </div>
+
+        <h1>📍 Address Migration Tool</h1>
+        <p class="subtitle">Migrate 4,106 external meetings to structured address format with geocoded coordinates</p>
+
+        <div class="config-section">
+            <label for="mapboxToken">Mapbox API Token:</label>
+            <input type="text" id="mapboxToken" placeholder="pk.eyJ1..." value="pk.eyJ1IjoidHlsZXJyb2JlcnRzIiwiYSI6ImNtaThlYWxmbjBiMm8yaW9naW1ycW8wdTkifQ.0GH21c9vl9gNFsrtgJqrMw">
+
+            <label for="batchSize">Batch Size (meetings per batch):</label>
+            <input type="number" id="batchSize" value="10" min="1" max="50">
+        </div>
+
+        <button id="startBtn" onclick="startMigration()">🚀 Start Migration</button>
+        <button id="stopBtn" onclick="stopMigration()" disabled>⏹️ Stop</button>
+        <button id="rollbackBtn" onclick="rollbackMigration()" style="background: #f44336; margin-left: 10px;">🔄 Rollback Bad Data</button>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="totalCount">0</div>
+                <div class="stat-label">Total</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="processedCount">0</div>
+                <div class="stat-label">Processed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="successCount">0</div>
+                <div class="stat-label">✓ Success</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="skippedCount">0</div>
+                <div class="stat-label">⊘ Skipped</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="failedCount">0</div>
+                <div class="stat-label">✗ Failed</div>
+            </div>
+        </div>
+
+        <div class="progress" id="progressSection">
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="progressBar">0%</div>
+            </div>
+        </div>
+
+        <div class="log" id="logOutput"></div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+    <script>
+        // Initialize Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyCFN-kRGp78KPP3Ae9q16DvDhbK_0hY55s",
+            authDomain: "glrs-pir-system.firebaseapp.com",
+            projectId: "glrs-pir-system",
+            storageBucket: "glrs-pir-system.appspot.com",
+            messagingSenderId: "1010498134936",
+            appId: "1:1010498134936:web:58e38cd04bc42a39fc2826",
+            measurementId: "G-QCPH59CMMV"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        let currentUser = null;
+
+        // ⚠️ TEMPORARY: Skip authentication for migration
+        // Show main content immediately
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('authSection').style.display = 'none';
+            document.getElementById('mainContent').style.display = 'block';
+            document.getElementById('userInfo').style.display = 'none';
+        });
+
+        // Login function
+        async function login() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const loginBtn = document.getElementById('loginBtn');
+            const loginError = document.getElementById('loginError');
+
+            if (!email || !password) {
+                loginError.textContent = 'Please enter email and password';
+                return;
+            }
+
+            try {
+                loginBtn.disabled = true;
+                loginBtn.textContent = 'Logging in...';
+                loginError.textContent = '';
+
+                await auth.signInWithEmailAndPassword(email, password);
+            } catch (error) {
+                loginError.textContent = error.message;
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Login';
+            }
+        }
+
+        // Logout function
+        function logout() {
+            auth.signOut();
+            document.getElementById('logOutput').innerHTML = '';
+        }
+
+        // Migration state
+        let isRunning = false;
+        let stats = {
+            total: 0,
+            processed: 0,
+            successful: 0,
+            failed: 0,
+            skipped: 0,
+            errors: []
+        };
+
+        // Logging function
+        function log(message, type = 'info') {
+            const logOutput = document.getElementById('logOutput');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logOutput.appendChild(entry);
+            logOutput.scrollTop = logOutput.scrollHeight;
+            console.log(message);
+        }
+
+        // Update UI
+        function updateUI() {
+            document.getElementById('totalCount').textContent = stats.total;
+            document.getElementById('processedCount').textContent = stats.processed;
+            document.getElementById('successCount').textContent = stats.successful;
+            document.getElementById('skippedCount').textContent = stats.skipped;
+            document.getElementById('failedCount').textContent = stats.failed;
+
+            const progress = stats.total > 0 ? ((stats.processed / stats.total) * 100).toFixed(1) : 0;
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = progress + '%';
+            progressBar.textContent = progress + '%';
+        }
+
+        // Geocode address using Mapbox
+        async function geocodeAddress(addressString, mapboxToken) {
+            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(addressString)}.json?access_token=${mapboxToken}&limit=1&country=US`;
+
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Mapbox API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (!data.features || data.features.length === 0) {
+                throw new Error('No geocoding results found');
+            }
+
+            const feature = data.features[0];
+            const [lng, lat] = feature.center;
+            const context = feature.context || [];
+
+            const placeContext = context.find(c => c.id.includes('place'));
+            const regionContext = context.find(c => c.id.includes('region'));
+            const postcodeContext = context.find(c => c.id.includes('postcode'));
+
+            return {
+                formatted: feature.place_name,
+                city: placeContext?.text || '',
+                state: regionContext?.short_code?.replace('US-', '') || '',
+                zipCode: postcodeContext?.text || '',
+                country: 'US',
+                coordinates: new firebase.firestore.GeoPoint(lat, lng)
+            };
+        }
+
+        // Parse address components
+        function parseAddress(addressString, city, state, zip) {
+            const result = {
+                streetNumber: '',
+                streetName: '',
+                city: city || '',
+                state: state || '',
+                zipCode: zip || '',
+                country: 'USA'
+            };
+
+            if (!addressString || typeof addressString !== 'string') {
+                return result;
+            }
+
+            let street = addressString;
+            if (city) street = street.replace(new RegExp(`,?\\s*${city}`, 'gi'), '');
+            if (state) street = street.replace(new RegExp(`,?\\s*${state}`, 'gi'), '');
+            if (zip) street = street.replace(new RegExp(`,?\\s*${zip}`, 'gi'), '');
+
+            street = street.trim().replace(/^,+|,+$/g, '');
+
+            const streetMatch = street.match(/^(\d+)\s+(.+)$/);
+            if (streetMatch) {
+                result.streetNumber = streetMatch[1];
+                result.streetName = streetMatch[2];
+            } else {
+                result.streetName = street;
+            }
+
+            return result;
+        }
+
+        // Build full address string
+        function buildAddressString(address, city, state, zip) {
+            const parts = [];
+            if (address) parts.push(address);
+            if (city) parts.push(city);
+            if (state && zip) {
+                parts.push(`${state} ${zip}`);
+            } else if (state) {
+                parts.push(state);
+            } else if (zip) {
+                parts.push(zip);
+            }
+            return parts.join(', ');
+        }
+
+        // Migrate single meeting
+        async function migrateMeeting(meetingDoc, mapboxToken) {
+            const meeting = meetingDoc.data();
+            const meetingId = meetingDoc.id;
+
+            try {
+                // Skip if already migrated
+                if (meeting.location && meeting.location.coordinates) {
+                    log(`⊘ Skipped (already migrated): ${meetingId}`, 'warning');
+                    stats.skipped++;
+                    return;
+                }
+
+                // Extract address fields (handle both old and new structure)
+                const addressStreet = typeof meeting.address === 'object' ? meeting.address.street : meeting.address;
+                const addressCity = typeof meeting.address === 'object' ? meeting.address.city : meeting.city;
+                const addressState = typeof meeting.address === 'object' ? meeting.address.state : meeting.state;
+                const addressZip = typeof meeting.address === 'object' ? meeting.address.zip : meeting.zip;
+
+                // Build full address
+                const fullAddress = buildAddressString(
+                    addressStreet || '',
+                    addressCity || '',
+                    addressState || '',
+                    addressZip || ''
+                );
+
+                if (!fullAddress) {
+                    log(`✗ Failed (no address): ${meetingId}`, 'error');
+                    stats.failed++;
+                    stats.errors.push({ id: meetingId, error: 'No address data' });
+                    return;
+                }
+
+                // Parse address
+                const parsed = parseAddress(
+                    addressStreet,
+                    addressCity,
+                    addressState,
+                    addressZip
+                );
+
+                // Geocode
+                log(`  Geocoding: ${fullAddress}...`, 'info');
+                const geocoded = await geocodeAddress(fullAddress, mapboxToken);
+
+                // Build new location
+                const newLocation = {
+                    formatted: geocoded.formatted,
+                    streetNumber: parsed.streetNumber,
+                    streetName: parsed.streetName,
+                    city: geocoded.city || parsed.city,
+                    state: geocoded.state || parsed.state,
+                    zipCode: geocoded.zipCode || parsed.zipCode,
+                    country: geocoded.country,
+                    coordinates: geocoded.coordinates
+                };
+
+                // Update Firestore
+                await meetingDoc.ref.update({
+                    location: newLocation,
+                    _migrated: true,
+                    _migratedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    _originalAddress: typeof meeting.address === 'object' ? meeting.address : { street: addressStreet, city: addressCity, state: addressState, zip: addressZip }
+                });
+
+                log(`✓ Success: ${meetingId} - ${newLocation.city}, ${newLocation.state}`, 'success');
+                stats.successful++;
+
+            } catch (error) {
+                log(`✗ Failed: ${meetingId} - ${error.message}`, 'error');
+                stats.failed++;
+                stats.errors.push({ id: meetingId, error: error.message });
+            }
+        }
+
+        // Main migration function
+        async function startMigration() {
+            const mapboxToken = document.getElementById('mapboxToken').value;
+            const batchSize = parseInt(document.getElementById('batchSize').value);
+
+            if (!mapboxToken) {
+                alert('Please enter Mapbox API token');
+                return;
+            }
+
+            // Reset stats
+            stats = {
+                total: 0,
+                processed: 0,
+                successful: 0,
+                failed: 0,
+                skipped: 0,
+                errors: []
+            };
+
+            // UI setup
+            isRunning = true;
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            document.getElementById('progressSection').classList.add('active');
+            document.getElementById('logOutput').innerHTML = '';
+
+            log('========================================', 'info');
+            log('ADDRESS MIGRATION STARTED', 'info');
+            log('========================================', 'info');
+
+            try {
+                // Fetch all external meetings
+                log('📥 Fetching meetings from Firestore...', 'info');
+                const snapshot = await db.collection('externalMeetings').get();
+
+                stats.total = snapshot.size;
+                log(`✓ Found ${stats.total} meetings`, 'success');
+                updateUI();
+
+                if (stats.total === 0) {
+                    log('⚠️  No meetings found. Exiting.', 'warning');
+                    stopMigration();
+                    return;
+                }
+
+                // Process in batches
+                const meetings = snapshot.docs;
+                const batches = [];
+                for (let i = 0; i < meetings.length; i += batchSize) {
+                    batches.push(meetings.slice(i, i + batchSize));
+                }
+
+                log(`📦 Split into ${batches.length} batches of ${batchSize} meetings each`, 'info');
+
+                // Process each batch
+                for (let i = 0; i < batches.length && isRunning; i++) {
+                    log(`\n========================================`, 'info');
+                    log(`Processing Batch ${i + 1}/${batches.length}`, 'info');
+                    log(`========================================`, 'info');
+
+                    for (const meeting of batches[i]) {
+                        if (!isRunning) break;
+
+                        await migrateMeeting(meeting, mapboxToken);
+                        stats.processed++;
+                        updateUI();
+
+                        // Small delay to avoid rate limiting
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+
+                    // Pause between batches (except last one)
+                    if (i < batches.length - 1 && isRunning) {
+                        log(`⏸️  Waiting 1 second before next batch...`, 'warning');
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                }
+
+                // Final stats
+                log('\n========================================', 'info');
+                log('MIGRATION COMPLETE', 'success');
+                log('========================================', 'info');
+                log(`Total Meetings: ${stats.total}`, 'info');
+                log(`Processed: ${stats.processed}`, 'info');
+                log(`✓ Successful: ${stats.successful}`, 'success');
+                log(`⊘ Skipped: ${stats.skipped}`, 'warning');
+                log(`✗ Failed: ${stats.failed}`, 'error');
+                log(`Success Rate: ${((stats.successful / stats.total) * 100).toFixed(1)}%`, 'info');
+
+                if (stats.errors.length > 0) {
+                    log(`\n⚠️  ${stats.errors.length} Errors:`, 'error');
+                    stats.errors.slice(0, 10).forEach(err => {
+                        log(`  - ${err.id}: ${err.error}`, 'error');
+                    });
+                    if (stats.errors.length > 10) {
+                        log(`  ... and ${stats.errors.length - 10} more errors`, 'error');
+                    }
+                }
+
+            } catch (error) {
+                log(`\n❌ MIGRATION FAILED: ${error.message}`, 'error');
+                console.error(error);
+            }
+
+            stopMigration();
+        }
+
+        function stopMigration() {
+            isRunning = false;
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+        }
+
+        // Rollback function - removes bad migration data
+        async function rollbackMigration() {
+            if (!confirm('This will remove ALL migrated location data and allow you to re-run the migration. Continue?')) {
+                return;
+            }
+
+            // Reset stats
+            stats = {
+                total: 0,
+                processed: 0,
+                successful: 0,
+                failed: 0,
+                skipped: 0,
+                errors: []
+            };
+
+            // UI setup
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('rollbackBtn').disabled = true;
+            document.getElementById('progressSection').classList.add('active');
+            document.getElementById('logOutput').innerHTML = '';
+
+            log('========================================', 'info');
+            log('ROLLBACK STARTED', 'warning');
+            log('========================================', 'info');
+
+            try {
+                // Fetch all migrated meetings
+                log('📥 Fetching migrated meetings...', 'info');
+                const snapshot = await db.collection('externalMeetings')
+                    .where('_migrated', '==', true)
+                    .get();
+
+                stats.total = snapshot.size;
+                log(`✓ Found ${stats.total} migrated meetings to rollback`, 'success');
+                updateUI();
+
+                if (stats.total === 0) {
+                    log('⚠️  No migrated meetings found.', 'warning');
+                    document.getElementById('startBtn').disabled = false;
+                    document.getElementById('rollbackBtn').disabled = false;
+                    return;
+                }
+
+                // Process in batches of 50
+                const batchSize = 50;
+                const meetings = snapshot.docs;
+
+                for (let i = 0; i < meetings.length; i += batchSize) {
+                    const batch = db.batch();
+                    const batchMeetings = meetings.slice(i, i + batchSize);
+
+                    batchMeetings.forEach(meetingDoc => {
+                        batch.update(meetingDoc.ref, {
+                            location: firebase.firestore.FieldValue.delete(),
+                            _migrated: firebase.firestore.FieldValue.delete(),
+                            _migratedAt: firebase.firestore.FieldValue.delete(),
+                            _originalAddress: firebase.firestore.FieldValue.delete()
+                        });
+                    });
+
+                    await batch.commit();
+                    stats.processed += batchMeetings.length;
+                    stats.successful += batchMeetings.length;
+                    updateUI();
+
+                    log(`✓ Rolled back batch ${Math.floor(i / batchSize) + 1}: ${batchMeetings.length} meetings`, 'success');
+                }
+
+                log('\n========================================', 'info');
+                log('ROLLBACK COMPLETE', 'success');
+                log('========================================', 'info');
+                log(`Total Rolled Back: ${stats.successful}`, 'success');
+                log('\n✓ Ready to re-run migration with correct data!', 'success');
+
+            } catch (error) {
+                log(`\n❌ ROLLBACK FAILED: ${error.message}`, 'error');
+                console.error(error);
+            }
+
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('rollbackBtn').disabled = false;
+        }
+    </script>
+</body>
+</html>

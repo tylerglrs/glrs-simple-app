@@ -11,6 +11,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-functions-compat.js"></script>
 
     <!-- Google Identity Services - FOR CALENDAR INTEGRATION -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -19,6 +20,8 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- ✅ PHASE 2 FIX #1: react-window for virtualization (performance optimization) -->
+    <script src="https://unpkg.com/react-window@1.8.10/dist/index.umd.js"></script>
 
     <!-- Chart.js for Progress Charts -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -33,7 +36,7 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
-    
+
     <style>
         * {
             margin: 0;
@@ -379,6 +382,7 @@
             padding-bottom: 80px;
             overflow-y: auto;
             background: #FFFFFF;
+            color: #2C3E50;
         }
 
         .hero-section {
@@ -1516,7 +1520,7 @@
     <!-- ============================================ -->
     <!-- All modal files now embedded in their respective tab components -->
     <!-- SharedModals, GoalModal, GroupDetailModal, ModalContainer - embedded in tab files or obsolete -->
-    <!-- LegalInfoModals now embedded in HomeTab.js -->
+    <!-- LegalInfoModals now embedded in MeetingsTab.js -->
     <!-- NotificationCommunityModals now embedded in NotificationsTab.js -->
     <!-- CheckInModals now embedded in TasksTab.js -->
     <!-- ProfileModals now embedded in ProfileTab.js -->
@@ -1528,15 +1532,21 @@
     <!-- TABS (10 files) -->
     <!-- ✅ PHASE 4, PART 1: Added 3 Journey sub-tab components -->
     <!-- ============================================ -->
-    <script defer type="text/babel" src="/Index/tabs/HomeTab.js"></script>
+    <script defer type="text/babel" src="/Index/tabs/MeetingsTab.js"></script>
 
     <!-- Journey Tab - Single file with 3 sub-tabs (JourneyLifeTab, JourneyWellnessTab, JourneyFinancesTab) + 4 modal groups -->
     <script defer type="text/babel" src="/Index/tabs/JourneyTab.js"></script>
 
     <script defer type="text/babel" src="/Index/tabs/TasksTab.js"></script>
+    <!-- ProfileHeaderBar - Shared header for ProfileTab and UserProfileView -->
+    <script defer type="text/babel" src="/Index/components/ProfileHeaderBar.js"></script>
+    <!-- UserProfileView - Used by CommunityTab (must load before CommunityTab) -->
+    <script defer type="text/babel" src="/Index/tabs/UserProfileView.js"></script>
+    <!-- MeetingBrowser - Used by CommunityTab (must load before CommunityTab) -->
+    <script defer type="text/babel" src="/Index/tabs/MeetingBrowser.js"></script>
     <script defer type="text/babel" src="/Index/tabs/CommunityTab.js"></script>
     <script defer type="text/babel" src="/Index/tabs/ResourcesTab.js"></script>
-    <script defer type="text/babel" src="/Index/tabs/NotificationsTab.js"></script>
+    <script defer type="text/babel" src="/Index/tabs/MessagesTab.js"></script>
     <script defer type="text/babel" src="/Index/tabs/ProfileTab.js"></script>
 
     <!-- ============================================ -->
@@ -1550,8 +1560,17 @@ function PIRApp() {
     // ═══════════════════════════════════════════════════════════
 
     const [user, setUser] = React.useState(null);
-    const [currentView, setCurrentView] = React.useState('home');
+    const [currentView, setCurrentView] = React.useState('meetings');
     const [loading, setLoading] = React.useState(true);
+
+    // Global navigation function for cross-tab navigation
+    window.navigateToTab = (tabName) => {
+        setCurrentView(tabName);
+        window.scrollTo(0, 0); // Scroll to top when navigating
+    };
+
+    // Alias for compatibility with notification routes
+    window.changeTab = window.navigateToTab;
 
     // Login form state
     const [loginEmail, setLoginEmail] = React.useState('');
@@ -1574,13 +1593,10 @@ function PIRApp() {
     const [showPrivacyModal, setShowPrivacyModal] = React.useState(false);
     const [showDataHandlingModal, setShowDataHandlingModal] = React.useState(false);
     const [showCrisisModal, setShowCrisisModal] = React.useState(false);
-    const [showSidebar, setShowSidebar] = React.useState(false);
-    const [showHabitTrackerModal, setShowHabitTrackerModal] = React.useState(false);
     const [showIncompleteTasksModal, setShowIncompleteTasksModal] = React.useState(false);
-    const [showMilestoneModal, setShowMilestoneModal] = React.useState(false);
     const [showProfileModal, setShowProfileModal] = React.useState(false);
 
-    // Notification count for BottomNavigation badge
+    // Unread message count for BottomNavigation badge
     const [unreadCount, setUnreadCount] = React.useState(0);
 
     // Pull-to-refresh state
@@ -1667,12 +1683,18 @@ function PIRApp() {
                     })
                     .catch(err => console.error('Error loading assignments:', err));
 
-                // Load notifications count for BottomNavigation
-                db.collection('notifications')
-                    .where('userId', '==', authUser.uid)
-                    .where('read', '==', false)
+                // Load unread message count for BottomNavigation
+                db.collection('conversations')
+                    .where('participants', 'array-contains', authUser.uid)
                     .onSnapshot(snapshot => {
-                        setUnreadCount(snapshot.size);
+                        let totalUnread = 0;
+                        snapshot.docs.forEach(doc => {
+                            const data = doc.data();
+                            totalUnread += data.unreadCount?.[authUser.uid] || 0;
+                        });
+                        setUnreadCount(totalUnread);
+                    }, error => {
+                        console.error('Error loading unread message count:', error);
                     });
 
                 // Check if disclaimer accepted, show modal if not
@@ -1689,6 +1711,18 @@ function PIRApp() {
         });
 
         return () => unsubscribe();
+    }, []);
+
+    // Custom navigation event listener (for tab components to navigate)
+    React.useEffect(() => {
+        const handleNavigate = (event) => {
+            if (event.detail && event.detail.view) {
+                setCurrentView(event.detail.view);
+            }
+        };
+
+        window.addEventListener('glrs-navigate', handleNavigate);
+        return () => window.removeEventListener('glrs-navigate', handleNavigate);
     }, []);
 
     // ═══════════════════════════════════════════════════════════
@@ -1754,12 +1788,24 @@ function PIRApp() {
     // Touch handlers for pull-to-refresh
     const contentRef = React.useRef(null);
     const touchStartY = React.useRef(0);
+    const lastUpdateTime = React.useRef(0);
+
+    // Detect Safari iOS
+    const isSafariIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
 
     const handleTouchStart = (e) => {
+        if (isSafariIOS) return; // Disable on Safari iOS to prevent freezing
         touchStartY.current = e.touches[0].clientY;
     };
 
     const handleTouchMove = (e) => {
+        if (isSafariIOS) return; // Disable on Safari iOS to prevent freezing
+
+        const now = Date.now();
+        // Throttle to max 60fps (16ms between updates) to prevent performance issues
+        if (now - lastUpdateTime.current < 16) return;
+        lastUpdateTime.current = now;
+
         const touchY = e.touches[0].clientY;
         const scrollTop = contentRef.current?.scrollTop || 0;
 
@@ -1773,6 +1819,8 @@ function PIRApp() {
     };
 
     const handleTouchEnd = () => {
+        if (isSafariIOS) return; // Disable on Safari iOS to prevent freezing
+
         if (pullDistance > 80) {
             setRefreshing(true);
             setPulling(false);
@@ -2120,13 +2168,10 @@ function PIRApp() {
                 refreshing: refreshing
             }),
 
-        // Header Bar
-        window.GLRSApp?.components?.HeaderBar &&
+        // Header Bar (hidden for Tasks, Journey, and Profile tabs - they have their own headers)
+        currentView !== 'tasks' && currentView !== 'progress' && currentView !== 'profile' && window.GLRSApp?.components?.HeaderBar &&
             React.createElement(window.GLRSApp.components.HeaderBar, {
                 currentView: currentView,
-                onShowSidebar: setShowSidebar,
-                onShowIncompleteTasksModal: setShowIncompleteTasksModal,
-                onShowMilestoneModal: setShowMilestoneModal,
                 onShowProfileModal: setShowProfileModal,
                 onMarkAllNotificationsAsRead: markAllNotificationsAsRead,
                 userData: userData,
@@ -2180,8 +2225,6 @@ function PIRApp() {
                 showPrivacyModal: showPrivacyModal,
                 showDataHandlingModal: showDataHandlingModal,
                 showCrisisModal: showCrisisModal,
-                showSidebar: showSidebar,
-                showHabitTrackerModal: showHabitTrackerModal,
                 showIncompleteTasksModal: showIncompleteTasksModal,
 
                 // Close handlers
@@ -2190,12 +2233,7 @@ function PIRApp() {
                 onClosePrivacyModal: () => setShowPrivacyModal(false),
                 onCloseDataHandlingModal: () => setShowDataHandlingModal(false),
                 onCloseCrisisModal: () => setShowCrisisModal(false),
-                onCloseSidebar: () => setShowSidebar(false),
-                onCloseHabitTrackerModal: () => setShowHabitTrackerModal(false),
                 onCloseIncompleteTasksModal: () => setShowIncompleteTasksModal(false),
-
-                // Open handler
-                onOpenHabitTrackerModal: () => setShowHabitTrackerModal(true),
 
                 // Data
                 goals: goals,
