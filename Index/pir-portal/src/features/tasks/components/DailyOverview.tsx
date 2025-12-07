@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Sun,
   Moon,
@@ -12,6 +13,8 @@ import {
   Target,
   Heart,
   Sparkles,
+  Repeat,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
@@ -36,12 +39,15 @@ import type {
 } from '../hooks/useCheckInData'
 import { CopingTechniqueCard } from './CopingTechniqueCard'
 import { AssignmentCalendar } from './AssignmentCalendar'
+import { HabitsWeeklyCalendar } from './HabitsWeeklyCalendar'
 import { ActivityCalendar } from './ActivityCalendar'
 import { useTechniqueCompletion } from '../hooks/useTechniqueCompletion'
+import { useHabitsForWeek, type DayHabits } from '../hooks/useHabitsForWeek'
 import { ScrollFadeBackground } from './ScrollFadeBackground'
 import type { CopingTechnique } from '../data/copingTechniques'
 import type { DayActivity } from '../hooks/useActivityData'
 import { DayDetailModal } from '../modals/DayDetailModal'
+import { useModalStore } from '@/stores/modalStore'
 
 // =============================================================================
 // TYPES
@@ -152,19 +158,45 @@ function HeroGreeting({ completedCount, totalTasks }: HeroGreetingProps) {
 interface TodayTasksProps {
   checkInStatus: CheckInStatus
   techniqueCompleted: boolean
+  todayHabits: DayHabits | null
   onNavigate: (view: 'checkin' | 'reflections') => void
+  onCompleteHabit: (habitId: string) => Promise<boolean>
+  onOpenHabitModal: () => void
 }
 
-function TodayTasks({ checkInStatus, techniqueCompleted, onNavigate }: TodayTasksProps) {
+function TodayTasks({
+  checkInStatus,
+  techniqueCompleted,
+  todayHabits,
+  onNavigate,
+  onCompleteHabit,
+  onOpenHabitModal,
+}: TodayTasksProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const timeOfDay = getTimeOfDay()
+  const [completingHabitId, setCompletingHabitId] = useState<string | null>(null)
 
   // Determine which card to highlight
   const showMorningHighlight = !checkInStatus.morning
   const showEveningHighlight = checkInStatus.morning && !checkInStatus.evening && timeOfDay !== 'morning'
 
-  // Check if all 3 tasks are done
-  const allTasksDone = checkInStatus.morning && checkInStatus.evening && techniqueCompleted
+  // Calculate total tasks including habits
+  const habitCount = todayHabits?.totalCount ?? 0
+  const completedHabits = todayHabits?.completedCount ?? 0
+
+  // Check if all tasks are done (check-in + reflection + all habits)
+  const allTasksDone =
+    checkInStatus.morning &&
+    checkInStatus.evening &&
+    techniqueCompleted &&
+    (habitCount === 0 || completedHabits === habitCount)
+
+  const handleCompleteHabit = async (habitId: string) => {
+    setCompletingHabitId(habitId)
+    haptics.success()
+    await onCompleteHabit(habitId)
+    setCompletingHabitId(null)
+  }
 
   return (
     <motion.div
@@ -221,6 +253,81 @@ function TodayTasks({ checkInStatus, techniqueCompleted, onNavigate }: TodayTask
           />
         </motion.div>
       </div>
+
+      {/* Today's Habits */}
+      {todayHabits && todayHabits.habits.length > 0 && (
+        <motion.div
+          variants={staggerItem}
+          className="mt-3"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Repeat className="h-4 w-4 text-emerald-500" />
+              <span className="text-sm font-medium text-slate-700">Today's Habits</span>
+            </div>
+            <button
+              onClick={() => {
+                haptics.tap()
+                onOpenHabitModal()
+              }}
+              className="text-xs text-teal-600 font-medium hover:text-teal-700"
+            >
+              Manage
+            </button>
+          </div>
+          <div className="space-y-2">
+            {todayHabits.habits.map(({ habit, completed }) => {
+              const isCompleting = completingHabitId === habit.id
+              return (
+                <motion.div
+                  key={habit.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className={cn(
+                    'flex items-center gap-3 p-3 rounded-xl border-2 transition-all',
+                    completed
+                      ? 'bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200'
+                      : 'bg-white border-slate-200 hover:border-emerald-200'
+                  )}
+                >
+                  <div className="relative">
+                    <Checkbox
+                      checked={completed}
+                      disabled={completed || isCompleting}
+                      onCheckedChange={() => handleCompleteHabit(habit.id)}
+                      className={cn(
+                        'h-5 w-5 transition-all',
+                        completed &&
+                          'data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500'
+                      )}
+                    />
+                    {isCompleting && (
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        className="absolute inset-0 flex items-center justify-center"
+                      >
+                        <Loader2 className="h-4 w-4 animate-spin text-emerald-500" />
+                      </motion.div>
+                    )}
+                  </div>
+                  <span
+                    className={cn(
+                      'flex-1 text-sm font-medium transition-all',
+                      completed ? 'text-emerald-700 line-through' : 'text-slate-700'
+                    )}
+                  >
+                    {habit.name}
+                  </span>
+                  {completed && (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                  )}
+                </motion.div>
+              )
+            })}
+          </div>
+        </motion.div>
+      )}
     </motion.div>
   )
 }
@@ -538,6 +645,8 @@ export function DailyOverview({
 }: DailyOverviewProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { isCompleted: techniqueCompleted } = useTechniqueCompletion()
+  const { todayHabits, completeHabit } = useHabitsForWeek()
+  const { openModal } = useModalStore()
 
   // Day Detail Modal state
   const [selectedDayData, setSelectedDayData] = useState<{
@@ -545,12 +654,26 @@ export function DailyOverview({
     activity: DayActivity
   } | null>(null)
 
-  // Total tasks: Morning Check-in + Evening Reflection + Today's Technique = 3
-  const totalTasks = 3
+  // Total tasks: Morning Check-in + Evening Reflection + Today's Technique + Habits
+  const habitCount = todayHabits?.totalCount ?? 0
+  const completedHabits = todayHabits?.completedCount ?? 0
+  const totalTasks = 3 + habitCount
   const completedCount =
     (checkInStatus.morning ? 1 : 0) +
     (checkInStatus.evening ? 1 : 0) +
-    (techniqueCompleted ? 1 : 0)
+    (techniqueCompleted ? 1 : 0) +
+    completedHabits
+
+  // Handle opening habit modal
+  const handleOpenHabitModal = () => {
+    openModal('habit')
+  }
+
+  // Handle day selection from HabitsWeeklyCalendar
+  const handleHabitDaySelect = (_day: DayHabits) => {
+    // Open habit modal when a day is selected
+    openModal('habit')
+  }
 
   return (
     <ScrollFadeBackground className="h-full" fadeEnd={550} minOpacity={0.05}>
@@ -568,7 +691,10 @@ export function DailyOverview({
         <TodayTasks
           checkInStatus={checkInStatus}
           techniqueCompleted={techniqueCompleted}
+          todayHabits={todayHabits}
           onNavigate={onNavigate}
+          onCompleteHabit={completeHabit}
+          onOpenHabitModal={handleOpenHabitModal}
         />
 
         {/* Today's Coping Technique */}
@@ -591,6 +717,11 @@ export function DailyOverview({
             onOpenModal?.('assignmentDetail')
             console.log('Selected assignment:', assignment.id)
           }}
+        />
+
+        {/* Habits Weekly Calendar */}
+        <HabitsWeeklyCalendar
+          onSelectDay={handleHabitDaySelect}
         />
 
         {/* Streaks */}
