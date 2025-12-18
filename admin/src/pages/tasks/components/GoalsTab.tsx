@@ -10,7 +10,6 @@ import {
 } from "@/lib/firebase"
 import { toast } from "sonner"
 import { Card, CardContent } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import {
@@ -31,7 +30,6 @@ import {
   Target,
   ChevronDown,
   ChevronRight,
-  Plus,
   CheckCircle2,
   Circle,
 } from "lucide-react"
@@ -274,10 +272,7 @@ export function GoalsTab({ searchQuery }: GoalsTabProps) {
             </SelectContent>
           </Select>
 
-          <Button variant="outline" className="ml-auto gap-2">
-            <Plus className="h-4 w-4" />
-            New Goal
-          </Button>
+{/* "New Goal" button removed - use Quick Actions in Tasks page header */}
         </CardContent>
       </Card>
 

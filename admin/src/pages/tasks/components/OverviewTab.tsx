@@ -62,6 +62,8 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronLeft,
+  Pause,
+  Play,
 } from "lucide-react"
 import { formatDate, getInitials } from "@/lib/utils"
 import { Assignment, Goal, Objective, PIRUser, AssignmentStatus, Priority, GoalStatus } from "../types"
@@ -387,6 +389,29 @@ export function OverviewTab({ searchQuery }: OverviewTabProps) {
     }
   }
 
+  // Handle goal status change
+  const handleGoalStatusChange = async (goalId: string, newStatus: GoalStatus) => {
+    try {
+      const goalRef = doc(db, "goals", goalId)
+      await updateDoc(goalRef, {
+        status: newStatus,
+        updatedAt: serverTimestamp(),
+        ...(newStatus === "completed" ? { completedAt: serverTimestamp(), progress: 100 } : {}),
+      })
+      setGoals((prev) =>
+        prev.map((g) => (g.id === goalId ? { ...g, status: newStatus } : g))
+      )
+      // Also update the selected goal if it's the one being changed
+      if (selectedGoal?.id === goalId) {
+        setSelectedGoal((prev) => prev ? { ...prev, status: newStatus } : null)
+      }
+      toast.success(`Goal marked as ${newStatus}`)
+    } catch (error) {
+      console.error("Error updating goal status:", error)
+      toast.error("Failed to update goal status")
+    }
+  }
+
   const getGoalProgress = (goal: Goal) => {
     if (!goal.objectives || goal.objectives.length === 0) return 0
     let total = 0
@@ -520,9 +545,44 @@ export function OverviewTab({ searchQuery }: OverviewTabProps) {
                         <Badge variant="secondary">{goal.objectives.length}</Badge>
                       </TableCell>
                       <TableCell className="text-center">
-                        <Button variant="outline" size="sm" onClick={() => setSelectedGoal(goal)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
+                        <div className="flex justify-center gap-1">
+                          <Button variant="outline" size="sm" onClick={() => setSelectedGoal(goal)}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          {goal.status === "active" && (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-amber-600 hover:bg-amber-50"
+                                onClick={() => handleGoalStatusChange(goal.id, "paused")}
+                                title="Pause goal"
+                              >
+                                <Pause className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-emerald-600 hover:bg-emerald-50"
+                                onClick={() => handleGoalStatusChange(goal.id, "completed")}
+                                title="Complete goal"
+                              >
+                                <Check className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                          {goal.status === "paused" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-blue-600 hover:bg-blue-50"
+                              onClick={() => handleGoalStatusChange(goal.id, "active")}
+                              title="Resume goal"
+                            >
+                              <Play className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -845,7 +905,22 @@ export function OverviewTab({ searchQuery }: OverviewTabProps) {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Status</Label>
-                  <div className="mt-1">{getGoalStatusBadge(selectedGoal.status)}</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    {getGoalStatusBadge(selectedGoal.status)}
+                    <Select
+                      value={selectedGoal.status}
+                      onValueChange={(v) => handleGoalStatusChange(selectedGoal.id, v as GoalStatus)}
+                    >
+                      <SelectTrigger className="w-[120px] h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="paused">Paused</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
               <div>
