@@ -182,3 +182,15 @@ export {
   type CoachMarkConfig,
   type UseCoachMarksReturn,
 } from './useCoachMarks'
+
+// Modal Skeletons (Phase 3A)
+export {
+  WeeklyReportSkeleton,
+  CalendarHeatmapSkeleton,
+  MoodInsightsSkeleton,
+  RecoveryProgramSkeleton,
+  GratitudeJournalSkeleton,
+  CheckInsListSkeleton,
+  ResourceViewerSkeleton,
+  GenericModalSkeleton,
+} from './ModalSkeletons'

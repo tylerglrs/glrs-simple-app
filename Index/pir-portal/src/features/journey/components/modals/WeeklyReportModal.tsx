@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
-  Loader2,
   TrendingUp,
   TrendingDown,
   Minus,
@@ -20,6 +19,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { WeeklyReportSkeleton } from '@/components/common'
 import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore'
 import { db, auth } from '@/lib/firebase'
 import type { CheckIn, WeeklyReportData, TrendInfo } from '../../types'
@@ -165,9 +165,7 @@ export function WeeklyReportModal({ open, onOpenChange }: WeeklyReportModalProps
         </DialogHeader>
 
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
+          <WeeklyReportSkeleton />
         ) : !reportData ? (
           <div className="text-center py-12 text-muted-foreground">
             <Calendar className="h-12 w-12 mx-auto mb-3 opacity-50" />

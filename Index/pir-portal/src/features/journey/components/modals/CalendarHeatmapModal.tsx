@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { Loader2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -8,6 +7,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { CalendarHeatmap } from '../CalendarHeatmap'
+import { CalendarHeatmapSkeleton } from '@/components/common'
 import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore'
 import { db, auth } from '@/lib/firebase'
 import type { CheckIn, CalendarDayData } from '../../types'
@@ -79,9 +79,7 @@ export function CalendarHeatmapModal({ open, onOpenChange }: CalendarHeatmapModa
         </DialogHeader>
 
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
+          <CalendarHeatmapSkeleton />
         ) : (
           <CalendarHeatmap
             checkIns={checkIns}

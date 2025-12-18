@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Loader2, Smile, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { Smile, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { MoodInsightsSkeleton } from '@/components/common'
 import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore'
 import { db, auth } from '@/lib/firebase'
 import type { CheckIn } from '../../types'
@@ -139,9 +140,7 @@ export function MoodInsightsModal({ open, onOpenChange }: MoodInsightsModalProps
         </DialogHeader>
 
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
+          <MoodInsightsSkeleton />
         ) : (
           <div className="space-y-4">
             {/* Average Mood */}
