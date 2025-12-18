@@ -12,8 +12,10 @@
  * - Mobile-optimized touch targets
  */
 
+import { useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { useTab, type TabId } from '@/contexts/TabContext'
+import { useCoachMarkContext } from '@/components/common/CoachMarkProvider'
 import {
   ClipboardList,
   Compass,
@@ -32,18 +34,21 @@ interface TabConfig {
   id: TabId
   icon: LucideIcon
   label: string
+  coachMarkId?: string // Coach mark ID for feature discovery
 }
 
 /**
  * Navigation tabs configuration
  * Note: Profile tab is intentionally omitted from bottom nav
  * (accessible via header/settings)
+ * Note: Community/Connect tab is hidden from users but code is preserved
  */
 const tabs: TabConfig[] = [
-  { id: 'tasks', icon: ClipboardList, label: 'Tasks' },
-  { id: 'journey', icon: Compass, label: 'Journey' },
-  { id: 'community', icon: Users, label: 'Connect' },
-  { id: 'meetings', icon: Calendar, label: 'Meetings' },
+  { id: 'tasks', icon: ClipboardList, label: 'Tasks', coachMarkId: 'tasks-tab' },
+  { id: 'journey', icon: Compass, label: 'Journey', coachMarkId: 'journey-tab' },
+  // Connect tab hidden from users - code preserved for future use
+  // { id: 'community', icon: Users, label: 'Connect', coachMarkId: 'community-tab' },
+  { id: 'meetings', icon: Calendar, label: 'Meetings', coachMarkId: 'meetings-tab' },
   { id: 'resources', icon: Book, label: 'Guides' },
   { id: 'messages', icon: MessageSquare, label: 'Messages' },
 ]
@@ -56,16 +61,32 @@ interface NavButtonProps {
   tab: TabConfig
   isActive: boolean
   onClick: () => void
+  registerCoachMark?: (markId: string, element: HTMLElement | null) => void
 }
 
 /**
  * Individual navigation button
  */
-function NavButton({ tab, isActive, onClick }: NavButtonProps) {
+function NavButton({ tab, isActive, onClick, registerCoachMark }: NavButtonProps) {
   const Icon = tab.icon
+  const buttonRef = useRef<HTMLButtonElement>(null)
+
+  // Register this button as a coach mark target if it has a coachMarkId
+  useEffect(() => {
+    if (tab.coachMarkId && registerCoachMark && buttonRef.current) {
+      registerCoachMark(tab.coachMarkId, buttonRef.current)
+    }
+
+    return () => {
+      if (tab.coachMarkId && registerCoachMark) {
+        registerCoachMark(tab.coachMarkId, null)
+      }
+    }
+  }, [tab.coachMarkId, registerCoachMark])
 
   return (
     <button
+      ref={buttonRef}
       id={`tab-${tab.id}`}
       role="tab"
       aria-selected={isActive}
@@ -110,6 +131,7 @@ function NavButton({ tab, isActive, onClick }: NavButtonProps) {
  */
 export function BottomNav() {
   const { activeTab, setActiveTab } = useTab()
+  const { registerTarget } = useCoachMarkContext()
 
   return (
     <nav
@@ -117,10 +139,14 @@ export function BottomNav() {
       aria-label="Main navigation"
       className={cn(
         'fixed bottom-0 left-0 right-0',
-        'h-16 bg-background/95 backdrop-blur-sm border-t',
+        'bg-white/20 backdrop-blur-md border-t border-white/30',
         'flex z-50',
-        'safe-bottom' // iOS safe area
+        'pb-safe' // iOS safe area inset below nav buttons
       )}
+      style={{
+        paddingTop: '8px',
+        minHeight: '64px', // Ensures 64px min + safe area inset
+      }}
     >
       {tabs.map((tab) => (
         <NavButton
@@ -128,6 +154,7 @@ export function BottomNav() {
           tab={tab}
           isActive={activeTab === tab.id}
           onClick={() => setActiveTab(tab.id)}
+          registerCoachMark={registerTarget}
         />
       ))}
     </nav>

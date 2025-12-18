@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
+import { useCoachMarkContext } from '@/components/common/CoachMarkProvider'
 import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -24,8 +25,8 @@ import {
   CircularProgress,
   ToolkitCard,
   FireAnimation,
-  getGreeting,
 } from '@/components/common'
+import { getGreeting } from '@/hooks/useTimeOfDay'
 import {
   staggerContainer,
   staggerItem,
@@ -43,7 +44,7 @@ import { HabitsWeeklyCalendar } from './HabitsWeeklyCalendar'
 import { ActivityCalendar } from './ActivityCalendar'
 import { useTechniqueCompletion } from '../hooks/useTechniqueCompletion'
 import { useHabitsForWeek, type DayHabits } from '../hooks/useHabitsForWeek'
-import { ScrollFadeBackground } from './ScrollFadeBackground'
+import { ScrollFadeBackground } from '@/components/common'
 import type { CopingTechnique } from '../data/copingTechniques'
 import type { DayActivity } from '../hooks/useActivityData'
 import { DayDetailModal } from '../modals/DayDetailModal'
@@ -106,10 +107,10 @@ function HeroGreeting({ completedCount, totalTasks }: HeroGreetingProps) {
       transition={{ duration: 0.4 }}
     >
       <Card className="mb-4 overflow-hidden relative bg-transparent border-0">
-        <CardContent className={cn('py-3 relative', isMobile ? 'px-4' : 'px-5')}>
+        <CardContent className="py-3 px-4 md:px-5 relative">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className={cn('font-bold text-white', isMobile ? 'text-lg' : 'text-xl')}>
+              <h1 className="font-bold text-white text-lg md:text-xl">
                 {greeting}
               </h1>
               <p className="text-white/90 text-sm font-medium">
@@ -158,45 +159,41 @@ function HeroGreeting({ completedCount, totalTasks }: HeroGreetingProps) {
 interface TodayTasksProps {
   checkInStatus: CheckInStatus
   techniqueCompleted: boolean
-  todayHabits: DayHabits | null
+  allHabitsDone: boolean
   onNavigate: (view: 'checkin' | 'reflections') => void
-  onCompleteHabit: (habitId: string) => Promise<boolean>
-  onOpenHabitModal: () => void
 }
 
 function TodayTasks({
   checkInStatus,
   techniqueCompleted,
-  todayHabits,
+  allHabitsDone,
   onNavigate,
-  onCompleteHabit,
-  onOpenHabitModal,
 }: TodayTasksProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const timeOfDay = getTimeOfDay()
-  const [completingHabitId, setCompletingHabitId] = useState<string | null>(null)
+  const { registerTarget } = useCoachMarkContext()
+  const morningCheckinRef = useRef<HTMLDivElement>(null)
+
+  // Register morning check-in as a coach mark target
+  useEffect(() => {
+    if (morningCheckinRef.current) {
+      registerTarget('morning-checkin', morningCheckinRef.current)
+    }
+    return () => {
+      registerTarget('morning-checkin', null)
+    }
+  }, [registerTarget])
 
   // Determine which card to highlight
   const showMorningHighlight = !checkInStatus.morning
   const showEveningHighlight = checkInStatus.morning && !checkInStatus.evening && timeOfDay !== 'morning'
 
-  // Calculate total tasks including habits
-  const habitCount = todayHabits?.totalCount ?? 0
-  const completedHabits = todayHabits?.completedCount ?? 0
-
-  // Check if all tasks are done (check-in + reflection + all habits)
+  // Check if all tasks are done (check-in + reflection + technique + all habits)
   const allTasksDone =
     checkInStatus.morning &&
     checkInStatus.evening &&
     techniqueCompleted &&
-    (habitCount === 0 || completedHabits === habitCount)
-
-  const handleCompleteHabit = async (habitId: string) => {
-    setCompletingHabitId(habitId)
-    haptics.success()
-    await onCompleteHabit(habitId)
-    setCompletingHabitId(null)
-  }
+    allHabitsDone
 
   return (
     <motion.div
@@ -206,7 +203,7 @@ function TodayTasks({
       className="mb-4"
     >
       <div className="flex items-center justify-between mb-3">
-        <h2 className={cn('font-bold text-slate-900', isMobile ? 'text-base' : 'text-lg')}>
+        <h2 className="font-bold text-slate-900 text-base md:text-lg">
           Today's Tasks
         </h2>
         {allTasksDone && (
@@ -222,7 +219,7 @@ function TodayTasks({
 
       <div className="grid grid-cols-2 gap-3">
         {/* Morning Check-In */}
-        <motion.div variants={staggerItem}>
+        <motion.div ref={morningCheckinRef} variants={staggerItem}>
           <ToolkitCard
             icon={Sun}
             title="Morning Check-In"
@@ -253,81 +250,115 @@ function TodayTasks({
           />
         </motion.div>
       </div>
+    </motion.div>
+  )
+}
 
-      {/* Today's Habits */}
-      {todayHabits && todayHabits.habits.length > 0 && (
-        <motion.div
-          variants={staggerItem}
-          className="mt-3"
+// =============================================================================
+// TODAY'S HABITS SECTION (Separate from Tasks - renders after Technique)
+// =============================================================================
+
+interface TodayHabitsProps {
+  todayHabits: DayHabits | null
+  onCompleteHabit: (habitId: string) => Promise<boolean>
+  onOpenManageHabits: () => void
+}
+
+function TodayHabits({
+  todayHabits,
+  onCompleteHabit,
+  onOpenManageHabits,
+}: TodayHabitsProps) {
+  const [completingHabitId, setCompletingHabitId] = useState<string | null>(null)
+
+  const handleCompleteHabit = async (habitId: string) => {
+    setCompletingHabitId(habitId)
+    haptics.success()
+    await onCompleteHabit(habitId)
+    setCompletingHabitId(null)
+  }
+
+  // Don't render if no habits
+  if (!todayHabits || todayHabits.habits.length === 0) {
+    return null
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.15 }}
+      className="mb-4"
+    >
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <Repeat className="h-4 w-4 text-emerald-500" />
+          <span className="text-sm font-medium text-slate-700">Today's Habits</span>
+          <span className="text-xs text-slate-400">
+            {todayHabits.completedCount}/{todayHabits.totalCount}
+          </span>
+        </div>
+        <button
+          onClick={() => {
+            haptics.tap()
+            onOpenManageHabits()
+          }}
+          className="text-xs text-teal-600 font-medium hover:text-teal-700"
         >
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Repeat className="h-4 w-4 text-emerald-500" />
-              <span className="text-sm font-medium text-slate-700">Today's Habits</span>
-            </div>
-            <button
-              onClick={() => {
-                haptics.tap()
-                onOpenHabitModal()
-              }}
-              className="text-xs text-teal-600 font-medium hover:text-teal-700"
+          Manage
+        </button>
+      </div>
+      <div className="space-y-2">
+        {todayHabits.habits.map(({ habit, completed }) => {
+          const isCompleting = completingHabitId === habit.id
+          return (
+            <motion.div
+              key={habit.id}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className={cn(
+                'flex items-center gap-3 p-3 rounded-xl border-2 transition-all',
+                completed
+                  ? 'bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200'
+                  : 'bg-white border-slate-200 hover:border-emerald-200'
+              )}
             >
-              Manage
-            </button>
-          </div>
-          <div className="space-y-2">
-            {todayHabits.habits.map(({ habit, completed }) => {
-              const isCompleting = completingHabitId === habit.id
-              return (
-                <motion.div
-                  key={habit.id}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
+              <div className="relative">
+                <Checkbox
+                  checked={completed}
+                  disabled={completed || isCompleting}
+                  onCheckedChange={() => handleCompleteHabit(habit.id)}
                   className={cn(
-                    'flex items-center gap-3 p-3 rounded-xl border-2 transition-all',
-                    completed
-                      ? 'bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200'
-                      : 'bg-white border-slate-200 hover:border-emerald-200'
+                    'h-5 w-5 transition-all',
+                    completed &&
+                      'data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500'
                   )}
-                >
-                  <div className="relative">
-                    <Checkbox
-                      checked={completed}
-                      disabled={completed || isCompleting}
-                      onCheckedChange={() => handleCompleteHabit(habit.id)}
-                      className={cn(
-                        'h-5 w-5 transition-all',
-                        completed &&
-                          'data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500'
-                      )}
-                    />
-                    {isCompleting && (
-                      <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        className="absolute inset-0 flex items-center justify-center"
-                      >
-                        <Loader2 className="h-4 w-4 animate-spin text-emerald-500" />
-                      </motion.div>
-                    )}
-                  </div>
-                  <span
-                    className={cn(
-                      'flex-1 text-sm font-medium transition-all',
-                      completed ? 'text-emerald-700 line-through' : 'text-slate-700'
-                    )}
+                />
+                {isCompleting && (
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="absolute inset-0 flex items-center justify-center"
                   >
-                    {habit.name}
-                  </span>
-                  {completed && (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
-                  )}
-                </motion.div>
-              )
-            })}
-          </div>
-        </motion.div>
-      )}
+                    <Loader2 className="h-4 w-4 animate-spin text-emerald-500" />
+                  </motion.div>
+                )}
+              </div>
+              <span
+                className={cn(
+                  'flex-1 text-sm font-medium transition-all',
+                  completed ? 'text-emerald-700 line-through' : 'text-slate-700'
+                )}
+              >
+                {habit.name}
+              </span>
+              {completed && (
+                <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+              )}
+            </motion.div>
+          )
+        })}
+      </div>
     </motion.div>
   )
 }
@@ -362,7 +393,7 @@ function StreakSection({
     >
       <div className="flex items-center gap-2 mb-3">
         <FireAnimation size={24} />
-        <h2 className={cn('font-bold text-slate-900', isMobile ? 'text-base' : 'text-lg')}>
+        <h2 className="font-bold text-slate-900 text-base md:text-lg">
           Streaks
         </h2>
         {(checkInStreak >= 7 || reflectionStreak >= 7) && (
@@ -378,7 +409,7 @@ function StreakSection({
           onClick={() => onOpenModal?.('streaks')}
           className="cursor-pointer bg-transparent border-0"
         >
-          <CardContent className={cn('flex items-center gap-3', isMobile ? 'py-3 px-3' : 'py-3 px-4')}>
+          <CardContent className="flex items-center gap-3 py-3 px-3 md:px-4">
             {/* Colorful circular illustration */}
             <div className="relative flex-shrink-0">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-md">
@@ -394,10 +425,10 @@ function StreakSection({
             </div>
             {/* Content */}
             <div className="flex-1 min-w-0">
-              <div className={cn('font-bold text-slate-900', isMobile ? 'text-2xl' : 'text-3xl')}>
+              <div className="font-bold text-slate-900 text-2xl md:text-3xl">
                 <AnimatedCounter value={checkInStreak} duration={1.5} />
               </div>
-              <div className={cn('font-medium text-teal-600', isMobile ? 'text-xs' : 'text-sm')}>
+              <div className="font-medium text-teal-600 text-xs md:text-sm">
                 Check-In Streak
               </div>
               <div className="text-xs text-slate-500">
@@ -414,7 +445,7 @@ function StreakSection({
           onClick={() => onOpenModal?.('reflectionStreaks')}
           className="cursor-pointer bg-transparent border-0"
         >
-          <CardContent className={cn('flex items-center gap-3', isMobile ? 'py-3 px-3' : 'py-3 px-4')}>
+          <CardContent className="flex items-center gap-3 py-3 px-3 md:px-4">
             {/* Colorful circular illustration */}
             <div className="relative flex-shrink-0">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center shadow-md">
@@ -430,10 +461,10 @@ function StreakSection({
             </div>
             {/* Content */}
             <div className="flex-1 min-w-0">
-              <div className={cn('font-bold text-slate-900', isMobile ? 'text-2xl' : 'text-3xl')}>
+              <div className="font-bold text-slate-900 text-2xl md:text-3xl">
                 <AnimatedCounter value={reflectionStreak} duration={1.5} />
               </div>
-              <div className={cn('font-medium text-teal-600', isMobile ? 'text-xs' : 'text-sm')}>
+              <div className="font-medium text-teal-600 text-xs md:text-sm">
                 Reflection Streak
               </div>
               <div className="text-xs text-slate-500">
@@ -503,7 +534,7 @@ function InsightsSection({ weeklyStats, reflectionStats, onOpenModal }: Insights
     >
       <div className="flex items-center gap-2 mb-3">
         <TrendingUp className="h-5 w-5 text-teal-500" />
-        <h2 className={cn('font-bold text-slate-900', isMobile ? 'text-base' : 'text-lg')}>
+        <h2 className="font-bold text-slate-900 text-base md:text-lg">
           Insights
         </h2>
       </div>
@@ -602,7 +633,7 @@ function QuickActions() {
           <div className="absolute -top-10 -right-10 w-32 h-32 bg-violet-500/20 rounded-full blur-2xl" />
           <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-cyan-500/20 rounded-full blur-2xl" />
 
-          <div className={cn('relative flex items-center gap-4', isMobile ? 'py-4 px-4' : 'py-5 px-5')}>
+          <div className="relative flex items-center gap-4 py-4 md:py-5 px-4 md:px-5">
             {/* Circular AI Illustration */}
             <div className="relative flex-shrink-0">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-violet-500 via-purple-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-violet-500/30">
@@ -617,7 +648,7 @@ function QuickActions() {
             {/* Content */}
             <div className="flex-1 min-w-0">
               <h3 className="font-bold text-white text-base">Beacon</h3>
-              <p className={cn('text-slate-300 line-clamp-2', isMobile ? 'text-xs' : 'text-sm')}>
+              <p className="text-slate-300 line-clamp-2 text-xs md:text-sm">
                 Your personal insights and pattern analysis
               </p>
             </div>
@@ -664,9 +695,9 @@ export function DailyOverview({
     (techniqueCompleted ? 1 : 0) +
     completedHabits
 
-  // Handle opening habit modal
-  const handleOpenHabitModal = () => {
-    openModal('habit')
+  // Handle opening manage habits modal
+  const handleOpenManageHabits = () => {
+    openModal('manageHabits')
   }
 
   // Handle day selection from HabitsWeeklyCalendar
@@ -675,9 +706,12 @@ export function DailyOverview({
     openModal('habit')
   }
 
+  // All habits done?
+  const allHabitsDone = habitCount > 0 ? completedHabits === habitCount : true
+
   return (
     <ScrollFadeBackground className="h-full" fadeEnd={550} minOpacity={0.05}>
-      <div className={cn('max-w-[600px] mx-auto', isMobile ? 'px-4 py-4' : 'px-6 py-6')}>
+      <div className="max-w-[600px] mx-auto px-4 md:px-6 py-4 md:py-6">
         {/* Spacer for background visibility at top */}
         <div className="h-8" />
 
@@ -691,10 +725,8 @@ export function DailyOverview({
         <TodayTasks
           checkInStatus={checkInStatus}
           techniqueCompleted={techniqueCompleted}
-          todayHabits={todayHabits}
+          allHabitsDone={allHabitsDone}
           onNavigate={onNavigate}
-          onCompleteHabit={completeHabit}
-          onOpenHabitModal={handleOpenHabitModal}
         />
 
         {/* Today's Coping Technique */}
@@ -704,6 +736,13 @@ export function DailyOverview({
             onOpenModal?.('copingTechnique')
           }}
           className="mb-4"
+        />
+
+        {/* Today's Habits - Under Technique, Above Calendars */}
+        <TodayHabits
+          todayHabits={todayHabits}
+          onCompleteHabit={completeHabit}
+          onOpenManageHabits={handleOpenManageHabits}
         />
 
         {/* Assignment Calendar - 7 Day Swipeable View */}
@@ -738,13 +777,6 @@ export function DailyOverview({
           onSelectDay={(date, activity) => {
             setSelectedDayData({ date, activity })
           }}
-        />
-
-        {/* Insights */}
-        <InsightsSection
-          weeklyStats={weeklyStats}
-          reflectionStats={reflectionStats}
-          onOpenModal={onOpenModal}
         />
 
         {/* Quick Actions */}

@@ -5,6 +5,8 @@ import { queryClient } from '@/lib/queryClient'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { Toaster } from '@/components/ui/toaster'
 import { ModalProvider } from '@/components/ModalProvider'
+import { SessionWrapper } from '@/components/SessionWrapper'
+import { CoachMarkProvider } from '@/components/common/CoachMarkProvider'
 
 interface ProvidersProps {
   children: ReactNode
@@ -16,18 +18,24 @@ interface ProvidersProps {
  * Provider order (outermost to innermost):
  * 1. QueryClientProvider - Data caching layer (must be outside AuthProvider so auth-dependent queries work)
  * 2. AuthProvider - Authentication state
- * 3. Children (app content)
- * 4. ModalProvider - Global modal rendering
- * 5. Toaster - Toast notifications
- * 6. ReactQueryDevtools - Development tools (dev only)
+ * 3. SessionWrapper - Session management with timeout warning
+ * 4. CoachMarkProvider - Progressive feature discovery coach marks
+ * 5. Children (app content)
+ * 6. ModalProvider - Global modal rendering
+ * 7. Toaster - Toast notifications
+ * 8. ReactQueryDevtools - Development tools (dev only)
  */
 export function Providers({ children }: ProvidersProps) {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        {children}
-        <ModalProvider />
-        <Toaster />
+        <SessionWrapper>
+          <CoachMarkProvider>
+            {children}
+            <ModalProvider />
+            <Toaster />
+          </CoachMarkProvider>
+        </SessionWrapper>
       </AuthProvider>
       {import.meta.env.DEV && (
         <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />

@@ -1,11 +1,20 @@
 // Common shared components
 export { LoadingSpinner } from './LoadingSpinner'
+export { TabHeader } from './TabHeader'
 export { EmptyState } from './EmptyState'
 export { ErrorBoundary } from './ErrorBoundary'
 export { MoodSlider } from './MoodSlider'
 export { StatCard } from './StatCard'
 export { SectionHeader } from './SectionHeader'
 export { ActionCard } from './ActionCard'
+
+// Pull-to-refresh component
+export {
+  PullToRefresh,
+  usePullToRefresh,
+  type PullToRefreshProps,
+  type UsePullToRefreshOptions,
+} from './PullToRefresh'
 
 // Design system components (Phase 2)
 export {
@@ -79,12 +88,20 @@ export {
 
 export {
   TimeOfDayBackground,
-  useTimeOfDay,
-  getGreeting,
-  getCurrentTimeOfDay,
+  useTimeOfDay as useTimeOfDayLegacy,
+  getGreeting as getGreetingLegacy,
+  getCurrentTimeOfDay as getCurrentTimeOfDayLegacy,
   greetings,
   timeOfDayIcons,
 } from './TimeOfDayBackground'
+
+// Scroll-fade time-based backgrounds (unified system)
+export {
+  ScrollFadeBackground,
+  StaticTimeBackground,
+  HeroBackground,
+  type BackgroundMode,
+} from './ScrollFadeBackground'
 
 export {
   LottieAnimation,
@@ -98,6 +115,7 @@ export {
 
 export {
   Illustration,
+  // Legacy illustrations
   MeditationIllustration,
   AchievementIllustration,
   CelebrationIllustration,
@@ -114,7 +132,24 @@ export {
   LifeSkillsIllustration,
   RelapsePreventionIllustration,
   SupportIllustration,
+  // New illustrations
+  LighthouseIllustration,
+  PathToSuccessIllustration,
+  MountainClimbIllustration,
+  RecoveryJourneyIllustration,
+  StreakFireIllustration,
+  GoalReachedIllustration,
+  WelcomeIllustration,
+  NoDataIllustration,
+  NoMessagesIllustration,
+  NoTasksIllustration,
+  // Types
   type IllustrationType,
+  type JourneyIllustrationName,
+  type WellnessIllustrationName,
+  type AchievementIllustrationName,
+  type EmptyStateIllustrationName,
+  type OnboardingIllustrationName,
 } from './Illustration'
 
 // Tab skeleton screens (Phase 4)
@@ -128,3 +163,22 @@ export {
   MessagesTabSkeleton,
   ProfileTabSkeleton,
 } from './TabSkeletons'
+
+// Coach Marks / Feature Discovery (Phase 2B)
+export {
+  CoachMark,
+  CoachMarkTrigger,
+} from './CoachMark'
+
+export {
+  CoachMarkProvider,
+  useCoachMarkContext,
+  useCoachMarkTarget,
+} from './CoachMarkProvider'
+
+export {
+  useCoachMarks,
+  COACH_MARKS,
+  type CoachMarkConfig,
+  type UseCoachMarksReturn,
+} from './useCoachMarks'
