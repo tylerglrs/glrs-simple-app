@@ -91,6 +91,8 @@ interface Message {
   roomId?: string
   createdAt?: Date
   type: "direct" | "room" | "broadcast"
+  status?: "sent" | "delivered" | "read"
+  readAt?: Date
 }
 
 interface Room {
@@ -188,7 +190,7 @@ export function Communication() {
           const data = docSnap.data()
           msgs.push({
             id: docSnap.id,
-            content: data.content,
+            content: data.content || data.text, // Support both admin and PIR field names
             senderId: data.senderId,
             senderName: data.senderName,
             recipientId: data.recipientId,
@@ -196,6 +198,8 @@ export function Communication() {
             roomId: data.roomId,
             createdAt: toDate(data.createdAt),
             type: data.type || "direct",
+            status: data.status,
+            readAt: toDate(data.readAt),
           })
         })
         setMessages(msgs)
@@ -294,6 +298,60 @@ export function Communication() {
     if (!selectedPIR) return null
     return pirUsers.find((p) => p.id === selectedPIR) || null
   }, [selectedPIR, pirUsers])
+
+  // Mark messages as read when viewing a PIR conversation
+  // This ensures bidirectional read receipts between PIR and Admin portals
+  useEffect(() => {
+    const markMessagesAsRead = async () => {
+      if (!selectedPIR || !adminUser?.uid) return
+
+      try {
+        // Find unread messages from this PIR to the admin
+        const unreadMessages = directMessages.filter(
+          (m) =>
+            m.senderId === selectedPIR &&
+            m.recipientId === adminUser.uid &&
+            m.status !== "read"
+        )
+
+        if (unreadMessages.length === 0) return
+
+        // Update each message's status to 'read'
+        const updatePromises = unreadMessages.map((msg) =>
+          updateDoc(doc(db, "messages", msg.id), {
+            status: "read",
+            readAt: serverTimestamp(),
+          })
+        )
+        await Promise.all(updatePromises)
+
+        // Reset unread count on conversation document
+        // Find the conversation for this PIR
+        const conversationQuery = query(
+          collection(db, "conversations"),
+          where("participants", "array-contains", adminUser.uid)
+        )
+        const conversationSnapshot = await getDocs(conversationQuery)
+
+        const existingConvo = conversationSnapshot.docs.find((docSnap) => {
+          const participants = docSnap.data().participants as string[]
+          return participants.includes(selectedPIR) && participants.length === 2
+        })
+
+        if (existingConvo) {
+          await updateDoc(doc(db, "conversations", existingConvo.id), {
+            [`unreadCount.${adminUser.uid}`]: 0,
+            updatedAt: serverTimestamp(),
+          })
+        }
+      } catch (error) {
+        console.error("Error marking messages as read:", error)
+        // Silent fail - don't show error to user for read receipts
+      }
+    }
+
+    markMessagesAsRead()
+  }, [selectedPIR, adminUser?.uid, directMessages])
 
   // Helper function to get or create a conversation with a PIR
   const getOrCreateConversation = async (pirId: string): Promise<string> => {
