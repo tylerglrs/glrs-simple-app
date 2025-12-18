@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useAuth } from "@/contexts/AuthContext"
 import {
   db,
@@ -7,7 +7,7 @@ import {
   where,
   orderBy,
   limit,
-  getDocs,
+  onSnapshot,
 } from "@/lib/firebase"
 import { toast } from "sonner"
 import { Card, CardContent } from "@/components/ui/card"
@@ -100,149 +100,181 @@ export function CheckInsTabNew({ searchQuery, activeSubTab, onSubTabChange }: Ch
   const [selectedReflection, setSelectedReflection] = useState<Reflection | null>(null)
   const [selectedGratitude, setSelectedGratitude] = useState<GratitudeEntry | null>(null)
 
-  const loadData = useCallback(async () => {
+  // Real-time listeners for instant sync
+  useEffect(() => {
     if (!adminUser) return
 
     setLoading(true)
     const scope = getDataScope()
 
-    try {
-      // Load PIRs
-      let pirQuery = query(
+    // Build PIR query based on scope
+    let pirQuery = query(
+      collection(db, "users"),
+      where("tenantId", "==", CURRENT_TENANT),
+      where("role", "==", "pir")
+    )
+
+    if (scope === "assigned_pirs" && adminUser.uid) {
+      pirQuery = query(
         collection(db, "users"),
         where("tenantId", "==", CURRENT_TENANT),
-        where("role", "==", "pir")
+        where("role", "==", "pir"),
+        where("assignedCoach", "==", adminUser.uid)
       )
+    }
 
-      if (scope === "assigned_pirs" && adminUser.uid) {
-        pirQuery = query(
-          collection(db, "users"),
-          where("tenantId", "==", CURRENT_TENANT),
-          where("role", "==", "pir"),
-          where("assignedCoach", "==", adminUser.uid)
-        )
-      }
+    // Track allowed PIR IDs and user names for filtering
+    const userMapRef = { current: new Map<string, string>() }
+    const allowedPIRIdsRef = { current: new Set<string>() }
 
-      const usersSnap = await getDocs(pirQuery)
-      const usersData: PIRUser[] = []
-      const userMap = new Map<string, string>()
-      const allowedPIRIds = new Set<string>()
+    // PIR users listener
+    const unsubscribePIRs = onSnapshot(
+      pirQuery,
+      (snapshot) => {
+        const usersData: PIRUser[] = []
+        userMapRef.current.clear()
+        allowedPIRIdsRef.current.clear()
 
-      usersSnap.forEach((docSnap) => {
-        const data = docSnap.data()
-        usersData.push({
-          id: docSnap.id,
-          uid: docSnap.id,
-          email: data.email,
-          displayName: data.displayName,
-          firstName: data.firstName,
-          lastName: data.lastName,
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data()
+          usersData.push({
+            id: docSnap.id,
+            uid: docSnap.id,
+            email: data.email,
+            displayName: data.displayName,
+            firstName: data.firstName,
+            lastName: data.lastName,
+          })
+          userMapRef.current.set(docSnap.id, data.displayName || data.email)
+          allowedPIRIdsRef.current.add(docSnap.id)
         })
-        userMap.set(docSnap.id, data.displayName || data.email)
-        allowedPIRIds.add(docSnap.id)
-      })
-      setUsers(usersData)
+        setUsers(usersData)
+      },
+      (error) => {
+        console.error("Error loading PIRs:", error)
+        toast.error("Failed to load PIRs")
+      }
+    )
 
-      // Load all check-ins
-      const checkInsSnap = await getDocs(
-        query(
-          collection(db, "checkIns"),
-          orderBy("createdAt", "desc"),
-          limit(500)
-        )
-      )
+    // Check-ins real-time listener
+    const checkInsQuery = query(
+      collection(db, "checkIns"),
+      orderBy("createdAt", "desc"),
+      limit(500)
+    )
 
-      const checkInsData: CheckIn[] = []
-      checkInsSnap.forEach((docSnap) => {
-        const data = docSnap.data()
-        const pirId = data.pirId || data.userId
-        if (pirId && allowedPIRIds.has(pirId)) {
-          checkInsData.push({
-            id: docSnap.id,
-            pirId,
-            pirName: userMap.get(pirId) || "Unknown",
-            date: data.date || data.createdAt,
-            mood: data.mood,
-            moodLabel: data.moodLabel,
-            cravings: data.cravings,
-            notes: data.notes,
-            goals: data.goals,
-            challenges: data.challenges,
-            gratitude: data.gratitude,
-            createdAt: data.createdAt,
-            type: data.type || "daily",
-          })
-        }
-      })
-      setCheckIns(checkInsData)
+    const unsubscribeCheckIns = onSnapshot(
+      checkInsQuery,
+      (snapshot) => {
+        const checkInsData: CheckIn[] = []
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data()
+          const pirId = data.pirId || data.userId
+          if (pirId && allowedPIRIdsRef.current.has(pirId)) {
+            checkInsData.push({
+              id: docSnap.id,
+              pirId,
+              pirName: userMapRef.current.get(pirId) || "Unknown",
+              date: data.date || data.createdAt,
+              mood: data.mood,
+              moodLabel: data.moodLabel,
+              cravings: data.cravings,
+              notes: data.notes,
+              goals: data.goals,
+              challenges: data.challenges,
+              gratitude: data.gratitude,
+              createdAt: data.createdAt,
+              type: data.type || "daily",
+            })
+          }
+        })
+        setCheckIns(checkInsData)
+        setLoading(false)
+      },
+      (error) => {
+        console.error("Error loading check-ins:", error)
+        toast.error("Failed to load check-ins")
+        setLoading(false)
+      }
+    )
 
-      // Load reflections
-      const reflectionsSnap = await getDocs(
-        query(
-          collection(db, "reflections"),
-          orderBy("createdAt", "desc"),
-          limit(500)
-        )
-      )
+    // Reflections real-time listener
+    const reflectionsQuery = query(
+      collection(db, "reflections"),
+      orderBy("createdAt", "desc"),
+      limit(500)
+    )
 
-      const reflectionsData: Reflection[] = []
-      reflectionsSnap.forEach((docSnap) => {
-        const data = docSnap.data()
-        const pirId = data.pirId || data.userId
-        if (pirId && allowedPIRIds.has(pirId)) {
-          reflectionsData.push({
-            id: docSnap.id,
-            pirId,
-            pirName: userMap.get(pirId) || "Unknown",
-            date: data.date || data.createdAt,
-            overallDay: data.overallDay || data.dayRating,
-            gratitude: data.gratitude,
-            challenges: data.challenges,
-            tomorrowGoal: data.tomorrowGoal || data.goals,
-            wins: data.wins || data.todayWins,
-            createdAt: data.createdAt,
-          })
-        }
-      })
-      setReflections(reflectionsData)
+    const unsubscribeReflections = onSnapshot(
+      reflectionsQuery,
+      (snapshot) => {
+        const reflectionsData: Reflection[] = []
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data()
+          const pirId = data.pirId || data.userId
+          if (pirId && allowedPIRIdsRef.current.has(pirId)) {
+            reflectionsData.push({
+              id: docSnap.id,
+              pirId,
+              pirName: userMapRef.current.get(pirId) || "Unknown",
+              date: data.date || data.createdAt,
+              overallDay: data.overallDay || data.dayRating,
+              gratitude: data.gratitude,
+              challenges: data.challenges,
+              tomorrowGoal: data.tomorrowGoal || data.goals,
+              wins: data.wins || data.todayWins,
+              createdAt: data.createdAt,
+            })
+          }
+        })
+        setReflections(reflectionsData)
+      },
+      (error) => {
+        console.error("Error loading reflections:", error)
+      }
+    )
 
-      // Load gratitudes
-      const gratitudesSnap = await getDocs(
-        query(
-          collection(db, "gratitudes"),
-          orderBy("createdAt", "desc"),
-          limit(500)
-        )
-      )
+    // Gratitudes real-time listener
+    const gratitudesQuery = query(
+      collection(db, "gratitudes"),
+      orderBy("createdAt", "desc"),
+      limit(500)
+    )
 
-      const gratitudesData: GratitudeEntry[] = []
-      gratitudesSnap.forEach((docSnap) => {
-        const data = docSnap.data()
-        const pirId = data.pirId || data.userId
-        if (pirId && allowedPIRIds.has(pirId)) {
-          gratitudesData.push({
-            id: docSnap.id,
-            pirId,
-            pirName: userMap.get(pirId) || "Unknown",
-            date: data.date || data.createdAt,
-            entry: data.entry || data.gratitude || data.text,
-            category: data.category,
-            createdAt: data.createdAt,
-          })
-        }
-      })
-      setGratitudes(gratitudesData)
-    } catch (error) {
-      console.error("Error loading check-ins:", error)
-      toast.error("Failed to load check-ins")
-    } finally {
-      setLoading(false)
+    const unsubscribeGratitudes = onSnapshot(
+      gratitudesQuery,
+      (snapshot) => {
+        const gratitudesData: GratitudeEntry[] = []
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data()
+          const pirId = data.pirId || data.userId
+          if (pirId && allowedPIRIdsRef.current.has(pirId)) {
+            gratitudesData.push({
+              id: docSnap.id,
+              pirId,
+              pirName: userMapRef.current.get(pirId) || "Unknown",
+              date: data.date || data.createdAt,
+              entry: data.entry || data.gratitude || data.text,
+              category: data.category,
+              createdAt: data.createdAt,
+            })
+          }
+        })
+        setGratitudes(gratitudesData)
+      },
+      (error) => {
+        console.error("Error loading gratitudes:", error)
+      }
+    )
+
+    // Cleanup all listeners on unmount
+    return () => {
+      unsubscribePIRs()
+      unsubscribeCheckIns()
+      unsubscribeReflections()
+      unsubscribeGratitudes()
     }
   }, [adminUser, getDataScope])
-
-  useEffect(() => {
-    loadData()
-  }, [loadData])
 
   useEffect(() => {
     setCurrentPage(1)
