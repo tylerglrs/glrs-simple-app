@@ -28,6 +28,27 @@ export interface UserData {
   lastActivity?: Timestamp
   createdAt: Timestamp
   updatedAt?: Timestamp
+  // Recovery program fields
+  recoveryProgram?: string
+  recoveryPrograms?: string[]
+  // Sponsor info (for 12-step programs: AA, NA, CMA, MA, Celebrate Recovery)
+  sponsorName?: string
+  sponsorPhone?: string
+  // Mentor/Guide info (for Recovery Dharma)
+  mentorName?: string
+  mentorPhone?: string
+  // Accountability Partner info (for Celebrate Recovery)
+  accountabilityPartnerName?: string
+  accountabilityPartnerPhone?: string
+  // Other recovery fields
+  substance?: string
+  dailyCost?: number
+  actualMoneySaved?: number
+  recoveryGoals?: string
+  triggers?: string
+  // Onboarding fields
+  onboardingComplete?: boolean
+  onboardingCompletedAt?: Timestamp
 }
 
 // =============================================================================

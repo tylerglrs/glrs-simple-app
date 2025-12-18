@@ -4,6 +4,7 @@
  * Simplified routing structure that uses state-based tab navigation
  * for the main app tabs, with React Router only for:
  * - Login page (public route)
+ * - Onboarding flow (new users)
  * - External profile view (/profile/:userId)
  *
  * The main app uses TabContainer which keeps all tabs mounted and
@@ -17,14 +18,17 @@ import { MainLayout } from '@/components/layout/MainLayout'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { LoginPage } from '@/features/auth/components/LoginPage'
 
-// External profile view - still uses React Router for deep linking
+// Lazy loaded routes
 const UserProfileView = lazy(
   () => import('@/features/profile/components/UserProfileView')
 )
 
-// AI Insights page - dedicated route for premium AI insights experience
 const InsightsPage = lazy(
   () => import('@/features/insights/InsightsPage')
+)
+
+const OnboardingFlow = lazy(
+  () => import('@/features/onboarding/OnboardingFlow')
 )
 
 // =============================================================================
@@ -33,14 +37,16 @@ const InsightsPage = lazy(
 
 interface ProtectedRouteProps {
   children: React.ReactNode
+  requireOnboarding?: boolean
 }
 
 /**
  * Protected route guard
  * Redirects to login if user is not authenticated
+ * Redirects to onboarding if onboarding is not complete (unless requireOnboarding=false)
  */
-function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { user, loading } = useAuth()
+function ProtectedRoute({ children, requireOnboarding = true }: ProtectedRouteProps) {
+  const { user, userData, loading } = useAuth()
 
   if (loading) {
     return <LoadingSpinner fullScreen text="Loading..." />
@@ -48,6 +54,12 @@ function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   if (!user) {
     return <Navigate to="/login" replace />
+  }
+
+  // Check if onboarding is required and not completed
+  // Only redirect if we have userData loaded and onboardingComplete is explicitly false or undefined
+  if (requireOnboarding && userData && userData.onboardingComplete !== true) {
+    return <Navigate to="/onboarding" replace />
   }
 
   return <>{children}</>
@@ -76,6 +88,30 @@ function PublicRoute({ children }: PublicRouteProps) {
   return <>{children}</>
 }
 
+/**
+ * Onboarding route guard
+ * Only accessible if authenticated AND onboarding not complete
+ * Redirects to main app if onboarding is already complete
+ */
+function OnboardingRoute({ children }: { children: React.ReactNode }) {
+  const { user, userData, loading } = useAuth()
+
+  if (loading) {
+    return <LoadingSpinner fullScreen text="Loading..." />
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />
+  }
+
+  // If onboarding is already complete, redirect to main app
+  if (userData?.onboardingComplete === true) {
+    return <Navigate to="/" replace />
+  }
+
+  return <>{children}</>
+}
+
 // =============================================================================
 // APP ROUTES
 // =============================================================================
@@ -85,8 +121,10 @@ function PublicRoute({ children }: PublicRouteProps) {
  *
  * Route structure:
  * - /login - Public login page
+ * - /onboarding - Onboarding flow for new users
  * - / - Main app with TabContainer (state-based tab navigation)
  * - /profile/:userId - External user profile view (React Router)
+ * - /insights - AI Insights premium experience
  * - /* - Catch-all redirect to main app
  *
  * Tab navigation within the main app uses hash-based URLs:
@@ -102,6 +140,18 @@ export function AppRoutes() {
           <PublicRoute>
             <LoginPage />
           </PublicRoute>
+        }
+      />
+
+      {/* Onboarding route - for new users */}
+      <Route
+        path="/onboarding"
+        element={
+          <OnboardingRoute>
+            <Suspense fallback={<LoadingSpinner fullScreen text="Loading..." />}>
+              <OnboardingFlow />
+            </Suspense>
+          </OnboardingRoute>
         }
       />
 
