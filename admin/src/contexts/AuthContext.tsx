@@ -1,7 +1,19 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react"
+import { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react"
 import { auth, db, doc, getDoc, onAuthStateChanged, User } from "@/lib/firebase"
 import { signInWithEmailAndPassword, signOut } from "firebase/auth"
 import { AdminUser, UserRole, ROLE_HIERARCHY, DataScope, Permission } from "@/lib/permissions"
+import { TwoFactorModal } from "@/components/TwoFactorModal"
+import { clearTrustToken } from "@/hooks/use2FA"
+import { useAdminSession } from "@/hooks/useSession"
+
+// =============================================================================
+// FEATURE FLAGS
+// =============================================================================
+// Temporarily disable 2FA until user base grows
+// Set to true to re-enable 2FA enforcement
+const FEATURES = {
+  twoFactorAuth: false, // DISABLED - Will re-enable when user base grows
+}
 
 interface AuthContextType {
   // State
@@ -9,6 +21,8 @@ interface AuthContextType {
   adminUser: AdminUser | null
   loading: boolean
   error: string | null
+  needs2FA: boolean
+  verified2FA: boolean
 
   // Auth actions
   login: (email: string, password: string) => Promise<void>
@@ -28,11 +42,21 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+// Admin roles that require 2FA
+const ADMIN_ROLES: UserRole[] = ["coach", "admin", "superadmin1", "superadmin"]
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null)
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [needs2FA, setNeeds2FA] = useState(false)
+  const [verified2FA, setVerified2FA] = useState(false)
+  const [pendingUser, setPendingUser] = useState<AdminUser | null>(null)
+
+  // Session management
+  const { startSession, endSession } = useAdminSession()
+  const sessionStartedRef = useRef(false)
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -44,30 +68,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const userDoc = await getDoc(doc(db, "users", user.uid))
           if (userDoc.exists()) {
             const userData = userDoc.data()
-            setAdminUser({
+            const userRole = userData.role || "pir"
+
+            const userObj: AdminUser = {
               id: userDoc.id,
               uid: user.uid,
               email: user.email || "",
               displayName: userData.displayName,
               firstName: userData.firstName,
               lastName: userData.lastName,
-              role: userData.role || "pir",
+              role: userRole,
               tenantId: userData.tenantId || "full-service",
               permissions: userData.permissions,
               assignedCoach: userData.assignedCoach,
               active: userData.active,
-            })
+            }
+
+            // Check if this is an admin role that requires 2FA
+            // FEATURE FLAG: Skip 2FA when disabled
+            if (FEATURES.twoFactorAuth && ADMIN_ROLES.includes(userRole)) {
+              // Store user in pending state until 2FA verified
+              setPendingUser(userObj)
+              setNeeds2FA(true)
+              setVerified2FA(false)
+              setAdminUser(null) // Don't set admin user until 2FA verified
+            } else {
+              // 2FA disabled OR non-admin user - skip 2FA
+              setAdminUser(userObj)
+              setNeeds2FA(false)
+              setVerified2FA(true)
+
+              // Start session immediately when 2FA is disabled
+              if (!sessionStartedRef.current && firebaseUser) {
+                sessionStartedRef.current = true
+                startSession(firebaseUser.uid, userRole).catch(err => {
+                  console.error("[Admin Auth] Failed to start session:", err)
+                })
+              }
+            }
           } else {
             setError("User profile not found")
             setAdminUser(null)
+            setPendingUser(null)
           }
         } catch (err) {
           console.error("Error fetching user data:", err)
           setError("Failed to load user profile")
           setAdminUser(null)
+          setPendingUser(null)
         }
       } else {
         setAdminUser(null)
+        setPendingUser(null)
+        setNeeds2FA(false)
+        setVerified2FA(false)
       }
 
       setLoading(false)
@@ -92,11 +146,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
+      // End the session tracking
+      await endSession()
+      sessionStartedRef.current = false
+      // Clear 2FA trust token on logout
+      clearTrustToken()
+      // Reset 2FA state
+      setNeeds2FA(false)
+      setVerified2FA(false)
+      setPendingUser(null)
       await signOut(auth)
+      console.log("[Admin Auth] User logged out successfully")
     } catch (err) {
       console.error("Logout error:", err)
       setError("Failed to sign out")
       throw err
+    }
+  }
+
+  // Handle successful 2FA verification
+  const handle2FASuccess = async () => {
+    if (pendingUser && firebaseUser) {
+      setAdminUser(pendingUser)
+      setPendingUser(null)
+      setNeeds2FA(false)
+      setVerified2FA(true)
+      console.log("[Admin Auth] 2FA verified successfully for:", pendingUser.email)
+
+      // Start session tracking after successful 2FA
+      if (!sessionStartedRef.current) {
+        sessionStartedRef.current = true
+        try {
+          await startSession(firebaseUser.uid, pendingUser.role)
+          console.log("[Admin Auth] Session started for:", pendingUser.email)
+        } catch (err) {
+          console.error("[Admin Auth] Failed to start session:", err)
+        }
+      }
     }
   }
 
@@ -159,6 +245,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     adminUser,
     loading,
     error,
+    needs2FA,
+    verified2FA,
     login,
     logout,
     hasRole,
@@ -172,7 +260,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     getDataScope,
   }
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      {/* Mandatory 2FA Modal for Admin Users */}
+      {needs2FA && pendingUser && firebaseUser && (
+        <TwoFactorModal
+          open={needs2FA}
+          onSuccess={handle2FASuccess}
+          userId={firebaseUser.uid}
+          email={firebaseUser.email || ""}
+          role={pendingUser.role}
+        />
+      )}
+    </AuthContext.Provider>
+  )
 }
 
 export function useAuth() {

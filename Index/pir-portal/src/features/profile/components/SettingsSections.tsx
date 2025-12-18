@@ -3,6 +3,15 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { SettingsItem } from './SettingsItem'
 import type { SettingsSectionConfig, ProfileModalType } from '../types'
 
+// =============================================================================
+// FEATURE FLAGS
+// =============================================================================
+// Temporarily disable 2FA until user base grows
+// Set to true to re-enable 2FA functionality
+const FEATURES = {
+  twoFactorAuth: false, // DISABLED - Will re-enable when user base grows
+}
+
 // ============================================================
 // SETTINGS CONFIGURATIONS
 // ============================================================
@@ -104,17 +113,38 @@ export function getSettingsSections(
     },
 
     // ============================
-    // 3. PRIVACY & DATA
+    // 3. SECURITY
     // ============================
     {
       id: 'privacy',
-      title: 'Privacy & Data',
+      title: 'Security',
       items: [
+        {
+          id: 'sessionManagement',
+          label: 'Active Sessions',
+          description: 'Manage devices logged into your account',
+          icon: 'Monitor',
+          iconBgColor: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
+          modalId: 'sessionManagement',
+        },
+        {
+          id: 'twoFactorSettings',
+          label: 'Two-Factor Auth',
+          description: FEATURES.twoFactorAuth
+            ? 'Add extra security to your account'
+            : 'Enhanced security features coming soon',
+          icon: 'Shield',
+          iconBgColor: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+          modalId: FEATURES.twoFactorAuth ? 'twoFactorSettings' : undefined,
+          badge: FEATURES.twoFactorAuth ? undefined : 'Coming Soon',
+          badgeColor: 'warning' as const,
+          disabled: !FEATURES.twoFactorAuth,
+        },
         {
           id: 'privacySettings',
           label: 'Privacy',
           description: 'Visibility, data sharing, blocked users',
-          icon: 'Shield',
+          icon: 'Lock',
           iconBgColor: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
           modalId: 'privacySettings',
         },
@@ -134,19 +164,29 @@ export function getSettingsSections(
           iconBgColor: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
           modalId: 'dataManagement',
         },
+      ],
+    },
+
+    // ============================
+    // 4. EDUCATION & GOALS
+    // ============================
+    {
+      id: 'education',
+      title: 'Education & Goals',
+      items: [
         {
-          id: 'accountActivity',
-          label: 'Account Activity',
-          description: 'View login history and sessions',
-          icon: 'Activity',
-          iconBgColor: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
-          modalId: 'accountActivity',
+          id: 'educationInfo',
+          label: 'Education',
+          description: 'Education level and background',
+          icon: 'GraduationCap',
+          iconBgColor: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+          modalId: 'educationInfo',
         },
       ],
     },
 
     // ============================
-    // 4. SUPPORT
+    // 5. SUPPORT
     // ============================
     {
       id: 'support',
@@ -206,7 +246,7 @@ function SettingsSection({ section, onItemClick }: SettingsSectionComponentProps
   const isMobile = useMediaQuery('(max-width: 768px)')
 
   return (
-    <div className={cn('px-4 py-4', !isMobile && 'px-5 py-5')}>
+    <div className="px-4 py-4 md:px-5 md:py-5">
       {/* Section Title */}
       <h2
         className={cn(
@@ -218,7 +258,7 @@ function SettingsSection({ section, onItemClick }: SettingsSectionComponentProps
       </h2>
 
       {/* Items */}
-      <div className={cn('flex flex-col', isMobile ? 'gap-3' : 'gap-4')}>
+      <div className="flex flex-col gap-3 md:gap-4">
         {section.items.map((item) => (
           <SettingsItem
             key={item.id}
