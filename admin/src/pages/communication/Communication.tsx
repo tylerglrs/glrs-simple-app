@@ -10,7 +10,9 @@ import {
   getDocs,
   addDoc,
   deleteDoc,
+  updateDoc,
   doc,
+  increment,
   serverTimestamp,
   onSnapshot,
   CURRENT_TENANT,
@@ -39,7 +41,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Skeleton } from "@/components/ui/skeleton"
+import { CommunicationSkeleton } from "@/components/common"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   MessageSquare,
@@ -73,6 +75,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { formatDate, getInitials } from "@/lib/utils"
+import { toDate } from "@/lib/timestamp"
 import { SupportGroupsTab } from "./components/SupportGroupsTab"
 import { ModerationTab } from "./components/ModerationTab"
 import { BroadcastModal } from "./components/BroadcastModal"
@@ -124,6 +127,8 @@ export function Communication() {
   const [editingRoom, setEditingRoom] = useState<Room | null>(null)
   const [deletingRoom, setDeletingRoom] = useState<Room | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [replyText, setReplyText] = useState("")
+  const [sendingReply, setSendingReply] = useState(false)
 
   // Load PIR users (static - doesn't need real-time)
   useEffect(() => {
@@ -189,7 +194,7 @@ export function Communication() {
             recipientId: data.recipientId,
             recipientName: data.recipientName,
             roomId: data.roomId,
-            createdAt: data.createdAt?.toDate?.(),
+            createdAt: toDate(data.createdAt),
             type: data.type || "direct",
           })
         })
@@ -225,7 +230,7 @@ export function Communication() {
             description: data.description,
             memberCount: data.members?.length || 0,
             lastMessage: data.lastMessage,
-            lastMessageAt: data.lastMessageAt?.toDate?.(),
+            lastMessageAt: toDate(data.lastMessageAt),
             isActive: data.isActive !== false,
             createdBy: data.createdBy,
           })
@@ -270,16 +275,137 @@ export function Communication() {
     )
   }, [pirUsers, searchQuery])
 
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-48" />
-        <div className="grid gap-6 lg:grid-cols-3">
-          <Skeleton className="h-[500px]" />
-          <Skeleton className="col-span-2 h-[500px]" />
-        </div>
-      </div>
+  // Filter messages for the selected PIR conversation
+  const selectedPIRMessages = useMemo(() => {
+    if (!selectedPIR || !adminUser?.uid) return []
+    return directMessages.filter(
+      (m) =>
+        (m.senderId === selectedPIR && m.recipientId === adminUser.uid) ||
+        (m.senderId === adminUser.uid && m.recipientId === selectedPIR)
+    ).sort((a, b) => {
+      const aTime = a.createdAt?.getTime() || 0
+      const bTime = b.createdAt?.getTime() || 0
+      return aTime - bTime
+    })
+  }, [directMessages, selectedPIR, adminUser?.uid])
+
+  // Get selected PIR info
+  const selectedPIRInfo = useMemo(() => {
+    if (!selectedPIR) return null
+    return pirUsers.find((p) => p.id === selectedPIR) || null
+  }, [selectedPIR, pirUsers])
+
+  // Helper function to get or create a conversation with a PIR
+  const getOrCreateConversation = async (pirId: string): Promise<string> => {
+    if (!adminUser?.uid) throw new Error("Not authenticated")
+
+    // Check if conversation already exists
+    const q = query(
+      collection(db, "conversations"),
+      where("participants", "array-contains", adminUser.uid)
     )
+    const snapshot = await getDocs(q)
+
+    const existing = snapshot.docs.find((docSnap) => {
+      const participants = docSnap.data().participants as string[]
+      return participants.includes(pirId) && participants.length === 2
+    })
+
+    if (existing) {
+      return existing.id
+    }
+
+    // Get PIR details
+    const pir = pirUsers.find((p) => p.id === pirId)
+    const pirName = pir?.displayName || pir?.email || "PIR"
+    const coachName = adminUser.displayName || adminUser.email || "Coach"
+
+    // Create new conversation
+    const newConvo = await addDoc(collection(db, "conversations"), {
+      participants: [adminUser.uid, pirId].sort(),
+      participantDetails: {
+        [adminUser.uid]: {
+          name: coachName,
+          avatar: null,
+          role: "coach",
+        },
+        [pirId]: {
+          name: pirName,
+          avatar: null,
+          role: "pir",
+        },
+      },
+      createdAt: serverTimestamp(),
+      lastMessageTimestamp: serverTimestamp(),
+      lastMessage: null,
+      unreadCount: {
+        [adminUser.uid]: 0,
+        [pirId]: 0,
+      },
+      typing: {},
+      tenantId: CURRENT_TENANT,
+    })
+
+    return newConvo.id
+  }
+
+  // Handle sending a reply to the selected PIR
+  const handleSendReply = async () => {
+    if (!selectedPIR || !replyText.trim() || !adminUser?.uid) return
+
+    setSendingReply(true)
+    try {
+      const trimmedContent = replyText.trim()
+      const senderName = adminUser.displayName || adminUser.email || "Coach"
+      const recipientName = selectedPIRInfo?.displayName || selectedPIRInfo?.email || "PIR"
+
+      // Get or create conversation
+      const conversationId = await getOrCreateConversation(selectedPIR)
+
+      // Add message with both Admin and PIR compatibility fields
+      await addDoc(collection(db, "messages"), {
+        content: trimmedContent,
+        senderId: adminUser.uid,
+        senderName: senderName,
+        recipientId: selectedPIR,
+        recipientName: recipientName,
+        participants: [adminUser.uid, selectedPIR], // For security rules query filtering
+        type: "direct",
+        createdAt: serverTimestamp(),
+        tenantId: CURRENT_TENANT,
+        conversationId: conversationId,
+        text: trimmedContent,
+        status: "sent",
+        contentType: "text",
+        updatedAt: serverTimestamp(),
+        readAt: null,
+      })
+
+      // Update conversation
+      await updateDoc(doc(db, "conversations", conversationId), {
+        lastMessage: {
+          text: trimmedContent.length > 50 ? trimmedContent.substring(0, 50) + "..." : trimmedContent,
+          senderId: adminUser.uid,
+          timestamp: serverTimestamp(),
+          type: "text",
+        },
+        lastMessageTimestamp: serverTimestamp(),
+        [`unreadCount.${selectedPIR}`]: increment(1),
+        updatedAt: serverTimestamp(),
+      })
+
+      toast.success("Message sent")
+      setReplyText("")
+    } catch (error) {
+      console.error("Error sending reply:", error)
+      toast.error("Failed to send message")
+    } finally {
+      setSendingReply(false)
+    }
+  }
+
+  if (loading) {
+    return <CommunicationSkeleton />
   }
 
   return (
@@ -379,42 +505,120 @@ export function Communication() {
             </Card>
 
             {/* Messages Area */}
-            <Card className="lg:col-span-2">
-              <CardContent className="pt-6">
-                <ScrollArea className="h-[400px]">
-                  {directMessages.length > 0 ? (
-                    <div className="space-y-3">
-                      {directMessages.map((msg) => (
-                        <div key={msg.id} className="rounded-lg border p-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <Avatar className="h-8 w-8">
-                                <AvatarFallback className="text-xs">
-                                  {getInitials(msg.senderName)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <span className="font-medium">{msg.senderName}</span>
-                                <span className="text-muted-foreground"> to </span>
-                                <span className="font-medium">{msg.recipientName}</span>
+            <Card className="lg:col-span-2 flex flex-col">
+              {/* Conversation Header when PIR selected */}
+              {selectedPIR && selectedPIRInfo && (
+                <CardHeader className="pb-3 border-b">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-10 w-10">
+                      <AvatarFallback className="bg-primary/10 text-primary">
+                        {getInitials(selectedPIRInfo.displayName || selectedPIRInfo.email)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <h3 className="font-semibold">{selectedPIRInfo.displayName || selectedPIRInfo.email}</h3>
+                      <p className="text-sm text-muted-foreground">{selectedPIRInfo.email}</p>
+                    </div>
+                  </div>
+                </CardHeader>
+              )}
+
+              <CardContent className="flex-1 pt-4">
+                <ScrollArea className="h-[300px]">
+                  {selectedPIR ? (
+                    // Show conversation with selected PIR
+                    selectedPIRMessages.length > 0 ? (
+                      <div className="space-y-3">
+                        {selectedPIRMessages.map((msg) => {
+                          const isFromAdmin = msg.senderId === adminUser?.uid
+                          return (
+                            <div
+                              key={msg.id}
+                              className={`flex ${isFromAdmin ? "justify-end" : "justify-start"}`}
+                            >
+                              <div
+                                className={`max-w-[75%] rounded-lg p-3 ${
+                                  isFromAdmin
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-muted"
+                                }`}
+                              >
+                                <p className="text-sm">{msg.content}</p>
+                                <p className={`text-xs mt-1 ${isFromAdmin ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                                  {formatDate(msg.createdAt, "relative")}
+                                </p>
                               </div>
                             </div>
-                            <span className="text-xs text-muted-foreground">
-                              {formatDate(msg.createdAt, "relative")}
-                            </span>
-                          </div>
-                          <p className="mt-2 text-sm">{msg.content}</p>
-                        </div>
-                      ))}
-                    </div>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                        <MessageSquare className="mb-4 h-12 w-12 opacity-30" />
+                        <p>No messages with this PIR yet</p>
+                        <p className="text-sm">Send a message to start the conversation</p>
+                      </div>
+                    )
                   ) : (
-                    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                      <MessageSquare className="mb-4 h-12 w-12 opacity-30" />
-                      <p>No messages yet</p>
-                    </div>
+                    // Show all messages when no PIR selected
+                    directMessages.length > 0 ? (
+                      <div className="space-y-3">
+                        {directMessages.map((msg) => (
+                          <div key={msg.id} className="rounded-lg border p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <Avatar className="h-8 w-8">
+                                  <AvatarFallback className="text-xs">
+                                    {getInitials(msg.senderName)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <span className="font-medium">{msg.senderName}</span>
+                                  <span className="text-muted-foreground"> to </span>
+                                  <span className="font-medium">{msg.recipientName}</span>
+                                </div>
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                {formatDate(msg.createdAt, "relative")}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm">{msg.content}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                        <MessageSquare className="mb-4 h-12 w-12 opacity-30" />
+                        <p>No messages yet</p>
+                        <p className="text-sm">Select a PIR to start a conversation</p>
+                      </div>
+                    )
                   )}
                 </ScrollArea>
               </CardContent>
+
+              {/* Reply Input - Only show when PIR is selected */}
+              {selectedPIR && (
+                <div className="border-t p-4">
+                  <div className="flex gap-2">
+                    <Input
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      placeholder="Type your message..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault()
+                          handleSendReply()
+                        }
+                      }}
+                      disabled={sendingReply}
+                    />
+                    <Button onClick={handleSendReply} disabled={sendingReply || !replyText.trim()}>
+                      <Send className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </Card>
           </div>
         </TabsContent>
@@ -566,6 +770,63 @@ function NewMessageModal({
   const [content, setContent] = useState("")
   const [sending, setSending] = useState(false)
 
+  // Helper function to get or create a conversation with a PIR
+  const getOrCreateConversation = async (pirId: string): Promise<string> => {
+    if (!adminUser?.uid) throw new Error("Not authenticated")
+
+    // Check if conversation already exists between coach and PIR
+    const q = query(
+      collection(db, "conversations"),
+      where("participants", "array-contains", adminUser.uid)
+    )
+    const snapshot = await getDocs(q)
+
+    // Find existing conversation with this PIR
+    const existing = snapshot.docs.find((docSnap) => {
+      const participants = docSnap.data().participants as string[]
+      return participants.includes(pirId) && participants.length === 2
+    })
+
+    if (existing) {
+      return existing.id
+    }
+
+    // Get PIR details for participantDetails
+    const pir = pirUsers.find((p) => p.id === pirId)
+    const pirName = pir?.displayName || pir?.email || "PIR"
+
+    // Get coach details
+    const coachName = adminUser.displayName || adminUser.email || "Coach"
+
+    // Create new conversation
+    const newConvo = await addDoc(collection(db, "conversations"), {
+      participants: [adminUser.uid, pirId].sort(),
+      participantDetails: {
+        [adminUser.uid]: {
+          name: coachName,
+          avatar: null,
+          role: "coach",
+        },
+        [pirId]: {
+          name: pirName,
+          avatar: null,
+          role: "pir",
+        },
+      },
+      createdAt: serverTimestamp(),
+      lastMessageTimestamp: serverTimestamp(),
+      lastMessage: null,
+      unreadCount: {
+        [adminUser.uid]: 0,
+        [pirId]: 0,
+      },
+      typing: {},
+      tenantId: CURRENT_TENANT,
+    })
+
+    return newConvo.id
+  }
+
   const handleSend = async () => {
     if (!recipientId || !content.trim()) {
       toast.error("Please select a recipient and enter a message")
@@ -575,16 +836,47 @@ function NewMessageModal({
     setSending(true)
     try {
       const recipient = pirUsers.find((p) => p.id === recipientId)
+      const trimmedContent = content.trim()
+      const senderName = adminUser?.displayName || adminUser?.email || "Coach"
+      const recipientName = recipient?.displayName || recipient?.email || "PIR"
+
+      // Get or create conversation for PIR compatibility
+      const conversationId = await getOrCreateConversation(recipientId)
+
+      // Add message with both Admin and PIR compatibility fields
       await addDoc(collection(db, "messages"), {
-        content: content.trim(),
+        // Admin fields
+        content: trimmedContent,
         senderId: adminUser?.uid,
-        senderName: adminUser?.displayName || adminUser?.email,
+        senderName: senderName,
         recipientId,
-        recipientName: recipient?.displayName || recipient?.email,
+        recipientName: recipientName,
+        participants: [adminUser?.uid, recipientId], // For security rules query filtering
         type: "direct",
         createdAt: serverTimestamp(),
         tenantId: CURRENT_TENANT,
+        // PIR compatibility fields
+        conversationId: conversationId,
+        text: trimmedContent,  // PIR reads this field
+        status: "sent",
+        contentType: "text",
+        updatedAt: serverTimestamp(),
+        readAt: null,
       })
+
+      // Update conversation with lastMessage for PIR conversation list
+      await updateDoc(doc(db, "conversations", conversationId), {
+        lastMessage: {
+          text: trimmedContent.length > 50 ? trimmedContent.substring(0, 50) + "..." : trimmedContent,
+          senderId: adminUser?.uid,
+          timestamp: serverTimestamp(),
+          type: "text",
+        },
+        lastMessageTimestamp: serverTimestamp(),
+        [`unreadCount.${recipientId}`]: increment(1),
+        updatedAt: serverTimestamp(),
+      })
+
       toast.success("Message sent")
       onClose()
       setContent("")

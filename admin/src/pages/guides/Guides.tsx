@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react"
 import { useAuth } from "@/contexts/AuthContext"
 import {
   db,
+  storage,
   collection,
   query,
   where,
@@ -11,6 +12,9 @@ import {
   deleteDoc,
   addDoc,
   serverTimestamp,
+  ref,
+  uploadBytes,
+  getDownloadURL,
 } from "@/lib/firebase"
 import { toast } from "sonner"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -44,7 +48,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Skeleton } from "@/components/ui/skeleton"
+import { GuidesSkeleton } from "@/components/common"
 import {
   Search,
   Plus,
@@ -58,48 +62,119 @@ import {
   Trash2,
   ExternalLink,
   Users,
+  Upload,
+  Loader2,
+  X,
 } from "lucide-react"
 import { formatDate } from "@/lib/utils"
+import { toDate } from "@/lib/timestamp"
 
 const CURRENT_TENANT = "full-service"
+
+// =============================================================================
+// RESOURCE INTERFACE - Unified schema for Admin and PIR Portal
+// =============================================================================
+// IMPORTANT: This interface must stay in sync with /Index/pir-portal/src/types/firebase.ts
+// Key compatibility notes:
+// - Admin uses `status` ('active'/'draft'/'archived') AND `isPublished` (boolean)
+// - PIR Portal reads `isPublished` to determine visibility
+// - When status = 'active', isPublished = true; otherwise isPublished = false
 
 interface Resource {
   id: string
   title: string
   description?: string
-  type: "article" | "video" | "document" | "link" | "guide"
+  type: "article" | "video" | "pdf" | "link" | "audio" // Aligned with PIR Portal
   category: string
   url?: string
   content?: string
-  status: "active" | "draft" | "archived"
+  status: "active" | "draft" | "archived" // Admin Portal status management
+  isPublished: boolean // PIR Portal visibility flag (derived from status)
   assignedTo?: string[]
   createdAt?: Date
   updatedAt?: Date
   createdBy?: string
   tenantId: string
   viewCount?: number
+  // Additional PIR Portal fields
+  subcategory?: string
+  thumbnailUrl?: string
+  author?: string
+  duration?: number
+  tags?: string[]
 }
 
+// =============================================================================
+// RESOURCE TYPES - Aligned with PIR Portal
+// =============================================================================
+// IMPORTANT: Types must match /Index/pir-portal/src/types/firebase.ts
 const RESOURCE_TYPES = [
   { value: "article", label: "Article", icon: FileText },
   { value: "video", label: "Video", icon: Video },
-  { value: "document", label: "Document", icon: FileText },
+  { value: "pdf", label: "PDF Document", icon: FileText },
   { value: "link", label: "External Link", icon: LinkIcon },
-  { value: "guide", label: "Guide", icon: BookOpen },
+  { value: "audio", label: "Audio", icon: BookOpen },
 ]
 
-const CATEGORIES = [
-  "Recovery Basics",
-  "Coping Skills",
-  "Mental Health",
-  "Physical Health",
-  "Relationships",
-  "Career & Finance",
-  "Spirituality",
-  "Relapse Prevention",
-  "Daily Living",
-  "Other",
+// =============================================================================
+// RESOURCE CATEGORIES - Synced with PIR Portal (6 categories)
+// =============================================================================
+// IMPORTANT: These categories must match /Index/pir-portal/src/features/resources/hooks/useResources.ts
+// Any changes here MUST be reflected in the PIR Portal as well.
+
+interface ResourceCategoryConfig {
+  id: string
+  name: string
+  icon: string
+  color: string
+  description: string
+}
+
+const RESOURCE_CATEGORIES: ResourceCategoryConfig[] = [
+  {
+    id: 'coping',
+    name: 'Coping Skills',
+    icon: 'Brain',
+    color: 'emerald',
+    description: 'Tools and techniques for managing stress and difficult emotions',
+  },
+  {
+    id: 'relapse',
+    name: 'Relapse Prevention',
+    icon: 'Shield',
+    color: 'amber',
+    description: 'Strategies to recognize and avoid triggers',
+  },
+  {
+    id: 'daily',
+    name: 'Daily Tools',
+    icon: 'CalendarCheck',
+    color: 'blue',
+    description: 'Resources for your daily recovery routine',
+  },
+  {
+    id: 'education',
+    name: 'Education',
+    icon: 'BookOpen',
+    color: 'purple',
+    description: 'Learn about addiction, recovery, and mental health',
+  },
+  {
+    id: 'support',
+    name: 'Support',
+    icon: 'Users',
+    color: 'teal',
+    description: 'Connect with support systems and community',
+  },
+  {
+    id: 'life',
+    name: 'Life Skills',
+    icon: 'Sparkles',
+    color: 'rose',
+    description: 'Financial, career, and personal development resources',
+  },
 ]
+
 
 function getTypeIcon(type: string) {
   const typeConfig = RESOURCE_TYPES.find((t) => t.value === type)
@@ -152,21 +227,33 @@ export function Guides() {
       const resourcesData: Resource[] = []
       resourcesSnap.forEach((docSnap) => {
         const data = docSnap.data()
+        const status = data.status || "active"
+        // Derive isPublished from status if not explicitly set
+        const isPublished = data.isPublished !== undefined
+          ? data.isPublished
+          : status === "active"
         resourcesData.push({
           id: docSnap.id,
           title: data.title,
           description: data.description,
           type: data.type || "article",
-          category: data.category || "Other",
+          category: data.category || "coping", // Default to coping instead of Other
           url: data.url,
           content: data.content,
-          status: data.status || "active",
+          status,
+          isPublished,
           assignedTo: data.assignedTo || [],
-          createdAt: data.createdAt?.toDate?.(),
-          updatedAt: data.updatedAt?.toDate?.(),
+          createdAt: toDate(data.createdAt),
+          updatedAt: toDate(data.updatedAt),
           createdBy: data.createdBy,
           tenantId: data.tenantId,
           viewCount: data.viewCount || 0,
+          // Additional PIR Portal fields
+          subcategory: data.subcategory,
+          thumbnailUrl: data.thumbnailUrl,
+          author: data.author,
+          duration: data.duration,
+          tags: data.tags,
         })
       })
       setResources(resourcesData)
@@ -220,37 +307,14 @@ export function Guides() {
     }
   }
 
-  // Get unique categories from data
-  const categories = useMemo(() => {
-    const cats = new Set(resources.map((r) => r.category))
-    return Array.from(cats).sort()
-  }, [resources])
+  // Helper to get category name from ID for display
+  const getCategoryName = useCallback((categoryId: string) => {
+    const cat = RESOURCE_CATEGORIES.find(c => c.id === categoryId)
+    return cat?.name || categoryId
+  }, [])
 
   if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-10 w-48" />
-          <Skeleton className="h-10 w-32" />
-        </div>
-        <div className="flex gap-3">
-          <Skeleton className="h-10 w-32" />
-          <Skeleton className="h-10 w-32" />
-          <Skeleton className="h-10 w-32" />
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Card key={i}>
-              <CardContent className="p-4">
-                <Skeleton className="mb-3 h-6 w-3/4" />
-                <Skeleton className="mb-2 h-4 w-full" />
-                <Skeleton className="h-4 w-2/3" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    )
+    return <GuidesSkeleton />
   }
 
   return (
@@ -303,9 +367,9 @@ export function Guides() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Categories</SelectItem>
-              {categories.map((cat) => (
-                <SelectItem key={cat} value={cat}>
-                  {cat}
+              {RESOURCE_CATEGORIES.map((cat) => (
+                <SelectItem key={cat.id} value={cat.id}>
+                  {cat.name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -373,7 +437,7 @@ export function Guides() {
                   {resource.description || "No description"}
                 </p>
                 <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
-                  <span>{resource.category}</span>
+                  <span>{getCategoryName(resource.category)}</span>
                   {resource.assignedTo && resource.assignedTo.length > 0 && (
                     <span className="flex items-center gap-1">
                       <Users className="h-3 w-3" />
@@ -430,7 +494,7 @@ export function Guides() {
                     {getTypeBadge(resource.type)}
                   </div>
                   <p className="mt-1 truncate text-sm text-muted-foreground">
-                    {resource.category} | {formatDate(resource.createdAt, "relative")}
+                    {getCategoryName(resource.category)} | {formatDate(resource.createdAt, "relative")}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -504,7 +568,7 @@ export function Guides() {
                   {selectedResource.status}
                 </Badge>
                 <span className="text-sm text-muted-foreground">
-                  {selectedResource.category}
+                  {getCategoryName(selectedResource.category)}
                 </span>
               </div>
 
@@ -590,12 +654,89 @@ function CreateResourceModal({ open, onClose, onSuccess }: CreateResourceModalPr
     title: "",
     description: "",
     type: "article",
-    category: "Recovery Basics",
+    category: "coping",
     url: "",
     content: "",
     status: "active",
   })
   const [saving, setSaving] = useState(false)
+  const [pdfFile, setPdfFile] = useState<File | null>(null)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [uploading, setUploading] = useState(false)
+  const [dragActive, setDragActive] = useState(false)
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true)
+    } else if (e.type === "dragleave") {
+      setDragActive(false)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0]
+      if (file.type === "application/pdf") {
+        setPdfFile(file)
+        // Auto-fill title from filename if empty
+        if (!formData.title) {
+          const nameWithoutExt = file.name.replace(/\.pdf$/i, "").replace(/[-_]/g, " ")
+          setFormData((p) => ({ ...p, title: nameWithoutExt }))
+        }
+      } else {
+        toast.error("Please upload a PDF file")
+      }
+    }
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      if (file.type === "application/pdf") {
+        setPdfFile(file)
+        // Auto-fill title from filename if empty
+        if (!formData.title) {
+          const nameWithoutExt = file.name.replace(/\.pdf$/i, "").replace(/[-_]/g, " ")
+          setFormData((p) => ({ ...p, title: nameWithoutExt }))
+        }
+      } else {
+        toast.error("Please upload a PDF file")
+      }
+    }
+  }
+
+  const uploadPdfToStorage = async (file: File): Promise<string> => {
+    // Create a safe filename: category-title.pdf
+    const safeTitle = formData.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+    const filename = `${formData.category}-${safeTitle}.pdf`
+    const storageRef = ref(storage, `resources/pdfs/${filename}`)
+
+    setUploading(true)
+    setUploadProgress(10)
+
+    try {
+      // Upload file
+      setUploadProgress(30)
+      await uploadBytes(storageRef, file)
+      setUploadProgress(70)
+
+      // Get download URL
+      const downloadUrl = await getDownloadURL(storageRef)
+      setUploadProgress(100)
+
+      return downloadUrl
+    } finally {
+      setUploading(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -604,10 +745,30 @@ function CreateResourceModal({ open, onClose, onSuccess }: CreateResourceModalPr
       return
     }
 
+    // Require PDF file if type is pdf
+    if (formData.type === "pdf" && !pdfFile && !formData.url) {
+      toast.error("Please upload a PDF file or provide a URL")
+      return
+    }
+
     setSaving(true)
     try {
+      let finalUrl = formData.url
+
+      // Upload PDF if file selected and type is pdf
+      if (formData.type === "pdf" && pdfFile) {
+        toast.info("Uploading PDF...")
+        finalUrl = await uploadPdfToStorage(pdfFile)
+        toast.success("PDF uploaded successfully")
+      }
+
+      // Determine isPublished from status for PIR Portal compatibility
+      const isPublished = formData.status === "active"
+
       await addDoc(collection(db, "resources"), {
         ...formData,
+        url: finalUrl,
+        isPublished,
         createdBy: adminUser?.uid,
         createdAt: serverTimestamp(),
         tenantId: CURRENT_TENANT,
@@ -616,15 +777,18 @@ function CreateResourceModal({ open, onClose, onSuccess }: CreateResourceModalPr
       })
       toast.success("Resource created")
       onSuccess()
+      // Reset form
       setFormData({
         title: "",
         description: "",
         type: "article",
-        category: "Recovery Basics",
+        category: "coping",
         url: "",
         content: "",
         status: "active",
       })
+      setPdfFile(null)
+      setUploadProgress(0)
     } catch (error) {
       console.error("Error creating resource:", error)
       toast.error("Failed to create resource")
@@ -632,6 +796,8 @@ function CreateResourceModal({ open, onClose, onSuccess }: CreateResourceModalPr
       setSaving(false)
     }
   }
+
+  const isPdfType = formData.type === "pdf"
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
@@ -668,7 +834,13 @@ function CreateResourceModal({ open, onClose, onSuccess }: CreateResourceModalPr
               <Label htmlFor="type">Type</Label>
               <Select
                 value={formData.type}
-                onValueChange={(v) => setFormData((p) => ({ ...p, type: v }))}
+                onValueChange={(v) => {
+                  setFormData((p) => ({ ...p, type: v }))
+                  // Clear PDF file if switching away from PDF type
+                  if (v !== "pdf") {
+                    setPdfFile(null)
+                  }
+                }}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -693,9 +865,9 @@ function CreateResourceModal({ open, onClose, onSuccess }: CreateResourceModalPr
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CATEGORIES.map((cat) => (
-                    <SelectItem key={cat} value={cat}>
-                      {cat}
+                  {RESOURCE_CATEGORIES.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id}>
+                      {cat.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -703,15 +875,96 @@ function CreateResourceModal({ open, onClose, onSuccess }: CreateResourceModalPr
             </div>
           </div>
 
+          {/* PDF Upload Section - Only shown when type is PDF */}
+          {isPdfType && (
+            <div className="space-y-2">
+              <Label>Upload PDF File</Label>
+              <div
+                className={`relative rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
+                  dragActive
+                    ? "border-primary bg-primary/5"
+                    : pdfFile
+                    ? "border-emerald-500 bg-emerald-50"
+                    : "border-muted-foreground/25 hover:border-primary/50"
+                }`}
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+              >
+                {pdfFile ? (
+                  <div className="flex items-center justify-center gap-3">
+                    <FileText className="h-8 w-8 text-emerald-600" />
+                    <div className="text-left">
+                      <p className="font-medium text-emerald-700">{pdfFile.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {(pdfFile.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="ml-2"
+                      onClick={() => setPdfFile(null)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <Upload className="mx-auto h-10 w-10 text-muted-foreground/50" />
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Drag and drop a PDF file here, or{" "}
+                      <label className="cursor-pointer text-primary hover:underline">
+                        browse
+                        <input
+                          type="file"
+                          accept=".pdf,application/pdf"
+                          className="hidden"
+                          onChange={handleFileSelect}
+                        />
+                      </label>
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground/70">PDF files only</p>
+                  </>
+                )}
+
+                {/* Upload progress bar */}
+                {uploading && (
+                  <div className="mt-4">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full bg-primary transition-all duration-300"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Uploading... {uploadProgress}%
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
-            <Label htmlFor="url">URL (optional)</Label>
+            <Label htmlFor="url">
+              {isPdfType ? "URL (optional - will be auto-filled after upload)" : "URL (optional)"}
+            </Label>
             <Input
               id="url"
               type="url"
               value={formData.url}
               onChange={(e) => setFormData((p) => ({ ...p, url: e.target.value }))}
               placeholder="https://..."
+              disabled={isPdfType && !!pdfFile}
             />
+            {isPdfType && (
+              <p className="text-xs text-muted-foreground">
+                Upload a PDF file above, or paste an existing URL
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -743,11 +996,20 @@ function CreateResourceModal({ open, onClose, onSuccess }: CreateResourceModalPr
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving || uploading}>
               Cancel
             </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? "Creating..." : "Create Resource"}
+            <Button type="submit" disabled={saving || uploading}>
+              {uploading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Uploading...
+                </>
+              ) : saving ? (
+                "Creating..."
+              ) : (
+                "Create Resource"
+              )}
             </Button>
           </DialogFooter>
         </form>
