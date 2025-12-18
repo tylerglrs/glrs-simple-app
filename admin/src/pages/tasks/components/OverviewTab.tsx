@@ -64,6 +64,7 @@ import {
   ChevronLeft,
   Pause,
   Play,
+  RefreshCw,
 } from "lucide-react"
 import { formatDate, getInitials } from "@/lib/utils"
 import { Assignment, Goal, Objective, PIRUser, AssignmentStatus, Priority, GoalStatus } from "../types"
@@ -123,6 +124,7 @@ export function OverviewTab({ searchQuery }: OverviewTabProps) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [users, setUsers] = useState<PIRUser[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
 
   // Filter states
   const [filterPIR, setFilterPIR] = useState("all")
@@ -389,6 +391,14 @@ export function OverviewTab({ searchQuery }: OverviewTabProps) {
     }
   }
 
+  // Manual refresh handler
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    await loadData()
+    setRefreshing(false)
+    toast.success("Data refreshed")
+  }
+
   // Handle goal status change
   const handleGoalStatusChange = async (goalId: string, newStatus: GoalStatus) => {
     try {
@@ -466,8 +476,20 @@ export function OverviewTab({ searchQuery }: OverviewTabProps) {
             </SelectContent>
           </Select>
 
-          <div className="ml-auto text-sm text-muted-foreground">
-            {filteredGoals.length} goals | {filteredObjectives.length} objectives | {filteredAssignments.length} assignments
+          <div className="ml-auto flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={refreshing}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </Button>
+
+            <div className="text-sm text-muted-foreground">
+              {filteredGoals.length} goals | {filteredObjectives.length} objectives | {filteredAssignments.length} assignments
+            </div>
           </div>
         </CardContent>
       </Card>
