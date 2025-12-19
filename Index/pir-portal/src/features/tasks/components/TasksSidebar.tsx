@@ -9,13 +9,9 @@ import {
 } from '@/components/ui/sheet'
 import {
   Repeat,
-  CalendarDays,
-  AlertCircle,
-  CheckCircle,
   X,
   Heart,
   BookHeart,
-  TrendingUp,
   Target,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -44,28 +40,10 @@ interface SidebarItem {
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
   {
-    icon: CheckCircle,
-    label: 'Complete',
-    modal: 'complete',
-    iconColor: 'text-green-500',
-  },
-  {
     icon: Repeat,
     label: 'Habit Tracker',
     modal: 'habit',
     iconColor: 'text-teal-500',
-  },
-  {
-    icon: CalendarDays,
-    label: "This Week's Tasks",
-    modal: 'thisWeek',
-    iconColor: 'text-teal-500',
-  },
-  {
-    icon: AlertCircle,
-    label: 'Overdue Items',
-    modal: 'overdue',
-    iconColor: 'text-red-500',
   },
   {
     icon: Heart,
@@ -78,12 +56,6 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
     label: 'Gratitude Journal',
     modal: 'gratitudeJournal',
     iconColor: 'text-rose-500',
-  },
-  {
-    icon: TrendingUp,
-    label: 'Challenges History',
-    modal: 'challengesHistory',
-    iconColor: 'text-purple-500',
   },
   {
     icon: Target,
@@ -103,20 +75,20 @@ interface SidebarItemButtonProps {
 }
 
 function SidebarItemButton({ item, onClick }: SidebarItemButtonProps) {
-  const isMobile = useMediaQuery('(max-width: 768px)')
   const Icon = item.icon
 
   return (
     <button
       className={cn(
-        'w-full flex items-center gap-3 p-4 rounded-xl bg-gray-50 border border-gray-200',
-        'hover:bg-gray-100 hover:border-gray-300 transition-all duration-200',
+        'w-full flex items-center gap-3 p-4 rounded-xl',
+        'bg-white/60 backdrop-blur-sm border border-white/40 shadow-sm',
+        'hover:bg-white/80 hover:border-white/60 hover:shadow-md transition-all duration-200',
         'cursor-pointer text-left'
       )}
       onClick={onClick}
     >
       <Icon className={cn('h-5 w-5', item.iconColor || 'text-teal-500')} />
-      <span className={cn('font-medium text-gray-700', isMobile ? 'text-sm' : 'text-base')}>
+      <span className="font-medium text-gray-700 text-sm md:text-base">
         {item.label}
       </span>
     </button>
@@ -155,9 +127,12 @@ export function TasksSidebar({ open, onClose, onOpenModal }: TasksSidebarProps) 
     <Sheet open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <SheetContent
         side="left"
-        className={cn('p-0 w-[280px]', isMobile && 'w-[85vw] max-w-[320px]')}
+        className={cn(
+          'p-0 w-[280px] bg-white/80 backdrop-blur-xl border-r-white/20',
+          isMobile && 'w-[85vw] max-w-[320px]'
+        )}
       >
-        <SheetHeader className="px-5 py-4 border-b">
+        <SheetHeader className="px-5 py-4 border-b border-white/30 bg-gradient-to-r from-teal-500/10 to-cyan-500/10">
           <div className="flex items-center justify-between">
             <SheetTitle className="text-lg font-bold text-teal-600">
               Quick Tools
@@ -165,7 +140,7 @@ export function TasksSidebar({ open, onClose, onOpenModal }: TasksSidebarProps) 
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 hover:bg-white/50"
               onClick={onClose}
             >
               <X className="h-5 w-5 text-muted-foreground" />
@@ -174,7 +149,7 @@ export function TasksSidebar({ open, onClose, onOpenModal }: TasksSidebarProps) 
         </SheetHeader>
 
         <ScrollArea className="h-[calc(100vh-80px)]">
-          <div className={cn('p-4 space-y-2', isMobile ? 'p-3 space-y-2' : 'p-5 space-y-3')}>
+          <div className="p-3 md:p-5 space-y-2 md:space-y-3">
             {SIDEBAR_ITEMS.map((item, index) => (
               <SidebarItemButton
                 key={index}
@@ -234,16 +209,17 @@ export function InlineSidebar({ open, onClose, onOpenModal }: InlineSidebarProps
       {/* Sidebar Panel */}
       <div
         className={cn(
-          'fixed top-0 left-0 bottom-0 w-[280px] bg-white shadow-xl z-[9999]',
+          'fixed left-0 bottom-0 w-[280px] bg-white/80 backdrop-blur-xl shadow-xl z-[9999]',
           'animate-in slide-in-from-left duration-300',
           isMobile && 'w-[85vw] max-w-[320px]'
         )}
+        style={{ top: 'env(safe-area-inset-top, 0px)' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b-2 border-gray-100">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/30 bg-gradient-to-r from-teal-500/10 to-cyan-500/10 pt-safe">
           <h2 className="text-xl font-bold text-teal-600">Quick Tools</h2>
           <button
-            className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-1 hover:bg-white/50 rounded-lg transition-colors"
             onClick={onClose}
           >
             <X className="h-6 w-6 text-muted-foreground" />
@@ -251,8 +227,8 @@ export function InlineSidebar({ open, onClose, onOpenModal }: InlineSidebarProps
         </div>
 
         {/* Menu Items */}
-        <ScrollArea className="h-[calc(100vh-73px)]">
-          <div className={cn('p-5 space-y-3', isMobile && 'p-4 space-y-2')}>
+        <ScrollArea className="h-[calc(100vh-73px-env(safe-area-inset-top,0px))]">
+          <div className="p-4 md:p-5 space-y-2 md:space-y-3">
             {SIDEBAR_ITEMS.map((item, index) => (
               <SidebarItemButton
                 key={index}

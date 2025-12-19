@@ -13,6 +13,7 @@ import { ImagePreviewModal } from '@/features/community/modals/ImagePreviewModal
 // Profile modals - Part 9B
 import { PersonalInfoModal } from '@/features/profile/modals/PersonalInfoModal'
 import { RecoveryInfoModal } from '@/features/profile/modals/RecoveryInfoModal'
+import { EducationInfoModal } from '@/features/profile/modals/EducationInfoModal'
 import { EmergencyContactsModal } from '@/features/profile/modals/EmergencyContactsModal'
 import { PasswordChangeModal } from '@/features/profile/modals/PasswordChangeModal'
 import { NotificationSettingsModal } from '@/features/profile/modals/NotificationSettingsModal'
@@ -29,6 +30,10 @@ import { HelpModal } from '@/features/profile/modals/HelpModal'
 import { FeedbackModal } from '@/features/profile/modals/FeedbackModal'
 import { DeleteAccountModal } from '@/features/profile/modals/DeleteAccountModal'
 import { PasswordModal } from '@/features/profile/modals/PasswordModal'
+
+// Profile modals - Security
+import { SessionManagementModal } from '@/features/profile/modals/SessionManagementModal'
+import { TwoFactorSettingsModal } from '@/features/profile/modals/TwoFactorSettingsModal'
 
 // Tasks modals - Part 10C: Stats modals
 import { StatsModal } from '@/features/tasks/modals/StatsModal'
@@ -51,6 +56,7 @@ import { ThisWeekModal } from '@/features/tasks/modals/ThisWeekModal'
 import { OverdueModal } from '@/features/tasks/modals/OverdueModal'
 import { CompleteModal } from '@/features/tasks/modals/CompleteModal'
 import { HabitModal } from '@/features/tasks/modals/HabitModal'
+import { ManageHabitsModal } from '@/features/tasks/modals/ManageHabitsModal'
 import { ReflectionModal } from '@/features/tasks/modals/ReflectionModal'
 
 // Tasks modals - Part 10C: Action modals
@@ -69,6 +75,7 @@ import { CopingTechniqueModal } from '@/features/tasks/modals/CopingTechniqueMod
 import { MilestoneModal } from '@/features/tasks/modals/MilestoneModal'
 import { PastReflectionsModal } from '@/features/tasks/modals/PastReflectionsModal'
 import { GratitudeModal } from '@/features/tasks/modals/GratitudeModal'
+import { GratitudeJournalModal } from '@/features/tasks/modals/GratitudeJournalModal'
 import { MorningCheckinModal } from '@/features/tasks/modals/MorningCheckinModal'
 import { EveningReflectionModal } from '@/features/tasks/modals/EveningReflectionModal'
 import { DailyOverviewModal } from '@/features/tasks/modals/DailyOverviewModal'
@@ -132,7 +139,11 @@ const createPlaceholder = (name: string): ModalComponent =>
 
 const JourneyLifeModals: Partial<Record<ModalName, ModalComponent>> = {
   gratitudeThemes: createPlaceholder('gratitudeThemes'),
-  gratitudeJournal: createPlaceholder('gratitudeJournal'),
+  gratitudeJournal: lazy(() =>
+    Promise.resolve({
+      default: ({ onClose }: { onClose: () => void }) => <GratitudeJournalModal onClose={onClose} />,
+    })
+  ),
   challenges: createPlaceholder('challenges'),
   breakthrough: createPlaceholder('breakthrough'),
   streak: lazy(() =>
@@ -180,6 +191,11 @@ const TasksSidebarModals: Partial<Record<ModalName, ModalComponent>> = {
   habit: lazy(() =>
     Promise.resolve({
       default: ({ onClose }: { onClose: () => void }) => <HabitModal onClose={onClose} />,
+    })
+  ),
+  manageHabits: lazy(() =>
+    Promise.resolve({
+      default: ({ onClose }: { onClose: () => void }) => <ManageHabitsModal onClose={onClose} />,
     })
   ),
   editHabit: createPlaceholder('editHabit'),
@@ -458,6 +474,11 @@ const ProfileModals: Partial<Record<ModalName, ModalComponent>> = {
       default: ({ onClose }: { onClose: () => void }) => <RecoveryInfoModal onClose={onClose} />,
     })
   ),
+  educationInfo: lazy(() =>
+    Promise.resolve({
+      default: ({ onClose }: { onClose: () => void }) => <EducationInfoModal onClose={onClose} />,
+    })
+  ),
   emergency: lazy(() =>
     Promise.resolve({
       default: ({ onClose }: { onClose: () => void }) => <EmergencyContactsModal onClose={onClose} />,
@@ -534,6 +555,17 @@ const ProfileModals: Partial<Record<ModalName, ModalComponent>> = {
       default: ({ onClose }: { onClose: () => void }) => <PasswordModal onClose={onClose} />,
     })
   ),
+  // Security modals
+  sessionManagement: lazy(() =>
+    Promise.resolve({
+      default: ({ onClose }: { onClose: () => void }) => <SessionManagementModal onClose={onClose} />,
+    })
+  ),
+  twoFactorSettings: lazy(() =>
+    Promise.resolve({
+      default: ({ onClose }: { onClose: () => void }) => <TwoFactorSettingsModal onClose={onClose} />,
+    })
+  ),
   // Remaining placeholders - will be implemented later
   appSettings: createPlaceholder('appSettings'),
 }
@@ -546,11 +578,25 @@ const ProfileModals: Partial<Record<ModalName, ModalComponent>> = {
 const ResourcesModals: Partial<Record<ModalName, ModalComponent>> = {
   resourceViewer: lazy(() =>
     Promise.resolve({
-      default: ({ onClose, ...props }: { onClose: () => void; resource?: unknown }) => (
+      default: ({
+        onClose,
+        ...props
+      }: {
+        onClose: () => void
+        resource?: unknown
+        onToggleFavorite?: (resourceId: string) => void
+        onToggleLibrary?: (resourceId: string) => void
+        isFavorite?: boolean
+        isInLibrary?: boolean
+      }) => (
         <ResourceViewerModal
           isOpen={true}
           onClose={onClose}
           resource={props.resource as import('@/features/resources/hooks/useResources').ResourceWithProgress | null}
+          onToggleFavorite={props.onToggleFavorite}
+          onToggleLibrary={props.onToggleLibrary}
+          isFavorite={props.isFavorite}
+          isInLibrary={props.isInLibrary}
         />
       ),
     })
@@ -603,17 +649,28 @@ const SELF_MANAGED_MODALS: Set<ModalName> = new Set([
   'wins',
   'addWin',
   'habit',
+  'manageHabits',
   'thisWeek',
   'reflection',
   'overdue',
   'complete',
   'goalProgress',
+  // Gratitude modals (fullscreen pages)
+  'gratitude',
+  'gratitudeJournal',
   // Pattern modals (Phase 4)
   'moodPattern',
   'cravingPattern',
   'anxietyPattern',
   'sleepPattern',
   // aiInsightsHub removed - now a dedicated page route at /insights
+  // Resources modals - uses Sheet instead of Dialog
+  'resourceViewer',
+  // Messages modals - full-screen on mobile
+  'newConversation',
+  // Profile modals - Security (manage own Dialog)
+  'sessionManagement',
+  'twoFactorSettings',
 ])
 
 export function ModalProvider() {
