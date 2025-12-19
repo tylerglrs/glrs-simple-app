@@ -5,13 +5,14 @@ import {
   Sun,
   Moon,
   Sparkles,
-  Menu,
   LayoutDashboard,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useCheckInsQuery } from '@/hooks/queries'
 import { useModalStore, type ModalName } from '@/stores/modalStore'
+import { useTab } from '@/contexts/TabContext'
+import { PullToRefresh, TabHeader } from '@/components/common'
 import { CheckInView } from './CheckInView'
 import { ReflectionView } from './ReflectionView'
 import { DailyOverview } from './DailyOverview'
@@ -63,22 +64,40 @@ function getSuggestedView(
 }
 
 // =============================================================================
-// TAB HEADER
+// PAGE HEADER (Tasks-specific header using standardized TabHeader)
 // =============================================================================
 
-interface TabHeaderProps {
+interface PageHeaderProps {
+  onOpenSidebar: () => void
+}
+
+function PageHeader({ onOpenSidebar }: PageHeaderProps) {
+  const { setActiveTab } = useTab()
+
+  return (
+    <TabHeader
+      title="Tasks"
+      onMenuClick={onOpenSidebar}
+      onProfileClick={() => setActiveTab('profile')}
+    />
+  )
+}
+
+// =============================================================================
+// VIEW TAB NAVIGATION (View navigation: Overview, Check-In, Reflections, Golden Thread)
+// =============================================================================
+
+interface ViewTabNavProps {
   activeView: TasksView
   onViewChange: (view: TasksView) => void
-  onOpenSidebar: () => void
   checkInStatus: { morning: boolean; evening: boolean }
 }
 
-function TabHeader({
+function ViewTabNav({
   activeView,
   onViewChange,
-  onOpenSidebar,
   checkInStatus,
-}: TabHeaderProps) {
+}: ViewTabNavProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
 
   const tabs = [
@@ -111,35 +130,15 @@ function TabHeader({
   ]
 
   return (
-    <div
-      className={cn(
-        'sticky top-0 z-10 bg-background border-b',
-        isMobile ? 'px-2 py-2' : 'px-4 py-3'
-      )}
-    >
+    <div className="px-4 py-2">
       <div className="flex items-center gap-2 max-w-[800px] mx-auto">
-        {/* Sidebar Toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn('shrink-0', isMobile ? 'h-9 w-9' : 'h-10 w-10')}
-          onClick={onOpenSidebar}
-        >
-          <Menu className={cn(isMobile ? 'h-5 w-5' : 'h-6 w-6')} />
-        </Button>
-
         {/* Tab Navigation */}
         <Tabs
           value={activeView}
           onValueChange={(value) => onViewChange(value as TasksView)}
           className="flex-1"
         >
-          <TabsList
-            className={cn(
-              'w-full grid',
-              isMobile ? 'grid-cols-4 h-9' : 'grid-cols-4 h-10'
-            )}
-          >
+          <TabsList className="w-full grid grid-cols-4 h-7 bg-transparent rounded-none border-0 p-0">
             {tabs.map((tab) => {
               const Icon = tab.icon
               return (
@@ -147,16 +146,19 @@ function TabHeader({
                   key={tab.id}
                   value={tab.id}
                   className={cn(
-                    'relative flex items-center justify-center gap-1',
-                    isMobile ? 'text-xs px-1' : 'text-sm px-2'
+                    'relative flex items-center justify-center gap-1 text-[11px] px-1',
+                    'h-full rounded-none border-b-2',
+                    'data-[state=active]:bg-transparent data-[state=active]:border-slate-700',
+                    'data-[state=active]:text-slate-800 data-[state=active]:font-medium',
+                    'data-[state=inactive]:border-transparent data-[state=inactive]:text-slate-500'
                   )}
                 >
-                  <Icon className={cn(isMobile ? 'h-3.5 w-3.5' : 'h-4 w-4')} />
+                  <Icon className="h-3 w-3" />
                   <span className={cn(isMobile && 'hidden sm:inline')}>
                     {isMobile ? tab.shortLabel : tab.label}
                   </span>
                   {tab.badge && (
-                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
+                    <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-red-500 rounded-full" />
                   )}
                 </TabsTrigger>
               )
@@ -192,7 +194,13 @@ export function TasksTab({ initialView }: TasksTabProps) {
     submitMorningCheckIn,
     submitEveningReflection,
     markYesterdayGoalComplete,
+    refreshData,
   } = useCheckInsQuery()
+
+  // Pull-to-refresh handler
+  const handleRefresh = useCallback(async () => {
+    await refreshData()
+  }, [refreshData])
 
   // View state
   const [activeView, setActiveView] = useState<TasksView>(() => {
@@ -308,16 +316,23 @@ export function TasksTab({ initialView }: TasksTabProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Tab Header */}
-      <TabHeader
+      {/* Page Header - Tasks title, hamburger, bell, profile */}
+      <PageHeader onOpenSidebar={handleOpenSidebar} />
+
+      {/* View Tab Navigation */}
+      <ViewTabNav
         activeView={activeView}
         onViewChange={handleViewChange}
-        onOpenSidebar={handleOpenSidebar}
         checkInStatus={checkInStatus}
       />
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-hidden">{content}</div>
+      {/* Main Content with Pull-to-Refresh */}
+      <PullToRefresh
+        onRefresh={handleRefresh}
+        className="flex-1 overflow-auto"
+      >
+        {content}
+      </PullToRefresh>
 
       {/* Sidebar */}
       <TasksSidebar

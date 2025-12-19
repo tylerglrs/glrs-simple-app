@@ -195,7 +195,7 @@ export function CommunityTab({ className }: CommunityTabProps) {
         onValueChange={(value) => setActiveTab(value as CommunitySubTab)}
         className="flex flex-col h-full"
       >
-        <div className="sticky top-0 z-10 bg-background border-b">
+        <div className="bg-background/80 backdrop-blur-sm border-b pt-safe">
           <TabsList className="w-full h-auto p-1 grid grid-cols-3 bg-muted/50">
             {TABS.map((tab) => {
               const Icon = tab.icon
@@ -220,7 +220,7 @@ export function CommunityTab({ className }: CommunityTabProps) {
 
         {/* Tab Content */}
         <div className="flex-1 overflow-y-auto">
-          <div className={cn('p-4', isMobile ? 'pb-24' : 'pb-8')}>
+          <div className="p-4 pb-24 md:pb-8">
             {/* Community Chat Tab */}
             <TabsContent value="main" className="mt-0">
               <CommunityChat

@@ -44,7 +44,6 @@ import { HabitsWeeklyCalendar } from './HabitsWeeklyCalendar'
 import { ActivityCalendar } from './ActivityCalendar'
 import { useTechniqueCompletion } from '../hooks/useTechniqueCompletion'
 import { useHabitsForWeek, type DayHabits } from '../hooks/useHabitsForWeek'
-import { ScrollFadeBackground } from '@/components/common'
 import type { CopingTechnique } from '../data/copingTechniques'
 import type { DayActivity } from '../hooks/useActivityData'
 import { DayDetailModal } from '../modals/DayDetailModal'
@@ -710,10 +709,8 @@ export function DailyOverview({
   const allHabitsDone = habitCount > 0 ? completedHabits === habitCount : true
 
   return (
-    <ScrollFadeBackground className="h-full" fadeEnd={550} minOpacity={0.05}>
+    <div className="h-full">
       <div className="max-w-[600px] mx-auto px-4 md:px-6 py-4 md:py-6">
-        {/* Spacer for background visibility at top */}
-        <div className="h-8" />
 
         {/* Hero Greeting */}
         <HeroGreeting completedCount={completedCount} totalTasks={totalTasks} />
@@ -794,7 +791,7 @@ export function DailyOverview({
           activity={selectedDayData.activity}
         />
       )}
-    </ScrollFadeBackground>
+    </div>
   )
 }
 

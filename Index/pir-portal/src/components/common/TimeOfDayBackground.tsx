@@ -1,8 +1,6 @@
-import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-
-type TimeOfDay = 'morning' | 'afternoon' | 'evening' | 'night';
+import { useTimeOfDay as useTimeOfDayHook, useTimeGradient, getCurrentTimeOfDay as getTimeOfDayNow, type TimeOfDay } from '@/hooks/useTimeOfDay';
 
 interface TimeOfDayBackgroundProps {
   children: ReactNode;
@@ -13,36 +11,8 @@ interface TimeOfDayBackgroundProps {
   showBackgroundImage?: boolean;
 }
 
-/**
- * Time ranges:
- * - Morning: 5:00 AM - 11:59 AM
- * - Afternoon: 12:00 PM - 4:59 PM
- * - Evening: 5:00 PM - 7:59 PM
- * - Night: 8:00 PM - 4:59 AM
- */
-function getTimeOfDay(hour: number): TimeOfDay {
-  if (hour >= 5 && hour < 12) return 'morning';
-  if (hour >= 12 && hour < 17) return 'afternoon';
-  if (hour >= 17 && hour < 20) return 'evening';
-  return 'night';
-}
-
-const gradientClasses: Record<TimeOfDay, string> = {
-  morning: 'bg-gradient-morning',
-  afternoon: 'bg-gradient-afternoon',
-  evening: 'bg-gradient-evening',
-  night: 'bg-gradient-night',
-};
-
-// Base path must match vite.config.ts base setting
-const BASE_PATH = '/Index/pir-portal/dist';
-
-const backgroundImages: Record<TimeOfDay, string> = {
-  morning: `${BASE_PATH}/images/backgrounds/morning-bg.svg`,
-  afternoon: `${BASE_PATH}/images/backgrounds/afternoon-bg.svg`,
-  evening: `${BASE_PATH}/images/backgrounds/evening-bg.svg`,
-  night: `${BASE_PATH}/images/backgrounds/night-bg.svg`,
-};
+// Re-export the type for consumers
+export type { TimeOfDay };
 
 // Greeting messages based on time of day
 export const greetings: Record<TimeOfDay, string> = {
@@ -60,28 +30,9 @@ export const timeOfDayIcons: Record<TimeOfDay, string> = {
   night: 'Moon',
 };
 
+// Re-export the hook for convenience
 export function useTimeOfDay(forceTimeOfDay?: TimeOfDay) {
-  const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>(() => {
-    if (forceTimeOfDay) return forceTimeOfDay;
-    return getTimeOfDay(new Date().getHours());
-  });
-
-  useEffect(() => {
-    if (forceTimeOfDay) {
-      setTimeOfDay(forceTimeOfDay);
-      return;
-    }
-
-    // Update time of day every minute
-    const updateTimeOfDay = () => {
-      setTimeOfDay(getTimeOfDay(new Date().getHours()));
-    };
-
-    const interval = setInterval(updateTimeOfDay, 60000);
-    return () => clearInterval(interval);
-  }, [forceTimeOfDay]);
-
-  return timeOfDay;
+  return useTimeOfDayHook(forceTimeOfDay);
 }
 
 export function TimeOfDayBackground({
@@ -90,41 +41,55 @@ export function TimeOfDayBackground({
   forceTimeOfDay,
   showBackgroundImage = true,
 }: TimeOfDayBackgroundProps) {
-  const timeOfDay = useTimeOfDay(forceTimeOfDay);
+  const timeOfDay = useTimeOfDayHook(forceTimeOfDay);
+  const gradient = useTimeGradient(forceTimeOfDay);
 
   return (
     <div
       className={cn(
         'min-h-screen relative',
-        gradientClasses[timeOfDay],
         className
       )}
     >
-      {showBackgroundImage && (
-        <div
-          className="fixed inset-0 pointer-events-none opacity-50 -z-10"
-          style={{
-            backgroundImage: `url(${backgroundImages[timeOfDay]})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center top',
-            backgroundRepeat: 'no-repeat',
-          }}
-        />
-      )}
-      {children}
+      {/* Vibrant gradient layer - fixed at viewport top, fades to transparent */}
+      <div
+        className="fixed inset-x-0 top-0 h-72 pointer-events-none z-0 transition-all duration-[2000ms]"
+        style={{
+          background: gradient,
+          maskImage: 'linear-gradient(to bottom, black 0%, black 30%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, black 0%, black 30%, transparent 100%)',
+        }}
+      />
+
+      {/* Subtle base gradient for the rest of the page */}
+      <div
+        className="fixed inset-0 pointer-events-none -z-10 transition-all duration-[2000ms]"
+        style={{
+          background: timeOfDay === 'night'
+            ? 'linear-gradient(180deg, #0f172a 0%, #1e293b 30%, #f1f5f9 100%)'
+            : timeOfDay === 'evening'
+            ? 'linear-gradient(180deg, rgba(251,146,60,0.05) 0%, white 40%, #f8fafc 100%)'
+            : 'linear-gradient(180deg, rgba(255,255,255,0.8) 0%, white 30%, #f8fafc 100%)',
+        }}
+      />
+
+      {/* Content layer - above gradient */}
+      <div className="relative z-10">
+        {children}
+      </div>
     </div>
   );
 }
 
 // Export utility function for use in other components
 export function getGreeting(name?: string): string {
-  const timeOfDay = getTimeOfDay(new Date().getHours());
+  const timeOfDay = getTimeOfDayNow();
   const greeting = greetings[timeOfDay];
   return name ? `${greeting}, ${name}` : greeting;
 }
 
 export function getCurrentTimeOfDay(): TimeOfDay {
-  return getTimeOfDay(new Date().getHours());
+  return getTimeOfDayNow();
 }
 
 export default TimeOfDayBackground;
