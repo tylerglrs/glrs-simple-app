@@ -79,6 +79,14 @@ export function useCapacitor(): UseCapacitorReturn {
 
         console.log('[useCapacitor] Running as native app on', Capacitor.getPlatform())
 
+        // Add platform classes to html element for CSS targeting
+        document.documentElement.classList.add('capacitor')
+        if (ios) {
+          document.documentElement.classList.add('capacitor-ios')
+        } else {
+          document.documentElement.classList.add('capacitor-android')
+        }
+
         // Dynamic import plugins only when running natively
         const [
           { StatusBar, Style },

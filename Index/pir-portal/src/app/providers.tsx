@@ -7,6 +7,7 @@ import { Toaster } from '@/components/ui/toaster'
 import { ModalProvider } from '@/components/ModalProvider'
 import { SessionWrapper } from '@/components/SessionWrapper'
 import { CoachMarkProvider } from '@/components/common/CoachMarkProvider'
+import { CapacitorInit } from '@/components/CapacitorInit'
 
 interface ProvidersProps {
   children: ReactNode
@@ -28,6 +29,8 @@ interface ProvidersProps {
 export function Providers({ children }: ProvidersProps) {
   return (
     <QueryClientProvider client={queryClient}>
+      {/* Initialize Capacitor plugins (StatusBar, Keyboard, etc.) when running as native app */}
+      <CapacitorInit />
       <AuthProvider>
         <SessionWrapper>
           <CoachMarkProvider>

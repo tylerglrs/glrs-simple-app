@@ -2,6 +2,168 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Prevent iOS Safari from auto-zooming text */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Prevent horizontal scrolling on iOS */
+  overflow-x: hidden;
+  width: 100%;
+  /* SAFARI TOUCH FIX: Prevent 300ms tap delay globally */
+  touch-action: manipulation;
+  /* SAFARI TOUCH FIX: Remove gray tap highlight on iOS */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS PWA safe area handling */
+body {
+  /* Ensure body doesn't extend beyond viewport */
+  max-width: 100%;
+  width: 100%;
+  overflow-x: hidden;
+  /* Prevent any horizontal scrolling caused by child elements */
+  position: relative;
+}
+
+/* Fix for iOS PWA fullscreen modals */
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Radix Dialog Portal fix for iOS PWA - CRITICAL */
+/* This prevents modals from being cut off on right side in standalone PWA mode */
+[data-radix-portal] {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+}
+
+/* Ensure dialog overlay fills viewport correctly */
+[data-radix-portal] > [data-state] {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Fix for iOS PWA standalone mode - prevent horizontal scroll */
+@supports (-webkit-touch-callout: none) {
+  /* iOS Safari specific */
+  html, body, #root {
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Fullscreen modals in iOS PWA */
+  [data-radix-portal] [data-state="open"] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* ============================================================================
+   iOS SAFARI MOBILE CHECK-IN FIX
+   Fix for Morning Check-In and Evening Reflection cards being cut off on right
+   ============================================================================ */
+
+/* Force all cards to respect container boundaries on mobile */
+@media (max-width: 767px) {
+  /* Constrain card widths */
+  .card,
+  [class*="Card"] {
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Fix the mood slider picker overflow */
+  .scrollbar-hide {
+    max-width: 100% !important;
+  }
+
+  /* Ensure scroll area viewport doesn't overflow */
+  [data-radix-scroll-area-viewport] {
+    overflow-x: hidden !important;
+    max-width: 100% !important;
+  }
+
+  /* Prevent horizontal scroll on main content areas */
+  main,
+  [role="tabpanel"] {
+    overflow-x: hidden !important;
+    max-width: 100% !important;
+  }
+}
+
+/* iOS Safari specific - stronger overrides */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 767px) {
+    /* Force contain on all child elements */
+    .card *,
+    [class*="Card"] * {
+      max-width: 100% !important;
+    }
+
+    /* The SwipeablePicker number row */
+    .scrollbar-hide {
+      -webkit-overflow-scrolling: touch;
+      contain: inline-size;
+    }
+
+    /* Ensure radix scroll viewport clips content */
+    [data-radix-scroll-area-viewport] {
+      overflow-x: hidden !important;
+      -webkit-overflow-scrolling: touch;
+    }
+  }
+}
+
+/* ============================================================================
+   iOS CAPACITOR NATIVE APP SUPPORT
+   CSS Custom Properties for safe areas and keyboard handling
+   ============================================================================ */
+
+:root {
+  /* iOS Safe Area Insets - populated by env() when in native app */
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-inset-left: env(safe-area-inset-left, 0px);
+  --safe-area-inset-right: env(safe-area-inset-right, 0px);
+
+  /* Keyboard height - dynamically set by useCapacitor hook */
+  --keyboard-height: 0px;
+}
+
+/* Adjust body when keyboard is visible on iOS native */
+body.keyboard-visible {
+  padding-bottom: var(--keyboard-height);
+}
+
+/* iOS native viewport meta support */
+@supports (padding-top: env(safe-area-inset-top)) {
+  /* Apply safe areas to main app shell */
+  .ios-safe-area {
+    padding-top: var(--safe-area-inset-top);
+    padding-bottom: var(--safe-area-inset-bottom);
+    padding-left: var(--safe-area-inset-left);
+    padding-right: var(--safe-area-inset-right);
+  }
+
+  /* Fixed bottom nav needs safe area on notched devices */
+  .fixed-bottom-nav {
+    padding-bottom: calc(var(--safe-area-inset-bottom) + 0.5rem);
+  }
+
+  /* Header needs safe area on notched devices */
+  .fixed-top-header {
+    padding-top: var(--safe-area-inset-top);
+  }
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -158,4 +320,611 @@
     transform: scale(0.97);
     transition: transform 0.1s ease-out;
   }
+}
+
+/* ============================================================================
+   SAFARI TOUCH INTERACTION FIXES (Added Dec 2025)
+   Critical fixes for iOS Safari browser and PWA mode touch interactions
+   ============================================================================ */
+
+/* Safari requires cursor:pointer for click event delegation on non-button elements */
+[role="button"],
+[role="tab"],
+[role="menuitem"],
+[role="option"],
+[role="link"],
+[role="checkbox"],
+[role="radio"],
+[role="switch"],
+[data-clickable="true"],
+.interactive {
+  cursor: pointer;
+}
+
+/* Remove tap highlight on all interactive elements */
+button,
+a,
+[role="button"],
+[role="tab"],
+[role="menuitem"],
+input,
+select,
+textarea,
+.interactive,
+.cursor-pointer {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Ensure minimum touch targets on touch devices (44px per WCAG/Apple HIG) */
+@media (pointer: coarse) {
+  button:not([class*="h-"]):not([class*="w-"]):not(.icon-only),
+  [role="button"]:not([class*="h-"]):not([class*="w-"]) {
+    min-height: 44px;
+  }
+}
+
+/* ============================================================================
+   PHASE 4: TOUCH DEVICE HOVER FALLBACKS
+   Makes hover effects trigger on :active for touch devices
+   ============================================================================ */
+
+/* Touch device detection - coarse pointer typically means touch */
+@media (pointer: coarse) {
+  /* Make interactive elements respond to touch with active state */
+  /* Background color changes */
+  [class*="hover:bg-"]:active {
+    transition: all 0.1s ease-out;
+  }
+
+  /* Text color changes */
+  [class*="hover:text-"]:active {
+    transition: color 0.1s ease-out;
+  }
+
+  /* Opacity changes */
+  [class*="hover:opacity-"]:active {
+    transition: opacity 0.1s ease-out;
+  }
+
+  /* Scale transforms */
+  [class*="hover:scale-"]:active {
+    transition: transform 0.1s ease-out;
+  }
+
+  /* Shadow changes */
+  [class*="hover:shadow-"]:active {
+    transition: box-shadow 0.1s ease-out;
+  }
+
+  /* Border color changes */
+  [class*="hover:border-"]:active {
+    transition: border-color 0.1s ease-out;
+  }
+}
+
+/* Explicit active state styles for common interactive patterns */
+@media (pointer: coarse) {
+  /* Buttons and clickable cards - subtle press feedback */
+  button:active,
+  [role="button"]:active,
+  a:active {
+    transform: scale(0.98);
+    transition: transform 0.1s ease-out;
+  }
+
+  /* Prevent double-tap zoom on interactive elements */
+  button,
+  [role="button"],
+  a,
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+  }
+}
+
+/* Keyframe animations */
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+/* ============================================================================
+   PHASE 7: MILESTONE ANIMATIONS
+   ============================================================================ */
+
+/* Bounce in animation for celebration modal */
+@keyframes bounce-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-bounce-in {
+  animation: bounce-in 0.6s ease-out;
+}
+
+/* Glow animation for achieved badges */
+@keyframes glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 8px rgba(13, 148, 136, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 20px rgba(13, 148, 136, 0.8));
+  }
+}
+
+.animate-glow {
+  animation: glow 2s ease-in-out infinite;
+}
+
+/* Gold glow for major milestones */
+@keyframes glow-gold {
+  0%, 100% {
+    filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 25px rgba(245, 158, 11, 0.9));
+  }
+}
+
+.animate-glow-gold {
+  animation: glow-gold 2s ease-in-out infinite;
+}
+
+/* Pulse animation for progress bars */
+@keyframes pulse-bar {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-pulse-bar {
+  animation: pulse-bar 1s ease-in-out infinite;
+}
+
+/* Slide in from right for milestone items */
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+/* Number count up effect */
+@keyframes count-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-count-up {
+  animation: count-up 0.5s ease-out;
+}
+
+/* Confetti burst animation */
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-100vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+.animate-confetti {
+  animation: confetti-fall 3s ease-out forwards;
+}
+
+/* Shimmer effect for loading */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,0.5) 50%,
+    rgba(255,255,255,0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Celebration shake */
+@keyframes celebrate-shake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-5deg); }
+  75% { transform: rotate(5deg); }
+}
+
+.animate-celebrate {
+  animation: celebrate-shake 0.5s ease-in-out 3;
+}
+
+/* Float animation for badges */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Scale in animation */
+@keyframes scale-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out;
+}
+
+/* Stagger animation helper */
+.stagger-1 { animation-delay: 0.1s; }
+.stagger-2 { animation-delay: 0.2s; }
+.stagger-3 { animation-delay: 0.3s; }
+.stagger-4 { animation-delay: 0.4s; }
+.stagger-5 { animation-delay: 0.5s; }
+
+/* ============================================================================
+   ACCESSIBILITY IMPROVEMENTS (Apple App Store Guidelines 1.3)
+   ============================================================================ */
+
+/* Reduced Motion - Respect user preference (WCAG 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-bounce-in,
+  .animate-glow,
+  .animate-glow-gold,
+  .animate-pulse-bar,
+  .animate-slide-in,
+  .animate-count-up,
+  .animate-confetti,
+  .animate-shimmer,
+  .animate-celebrate,
+  .animate-float,
+  .animate-scale-in {
+    animation: none !important;
+  }
+}
+
+/* Focus Visible - Keyboard navigation (WCAG 2.4.7) */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Remove outline for mouse users */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Enhanced focus for important interactive elements */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px hsl(var(--primary) / 0.2);
+}
+
+/* Skip to Content Link (for screen readers) */
+.skip-to-content {
+  position: absolute;
+  top: -100%;
+  left: 0;
+  z-index: 9999;
+  padding: 1rem 2rem;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  text-decoration: none;
+  font-weight: 600;
+  transition: top 0.2s;
+}
+
+.skip-to-content:focus {
+  top: 0;
+}
+
+/* Screen Reader Only - Hide visually but keep accessible */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Minimum Touch Targets - iOS Guidelines (44x44px) */
+@media (pointer: coarse) {
+  button,
+  a,
+  [role="button"],
+  [role="link"],
+  [role="tab"],
+  [role="menuitem"],
+  [role="option"],
+  input[type="checkbox"],
+  input[type="radio"],
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Ensure adequate spacing between touch targets */
+  .touch-target-spacing > * + * {
+    margin-top: 8px;
+  }
+}
+
+/* High Contrast Mode Support */
+@media (prefers-contrast: high) {
+  :root {
+    --border: 0 0% 0%;
+    --ring: 0 0% 0%;
+  }
+
+  button,
+  a,
+  [role="button"] {
+    border: 2px solid currentColor;
+  }
+
+  /* Ensure text has sufficient contrast */
+  .text-muted-foreground {
+    color: hsl(var(--foreground)) !important;
+  }
+}
+
+/* Forced Colors Mode (Windows High Contrast) */
+@media (forced-colors: active) {
+  button,
+  a,
+  [role="button"] {
+    forced-color-adjust: none;
+    border: 2px solid ButtonText;
+  }
+
+  :focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
+/* ============================================================================
+   OFFLINE INDICATOR ANIMATION
+   ============================================================================ */
+
+@keyframes slide-down {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-down {
+  animation: slide-down 0.3s ease-out;
+}
+
+/* ============================================================================
+   iOS NATIVE APP SPECIFIC FIXES (Capacitor)
+   These fixes ensure proper rendering and interaction in native iOS wrapper
+   ============================================================================ */
+
+/* Prevent iOS from auto-zooming on input focus (font-size must be >= 16px) */
+input,
+select,
+textarea {
+  font-size: 16px !important;
+}
+
+/* iOS momentum scrolling for smooth scroll areas */
+.scroll-container,
+[data-radix-scroll-area-viewport],
+.overflow-y-auto,
+.overflow-x-auto,
+.overflow-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Disable iOS bounce/rubber-band effect on main scroll areas when needed */
+.no-bounce {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
+}
+
+/* Fix for iOS status bar overlap in standalone mode */
+@media (display-mode: standalone) {
+  body {
+    padding-top: constant(safe-area-inset-top); /* iOS 11.0-11.2 */
+    padding-top: env(safe-area-inset-top); /* iOS 11.3+ */
+  }
+
+  /* Ensure bottom nav accounts for home indicator */
+  .bottom-nav,
+  nav[class*="fixed"][class*="bottom"] {
+    padding-bottom: constant(safe-area-inset-bottom);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Fix input caret color on iOS */
+input,
+textarea {
+  caret-color: hsl(var(--primary));
+}
+
+/* Prevent iOS from styling form elements */
+input,
+textarea,
+select,
+button {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  border-radius: 0;
+}
+
+/* Re-apply appropriate border-radius after resetting appearance */
+input:not([type="checkbox"]):not([type="radio"]),
+textarea,
+select,
+button {
+  border-radius: var(--radius);
+}
+
+/* Fix for iOS keyboard pushing content */
+.keyboard-padding {
+  padding-bottom: var(--keyboard-height, 0px);
+  transition: padding-bottom 0.25s ease-out;
+}
+
+/* Ensure proper rendering of gradients on iOS */
+.gradient-fix {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
+
+/* iOS button text rendering fix */
+button {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Fix for iOS Safari not respecting overflow hidden on transformed elements */
+.transform-overflow-fix {
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+  mask-image: radial-gradient(white, black);
+}
+
+/* ============================================================================
+   CAPACITOR iOS NATIVE APP - STATUS BAR & SAFE AREA FIXES
+   Capacitor adds 'capacitor-ios' class to html element when running on iOS
+   ============================================================================ */
+
+/* Ensure the app background extends under the status bar */
+html.capacitor-ios {
+  /* Primary teal color to show under status bar */
+  background-color: #069494;
+}
+
+html.capacitor-ios body {
+  /* Let the gradient show under status bar */
+  background-color: transparent;
+}
+
+/* Make TimeOfDayBackground gradient extend under status bar */
+html.capacitor-ios .fixed.inset-x-0.top-0 {
+  /* Extend the gradient to fill the status bar area */
+  top: calc(-1 * env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Ensure main content accounts for status bar */
+html.capacitor-ios #root {
+  /* Add padding for safe area at top */
+  padding-top: env(safe-area-inset-top, 0px);
+  min-height: 100vh;
+  /* Prevent the teal background from showing through */
+  background: linear-gradient(180deg, #fef3c7 0%, #ffffff 30%);
+}
+
+/* Fix for status bar overlay - ensure content starts below status bar */
+html.capacitor-ios .pt-safe {
+  padding-top: env(safe-area-inset-top, 0px) !important;
+}
+
+/* Ensure headers don't get clipped by status bar */
+html.capacitor-ios header.sticky {
+  top: 0 !important;
+}
+
+/* Additional touch improvements for Capacitor iOS */
+html.capacitor-ios button,
+html.capacitor-ios [role="button"],
+html.capacitor-ios [role="tab"],
+html.capacitor-ios a {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Ensure Radix UI tabs work correctly in Capacitor */
+html.capacitor-ios [data-radix-collection-item] {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
