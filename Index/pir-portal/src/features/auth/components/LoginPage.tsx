@@ -36,8 +36,15 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle,
-  Anchor,
 } from 'lucide-react'
+
+// Import legal modals for unauthenticated display
+import { PrivacyPolicyModal } from '@/features/profile/modals/PrivacyPolicyModal'
+import { TermsModal } from '@/features/profile/modals/TermsModal'
+import { HealthDisclaimerModal } from '@/features/profile/modals/HealthDisclaimerModal'
+
+// Legal modal types
+type LegalModal = 'privacy' | 'terms' | 'health' | null
 
 // Validation schema
 const loginSchema = z.object({
@@ -59,6 +66,7 @@ export function LoginPage() {
   const [resetSent, setResetSent] = useState(false)
   const [resetLoading, setResetLoading] = useState(false)
   const [resetError, setResetError] = useState<string | null>(null)
+  const [legalModal, setLegalModal] = useState<LegalModal>(null)
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -76,11 +84,16 @@ export function LoginPage() {
       await signIn(data.email, data.password)
       navigate('/tasks')
     } catch (err: unknown) {
+      console.error('[LoginPage] Login error:', err)
       const errorMessage = err instanceof Error ? err.message : 'An error occurred. Please try again.'
-      setError(errorMessage)
-    } finally {
-      setIsLoading(false)
+      // Use setTimeout to ensure state update happens after any auth state changes
+      setTimeout(() => {
+        setError(errorMessage)
+        setIsLoading(false)
+      }, 100)
+      return // Skip the finally block
     }
+    setIsLoading(false)
   }
 
   const handleResetPassword = async () => {
@@ -114,8 +127,12 @@ export function LoginPage() {
   if (authLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-background to-muted">
-        <div className="p-4 rounded-full bg-primary/10 mb-4">
-          <Anchor className="h-10 w-10 text-primary animate-pulse" />
+        <div className="p-4 rounded-2xl bg-primary/10 mb-4">
+          <img
+            src="./assets/glrs-logo.png"
+            alt="GLRS"
+            className="h-12 w-12 object-contain animate-pulse"
+          />
         </div>
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
         <p className="mt-4 text-sm text-muted-foreground">Loading...</p>
@@ -128,11 +145,15 @@ export function LoginPage() {
       {/* Logo and Branding */}
       <div className="mb-8 text-center">
         <div className="flex items-center justify-center gap-3 mb-4">
-          <div className="p-3 rounded-full bg-primary/10">
-            <Anchor className="h-10 w-10 text-primary" />
+          <div className="p-3 rounded-2xl bg-primary/10">
+            <img
+              src="./assets/glrs-logo.png"
+              alt="GLRS"
+              className="h-12 w-12 object-contain"
+            />
           </div>
         </div>
-        <h1 className="text-2xl font-bold text-foreground">GLRS Lighthouse</h1>
+        <h1 className="text-2xl font-bold text-foreground">Recovery Compass</h1>
         <p className="text-muted-foreground mt-1">Your recovery journey companion</p>
       </div>
 
@@ -166,6 +187,7 @@ export function LoginPage() {
                     <FormControl>
                       <Input
                         type="email"
+                        inputMode="email"
                         placeholder="name@example.com"
                         autoComplete="email"
                         disabled={isLoading}
@@ -254,12 +276,46 @@ export function LoginPage() {
       <p className="mt-8 text-center text-sm text-muted-foreground">
         Need help? Contact your coach or{' '}
         <a
-          href="mailto:support@glrecoveryservices.com"
+          href="mailto:info@glrecoveryservices.com"
           className="text-primary hover:underline font-medium"
         >
-          support@glrecoveryservices.com
+          info@glrecoveryservices.com
         </a>
       </p>
+
+      {/* Legal Links */}
+      <div className="mt-4 flex items-center justify-center gap-3 text-xs text-muted-foreground flex-wrap">
+        <button
+          type="button"
+          onClick={() => setLegalModal('privacy')}
+          className="hover:text-primary hover:underline transition-colors"
+        >
+          Privacy Policy
+        </button>
+        <span>|</span>
+        <button
+          type="button"
+          onClick={() => setLegalModal('terms')}
+          className="hover:text-primary hover:underline transition-colors"
+        >
+          Terms & Conditions
+        </button>
+        <span>|</span>
+        <button
+          type="button"
+          onClick={() => setLegalModal('health')}
+          className="hover:text-primary hover:underline transition-colors"
+        >
+          Health Disclaimer
+        </button>
+        <span>|</span>
+        <a
+          href="/crisis-resources"
+          className="hover:text-primary hover:underline transition-colors"
+        >
+          Crisis Resources
+        </a>
+      </div>
 
       {/* Version/Copyright */}
       <p className="mt-4 text-xs text-muted-foreground">
@@ -299,6 +355,8 @@ export function LoginPage() {
 
               <Input
                 type="email"
+                inputMode="email"
+                autoComplete="email"
                 placeholder="name@example.com"
                 value={resetEmail}
                 onChange={(e) => setResetEmail(e.target.value)}
@@ -324,6 +382,17 @@ export function LoginPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Legal Modals */}
+      {legalModal === 'privacy' && (
+        <PrivacyPolicyModal onClose={() => setLegalModal(null)} />
+      )}
+      {legalModal === 'terms' && (
+        <TermsModal onClose={() => setLegalModal(null)} />
+      )}
+      {legalModal === 'health' && (
+        <HealthDisclaimerModal onClose={() => setLegalModal(null)} />
+      )}
     </div>
   )
 }

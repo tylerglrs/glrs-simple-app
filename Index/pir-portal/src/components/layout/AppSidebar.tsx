@@ -1,15 +1,17 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
-import { Button } from '@/components/ui/button'
+  GlassSidebar,
+  SidebarHeader,
+  SidebarNavItem,
+  SidebarSection,
+  SidebarDivider,
+  SidebarItemsContainer,
+  SidebarFooter,
+} from '@/components/ui/glass-sidebar'
 import {
   ClipboardList,
-  Compass,
-  Users,
+  Map,
   Calendar,
   Book,
   MessageSquare,
@@ -22,17 +24,25 @@ import {
   Bell,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { Separator } from '@/components/ui/separator'
+import { haptics } from '@/lib/animations'
+import { useModalStore } from '@/stores/modalStore'
+
+// =============================================================================
+// TYPES
+// =============================================================================
 
 interface AppSidebarProps {
   open: boolean
   onClose: () => void
 }
 
+// =============================================================================
+// NAVIGATION DATA
+// =============================================================================
+
 const mainNavItems = [
   { path: '/tasks', icon: ClipboardList, label: 'Tasks' },
-  { path: '/journey', icon: Compass, label: 'Journey' },
-  { path: '/community', icon: Users, label: 'Connect' },
+  { path: '/journey', icon: Map, label: 'Journey' },
   { path: '/meetings', icon: Calendar, label: 'Meetings' },
   { path: '/resources', icon: Book, label: 'Guides' },
   { path: '/messages', icon: MessageSquare, label: 'Messages' },
@@ -44,16 +54,30 @@ const quickActions = [
   { path: '/journey?view=goals', icon: Target, label: 'My Goals' },
 ]
 
+const bottomNavItems = [
+  { path: '/profile', icon: User, label: 'Profile' },
+  { path: '/profile/settings', icon: Settings, label: 'Settings' },
+  { path: '/notifications', icon: Bell, label: 'Notifications' },
+]
+
+// =============================================================================
+// COMPONENT
+// =============================================================================
+
 export function AppSidebar({ open, onClose }: AppSidebarProps) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { logOut } = useAuth()
+  const openModal = useModalStore((state) => state.openModal)
 
   const handleNavigation = (path: string) => {
+    haptics.tap()
     navigate(path)
     onClose()
   }
 
   const handleLogOut = async () => {
+    haptics.tap()
     try {
       await logOut()
       navigate('/login')
@@ -62,99 +86,140 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
     }
   }
 
+  const isActive = (path: string) => {
+    // Handle paths with query params
+    const basePath = path.split('?')[0]
+    return location.pathname === basePath || location.pathname.startsWith(basePath + '/')
+  }
+
   return (
-    <Sheet open={open} onOpenChange={onClose}>
-      <SheetContent side="left" className="w-[280px] sm:w-[320px] p-0">
-        <SheetHeader className="p-4 pb-2">
-          <SheetTitle className="flex items-center gap-2 text-left">
-            <Compass className="h-6 w-6 text-primary" />
-            GLRS Lighthouse
-          </SheetTitle>
-        </SheetHeader>
+    <GlassSidebar
+      open={open}
+      onOpenChange={(isOpen) => !isOpen && onClose()}
+      side="left"
+      size="md"
+      variant="navigation"
+    >
+      <SidebarHeader
+        variant="gradient"
+        title="Recovery Compass"
+        subtitle="Your recovery companion"
+        logoSrc="./assets/glrs-logo.png"
+        onClose={onClose}
+        showCloseButton
+      />
 
-        <div className="flex flex-col h-[calc(100vh-80px)]">
-          {/* Main Navigation */}
-          <nav className="flex-1 p-2">
-            <div className="space-y-1">
-              {mainNavItems.map((item) => {
-                const Icon = item.icon
-                return (
-                  <Button
-                    key={item.path}
-                    variant="ghost"
-                    className="w-full justify-start gap-3 h-11"
-                    onClick={() => handleNavigation(item.path)}
-                  >
-                    <Icon className="h-5 w-5" />
-                    {item.label}
-                  </Button>
-                )
-              })}
-            </div>
+      <ScrollArea className="flex-1">
+        <div className="p-3">
+          <SidebarItemsContainer>
+            {/* Main Navigation */}
+            <SidebarSection>
+              {mainNavItems.map((item) => (
+                <SidebarNavItem
+                  key={item.path}
+                  icon={item.icon}
+                  label={item.label}
+                  onClick={() => handleNavigation(item.path)}
+                  active={isActive(item.path)}
+                />
+              ))}
+            </SidebarSection>
 
-            <Separator className="my-4" />
+            <SidebarDivider />
 
             {/* Quick Actions */}
-            <div className="space-y-1">
-              <p className="px-3 text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                Quick Actions
-              </p>
-              {quickActions.map((item) => {
-                const Icon = item.icon
-                return (
-                  <Button
-                    key={item.path}
-                    variant="ghost"
-                    className="w-full justify-start gap-3 h-10 text-sm"
-                    onClick={() => handleNavigation(item.path)}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </Button>
-                )
-              })}
-            </div>
-          </nav>
+            <SidebarSection title="Quick Actions" gradient="from-teal-500 to-emerald-500">
+              {quickActions.map((item) => (
+                <SidebarNavItem
+                  key={item.path}
+                  icon={item.icon}
+                  label={item.label}
+                  onClick={() => handleNavigation(item.path)}
+                />
+              ))}
+            </SidebarSection>
 
-          {/* Bottom Actions */}
-          <div className="p-2 border-t">
-            <Button
-              variant="ghost"
-              className="w-full justify-start gap-3 h-10"
-              onClick={() => handleNavigation('/profile')}
-            >
-              <User className="h-5 w-5" />
-              Profile
-            </Button>
-            <Button
-              variant="ghost"
-              className="w-full justify-start gap-3 h-10"
-              onClick={() => handleNavigation('/profile/settings')}
-            >
-              <Settings className="h-5 w-5" />
-              Settings
-            </Button>
-            <Button
-              variant="ghost"
-              className="w-full justify-start gap-3 h-10"
-              onClick={() => handleNavigation('/notifications')}
-            >
-              <Bell className="h-5 w-5" />
-              Notifications
-            </Button>
-            <Separator className="my-2" />
-            <Button
-              variant="ghost"
-              className="w-full justify-start gap-3 h-10 text-destructive hover:text-destructive"
-              onClick={handleLogOut}
-            >
-              <LogOut className="h-5 w-5" />
-              Log Out
-            </Button>
-          </div>
+            <SidebarDivider />
+
+            {/* Bottom Items */}
+            <SidebarSection>
+              {bottomNavItems.map((item) => (
+                <SidebarNavItem
+                  key={item.path}
+                  icon={item.icon}
+                  label={item.label}
+                  onClick={() => handleNavigation(item.path)}
+                  active={isActive(item.path)}
+                />
+              ))}
+              <SidebarNavItem
+                icon={LogOut}
+                label="Log Out"
+                onClick={handleLogOut}
+                destructive
+              />
+            </SidebarSection>
+          </SidebarItemsContainer>
         </div>
-      </SheetContent>
-    </Sheet>
+      </ScrollArea>
+
+      <SidebarFooter>
+        <div className="p-3 space-y-2">
+          <div className="flex items-center justify-center gap-2 text-[10px] text-muted-foreground flex-wrap">
+            <button
+              type="button"
+              onClick={() => {
+                haptics.tap()
+                openModal('privacyPolicy')
+                onClose()
+              }}
+              className="hover:text-primary transition-colors"
+            >
+              Privacy
+            </button>
+            <span>|</span>
+            <button
+              type="button"
+              onClick={() => {
+                haptics.tap()
+                openModal('termsConditions')
+                onClose()
+              }}
+              className="hover:text-primary transition-colors"
+            >
+              Terms
+            </button>
+            <span>|</span>
+            <button
+              type="button"
+              onClick={() => {
+                haptics.tap()
+                openModal('healthDisclaimer')
+                onClose()
+              }}
+              className="hover:text-primary transition-colors"
+            >
+              Health
+            </button>
+            <span>|</span>
+            <button
+              type="button"
+              onClick={() => {
+                haptics.tap()
+                navigate('/crisis-resources')
+                onClose()
+              }}
+              className="hover:text-primary transition-colors"
+            >
+              Crisis Help
+            </button>
+          </div>
+          <p className="text-[10px] text-center text-muted-foreground/60">
+            Recovery Compass v2.0
+          </p>
+        </div>
+      </SidebarFooter>
+    </GlassSidebar>
   )
 }
 

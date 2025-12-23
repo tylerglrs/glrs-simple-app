@@ -6,8 +6,8 @@ import { staggerContainer, staggerItem, haptics } from '@/lib/animations'
 import type { ResourceCategory } from '../hooks/useResources'
 import type { IllustrationType } from '@/components/common/Illustration'
 
-// Base path for illustrations
-const BASE_PATH = '/Index/pir-portal/dist'
+// Base path for illustrations (use relative for Capacitor compatibility)
+const BASE_PATH = '.'
 
 interface CategoryGridProps {
   categories: ResourceCategory[]
