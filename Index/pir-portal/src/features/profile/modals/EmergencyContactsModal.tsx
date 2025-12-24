@@ -52,7 +52,6 @@ import {
   UserPlus,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -111,8 +110,6 @@ export function EmergencyContactsModal({ onClose }: EmergencyContactsModalProps)
   const { user, userData } = useAuth()
   const { toast } = useToast()
 
-  // Set iOS status bar to match modal header color (violet-600)
-  useStatusBarColor('#7C3AED', true)
 
   // Get extended user data
   const extendedUserData = userData as unknown as Record<string, unknown> | null

@@ -872,47 +872,26 @@ button {
 
 /* ============================================================================
    CAPACITOR iOS NATIVE APP - STATUS BAR & SAFE AREA FIXES
-   Capacitor adds 'capacitor-ios' class to html element when running on iOS
+
+   Strategy: contentInset: 'never' in capacitor.config.ts means we handle all
+   safe areas ourselves. Gradients extend edge-to-edge, content gets pt-safe.
    ============================================================================ */
 
-/* Ensure the app background extends under the status bar */
-html.capacitor-ios {
-  /* Primary teal color to show under status bar */
-  background-color: #069494;
-}
-
+/* Prevent WebView bounce/overscroll */
+html.capacitor-ios,
 html.capacitor-ios body {
-  /* Let the gradient show under status bar */
-  background-color: transparent;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
 }
 
-/* Make TimeOfDayBackground gradient extend under status bar */
-html.capacitor-ios .fixed.inset-x-0.top-0 {
-  /* Extend the gradient to fill the status bar area */
-  top: calc(-1 * env(safe-area-inset-top, 0px));
-  padding-top: env(safe-area-inset-top, 0px);
-}
-
-/* Ensure main content accounts for status bar */
+/* Root container - NO padding, NO background (let gradients handle it) */
 html.capacitor-ios #root {
-  /* Add padding for safe area at top */
-  padding-top: env(safe-area-inset-top, 0px);
   min-height: 100vh;
-  /* Prevent the teal background from showing through */
-  background: linear-gradient(180deg, #fef3c7 0%, #ffffff 30%);
+  /* No padding-top here - components add pt-safe where needed */
+  /* No background here - TimeOfDayBackground/ProfileHeader provide backgrounds */
 }
 
-/* Fix for status bar overlay - ensure content starts below status bar */
-html.capacitor-ios .pt-safe {
-  padding-top: env(safe-area-inset-top, 0px) !important;
-}
-
-/* Ensure headers don't get clipped by status bar */
-html.capacitor-ios header.sticky {
-  top: 0 !important;
-}
-
-/* Additional touch improvements for Capacitor iOS */
+/* Touch improvements for Capacitor iOS */
 html.capacitor-ios button,
 html.capacitor-ios [role="button"],
 html.capacitor-ios [role="tab"],
@@ -927,4 +906,86 @@ html.capacitor-ios [data-radix-collection-item] {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+}
+
+/* ============================================================================
+   iOS STATUS BAR VISUAL INTEGRATION (CSS-Only Approach)
+
+   Strategy: Instead of changing the iOS status bar color (impossible since iOS 7),
+   we extend modal headers BEHIND the transparent status bar. This creates the
+   illusion of a colored status bar by having the header's gradient show through.
+
+   How it works:
+   1. negative margin-top pulls the header up into the status bar zone
+   2. extra padding-top pushes content down so it doesn't overlap status bar text
+   3. The header's gradient/background shows through the transparent status bar
+
+   Visual:
+   ┌─────────────────────────────────────┐
+   │ 9:41              📶  100%          │ ← Status bar (transparent)
+   │ ████████ PURPLE GRADIENT ████████   │ ← Header extends behind status bar!
+   │     📋 My Modal Title               │ ← Content with proper padding
+   └─────────────────────────────────────┘
+   ============================================================================ */
+
+/* Utility class for modal headers that should extend behind status bar */
+/* Only applies on Capacitor iOS native app */
+html.capacitor-ios .extend-behind-status-bar {
+  /* Pull the header UP into the safe area (status bar zone) */
+  margin-top: calc(-1 * env(safe-area-inset-top, 0px));
+  /* Add extra padding so content doesn't go under status bar text */
+  padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
+}
+
+/* Alternative: Just add the top padding without negative margin */
+html.capacitor-ios .pt-status-bar {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
+}
+
+/* For elements that need safe area padding only */
+html.capacitor-ios .pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* ============================================================================
+   AUTO-APPLY TO MODAL HEADERS IN SHEETS/RESPONSIVE MODALS
+
+   These selectors automatically apply the status bar extension to gradient
+   headers in bottom sheets (ResponsiveModal on mobile).
+
+   Targets: Any gradient header inside a Sheet (bottom sheet modal)
+   ============================================================================ */
+
+/* Auto-extend gradient headers in bottom sheets on Capacitor iOS */
+html.capacitor-ios [data-radix-dialog-content] > div:first-child > .bg-gradient-to-r:first-child,
+html.capacitor-ios [data-vaul-drawer-content] > div:first-child > .bg-gradient-to-r:first-child,
+html.capacitor-ios [role="dialog"] > div:first-child > .bg-gradient-to-r:first-child {
+  margin-top: calc(-1 * env(safe-area-inset-top, 0px));
+  padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
+}
+
+/* Also target the common modal structure: modal > wrapper > header */
+html.capacitor-ios [data-radix-dialog-content] > div > div:first-child[class*="bg-gradient"],
+html.capacitor-ios [data-vaul-drawer-content] > div > div:first-child[class*="bg-gradient"],
+html.capacitor-ios [role="dialog"] > div > div:first-child[class*="bg-gradient"] {
+  margin-top: calc(-1 * env(safe-area-inset-top, 0px));
+  padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
+}
+
+/* Target Sheet content specifically (ResponsiveModal uses Sheet on mobile) */
+html.capacitor-ios [data-vaul-drawer] [class*="bg-gradient-to-r"]:first-child {
+  margin-top: calc(-1 * env(safe-area-inset-top, 0px));
+  padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
+}
+
+/* ============================================================================
+   FALLBACK: Desktop/Web browsers should NOT apply these styles
+   ============================================================================ */
+
+/* Only apply when NOT on Capacitor iOS (for safety) */
+html:not(.capacitor-ios) .extend-behind-status-bar,
+html:not(.capacitor-ios) .pt-status-bar {
+  /* Reset to normal padding on web */
+  margin-top: 0;
+  padding-top: 1rem;
 }

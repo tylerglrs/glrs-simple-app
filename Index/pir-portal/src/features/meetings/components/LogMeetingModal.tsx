@@ -15,7 +15,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { DAYS_OF_WEEK } from '../types'
 
 // ============================================================
@@ -123,8 +122,6 @@ export function LogMeetingModal({
   programName,
   hideTypeSelector = false,
 }: LogMeetingModalProps) {
-  // Set iOS status bar to match modal header color (teal-600)
-  useStatusBarColor('#0D9488', isOpen)
 
   // Tab state
   const [activeTab, setActiveTab] = useState<TabValue>('schedule')

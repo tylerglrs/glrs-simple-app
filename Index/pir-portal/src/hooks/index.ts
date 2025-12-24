@@ -166,11 +166,3 @@ export { usePushNotifications, type NotificationPreferences } from './useNotific
 
 // Capacitor/Native Platform hooks
 export { useCapacitor } from './useCapacitor'
-
-// Status Bar Color hook (for modal header matching)
-export {
-  useStatusBarColor,
-  getDefaultStatusBarColor,
-  setStatusBar,
-  resetStatusBar,
-} from './useStatusBarColor'

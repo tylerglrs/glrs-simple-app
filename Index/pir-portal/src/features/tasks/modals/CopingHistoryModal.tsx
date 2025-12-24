@@ -21,7 +21,6 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { db, auth } from '@/lib/firebase'
 import { collection, query, where, orderBy, onSnapshot, Timestamp } from 'firebase/firestore'
 import { haptics } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -197,8 +196,6 @@ function StatCard({ icon: Icon, value, label, gradient, index }: StatCardProps) 
 export function CopingHistoryModal({ onClose }: CopingHistoryModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
 
-  // Set iOS status bar to match modal header color (teal-500)
-  useStatusBarColor('#14B8A6', true)
 
   const [entries, setEntries] = useState<CopingEntry[]>([])
   const [loading, setLoading] = useState(true)

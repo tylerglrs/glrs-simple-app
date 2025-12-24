@@ -43,7 +43,6 @@ import { cn } from '@/lib/utils'
 import { useState, useMemo } from 'react'
 import { RECOVERY_PROGRAMS } from '@/features/journey/types/recovery'
 import { getUserTimezone } from '@/lib/timezone'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // CONSTANTS
@@ -127,9 +126,6 @@ export function RecoveryInfoModal({ onClose }: RecoveryInfoModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showDailyCostWarning, setShowDailyCostWarning] = useState(false)
   const [pendingUpdates, setPendingUpdates] = useState<Record<string, unknown> | null>(null)
-
-  // Set iOS status bar to match modal header color (emerald-600)
-  useStatusBarColor('#059669', true)
 
   // Get user's timezone
   const userTimezone = useMemo(() => getUserTimezone(userData), [userData])

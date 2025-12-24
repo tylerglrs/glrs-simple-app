@@ -24,7 +24,6 @@ import { Illustration } from '@/components/common/Illustration'
 import { useModalStore } from '@/stores/modalStore'
 import { useHabits } from '../hooks/useTasksModalData'
 import { haptics, celebrate } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -108,8 +107,6 @@ export function HabitModal({ onClose }: HabitModalProps) {
   const { habits, loading, completeHabit, isHabitCompletedToday } = useHabits()
   const { openModal } = useModalStore()
 
-  // Set iOS status bar to match modal header color (teal-500)
-  useStatusBarColor('#14B8A6', true)
 
   const [completingId, setCompletingId] = useState<string | null>(null)
 

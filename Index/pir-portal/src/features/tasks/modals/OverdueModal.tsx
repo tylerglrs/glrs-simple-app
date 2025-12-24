@@ -11,7 +11,6 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useGoalsData, formatDate } from '../hooks/useGoalsData'
 import { Timestamp } from 'firebase/firestore'
 import { haptics } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -81,8 +80,6 @@ export function OverdueModal({ onClose }: OverdueModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { assignments, loading, completeAssignment } = useGoalsData()
 
-  // Set iOS status bar to match modal header color (red-500)
-  useStatusBarColor('#EF4444', true)
 
   // Get today at midnight
   const today = new Date()

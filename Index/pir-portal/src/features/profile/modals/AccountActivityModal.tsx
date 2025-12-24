@@ -37,7 +37,6 @@ import {
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import { db } from '@/lib/firebase'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import {
   collection,
   query,
@@ -140,8 +139,6 @@ export function AccountActivityModal({ onClose }: AccountActivityModalProps) {
   const { user, userData } = useAuth()
   const { toast } = useToast()
 
-  // Set iOS status bar to match modal header color (amber-600)
-  useStatusBarColor('#D97706', true)
 
   // State
   const [isLoading, setIsLoading] = useState(true)

@@ -45,7 +45,6 @@ import type { ScheduledMeeting } from '@/features/meetings/types'
 import { DAYS_OF_WEEK } from '@/features/meetings/types'
 import { toMeetingCardData, PROGRAM_TYPE_COLORS } from '@/features/meetings/utils/toMeetingCardData'
 import { MEETING_MILESTONES, PROGRAM_MILESTONE_COLORS } from '@/features/journey/types/recovery'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -374,8 +373,6 @@ export function RecoveryMeetingsModal({ isOpen, onClose }: RecoveryMeetingsModal
   const { toast } = useToast()
   const isMobile = useMediaQuery('(max-width: 768px)')
 
-  // Set iOS status bar to match modal header color (teal-600)
-  useStatusBarColor('#0D9488', isOpen)
 
   // Tab state
   const [activeTab, setActiveTab] = useState<TabValue>('logged')

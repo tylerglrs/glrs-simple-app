@@ -39,7 +39,6 @@ import {
   Send,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES & OPTIONS
@@ -81,9 +80,6 @@ interface FeedbackModalProps {
 export function FeedbackModal({ onClose }: FeedbackModalProps) {
   const { user, userData } = useAuth()
   const { toast } = useToast()
-
-  // Set iOS status bar to match modal header color (violet-500)
-  useStatusBarColor('#8B5CF6', true)
 
   // Get extended user data
   const extendedUserData = userData as unknown as Record<string, unknown> | null

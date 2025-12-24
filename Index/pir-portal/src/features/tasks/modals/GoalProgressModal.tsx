@@ -11,7 +11,6 @@ import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useGoalsData } from '../hooks/useGoalsData'
 import { haptics } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { Illustration } from '@/components/common/Illustration'
 
 // =============================================================================
@@ -87,8 +86,6 @@ export function GoalProgressModal({ onClose }: GoalProgressModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { goalsWithChildren, stats, loading } = useGoalsData()
 
-  // Set iOS status bar to match modal header color (teal-500)
-  useStatusBarColor('#14B8A6', true)
 
   const handleShareGoal = async (goalName: string) => {
     haptics.success()

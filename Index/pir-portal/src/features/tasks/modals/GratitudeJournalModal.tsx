@@ -29,7 +29,6 @@ import {
 } from 'firebase/firestore'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { haptics } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { useModalStore } from '@/stores/modalStore'
 import { Illustration } from '@/components/common/Illustration'
 
@@ -142,8 +141,6 @@ export function GratitudeJournalModal({ onClose }: GratitudeJournalModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { openModal } = useModalStore()
 
-  // Set iOS status bar to match modal header color (rose-500)
-  useStatusBarColor('#F43F5E', true)
 
   const [entries, setEntries] = useState<GratitudeEntry[]>([])
   const [loading, setLoading] = useState(true)

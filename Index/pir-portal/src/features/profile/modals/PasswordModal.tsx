@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
@@ -56,8 +55,6 @@ export function PasswordModal({
   const { user } = useAuth()
   const { toast } = useToast()
 
-  // Set iOS status bar to match modal header color (gray-700)
-  useStatusBarColor('#374151', true)
 
   // State
   const [isVerifying, setIsVerifying] = useState(false)

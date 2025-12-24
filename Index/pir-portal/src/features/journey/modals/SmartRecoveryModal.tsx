@@ -27,7 +27,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { cn } from '@/lib/utils'
 import { Illustration } from '@/components/common/Illustration'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import {
   SMART_POINTS,
   SMART_STAGES,
@@ -67,8 +66,6 @@ export function SmartRecoveryModal({ isOpen, onClose }: SmartRecoveryModalProps)
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
 
-  // Set iOS status bar to match modal header color (green-600)
-  useStatusBarColor('#16A34A', isOpen)
   const [saving, setSaving] = useState(false)
   const [expandedPoint, setExpandedPoint] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState<'4point' | 'stages' | 'cba' | 'plan'>('4point')

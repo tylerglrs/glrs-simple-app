@@ -34,7 +34,6 @@ import {
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import { signOut } from 'firebase/auth'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { auth } from '@/lib/firebase'
 import { useModalStore } from '@/stores/modalStore'
 
@@ -61,8 +60,6 @@ export function DataManagementModal({ onClose }: DataManagementModalProps) {
   const { toast } = useToast()
   const { openModal } = useModalStore()
 
-  // Set iOS status bar to match modal header color (gray-700)
-  useStatusBarColor('#374151', true)
 
   // State
   const [isClearing, setIsClearing] = useState(false)

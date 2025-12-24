@@ -20,7 +20,6 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useGoalsData, getDueDateStatus } from '../hooks/useGoalsData'
 import { Timestamp } from 'firebase/firestore'
 import { haptics } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -94,8 +93,6 @@ export function ThisWeekModal({ onClose }: ThisWeekModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { assignments, loading, completeAssignment } = useGoalsData()
 
-  // Set iOS status bar to match modal header color (teal-500)
-  useStatusBarColor('#14B8A6', true)
 
   // Get this week's date range
   const today = new Date()

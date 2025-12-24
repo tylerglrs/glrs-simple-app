@@ -21,7 +21,6 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useCheckInStats, type PatternData } from '../hooks/useTasksModalData'
 import { useCheckInsQuery } from '@/hooks/queries'
 import { haptics } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -94,8 +93,6 @@ export function MoodPatternModal({ onClose }: MoodPatternModalProps) {
   // Use useCheckInStats for trend, dataPoints, insights (pattern analysis)
   const { moodPattern, loading: statsLoading } = useCheckInStats()
 
-  // Set iOS status bar to match modal header color (yellow-400)
-  useStatusBarColor('#FACC15', true)
 
   const loading = queryLoading || statsLoading
   // Use 7-day average from useCheckInsQuery (matches card)

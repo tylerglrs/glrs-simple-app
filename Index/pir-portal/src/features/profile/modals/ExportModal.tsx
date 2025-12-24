@@ -34,7 +34,6 @@ import {
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
 import { db } from '@/lib/firebase'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import {
   collection,
   query,
@@ -102,8 +101,6 @@ export function ExportModal({ onClose }: ExportModalProps) {
   const { user } = useAuth()
   const { toast } = useToast()
 
-  // Set iOS status bar to match modal header color (teal-600)
-  useStatusBarColor('#0D9488', true)
 
   // State
   const [dateRange, setDateRange] = useState<DateRange>('all')

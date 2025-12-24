@@ -10,7 +10,6 @@ import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useGoalsData, formatDate } from '../hooks/useGoalsData'
 import { haptics, achievementCelebration } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -84,8 +83,6 @@ export function CompleteModal({ onClose }: CompleteModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { assignments, loading, completeAssignment } = useGoalsData()
 
-  // Set iOS status bar to match modal header color (green-500)
-  useStatusBarColor('#22C55E', true)
 
   // Filter incomplete assignments
   const incompleteAssignments = assignments.filter(

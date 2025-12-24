@@ -28,7 +28,6 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { db, auth } from '@/lib/firebase'
 import { collection, query, where, getDocs, Timestamp, doc, getDoc } from 'firebase/firestore'
 import { haptics } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -226,8 +225,6 @@ function StatCard({ icon: Icon, label, value, sublabel, gradient, iconColor, onC
 export function DailyOverviewModal({ onClose, onOpenModal }: DailyOverviewModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
 
-  // Set iOS status bar to match modal header color (teal-500)
-  useStatusBarColor('#14B8A6', true)
 
   const [stats, setStats] = useState<DailyStats>({
     morningCheckIn: false,

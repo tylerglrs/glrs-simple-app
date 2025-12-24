@@ -30,7 +30,6 @@ import { Separator } from '@/components/ui/separator'
 import { User, Phone, MapPin, Settings, Loader2 } from 'lucide-react'
 import { useState, useCallback } from 'react'
 import { AddressAutocomplete, type AddressComponents } from '@/components/common/AddressAutocomplete'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // VALIDATION SCHEMA
@@ -117,9 +116,6 @@ export function PersonalInfoModal({ onClose }: PersonalInfoModalProps) {
   const { user, userData } = useAuth()
   const { toast } = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
-
-  // Set iOS status bar to match modal header color
-  useStatusBarColor('#058585', true)
 
   // Get user's current timezone or detect it
   const getUserTimezone = () => {

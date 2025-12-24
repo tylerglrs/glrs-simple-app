@@ -24,7 +24,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Lock, Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // VALIDATION SCHEMA
@@ -87,9 +86,6 @@ interface PasswordChangeModalProps {
 export function PasswordChangeModal({ onClose }: PasswordChangeModalProps) {
   const { user } = useAuth()
   const { toast } = useToast()
-
-  // Set iOS status bar to match modal header color (indigo-600)
-  useStatusBarColor('#4F46E5', true)
 
   // State
   const [isSubmitting, setIsSubmitting] = useState(false)

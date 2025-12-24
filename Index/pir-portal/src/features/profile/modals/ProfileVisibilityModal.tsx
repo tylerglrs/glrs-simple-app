@@ -43,7 +43,6 @@ import {
 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { useState, useEffect } from 'react'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -150,8 +149,6 @@ export function ProfileVisibilityModal({ onClose }: ProfileVisibilityModalProps)
   const { user, userData } = useAuth()
   const { toast } = useToast()
 
-  // Set iOS status bar to match modal header color (blue-600)
-  useStatusBarColor('#2563EB', true)
 
   // Get extended user data
   const extendedUserData = userData as Record<string, unknown> | null

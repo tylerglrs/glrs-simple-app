@@ -27,7 +27,6 @@ import {
   CheckCircle2,
 } from 'lucide-react'
 import { usePushNotifications, type NotificationPreferences } from '@/hooks/useNotifications'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // NOTIFICATION TYPE CONFIG
@@ -82,8 +81,6 @@ interface NotificationSettingsModalProps {
 }
 
 export function NotificationSettingsModal({ onClose }: NotificationSettingsModalProps) {
-  // Set iOS status bar to match modal header color (amber-500)
-  useStatusBarColor('#F59E0B', true)
 
   const {
     preferences,

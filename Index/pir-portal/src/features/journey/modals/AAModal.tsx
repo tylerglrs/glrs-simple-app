@@ -30,7 +30,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { cn } from '@/lib/utils'
 import { Illustration } from '@/components/common/Illustration'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import {
   TWELVE_STEPS,
   TWELVE_TRADITIONS,
@@ -75,8 +74,6 @@ export function AAModal({ isOpen, onClose }: AAModalProps) {
   const { user, userData } = useAuth()
   const [loading, setLoading] = useState(true)
 
-  // Set iOS status bar to match modal header color (blue-600)
-  useStatusBarColor('#2563EB', isOpen)
   const [saving, setSaving] = useState(false)
   const [expandedStep, setExpandedStep] = useState<number | null>(null)
   const [expandedTradition, setExpandedTradition] = useState<number | null>(null)

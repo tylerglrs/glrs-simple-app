@@ -31,7 +31,6 @@ import { GraduationCap, School, BookOpen, Award, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
 import { EDUCATION_LEVELS } from '@/features/journey/types/recovery'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // VALIDATION SCHEMA
@@ -65,8 +64,6 @@ export function EducationInfoModal({ onClose }: EducationInfoModalProps) {
   const { toast } = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Set iOS status bar to match modal header color (emerald-600)
-  useStatusBarColor('#059669', true)
 
   // Get userData with type casting for extended fields
   const extendedUserData = userData as Record<string, unknown> | null

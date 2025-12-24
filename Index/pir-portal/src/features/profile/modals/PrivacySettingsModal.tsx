@@ -55,7 +55,6 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -109,8 +108,6 @@ export function PrivacySettingsModal({ onClose }: PrivacySettingsModalProps) {
   const { user, userData } = useAuth()
   const { toast } = useToast()
 
-  // Set iOS status bar to match modal header color (red-600)
-  useStatusBarColor('#DC2626', true)
 
   // Get extended user data with privacy settings
   const extendedUserData = userData as Record<string, unknown> | null

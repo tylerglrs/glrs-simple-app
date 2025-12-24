@@ -30,7 +30,6 @@ import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useHabits } from '../hooks/useTasksModalData'
 import { haptics } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { doc, updateDoc, Timestamp } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 
@@ -84,8 +83,6 @@ export function ManageHabitsModal({ onClose }: ManageHabitsModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { habits: firestoreHabits, loading, addHabit } = useHabits()
 
-  // Set iOS status bar to match modal header color (slate-700)
-  useStatusBarColor('#334155', true)
 
   // Local state for optimistic UI updates
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set())

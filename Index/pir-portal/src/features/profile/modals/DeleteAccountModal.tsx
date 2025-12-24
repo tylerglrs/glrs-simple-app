@@ -32,7 +32,6 @@ import {
   XCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // DATA DELETION LIST
@@ -80,8 +79,6 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
   const { user } = useAuth()
   const { toast } = useToast()
 
-  // Set iOS status bar to match modal header color (teal-600)
-  useStatusBarColor('#0D9488', true)
 
   // State
   const [isDeleting, setIsDeleting] = useState(false)

@@ -28,7 +28,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { NA_STEPS, type NAProgress } from '../types/recovery'
 
 // =============================================================================
@@ -69,8 +68,6 @@ export function NAModal({ isOpen, onClose }: NAModalProps) {
   const { user, userData } = useAuth()
   const [loading, setLoading] = useState(true)
 
-  // Set iOS status bar to match modal header color (purple-600)
-  useStatusBarColor('#9333EA', isOpen)
   const [saving, setSaving] = useState(false)
   const [expandedStep, setExpandedStep] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState<'steps' | 'sponsor' | '90in90' | 'literature'>('steps')

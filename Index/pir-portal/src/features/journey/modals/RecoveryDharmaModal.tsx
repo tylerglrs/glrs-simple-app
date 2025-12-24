@@ -27,7 +27,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { cn } from '@/lib/utils'
 import { Illustration } from '@/components/common/Illustration'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import {
   DHARMA_ELEMENTS,
   EIGHTFOLD_PATH,
@@ -53,8 +52,6 @@ export function RecoveryDharmaModal({ isOpen, onClose }: RecoveryDharmaModalProp
   const { user, userData } = useAuth()
   const [loading, setLoading] = useState(true)
 
-  // Set iOS status bar to match modal header color (orange-600)
-  useStatusBarColor('#EA580C', isOpen)
   const [saving, setSaving] = useState(false)
   const [expandedElement, setExpandedElement] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'elements' | 'path' | 'meditation' | 'sangha'>('elements')

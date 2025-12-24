@@ -18,7 +18,6 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import type { Meeting } from '../types'
 import { toMeetingCardData } from '../utils/toMeetingCardData'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // ============================================================
 // TYPES
@@ -56,8 +55,6 @@ export function WeekSelectorModal({
   onConfirm,
   isLoading = false,
 }: WeekSelectorModalProps) {
-  // Set iOS status bar to match modal header color (purple-600)
-  useStatusBarColor('#9333EA', isOpen)
 
   const [weeks, setWeeks] = useState(4) // Default to 4 weeks
 

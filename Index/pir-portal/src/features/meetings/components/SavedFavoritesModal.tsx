@@ -42,7 +42,6 @@ import {
 import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useToast } from '@/hooks/use-toast'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { Illustration } from '@/components/common/Illustration'
 import type { SavedMeeting } from '../hooks/useSavedMeetings'
 import { toMeetingCardData, type MeetingCardData } from '../utils/toMeetingCardData'
@@ -302,8 +301,6 @@ export function SavedFavoritesModal({
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { toast } = useToast()
 
-  // Set iOS status bar to match modal header color (amber-500)
-  useStatusBarColor('#F59E0B', isOpen)
 
   const [activeTab, setActiveTab] = useState<'saved' | 'favorites'>('saved')
   const [deletingId, setDeletingId] = useState<string | null>(null)

@@ -21,7 +21,6 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useCheckInStats } from '../hooks/useTasksModalData'
 import { useGoalsData } from '../hooks/useGoalsData'
 import { haptics } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -138,8 +137,6 @@ export function StatsModal({ onClose }: StatsModalProps) {
   const { weeklyStats, streakData, loading: checkInLoading } = useCheckInStats()
   const { stats: goalStats, loading: goalsLoading } = useGoalsData()
 
-  // Set iOS status bar to match modal header color (teal-500)
-  useStatusBarColor('#14B8A6', true)
 
   const loading = checkInLoading || goalsLoading
 

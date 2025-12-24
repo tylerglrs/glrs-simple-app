@@ -35,7 +35,6 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { haptics, celebrate } from '@/lib/animations'
 import { useModalStore } from '@/stores/modalStore'
 import { Illustration } from '@/components/common/Illustration'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -118,8 +117,6 @@ export function GratitudeModal({ onClose }: GratitudeModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { openModal } = useModalStore()
 
-  // Set iOS status bar to match modal header color (pink-500)
-  useStatusBarColor('#EC4899', true)
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null)
   const [gratitudeText, setGratitudeText] = useState('')
   const [submitting, setSubmitting] = useState(false)

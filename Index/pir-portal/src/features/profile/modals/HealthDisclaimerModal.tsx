@@ -10,16 +10,12 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent } from '@/components/ui/card'
 import { AlertTriangle, Heart, Phone, Sparkles, CheckCircle } from 'lucide-react'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 interface HealthDisclaimerModalProps {
   onClose: () => void
 }
 
 export function HealthDisclaimerModal({ onClose }: HealthDisclaimerModalProps) {
-  // Set iOS status bar to match modal header color (amber-500)
-  useStatusBarColor('#F59E0B', true)
-
   return (
     <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="md">
       <div className="flex flex-col h-full bg-white overflow-hidden">

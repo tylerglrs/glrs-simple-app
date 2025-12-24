@@ -9,16 +9,12 @@ import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { FileText } from 'lucide-react'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 interface TermsModalProps {
   onClose: () => void
 }
 
 export function TermsModal({ onClose }: TermsModalProps) {
-  // Set iOS status bar to match modal header color (slate-600)
-  useStatusBarColor('#475569', true)
-
   return (
     <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="lg">
       <div className="flex flex-col h-full bg-white overflow-hidden">

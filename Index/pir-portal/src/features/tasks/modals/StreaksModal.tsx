@@ -20,7 +20,6 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useCheckInsQuery } from '@/hooks/queries'
 import { Illustration } from '@/components/common/Illustration'
 import { haptics } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -129,8 +128,6 @@ export function StreaksModal({ onClose }: StreaksModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { checkInStreak, checkInStreakData, weeklyStats, loading } = useCheckInsQuery()
 
-  // Set iOS status bar to match modal header color (orange-500)
-  useStatusBarColor('#F97316', true)
 
   const getStreakIcon = (streak: number) => {
     if (streak >= 30) return <Flame className="h-6 w-6 text-orange-500" />

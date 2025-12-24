@@ -51,7 +51,6 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -109,8 +108,6 @@ export function GoogleCalendarModal({ onClose }: GoogleCalendarModalProps) {
   const { toast } = useToast()
   const isMobile = useMediaQuery('(max-width: 768px)')
 
-  // Set iOS status bar to match modal header color (blue-500)
-  useStatusBarColor('#3B82F6', true)
 
   // Get extended user data
   const extendedUserData = userData as unknown as Record<string, unknown> | null

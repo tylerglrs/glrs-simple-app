@@ -16,7 +16,6 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { useQuizResults } from '@/features/crisis/hooks/useQuizResults'
 import type { QuizType, QuizResult } from '@/features/crisis/types'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -188,8 +187,6 @@ export function QuizHistoryModal({ onClose }: QuizHistoryModalProps) {
   const navigate = useNavigate()
   const { quizResults, loading, error, getQuizHistory } = useQuizResults()
 
-  // Set iOS status bar to match modal header color (teal-500)
-  useStatusBarColor('#14B8A6', true)
 
   const amIAnAddictResults = getQuizHistory('amIAnAddict')
   const crisisResults = getQuizHistory('crisisSelfAssessment')

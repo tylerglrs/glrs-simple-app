@@ -22,7 +22,6 @@ import {
   ShieldCheck,
   Download,
 } from 'lucide-react'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // FAQ DATA
@@ -78,8 +77,6 @@ interface HelpModalProps {
 export function HelpModal({ onClose }: HelpModalProps) {
   const [openItems, setOpenItems] = useState<number[]>([])
 
-  // Set iOS status bar to match modal header color (teal-500)
-  useStatusBarColor('#14B8A6', true)
 
   const toggleItem = (index: number) => {
     setOpenItems((prev) =>

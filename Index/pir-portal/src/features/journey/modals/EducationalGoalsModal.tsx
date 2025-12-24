@@ -27,7 +27,6 @@ import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ResponsiveModal } from '@/components/ui/responsive-modal'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { Illustration } from '@/components/common/Illustration'
 import {
   EDUCATIONAL_GOAL_TYPES,
@@ -58,8 +57,6 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
 export function EducationalGoalsModal({ isOpen, onClose }: EducationalGoalsModalProps) {
   const { user } = useAuth()
 
-  // Set iOS status bar to match modal header color (emerald-600)
-  useStatusBarColor('#059669', isOpen)
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)

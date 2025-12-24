@@ -27,7 +27,6 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ResponsiveModal } from '@/components/ui/responsive-modal'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { TWELVE_STEPS, type TwelveStepsProgress } from '../types/recovery'
 
 interface TwelveStepsModalProps {
@@ -38,8 +37,6 @@ interface TwelveStepsModalProps {
 export function TwelveStepsModal({ isOpen, onClose }: TwelveStepsModalProps) {
   const { user } = useAuth()
 
-  // Set iOS status bar to match modal header color (blue-600)
-  useStatusBarColor('#2563EB', isOpen)
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)

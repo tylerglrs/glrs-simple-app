@@ -15,7 +15,6 @@ import { Flag, Loader2, CheckCircle, AlertTriangle } from 'lucide-react'
 import { doc, addDoc, collection, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { useAuth } from '@/contexts/AuthContext'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import type { Message } from '../hooks/useConversations'
 
 // =============================================================================
@@ -46,8 +45,6 @@ interface ReportMessageModalProps {
 export function ReportMessageModal({ message, conversationId, onClose }: ReportMessageModalProps) {
   const { user } = useAuth()
 
-  // Set iOS status bar to match modal header color (amber-500)
-  useStatusBarColor('#F59E0B', true)
 
   const [reason, setReason] = useState<ReportReason | ''>('')
   const [details, setDetails] = useState('')

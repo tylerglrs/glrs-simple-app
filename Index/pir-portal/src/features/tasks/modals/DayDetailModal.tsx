@@ -20,7 +20,6 @@ import {
 import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { haptics } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import type { DayActivity, CheckIn, Reflection } from '../hooks/useActivityData'
 import { Timestamp } from 'firebase/firestore'
 
@@ -159,8 +158,6 @@ function getReflectionText(reflection: CheckIn | Reflection | null): string | nu
 export function DayDetailModal({ onClose, date, activity }: DayDetailModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
 
-  // Set iOS status bar to match modal header color (teal-500)
-  useStatusBarColor('#14B8A6', true)
 
   // Loading state if no data
   if (!date || !activity) {

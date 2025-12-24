@@ -24,7 +24,6 @@ import { useModalStore } from '@/stores/modalStore'
 import { Illustration } from '@/components/common/Illustration'
 import { useWins, formatDateTime } from '../hooks/useTasksModalData'
 import { haptics, celebrate } from '@/lib/animations'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -115,8 +114,6 @@ export function WinsModal({ onClose }: WinsModalProps) {
   const { wins, loading, addWin } = useWins()
   const { openModal } = useModalStore()
 
-  // Set iOS status bar to match modal header color (orange-500)
-  useStatusBarColor('#F97316', true)
 
   const [newWin, setNewWin] = useState('')
   const [submitting, setSubmitting] = useState(false)

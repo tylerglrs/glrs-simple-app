@@ -26,7 +26,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { NA_STEPS, type CMAProgress } from '../types/recovery'
 
 // CMA uses the same 12 steps as NA, adapted for crystal meth addiction
@@ -99,8 +98,6 @@ interface CMAModalProps {
 }
 
 export function CMAModal({ isOpen, onClose }: CMAModalProps) {
-  // Set iOS status bar to match modal header color (red-600)
-  useStatusBarColor('#DC2626', isOpen)
   const { user, userData } = useAuth()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
