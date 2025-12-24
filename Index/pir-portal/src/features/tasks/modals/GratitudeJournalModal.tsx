@@ -29,7 +29,9 @@ import {
 } from 'firebase/firestore'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { haptics } from '@/lib/animations'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { useModalStore } from '@/stores/modalStore'
+import { Illustration } from '@/components/common/Illustration'
 
 // =============================================================================
 // TYPES
@@ -139,6 +141,10 @@ function groupByDate(entries: GratitudeEntry[]): Map<string, GratitudeEntry[]> {
 export function GratitudeJournalModal({ onClose }: GratitudeJournalModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { openModal } = useModalStore()
+
+  // Set iOS status bar to match modal header color (rose-500)
+  useStatusBarColor('#F43F5E', true)
+
   const [entries, setEntries] = useState<GratitudeEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'entry' | 'reflection'>('all')
@@ -306,8 +312,13 @@ export function GratitudeJournalModal({ onClose }: GratitudeJournalModalProps) {
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="relative bg-gradient-to-br from-rose-500 via-pink-500 to-fuchsia-500 p-6"
+          className="relative bg-gradient-to-br from-rose-500 via-pink-500 to-fuchsia-500 p-6 overflow-hidden"
         >
+          {/* Decorative illustration */}
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-15 pointer-events-none">
+            <Illustration name="nature" size="md" />
+          </div>
+
           {/* Decorative elements */}
           <motion.div
             animate={pulseAnimation}
@@ -411,8 +422,13 @@ export function GratitudeJournalModal({ onClose }: GratitudeJournalModalProps) {
                 variants={itemVariants}
                 className="text-center py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200"
               >
-                <motion.div animate={pulseAnimation}>
-                  <Sparkles className="h-14 w-14 mx-auto text-gray-300 mb-3" />
+                <motion.div
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+                  className="mb-4"
+                >
+                  <Illustration name="gratitude" size="lg" className="mx-auto opacity-85" />
                 </motion.div>
                 <h3 className="font-semibold text-foreground mb-1">No Gratitudes Yet</h3>
                 <p className="text-sm text-muted-foreground px-4 mb-4">
@@ -511,6 +527,17 @@ export function GratitudeJournalModal({ onClose }: GratitudeJournalModalProps) {
                   </motion.div>
                 ))}
               </div>
+            )}
+
+            {/* Bottom illustration */}
+            {filteredEntries.length > 0 && (
+              <motion.div
+                variants={itemVariants}
+                className="flex flex-col items-center py-6 opacity-60"
+              >
+                <Illustration name="celebration" size="sm" className="opacity-70" />
+                <p className="text-xs text-muted-foreground mt-2">Keep appreciating the little things</p>
+              </motion.div>
             )}
 
             {/* Bottom padding */}

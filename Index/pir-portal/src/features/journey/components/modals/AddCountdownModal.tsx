@@ -1,11 +1,6 @@
 import { useState } from 'react'
 import { CalendarDays, Loader2, Target } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -121,20 +116,19 @@ export function AddCountdownModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-[95vw] sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+    <ResponsiveModal open={open} onOpenChange={handleClose} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b shrink-0">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
             <CalendarDays className="h-5 w-5 text-primary" />
             Add Custom Goal
-          </DialogTitle>
-        </DialogHeader>
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Create a custom goal to celebrate upcoming recovery milestones.
+          </p>
+        </div>
 
-        <p className="text-sm text-muted-foreground">
-          Create a custom goal to celebrate upcoming recovery milestones.
-        </p>
-
-        <div className="space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Goal Name */}
           <div className="space-y-2">
             <Label htmlFor="title">Goal Name *</Label>
@@ -245,8 +239,8 @@ export function AddCountdownModal({
             </Button>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </ResponsiveModal>
   )
 }
 

@@ -1,11 +1,6 @@
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -39,6 +34,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import { signOut } from 'firebase/auth'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { auth } from '@/lib/firebase'
 import { useModalStore } from '@/stores/modalStore'
 
@@ -64,6 +60,9 @@ export function DataManagementModal({ onClose }: DataManagementModalProps) {
   const { user, userData } = useAuth()
   const { toast } = useToast()
   const { openModal } = useModalStore()
+
+  // Set iOS status bar to match modal header color (gray-700)
+  useStatusBarColor('#374151', true)
 
   // State
   const [isClearing, setIsClearing] = useState(false)
@@ -163,20 +162,21 @@ export function DataManagementModal({ onClose }: DataManagementModalProps) {
   const accountCreated = createdAt?.toDate?.()?.toLocaleDateString() || 'Unknown'
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-[560px] p-0 gap-0">
-      {/* Header */}
-      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-gray-700 to-gray-800">
-        <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-          <Database className="h-6 w-6" />
-          Data Management
-        </DialogTitle>
-        <DialogDescription className="text-gray-300">
-          Manage your cached data and understand how your data is stored.
-        </DialogDescription>
-      </DialogHeader>
+    <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-r from-gray-700 to-gray-800 shrink-0">
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            <Database className="h-6 w-6" />
+            Data Management
+          </h2>
+          <p className="text-gray-300 text-sm mt-1">
+            Manage your cached data and understand how your data is stored.
+          </p>
+        </div>
 
-      {/* Content */}
-      <ScrollArea className="max-h-[calc(90vh-160px)]">
+        {/* Content */}
+        <ScrollArea className="flex-1">
         <div className="p-6 space-y-6">
           {/* Storage Usage Card */}
           <Card>
@@ -377,13 +377,14 @@ export function DataManagementModal({ onClose }: DataManagementModalProps) {
         </div>
       </ScrollArea>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30">
-        <Button type="button" variant="outline" onClick={onClose}>
-          Close
-        </Button>
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30 shrink-0">
+          <Button type="button" variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </div>
       </div>
-    </DialogContent>
+    </ResponsiveModal>
   )
 }
 

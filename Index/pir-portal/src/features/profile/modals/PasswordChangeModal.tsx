@@ -9,12 +9,7 @@ import {
 import { auth } from '@/lib/firebase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import {
   Form,
   FormControl,
@@ -22,7 +17,6 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-  FormDescription,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -30,6 +24,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Lock, Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // VALIDATION SCHEMA
@@ -92,6 +87,9 @@ interface PasswordChangeModalProps {
 export function PasswordChangeModal({ onClose }: PasswordChangeModalProps) {
   const { user } = useAuth()
   const { toast } = useToast()
+
+  // Set iOS status bar to match modal header color (indigo-600)
+  useStatusBarColor('#4F46E5', true)
 
   // State
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -184,20 +182,21 @@ export function PasswordChangeModal({ onClose }: PasswordChangeModalProps) {
   ]
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-[480px] p-0 gap-0">
-      {/* Header */}
-      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-indigo-600 to-indigo-700">
-        <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-          <Lock className="h-6 w-6" />
-          Change Password
-        </DialogTitle>
-        <DialogDescription className="text-indigo-100">
-          Enter your current password and choose a new one.
-        </DialogDescription>
-      </DialogHeader>
+    <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-r from-indigo-600 to-indigo-700 shrink-0">
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            <Lock className="h-6 w-6" />
+            Change Password
+          </h2>
+          <p className="text-indigo-100 text-sm mt-1">
+            Enter your current password and choose a new one.
+          </p>
+        </div>
 
-      {/* Content */}
-      <div className="p-6 space-y-6">
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-6 space-y-6">
         {/* Error Alert */}
         {error && (
           <Alert variant="destructive">
@@ -347,34 +346,35 @@ export function PasswordChangeModal({ onClose }: PasswordChangeModalProps) {
               )}
             />
 
-            <FormDescription className="text-xs">
+            <p className="text-xs text-muted-foreground">
               Choose a strong password that you haven&apos;t used before.
-            </FormDescription>
+            </p>
           </form>
         </Form>
-      </div>
+        </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30">
-        <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
-          Cancel
-        </Button>
-        <Button
-          onClick={form.handleSubmit(onSubmit)}
-          disabled={isSubmitting}
-          className="bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800"
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Updating...
-            </>
-          ) : (
-            'Update Password'
-          )}
-        </Button>
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30 shrink-0">
+          <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button
+            onClick={form.handleSubmit(onSubmit)}
+            disabled={isSubmitting}
+            className="bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Updating...
+              </>
+            ) : (
+              'Update Password'
+            )}
+          </Button>
+        </div>
       </div>
-    </DialogContent>
+    </ResponsiveModal>
   )
 }
 

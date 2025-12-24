@@ -10,12 +10,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
@@ -97,16 +92,16 @@ export function GraphSettingsModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+    <ResponsiveModal open={open} onOpenChange={onOpenChange} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b shrink-0">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
             <Settings className="h-5 w-5 text-primary" />
             Graph Settings
-          </DialogTitle>
-        </DialogHeader>
+          </h2>
+        </div>
 
-        <div className="space-y-6">
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
           {/* Date Range */}
           <div className="space-y-2">
             <Label>Default Date Range</Label>
@@ -205,8 +200,8 @@ export function GraphSettingsModal({
             Reset
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </ResponsiveModal>
   )
 }
 

@@ -6,12 +6,7 @@ import { db } from '@/lib/firebase'
 import { updateContextAfterProfileUpdate } from '@/lib/updateAIContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import {
   Form,
   FormControl,
@@ -60,6 +55,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -112,6 +108,9 @@ interface PrivacySettingsModalProps {
 export function PrivacySettingsModal({ onClose }: PrivacySettingsModalProps) {
   const { user, userData } = useAuth()
   const { toast } = useToast()
+
+  // Set iOS status bar to match modal header color (red-600)
+  useStatusBarColor('#DC2626', true)
 
   // Get extended user data with privacy settings
   const extendedUserData = userData as Record<string, unknown> | null
@@ -235,20 +234,21 @@ export function PrivacySettingsModal({ onClose }: PrivacySettingsModalProps) {
   )
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-[540px] p-0 gap-0">
-      {/* Header */}
-      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-red-600 to-rose-600">
-        <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-          <Shield className="h-6 w-6" />
-          Privacy Settings
-        </DialogTitle>
-        <DialogDescription className="text-red-100">
-          Control who can see your profile and how you interact with the community.
-        </DialogDescription>
-      </DialogHeader>
+    <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-r from-red-600 to-rose-600 shrink-0">
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            <Shield className="h-6 w-6" />
+            Privacy Settings
+          </h2>
+          <p className="text-red-100 text-sm mt-1">
+            Control who can see your profile and how you interact with the community.
+          </p>
+        </div>
 
-      {/* Content */}
-      <ScrollArea className="max-h-[calc(90vh-180px)]">
+        {/* Content */}
+        <ScrollArea className="flex-1">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 space-y-6">
             {/* Profile Visibility Section */}
@@ -475,27 +475,28 @@ export function PrivacySettingsModal({ onClose }: PrivacySettingsModalProps) {
         </Form>
       </ScrollArea>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30">
-        <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
-          Cancel
-        </Button>
-        <Button
-          onClick={form.handleSubmit(onSubmit)}
-          disabled={isSaving}
-          className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700"
-        >
-          {isSaving ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            'Save Changes'
-          )}
-        </Button>
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30 shrink-0">
+          <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </Button>
+          <Button
+            onClick={form.handleSubmit(onSubmit)}
+            disabled={isSaving}
+            className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700"
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              'Save Changes'
+            )}
+          </Button>
+        </div>
       </div>
-    </DialogContent>
+    </ResponsiveModal>
   )
 }
 

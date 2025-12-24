@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useCheckInStats, type PatternData } from '../hooks/useTasksModalData'
 import { haptics } from '@/lib/animations'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -88,6 +89,9 @@ const starAnimation = {
 export function SleepPatternModal({ onClose }: SleepPatternModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { sleepPattern, loading } = useCheckInStats()
+
+  // Set iOS status bar to match modal header color (indigo-600)
+  useStatusBarColor('#4F46E5', true)
 
   const getTrendIcon = (trend: PatternData['trend']) => {
     switch (trend) {
@@ -232,7 +236,7 @@ export function SleepPatternModal({ onClose }: SleepPatternModalProps) {
             variants={containerVariants}
             initial="hidden"
             animate="visible"
-            className={cn('p-5 space-y-5', isMobile && 'p-4 space-y-4')}
+            className="p-4 space-y-4 md:p-5 md:space-y-5"
           >
             {/* Current Average Hero */}
             <motion.div

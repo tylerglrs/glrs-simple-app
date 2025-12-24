@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import { PullToRefresh, TabHeader } from '@/components/common'
+import { TabHeader, Illustration } from '@/components/common'
 import { Calendar, Clock, History, Search, Loader2, CalendarDays, ChevronRight, PlusCircle, MapPin, ExternalLink, Target, Flame, TrendingUp, CheckCircle, XCircle } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -28,7 +28,7 @@ import { ProgramBadge, LocationBadge, type ProgramType } from './MeetingBadge'
 
 type TabValue = 'today' | 'upcoming' | 'browse' | 'history'
 type TimeFilter = '7days' | '14days' | '30days' | 'all'
-type HistoryProgramFilter = 'all' | '12-step' | 'recovery-dharma' | 'lifering' | 'smart-recovery' | 'celebrate-recovery'
+type HistoryProgramFilter = 'all' | '12-step' | 'recovery-dharma' | 'lifering' | 'smart-recovery'
 
 // ============================================================
 // CONSTANTS
@@ -47,7 +47,6 @@ const HISTORY_PROGRAM_FILTER_OPTIONS: { value: HistoryProgramFilter; label: stri
   { value: 'recovery-dharma', label: 'Recovery Dharma' },
   { value: 'lifering', label: 'LifeRing' },
   { value: 'smart-recovery', label: 'SMART Recovery' },
-  { value: 'celebrate-recovery', label: 'Celebrate Recovery' },
 ]
 
 // 12-step meeting types for filtering
@@ -60,7 +59,6 @@ const PROGRAM_TYPE_MAP: Record<HistoryProgramFilter, string[]> = {
   'recovery-dharma': ['RD', 'RecoveryDharma'],
   'lifering': ['LR', 'LifeRing'],
   'smart-recovery': ['SMART', 'SmartRecovery'],
-  'celebrate-recovery': ['CR', 'CelebrateRecovery'],
 }
 
 // ============================================================
@@ -460,6 +458,7 @@ function EmptyTabState({
   description,
   action,
   secondaryAction,
+  illustrationName,
 }: {
   icon: React.ElementType
   title: string
@@ -474,6 +473,7 @@ function EmptyTabState({
     onClick: () => void
     icon?: React.ElementType
   }
+  illustrationName?: 'calendar' | 'community' | 'journey' | 'goals' | 'education' | 'library' | 'empty-state'
 }) {
   return (
     <div
@@ -481,7 +481,13 @@ function EmptyTabState({
       role="status"
       aria-label={title}
     >
-      <Icon className="h-12 w-12 text-muted-foreground mb-4" aria-hidden="true" />
+      {illustrationName ? (
+        <div className="mb-4">
+          <Illustration name={illustrationName} size="lg" className="opacity-85" />
+        </div>
+      ) : (
+        <Icon className="h-12 w-12 text-muted-foreground mb-4" aria-hidden="true" />
+      )}
       <p className="text-lg font-medium text-foreground">{title}</p>
       <p className="text-sm text-muted-foreground mt-1">{description}</p>
       <div className="flex flex-col sm:flex-row gap-2 mt-4">
@@ -878,11 +884,6 @@ export function MeetingsTab({ className }: MeetingsTabProps) {
     setShowSavedFavoritesModal(true)
   }, [])
 
-  // Pull-to-refresh handler
-  const handleRefresh = useCallback(async () => {
-    await refetch()
-  }, [refetch])
-
   return (
     <div className={cn('flex flex-col h-full', className)}>
       {/* Page Header - using standardized TabHeader */}
@@ -913,279 +914,293 @@ export function MeetingsTab({ className }: MeetingsTabProps) {
       />
 
       {/* Tab Navigation - scrolls with content */}
-      <div className="px-4 py-2">
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)} className="flex-1">
-          <TabsList className="w-full grid grid-cols-4 rounded-none bg-transparent border-0 p-0 h-7">
-            <TabsTrigger
-              value="today"
-              className={cn(
-                'flex-1 h-full rounded-none border-b-2 data-[state=active]:bg-transparent',
-                'data-[state=active]:border-slate-700 data-[state=inactive]:border-transparent',
-                'data-[state=active]:text-slate-800 data-[state=active]:font-medium data-[state=inactive]:text-slate-500',
-                'text-[11px] gap-1'
-              )}
-            >
-              <Calendar className="h-3 w-3" />
-              Today
-              {todayMeetings.length > 0 && (
-                <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px]">
-                  {todayMeetings.length}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger
-              value="upcoming"
-              className={cn(
-                'flex-1 h-full rounded-none border-b-2 data-[state=active]:bg-transparent',
-                'data-[state=active]:border-slate-700 data-[state=inactive]:border-transparent',
-                'data-[state=active]:text-slate-800 data-[state=active]:font-medium data-[state=inactive]:text-slate-500',
-                'text-[11px] gap-1'
-              )}
-            >
-              <Clock className="h-3 w-3" />
-              Upcoming
-              {upcomingMeetings.length > 0 && (
-                <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px]">
-                  {upcomingMeetings.length}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger
-              value="browse"
-              className={cn(
-                'flex-1 h-full rounded-none border-b-2 data-[state=active]:bg-transparent',
-                'data-[state=active]:border-slate-700 data-[state=inactive]:border-transparent',
-                'data-[state=active]:text-slate-800 data-[state=active]:font-medium data-[state=inactive]:text-slate-500',
-                'text-[11px] gap-1'
-              )}
-            >
-              <Search className="h-3 w-3" />
-              Browse
-            </TabsTrigger>
-            <TabsTrigger
-              value="history"
-              className={cn(
-                'flex-1 h-full rounded-none border-b-2 data-[state=active]:bg-transparent',
-                'data-[state=active]:border-slate-700 data-[state=inactive]:border-transparent',
-                'data-[state=active]:text-slate-800 data-[state=active]:font-medium data-[state=inactive]:text-slate-500',
-                'text-[11px] gap-1'
-              )}
-            >
-              <History className="h-3 w-3" />
-              History
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+      {(() => {
+        const tabsContent = (
+          <div className="px-4 py-2">
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)} className="flex-1">
+              <TabsList className="w-full grid grid-cols-4 rounded-none bg-transparent border-0 p-0 h-7">
+                <TabsTrigger
+                  value="today"
+                  className={cn(
+                    'flex-1 h-full rounded-none border-b-2 data-[state=active]:bg-transparent',
+                    'data-[state=active]:border-slate-700 data-[state=inactive]:border-transparent',
+                    'data-[state=active]:text-slate-800 data-[state=active]:font-medium data-[state=inactive]:text-slate-500',
+                    'text-[11px] gap-1'
+                  )}
+                >
+                  <Calendar className="h-3 w-3" />
+                  Today
+                  {todayMeetings.length > 0 && (
+                    <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px]">
+                      {todayMeetings.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="upcoming"
+                  className={cn(
+                    'flex-1 h-full rounded-none border-b-2 data-[state=active]:bg-transparent',
+                    'data-[state=active]:border-slate-700 data-[state=inactive]:border-transparent',
+                    'data-[state=active]:text-slate-800 data-[state=active]:font-medium data-[state=inactive]:text-slate-500',
+                    'text-[11px] gap-1'
+                  )}
+                >
+                  <Clock className="h-3 w-3" />
+                  Upcoming
+                  {upcomingMeetings.length > 0 && (
+                    <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px]">
+                      {upcomingMeetings.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="browse"
+                  className={cn(
+                    'flex-1 h-full rounded-none border-b-2 data-[state=active]:bg-transparent',
+                    'data-[state=active]:border-slate-700 data-[state=inactive]:border-transparent',
+                    'data-[state=active]:text-slate-800 data-[state=active]:font-medium data-[state=inactive]:text-slate-500',
+                    'text-[11px] gap-1'
+                  )}
+                >
+                  <Search className="h-3 w-3" />
+                  Browse
+                </TabsTrigger>
+                <TabsTrigger
+                  value="history"
+                  className={cn(
+                    'flex-1 h-full rounded-none border-b-2 data-[state=active]:bg-transparent',
+                    'data-[state=active]:border-slate-700 data-[state=inactive]:border-transparent',
+                    'data-[state=active]:text-slate-800 data-[state=active]:font-medium data-[state=inactive]:text-slate-500',
+                    'text-[11px] gap-1'
+                  )}
+                >
+                  <History className="h-3 w-3" />
+                  History
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+        );
 
-      {/* Main Content - SEPARATE from tabs, state-based rendering like TasksTab */}
-      {/* Browse tab needs its own scroll container for virtualization - render outside PullToRefresh */}
-      {activeTab === 'browse' ? (
-        <MeetingBrowser
-          meetings={allMeetings}
-          loading={loading}
-          error={error}
-          userLocation={userLocation}
-          favorites={favorites}
-          onToggleFavorite={toggleFavorite}
-          onRequestLocation={requestLocation}
-          locationLoading={locationLoading}
-          onClearLocation={clearLocation}
-          onScheduleMeeting={handleScheduleMeeting}
-          isScheduling={isScheduling}
-          onLogMeeting={handleLogMeeting}
-          isLogging={isLogging}
-          className="flex-1 min-h-0"
-          onLoadMore={loadMore}
-          hasMore={hasMore}
-          isFetchingMore={isFetchingMore}
-        />
-      ) : (
-      <PullToRefresh
-        onRefresh={handleRefresh}
-        className="flex-1 overflow-auto flex flex-col"
-      >
-        {/* TODAY Content */}
-        {activeTab === 'today' && (
-          loading ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">Loading meetings...</p>
-            </div>
-          ) : todayMeetings.length === 0 ? (
-            <EmptyTabState
-              icon={CalendarDays}
-              title="No meetings today"
-              description="Browse to find and save meetings, or log one you attended"
-              action={{ label: 'Browse Meetings', onClick: handleBrowseClick }}
-              secondaryAction={{
-                label: 'Log a Meeting',
-                onClick: handleOpenLogMeeting,
-                icon: PlusCircle,
-              }}
-            />
-          ) : (
-            <div className="flex-1 overflow-auto p-3 space-y-3">
-              {todayMeetings.map((meeting) => (
-                <ScheduledMeetingCard
-                  key={meeting.id}
-                  meeting={meeting}
-                  onMarkAttended={handleMarkAttended}
-                  onMarkNotAttended={handleMarkNotAttended}
-                  isMarkingAttended={markingAttended[meeting.id]}
-                  isMarkingNotAttended={markingNotAttended[meeting.id]}
-                  isMobile={isMobile}
-                />
-              ))}
-            </div>
-          )
-        )}
-
-        {/* UPCOMING Content */}
-        {activeTab === 'upcoming' && (
+        return (
           <>
-            {/* Time Filter */}
-            <div className="p-3 border-b border-white/20 bg-white/10 backdrop-blur-sm">
-              <Select value={timeFilter} onValueChange={(v) => setTimeFilter(v as TimeFilter)}>
-                <SelectTrigger className="w-full max-w-[200px]">
-                  <SelectValue placeholder="Select time range" />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIME_FILTER_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {loading ? (
-              <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">Loading meetings...</p>
-              </div>
-            ) : upcomingMeetings.length === 0 ? (
-              <EmptyTabState
-                icon={Clock}
-                title="No upcoming meetings"
-                description="Browse to find and add meetings to your schedule"
-                action={{ label: 'Browse Meetings', onClick: handleBrowseClick }}
-                secondaryAction={{
-                  label: 'Add Manually',
-                  onClick: handleOpenLogMeeting,
-                  icon: PlusCircle,
-                }}
+            {/* Browse Tab - rendered outside scroll container for virtualization to work */}
+            {activeTab === 'browse' && (
+              <MeetingBrowser
+                meetings={allMeetings}
+                loading={loading}
+                error={error}
+                userLocation={userLocation}
+                favorites={favorites}
+                onToggleFavorite={toggleFavorite}
+                onRequestLocation={requestLocation}
+                locationLoading={locationLoading}
+                onClearLocation={clearLocation}
+                onScheduleMeeting={handleScheduleMeeting}
+                isScheduling={isScheduling}
+                onLogMeeting={handleLogMeeting}
+                isLogging={isLogging}
+                onLoadMore={loadMore}
+                hasMore={hasMore}
+                isFetchingMore={isFetchingMore}
+                className="flex-1 min-h-0"
+                headerContent={tabsContent}
               />
-            ) : (
-              <div className="flex-1 overflow-auto p-3 space-y-3">
-                {upcomingMeetings.map((meeting) => (
-                  <ScheduledMeetingCard
-                    key={meeting.id}
-                    meeting={meeting}
-                    onMarkAttended={handleMarkAttended}
-                    onMarkNotAttended={handleMarkNotAttended}
-                    isMarkingAttended={markingAttended[meeting.id]}
-                    isMarkingNotAttended={markingNotAttended[meeting.id]}
-                    isMobile={isMobile}
-                  />
-                ))}
+            )}
+
+            {/* Scrollable Content for non-browse tabs */}
+            {activeTab !== 'browse' && (
+              <div className="flex-1 overflow-y-auto">
+                {/* Tab Navigation - scrolls with content */}
+                {tabsContent}
+
+                {/* TODAY Content */}
+                {activeTab === 'today' && (
+                  loading ? (
+                    <div className="flex flex-col items-center justify-center py-12">
+                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+                      <p className="text-muted-foreground">Loading meetings...</p>
+                    </div>
+                  ) : todayMeetings.length === 0 ? (
+                    <EmptyTabState
+                      icon={CalendarDays}
+                      title="No meetings today"
+                      description="Browse to find and save meetings, or log one you attended"
+                      action={{ label: 'Browse Meetings', onClick: handleBrowseClick }}
+                      secondaryAction={{
+                        label: 'Log a Meeting',
+                        onClick: handleOpenLogMeeting,
+                        icon: PlusCircle,
+                      }}
+                      illustrationName="calendar"
+                    />
+                  ) : (
+                    <div className="p-3 space-y-3">
+                      {todayMeetings.map((meeting) => (
+                        <ScheduledMeetingCard
+                          key={meeting.id}
+                          meeting={meeting}
+                          onMarkAttended={handleMarkAttended}
+                          onMarkNotAttended={handleMarkNotAttended}
+                          isMarkingAttended={markingAttended[meeting.id]}
+                          isMarkingNotAttended={markingNotAttended[meeting.id]}
+                          isMobile={isMobile}
+                        />
+                      ))}
+                    </div>
+                  )
+                )}
+
+                {/* UPCOMING Content */}
+                {activeTab === 'upcoming' && (
+                  <>
+                    {/* Time Filter */}
+                    <div className="p-3 border-b border-white/20 bg-white/10 backdrop-blur-sm">
+                      <Select value={timeFilter} onValueChange={(v) => setTimeFilter(v as TimeFilter)}>
+                        <SelectTrigger className="w-full max-w-[200px]">
+                          <SelectValue placeholder="Select time range" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TIME_FILTER_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {loading ? (
+                      <div className="flex flex-col items-center justify-center py-12">
+                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+                        <p className="text-muted-foreground">Loading meetings...</p>
+                      </div>
+                    ) : upcomingMeetings.length === 0 ? (
+                      <EmptyTabState
+                        icon={Clock}
+                        title="No upcoming meetings"
+                        description="Browse to find and add meetings to your schedule"
+                        action={{ label: 'Browse Meetings', onClick: handleBrowseClick }}
+                        secondaryAction={{
+                          label: 'Add Manually',
+                          onClick: handleOpenLogMeeting,
+                          icon: PlusCircle,
+                        }}
+                        illustrationName="calendar"
+                      />
+                    ) : (
+                      <div className="p-3 space-y-3">
+                        {upcomingMeetings.map((meeting) => (
+                          <ScheduledMeetingCard
+                            key={meeting.id}
+                            meeting={meeting}
+                            onMarkAttended={handleMarkAttended}
+                            onMarkNotAttended={handleMarkNotAttended}
+                            isMarkingAttended={markingAttended[meeting.id]}
+                            isMarkingNotAttended={markingNotAttended[meeting.id]}
+                            isMobile={isMobile}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* HISTORY Content */}
+                {activeTab === 'history' && (
+                  loading || goalsLoading ? (
+                    <div className="flex flex-col items-center justify-center py-12">
+                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+                      <p className="text-muted-foreground">Loading history...</p>
+                    </div>
+                  ) : allHistoryMeetings.length === 0 ? (
+                    <EmptyTabState
+                      icon={History}
+                      title="No meeting history"
+                      description="Log past meetings to build your attendance history and track your progress"
+                      action={{
+                        label: 'Log Past Meeting',
+                        onClick: handleOpenLogMeeting,
+                        icon: PlusCircle,
+                      }}
+                      secondaryAction={{
+                        label: 'Browse Meetings',
+                        onClick: handleBrowseClick,
+                      }}
+                      illustrationName="journey"
+                    />
+                  ) : (
+                    <div className="p-3 space-y-3">
+                      {/* Program Filter */}
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-muted-foreground">Filter by Program</span>
+                        <Select
+                          value={historyProgramFilter}
+                          onValueChange={(value) => setHistoryProgramFilter(value as HistoryProgramFilter)}
+                        >
+                          <SelectTrigger className="w-[200px] h-9">
+                            <SelectValue placeholder="All Meetings" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {HISTORY_PROGRAM_FILTER_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Goal Progress Header with Stats */}
+                      <GoalProgressHeader
+                        activeGoal={activeGoal}
+                        stats={activeGoalStats}
+                        totalMeetings={historyStats.total}
+                        attendedCount={historyStats.attended}
+                        missedCount={historyStats.missed}
+                        isMobile={isMobile}
+                      />
+
+                      {/* Empty state for filtered results */}
+                      {historyMeetings.length === 0 && historyProgramFilter !== 'all' ? (
+                        <div className="flex flex-col items-center justify-center py-8 text-center">
+                          <History className="h-12 w-12 text-muted-foreground/50 mb-3" />
+                          <p className="text-muted-foreground font-medium">
+                            No {HISTORY_PROGRAM_FILTER_OPTIONS.find(o => o.value === historyProgramFilter)?.label} meetings found
+                          </p>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Try selecting a different program or &quot;All Meetings&quot;
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-4"
+                            onClick={() => setHistoryProgramFilter('all')}
+                          >
+                            Show All Meetings
+                          </Button>
+                        </div>
+                      ) : (
+                        /* Meeting Cards */
+                        historyMeetings.map((meeting) => (
+                          <ScheduledMeetingCard
+                            key={meeting.id}
+                            meeting={meeting}
+                            onMarkAttended={handleMarkAttended}
+                            isMarkingAttended={markingAttended[meeting.id]}
+                            isMobile={isMobile}
+                            isHistoryView={true}
+                          />
+                        ))
+                      )}
+                    </div>
+                  )
+                )}
               </div>
             )}
           </>
-        )}
-
-        {/* HISTORY Content */}
-        {activeTab === 'history' && (
-          loading || goalsLoading ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">Loading history...</p>
-            </div>
-          ) : allHistoryMeetings.length === 0 ? (
-            <EmptyTabState
-              icon={History}
-              title="No meeting history"
-              description="Log past meetings to build your attendance history and track your progress"
-              action={{
-                label: 'Log Past Meeting',
-                onClick: handleOpenLogMeeting,
-                icon: PlusCircle,
-              }}
-              secondaryAction={{
-                label: 'Browse Meetings',
-                onClick: handleBrowseClick,
-              }}
-            />
-          ) : (
-            <div className="flex-1 overflow-auto p-3 space-y-3">
-              {/* Program Filter */}
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-muted-foreground">Filter by Program</span>
-                <Select
-                  value={historyProgramFilter}
-                  onValueChange={(value) => setHistoryProgramFilter(value as HistoryProgramFilter)}
-                >
-                  <SelectTrigger className="w-[200px] h-9">
-                    <SelectValue placeholder="All Meetings" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {HISTORY_PROGRAM_FILTER_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Goal Progress Header with Stats */}
-              <GoalProgressHeader
-                activeGoal={activeGoal}
-                stats={activeGoalStats}
-                totalMeetings={historyStats.total}
-                attendedCount={historyStats.attended}
-                missedCount={historyStats.missed}
-                isMobile={isMobile}
-              />
-
-              {/* Empty state for filtered results */}
-              {historyMeetings.length === 0 && historyProgramFilter !== 'all' ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <History className="h-12 w-12 text-muted-foreground/50 mb-3" />
-                  <p className="text-muted-foreground font-medium">
-                    No {HISTORY_PROGRAM_FILTER_OPTIONS.find(o => o.value === historyProgramFilter)?.label} meetings found
-                  </p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Try selecting a different program or &quot;All Meetings&quot;
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-4"
-                    onClick={() => setHistoryProgramFilter('all')}
-                  >
-                    Show All Meetings
-                  </Button>
-                </div>
-              ) : (
-                /* Meeting Cards */
-                historyMeetings.map((meeting) => (
-                  <ScheduledMeetingCard
-                    key={meeting.id}
-                    meeting={meeting}
-                    onMarkAttended={handleMarkAttended}
-                    isMarkingAttended={markingAttended[meeting.id]}
-                    isMobile={isMobile}
-                    isHistoryView={true}
-                  />
-                ))
-              )}
-            </div>
-          )
-        )}
-      </PullToRefresh>
-      )}
+        );
+      })()}
 
       {/* Log Meeting Modal (accessible from empty states) */}
       <LogMeetingModal

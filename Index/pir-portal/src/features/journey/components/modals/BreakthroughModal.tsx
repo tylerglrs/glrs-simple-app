@@ -1,11 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Loader2, Sparkles, Plus, Check, Calendar } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
@@ -132,18 +127,19 @@ export function BreakthroughModal({ open, onOpenChange }: BreakthroughModalProps
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] sm:max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+    <ResponsiveModal open={open} onOpenChange={onOpenChange} desktopSize="lg">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b shrink-0">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-yellow-500" />
             Breakthrough Moments
-          </DialogTitle>
-        </DialogHeader>
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Record and celebrate your breakthrough moments in recovery.
+          </p>
+        </div>
 
-        <p className="text-sm text-muted-foreground">
-          Record and celebrate your breakthrough moments in recovery.
-        </p>
+        <div className="flex-1 overflow-y-auto p-4">
 
         {/* Add New Form */}
         {showForm ? (
@@ -264,11 +260,14 @@ export function BreakthroughModal({ open, onOpenChange }: BreakthroughModalProps
           )}
         </div>
 
-        <Button onClick={() => onOpenChange(false)} className="w-full mt-4">
-          Close
-        </Button>
-      </DialogContent>
-    </Dialog>
+        <div className="p-4 border-t shrink-0">
+          <Button onClick={() => onOpenChange(false)} className="w-full">
+            Close
+          </Button>
+        </div>
+        </div>
+      </div>
+    </ResponsiveModal>
   )
 }
 

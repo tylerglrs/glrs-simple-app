@@ -1,11 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Loader2, Star, TrendingUp, TrendingDown, Minus } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore'
@@ -129,14 +124,16 @@ export function OverallDayInsightsModal({ open, onOpenChange }: OverallDayInsigh
   const TrendIcon = trend === 'up' ? TrendingUp : trend === 'down' ? TrendingDown : Minus
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+    <ResponsiveModal open={open} onOpenChange={onOpenChange} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b shrink-0">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
             <Star className="h-5 w-5 text-primary" />
             Overall Day Insights
-          </DialogTitle>
-        </DialogHeader>
+          </h2>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -216,8 +213,9 @@ export function OverallDayInsightsModal({ open, onOpenChange }: OverallDayInsigh
         <Button onClick={() => onOpenChange(false)} className="w-full">
           Close
         </Button>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </ResponsiveModal>
   )
 }
 

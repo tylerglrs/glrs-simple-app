@@ -1,16 +1,12 @@
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import { doc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore'
+import { doc, updateDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { updateContextAfterProfileUpdate } from '@/lib/updateAIContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import {
   Form,
   FormControl,
@@ -42,10 +38,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Heart, Calendar, DollarSign, Users, AlertTriangle, Loader2 } from 'lucide-react'
+import { Heart, Calendar, DollarSign, Users, AlertTriangle, Loader2, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useMediaQuery } from '@/hooks/useMediaQuery'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
+import { RECOVERY_PROGRAMS } from '@/features/journey/types/recovery'
+import { getUserTimezone } from '@/lib/timezone'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
+
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+
+const MAX_PROGRAMS = 3
 
 // =============================================================================
 // VALIDATION SCHEMA
@@ -54,9 +58,24 @@ import { useState } from 'react'
 const recoveryInfoSchema = z.object({
   sobrietyDateTime: z.string().optional(),
   substance: z.string().optional(),
-  recoveryProgram: z.string().optional(),
+  recoveryPrograms: z.array(z.string()).max(MAX_PROGRAMS, `You can select up to ${MAX_PROGRAMS} programs`).optional(),
+  // Sponsor info (for 12-step programs: AA, NA, CMA, MA, Celebrate Recovery)
   sponsorName: z.string().max(100, 'Name must be less than 100 characters').optional(),
   sponsorPhone: z
+    .string()
+    .regex(/^[\d\s\-()]*$/, 'Invalid phone number format')
+    .optional()
+    .or(z.literal('')),
+  // Mentor/Guide info (for Recovery Dharma)
+  mentorName: z.string().max(100, 'Name must be less than 100 characters').optional(),
+  mentorPhone: z
+    .string()
+    .regex(/^[\d\s\-()]*$/, 'Invalid phone number format')
+    .optional()
+    .or(z.literal('')),
+  // Accountability Partner info (for Celebrate Recovery)
+  accountabilityPartnerName: z.string().max(100, 'Name must be less than 100 characters').optional(),
+  accountabilityPartnerPhone: z
     .string()
     .regex(/^[\d\s\-()]*$/, 'Invalid phone number format')
     .optional()
@@ -86,17 +105,13 @@ const SUBSTANCE_OPTIONS = [
   { value: 'other', label: 'Other' },
 ]
 
-const PROGRAM_OPTIONS = [
-  { value: 'aa', label: 'Alcoholics Anonymous (AA)' },
-  { value: 'na', label: 'Narcotics Anonymous (NA)' },
-  { value: 'smart', label: 'SMART Recovery' },
-  { value: 'celebrate', label: 'Celebrate Recovery' },
-  { value: 'refuge', label: 'Refuge Recovery' },
-  { value: 'lifering', label: 'LifeRing Secular Recovery' },
-  { value: 'women', label: 'Women for Sobriety' },
-  { value: 'other', label: 'Other Program' },
-  { value: 'none', label: 'Not in a program' },
-]
+// Group programs by category for better UX
+const PROGRAM_OPTIONS_BY_CATEGORY = {
+  'twelve-step': RECOVERY_PROGRAMS.filter(p => p.category === 'twelve-step'),
+  'faith-based': RECOVERY_PROGRAMS.filter(p => p.category === 'faith-based'),
+  'secular': RECOVERY_PROGRAMS.filter(p => p.category === 'secular'),
+  'other': RECOVERY_PROGRAMS.filter(p => p.category === 'other'),
+}
 
 // =============================================================================
 // COMPONENT
@@ -109,12 +124,17 @@ interface RecoveryInfoModalProps {
 export function RecoveryInfoModal({ onClose }: RecoveryInfoModalProps) {
   const { user, userData } = useAuth()
   const { toast } = useToast()
-  const isMobile = useMediaQuery('(max-width: 768px)')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showDailyCostWarning, setShowDailyCostWarning] = useState(false)
   const [pendingUpdates, setPendingUpdates] = useState<Record<string, unknown> | null>(null)
 
-  // Convert Firestore Timestamp to datetime-local string
+  // Set iOS status bar to match modal header color (emerald-600)
+  useStatusBarColor('#059669', true)
+
+  // Get user's timezone
+  const userTimezone = useMemo(() => getUserTimezone(userData), [userData])
+
+  // Convert Firestore Timestamp to datetime-local string in user's timezone
   const getDateTimeString = (timestamp: unknown): string => {
     if (!timestamp) return ''
     try {
@@ -130,8 +150,20 @@ export function RecoveryInfoModal({ onClose }: RecoveryInfoModalProps) {
       } else {
         return ''
       }
-      // Format for datetime-local input (YYYY-MM-DDTHH:mm)
-      return date.toISOString().slice(0, 16)
+      // Format for datetime-local input (YYYY-MM-DDTHH:mm) in user's timezone
+      // Use Intl.DateTimeFormat to properly format in the user's timezone
+      const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: userTimezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+      const parts = formatter.formatToParts(date)
+      const get = (type: string) => parts.find(p => p.type === type)?.value || '00'
+      return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
     } catch {
       return ''
     }
@@ -140,20 +172,55 @@ export function RecoveryInfoModal({ onClose }: RecoveryInfoModalProps) {
   // Get userData with type casting for extended fields
   const extendedUserData = userData as Record<string, unknown> | null
 
+  // Parse existing programs - handle both single string and array
+  const getExistingPrograms = (): string[] => {
+    const programs = extendedUserData?.recoveryPrograms
+    if (Array.isArray(programs)) return programs
+    // Legacy: handle single program stored as string
+    const legacyProgram = extendedUserData?.recoveryProgram as string
+    if (legacyProgram && legacyProgram !== 'none') return [legacyProgram]
+    return []
+  }
+
   // Form with default values from userData
   const form = useForm<RecoveryInfoFormValues>({
     resolver: zodResolver(recoveryInfoSchema),
     defaultValues: {
       sobrietyDateTime: getDateTimeString(userData?.sobrietyDate),
       substance: extendedUserData?.substance as string || '',
-      recoveryProgram: extendedUserData?.recoveryProgram as string || '',
+      recoveryPrograms: getExistingPrograms(),
       sponsorName: extendedUserData?.sponsorName as string || '',
       sponsorPhone: extendedUserData?.sponsorPhone as string || '',
+      mentorName: extendedUserData?.mentorName as string || '',
+      mentorPhone: extendedUserData?.mentorPhone as string || '',
+      accountabilityPartnerName: extendedUserData?.accountabilityPartnerName as string || '',
+      accountabilityPartnerPhone: extendedUserData?.accountabilityPartnerPhone as string || '',
       recoveryGoals: extendedUserData?.recoveryGoals as string || '',
       triggers: extendedUserData?.triggers as string || '',
       dailyCost: extendedUserData?.dailyCost?.toString() || '',
     },
   })
+
+  // Watch selected programs for UI updates
+  const selectedPrograms = form.watch('recoveryPrograms') || []
+
+  // Determine which support figure sections to show based on selected programs
+  const TWELVE_STEP_PROGRAMS = ['aa', 'na', 'cma']
+  const has12StepProgram = selectedPrograms.some(p => TWELVE_STEP_PROGRAMS.includes(p))
+  const hasRecoveryDharma = selectedPrograms.includes('recovery-dharma')
+  // Note: SMART Recovery doesn't have sponsors
+
+  // Toggle program selection
+  const toggleProgram = (programId: string) => {
+    const current = form.getValues('recoveryPrograms') || []
+    if (current.includes(programId)) {
+      // Remove program
+      form.setValue('recoveryPrograms', current.filter(p => p !== programId))
+    } else if (current.length < MAX_PROGRAMS) {
+      // Add program (if under limit)
+      form.setValue('recoveryPrograms', [...current, programId])
+    }
+  }
 
   // Calculate savings adjustment if daily cost changes
   const calculateSavingsAdjustment = (
@@ -182,17 +249,75 @@ export function RecoveryInfoModal({ onClose }: RecoveryInfoModalProps) {
       updatedAt: serverTimestamp(),
     }
 
-    // Convert datetime-local to ISO string for Firestore
+    // Convert datetime-local to Firestore Timestamp
+    // The datetime-local input value is in the format YYYY-MM-DDTHH:mm
+    // We need to interpret it in the user's timezone preference
     if (values.sobrietyDateTime) {
-      const sobrietyDate = new Date(values.sobrietyDateTime)
-      updates.sobrietyDate = Timestamp.fromDate(sobrietyDate)
+      // Parse the datetime-local string components
+      const [datePart, timePart] = values.sobrietyDateTime.split('T')
+      const [year, month, day] = datePart.split('-').map(Number)
+      const [hour, minute] = timePart.split(':').map(Number)
+
+      // The browser creates a date in its local timezone when we use new Date(y,m,d,h,m)
+      // But the user entered the time meaning it's in THEIR timezone preference
+      // We need to find the difference and adjust
+
+      // Step 1: Create date as if it's in browser's local timezone
+      const browserLocalDate = new Date(year, month - 1, day, hour, minute)
+
+      // Step 2: Format this instant in the user's timezone to see how it would appear
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: userTimezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+      const parts = formatter.formatToParts(browserLocalDate)
+      const getPart = (type: string) => parseInt(parts.find(p => p.type === type)?.value || '0', 10)
+      const userTzHour = getPart('hour')
+      const userTzMinute = getPart('minute')
+      const userTzDay = getPart('day')
+      const userTzMonth = getPart('month')
+      const userTzYear = getPart('year')
+
+      // Step 3: The user typed the datetime meaning it's in their timezone
+      // But we interpreted it as browser local. Calculate the difference.
+      // If browserLocal shows 8:00 but in userTz it shows 5:00, difference is 3 hours
+      // User meant 8:00 in userTz, which equals (8+3)=11:00 in browserLocal
+
+      // Create a date object from what the same instant looks like in user's timezone
+      const sameInstantInUserTz = new Date(userTzYear, userTzMonth - 1, userTzDay, userTzHour, userTzMinute)
+
+      // The offset is how much earlier/later the browser timezone is vs user timezone
+      const offsetMs = browserLocalDate.getTime() - sameInstantInUserTz.getTime()
+
+      // Apply the offset: user typed X:XX meaning that time in their timezone
+      // We need to add the offset to shift from browser interpretation to correct UTC
+      const correctedDate = new Date(browserLocalDate.getTime() + offsetMs)
+
+      updates.sobrietyDate = Timestamp.fromDate(correctedDate)
     }
 
     // Only add fields that have values
     if (values.substance) updates.substance = values.substance
-    if (values.recoveryProgram) updates.recoveryProgram = values.recoveryProgram
+    // Store programs as array
+    if (values.recoveryPrograms && values.recoveryPrograms.length > 0) {
+      updates.recoveryPrograms = values.recoveryPrograms
+      // Also store first program as recoveryProgram for backwards compatibility
+      updates.recoveryProgram = values.recoveryPrograms[0]
+    } else {
+      updates.recoveryPrograms = []
+      updates.recoveryProgram = 'none'
+    }
     if (values.sponsorName !== undefined) updates.sponsorName = values.sponsorName
     if (values.sponsorPhone !== undefined) updates.sponsorPhone = values.sponsorPhone
+    if (values.mentorName !== undefined) updates.mentorName = values.mentorName
+    if (values.mentorPhone !== undefined) updates.mentorPhone = values.mentorPhone
+    if (values.accountabilityPartnerName !== undefined) updates.accountabilityPartnerName = values.accountabilityPartnerName
+    if (values.accountabilityPartnerPhone !== undefined) updates.accountabilityPartnerPhone = values.accountabilityPartnerPhone
     if (values.recoveryGoals !== undefined) updates.recoveryGoals = values.recoveryGoals
     if (values.triggers !== undefined) updates.triggers = values.triggers
 
@@ -235,6 +360,52 @@ export function RecoveryInfoModal({ onClose }: RecoveryInfoModalProps) {
       delete cleanUpdates._pendingAdjustment
 
       await updateDoc(doc(db, 'users', user.uid), cleanUpdates)
+
+      // Sync sponsor/mentor info to program progress documents for two-way sync
+      const selectedPrograms = (cleanUpdates.recoveryPrograms as string[]) || form.getValues('recoveryPrograms') || []
+      const sponsorName = cleanUpdates.sponsorName as string | undefined
+      const sponsorPhone = cleanUpdates.sponsorPhone as string | undefined
+      const mentorName = cleanUpdates.mentorName as string | undefined
+      const mentorPhone = cleanUpdates.mentorPhone as string | undefined
+      const accountabilityPartnerName = cleanUpdates.accountabilityPartnerName as string | undefined
+      const accountabilityPartnerPhone = cleanUpdates.accountabilityPartnerPhone as string | undefined
+
+      // Sync sponsor info to 12-step program progress documents
+      const TWELVE_STEP_PROGRAM_IDS = ['aa', 'na', 'cma']
+      const syncPromises: Promise<void>[] = []
+
+      for (const programId of selectedPrograms) {
+        if (TWELVE_STEP_PROGRAM_IDS.includes(programId)) {
+          // Sync sponsor to 12-step progress document
+          const collectionName = `${programId}Progress`
+          const progressRef = doc(db, collectionName, user.uid)
+          syncPromises.push(
+            setDoc(progressRef, {
+              userId: user.uid,
+              sponsorName: sponsorName ?? '',
+              sponsorPhone: sponsorPhone ?? '',
+              updatedAt: serverTimestamp(),
+            }, { merge: true })
+          )
+        }
+
+        if (programId === 'recovery-dharma') {
+          // Sync mentor to Recovery Dharma progress
+          const progressRef = doc(db, 'recoveryDharmaProgress', user.uid)
+          syncPromises.push(
+            setDoc(progressRef, {
+              userId: user.uid,
+              mentorName: mentorName ?? '',
+              mentorPhone: mentorPhone ?? '',
+              updatedAt: serverTimestamp(),
+            }, { merge: true })
+          )
+        }
+
+      }
+
+      // Wait for all syncs to complete
+      await Promise.all(syncPromises)
 
       // Update AI context with recovery info changes
       await updateContextAfterProfileUpdate(user.uid, {})
@@ -287,17 +458,18 @@ export function RecoveryInfoModal({ onClose }: RecoveryInfoModalProps) {
 
   return (
     <>
-      <DialogContent className="max-w-[95vw] sm:max-w-[600px] p-0 gap-0">
-        {/* Header */}
-        <DialogHeader className="px-6 py-4 bg-gradient-to-r from-emerald-600 to-emerald-700">
-          <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-            <Heart className="h-6 w-6" />
-            Recovery Information
-          </DialogTitle>
-        </DialogHeader>
+      <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="lg">
+        <div className="flex flex-col h-full bg-white overflow-hidden">
+          {/* Header */}
+          <div className="px-6 py-4 bg-gradient-to-r from-emerald-600 to-emerald-700 shrink-0">
+            <h2 className="text-xl font-bold text-white flex items-center gap-3">
+              <Heart className="h-6 w-6" />
+              Recovery Information
+            </h2>
+          </div>
 
-        {/* Content */}
-        <ScrollArea className="max-h-[calc(90vh-180px)]">
+          {/* Content */}
+          <ScrollArea className="flex-1">
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 p-6">
               {/* Sobriety Date Section */}
@@ -361,26 +533,198 @@ export function RecoveryInfoModal({ onClose }: RecoveryInfoModalProps) {
                   )}
                 />
 
+                {/* Multi-select Recovery Programs */}
                 <FormField
                   control={form.control}
-                  name="recoveryProgram"
-                  render={({ field }) => (
+                  name="recoveryPrograms"
+                  render={() => (
                     <FormItem>
-                      <FormLabel>Recovery Program</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select Program (Optional)" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {PROGRAM_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="flex items-center justify-between">
+                        <FormLabel>Recovery Programs</FormLabel>
+                        <span className={cn(
+                          "text-xs font-medium px-2 py-0.5 rounded-full",
+                          selectedPrograms.length >= MAX_PROGRAMS
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-gray-100 text-gray-600"
+                        )}>
+                          {selectedPrograms.length}/{MAX_PROGRAMS} selected
+                        </span>
+                      </div>
+
+                      <div className="space-y-4 mt-2">
+                        {/* 12-Step Programs */}
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">12-Step Programs</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {PROGRAM_OPTIONS_BY_CATEGORY['twelve-step'].map((program) => {
+                              const isSelected = selectedPrograms.includes(program.id)
+                              const isDisabled = !isSelected && selectedPrograms.length >= MAX_PROGRAMS
+                              return (
+                                <button
+                                  key={program.id}
+                                  type="button"
+                                  onClick={() => toggleProgram(program.id)}
+                                  disabled={isDisabled}
+                                  className={cn(
+                                    "flex items-center gap-2 p-3 rounded-lg border-2 text-left transition-all",
+                                    isSelected
+                                      ? "border-emerald-500 bg-emerald-50"
+                                      : isDisabled
+                                        ? "border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed"
+                                        : "border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/50"
+                                  )}
+                                >
+                                  <div
+                                    className={cn(
+                                      "w-5 h-5 rounded flex items-center justify-center flex-shrink-0",
+                                      isSelected ? "bg-emerald-500 text-white" : "border border-gray-300"
+                                    )}
+                                  >
+                                    {isSelected && <span className="text-xs">✓</span>}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-sm truncate">{program.shortName}</p>
+                                    <p className="text-xs text-gray-500 truncate">{program.name.replace(` (${program.shortName})`, '')}</p>
+                                  </div>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Secular Programs */}
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Secular Programs</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {PROGRAM_OPTIONS_BY_CATEGORY['secular'].map((program) => {
+                              const isSelected = selectedPrograms.includes(program.id)
+                              const isDisabled = !isSelected && selectedPrograms.length >= MAX_PROGRAMS
+                              return (
+                                <button
+                                  key={program.id}
+                                  type="button"
+                                  onClick={() => toggleProgram(program.id)}
+                                  disabled={isDisabled}
+                                  className={cn(
+                                    "flex items-center gap-2 p-3 rounded-lg border-2 text-left transition-all",
+                                    isSelected
+                                      ? "border-emerald-500 bg-emerald-50"
+                                      : isDisabled
+                                        ? "border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed"
+                                        : "border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/50"
+                                  )}
+                                >
+                                  <div
+                                    className={cn(
+                                      "w-5 h-5 rounded flex items-center justify-center flex-shrink-0",
+                                      isSelected ? "bg-emerald-500 text-white" : "border border-gray-300"
+                                    )}
+                                  >
+                                    {isSelected && <span className="text-xs">✓</span>}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-sm truncate">{program.shortName}</p>
+                                    <p className="text-xs text-gray-500 truncate">{program.name.replace(` (${program.shortName})`, '').replace(' Secular Recovery', '')}</p>
+                                  </div>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Faith-Based Programs */}
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Faith-Based Programs</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {PROGRAM_OPTIONS_BY_CATEGORY['faith-based'].map((program) => {
+                              const isSelected = selectedPrograms.includes(program.id)
+                              const isDisabled = !isSelected && selectedPrograms.length >= MAX_PROGRAMS
+                              return (
+                                <button
+                                  key={program.id}
+                                  type="button"
+                                  onClick={() => toggleProgram(program.id)}
+                                  disabled={isDisabled}
+                                  className={cn(
+                                    "flex items-center gap-2 p-3 rounded-lg border-2 text-left transition-all",
+                                    isSelected
+                                      ? "border-emerald-500 bg-emerald-50"
+                                      : isDisabled
+                                        ? "border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed"
+                                        : "border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/50"
+                                  )}
+                                >
+                                  <div
+                                    className={cn(
+                                      "w-5 h-5 rounded flex items-center justify-center flex-shrink-0",
+                                      isSelected ? "bg-emerald-500 text-white" : "border border-gray-300"
+                                    )}
+                                  >
+                                    {isSelected && <span className="text-xs">✓</span>}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-sm truncate">{program.shortName}</p>
+                                    <p className="text-xs text-gray-500 truncate">{program.name}</p>
+                                  </div>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Other Options */}
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Other</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {PROGRAM_OPTIONS_BY_CATEGORY['other'].map((program) => {
+                              const isSelected = selectedPrograms.includes(program.id)
+                              const isDisabled = !isSelected && selectedPrograms.length >= MAX_PROGRAMS
+                              return (
+                                <button
+                                  key={program.id}
+                                  type="button"
+                                  onClick={() => toggleProgram(program.id)}
+                                  disabled={isDisabled}
+                                  className={cn(
+                                    "flex items-center gap-2 p-3 rounded-lg border-2 text-left transition-all",
+                                    isSelected
+                                      ? "border-emerald-500 bg-emerald-50"
+                                      : isDisabled
+                                        ? "border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed"
+                                        : "border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/50"
+                                  )}
+                                >
+                                  <div
+                                    className={cn(
+                                      "w-5 h-5 rounded flex items-center justify-center flex-shrink-0",
+                                      isSelected ? "bg-emerald-500 text-white" : "border border-gray-300"
+                                    )}
+                                  >
+                                    {isSelected && <span className="text-xs">✓</span>}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-sm truncate">{program.name}</p>
+                                  </div>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      {selectedPrograms.length > 0 && (
+                        <div className="flex items-start gap-2 mt-3 p-2 bg-emerald-50 rounded-lg">
+                          <Info className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
+                          <p className="text-sm text-emerald-700">
+                            Your Journey tab will show progress tracking for: {selectedPrograms.map(id =>
+                              RECOVERY_PROGRAMS.find(p => p.id === id)?.shortName
+                            ).filter(Boolean).join(', ')}
+                          </p>
+                        </div>
+                      )}
+                      <FormDescription>
+                        Select up to {MAX_PROGRAMS} recovery programs you're participating in.
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -407,7 +751,7 @@ export function RecoveryInfoModal({ onClose }: RecoveryInfoModalProps) {
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                             $
                           </span>
-                          <Input type="number" step="0.01" min="0" className="pl-7" {...field} />
+                          <Input type="number" inputMode="decimal" step="0.01" min="0" className="pl-7" {...field} />
                         </div>
                       </FormControl>
                       <FormDescription>
@@ -421,45 +765,126 @@ export function RecoveryInfoModal({ onClose }: RecoveryInfoModalProps) {
 
               <Separator />
 
-              {/* Sponsor Section */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-emerald-600 font-semibold border-b pb-2">
-                  <Users className="h-5 w-5" />
-                  Sponsor Information
-                </div>
+              {/* Dynamic Support Figure Sections */}
+              {(has12StepProgram || hasRecoveryDharma) && (
+                <>
+                  {/* Sponsor Section - for 12-step programs */}
+                  {has12StepProgram && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 text-emerald-600 font-semibold border-b pb-2">
+                        <Users className="h-5 w-5" />
+                        Sponsor Information
+                        <span className="ml-auto text-xs font-normal text-gray-500">
+                          12-Step Programs
+                        </span>
+                      </div>
 
-                <div className={cn('grid gap-4', isMobile ? 'grid-cols-1' : 'grid-cols-2')}>
-                  <FormField
-                    control={form.control}
-                    name="sponsorName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Sponsor Name</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Optional" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                      <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+                        <FormField
+                          control={form.control}
+                          name="sponsorName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Sponsor Name</FormLabel>
+                              <FormControl>
+                                <Input placeholder="Your sponsor's name" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
 
-                  <FormField
-                    control={form.control}
-                    name="sponsorPhone"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Sponsor Phone</FormLabel>
-                        <FormControl>
-                          <Input placeholder="(555) 123-4567" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </div>
+                        <FormField
+                          control={form.control}
+                          name="sponsorPhone"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Sponsor Phone</FormLabel>
+                              <FormControl>
+                                <Input placeholder="(555) 123-4567" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
 
-              <Separator />
+                      <p className="text-xs text-gray-500">
+                        Your sponsor guides you through the steps and shares their experience of recovery.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Mentor/Guide Section - for Recovery Dharma */}
+                  {hasRecoveryDharma && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 text-orange-600 font-semibold border-b pb-2">
+                        <Users className="h-5 w-5" />
+                        Mentor / Guide
+                        <span className="ml-auto text-xs font-normal text-gray-500">Recovery Dharma</span>
+                      </div>
+
+                      <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+                        <FormField
+                          control={form.control}
+                          name="mentorName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Mentor/Guide Name</FormLabel>
+                              <FormControl>
+                                <Input placeholder="Your mentor's name" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="mentorPhone"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Mentor/Guide Phone</FormLabel>
+                              <FormControl>
+                                <Input placeholder="(555) 123-4567" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <p className="text-xs text-gray-500">
+                        In Recovery Dharma, mentors guide you through Buddhist principles and meditation practices.
+                      </p>
+                    </div>
+                  )}
+
+                  <Separator />
+                </>
+              )}
+
+              {/* No support figure message for secular programs without sponsors */}
+              {selectedPrograms.length > 0 && !has12StepProgram && !hasRecoveryDharma && (
+                <>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 text-gray-500 font-semibold border-b pb-2">
+                      <Users className="h-5 w-5" />
+                      Support Network
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600">
+                      <p>
+                        <strong>{selectedPrograms.map(id => RECOVERY_PROGRAMS.find(p => p.id === id)?.shortName).join(', ')}</strong>{' '}
+                        {selectedPrograms.length === 1 ? 'uses' : 'use'} peer-based group support rather than individual sponsorship.
+                      </p>
+                      <p className="mt-2">
+                        Support comes from fellow members during meetings and through the community.
+                      </p>
+                    </div>
+                  </div>
+                  <Separator />
+                </>
+              )}
 
               {/* Goals & Triggers Section */}
               <div className="space-y-4">
@@ -511,28 +936,29 @@ export function RecoveryInfoModal({ onClose }: RecoveryInfoModalProps) {
           </Form>
         </ScrollArea>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30">
-          <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            onClick={form.handleSubmit(onSubmit)}
-            disabled={isSubmitting}
-            className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              'Save Changes'
-            )}
-          </Button>
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30 shrink-0">
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              onClick={form.handleSubmit(onSubmit)}
+              disabled={isSubmitting}
+              className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Changes'
+              )}
+            </Button>
+          </div>
         </div>
-      </DialogContent>
+      </ResponsiveModal>
 
       {/* Daily Cost Warning Dialog */}
       <AlertDialog open={showDailyCostWarning} onOpenChange={setShowDailyCostWarning}>

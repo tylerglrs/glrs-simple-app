@@ -11,6 +11,8 @@ import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useGoalsData } from '../hooks/useGoalsData'
 import { haptics } from '@/lib/animations'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
+import { Illustration } from '@/components/common/Illustration'
 
 // =============================================================================
 // TYPES
@@ -84,6 +86,9 @@ const goalCardVariants = {
 export function GoalProgressModal({ onClose }: GoalProgressModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { goalsWithChildren, stats, loading } = useGoalsData()
+
+  // Set iOS status bar to match modal header color (teal-500)
+  useStatusBarColor('#14B8A6', true)
 
   const handleShareGoal = async (goalName: string) => {
     haptics.success()
@@ -245,17 +250,15 @@ export function GoalProgressModal({ onClose }: GoalProgressModalProps) {
             {goalsWithChildren.length === 0 ? (
               <motion.div
                 variants={itemVariants}
-                className="text-center py-12"
+                className="text-center py-12 bg-gradient-to-br from-teal-50 to-cyan-50 rounded-xl border-2 border-dashed border-teal-200"
               >
                 <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ type: 'spring' as const, delay: 0.2 }}
-                  className="inline-block mb-4"
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring' as const, stiffness: 260, damping: 20 }}
+                  className="mb-4"
                 >
-                  <div className="p-4 rounded-full bg-gradient-to-br from-gray-100 to-gray-50">
-                    <Target className="h-12 w-12 text-gray-300" />
-                  </div>
+                  <Illustration name="goals" size="lg" className="mx-auto opacity-85" />
                 </motion.div>
                 <h3 className="font-semibold text-foreground mb-2">No Goals Yet</h3>
                 <p className="text-sm text-muted-foreground px-4">

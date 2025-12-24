@@ -1,11 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Star, Loader2 } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
@@ -85,18 +80,19 @@ export function GratitudeThemesModal({ open, onOpenChange }: GratitudeThemesModa
   }, [open])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] sm:max-w-md max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+    <ResponsiveModal open={open} onOpenChange={onOpenChange} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b shrink-0">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
             <span className="text-xl">💚</span>
             Gratitude Themes
-          </DialogTitle>
-        </DialogHeader>
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            The most common themes from your gratitude reflections, ranked by frequency.
+          </p>
+        </div>
 
-        <p className="text-sm text-muted-foreground mb-4">
-          The most common themes from your gratitude reflections, ranked by frequency.
-        </p>
+        <div className="flex-1 overflow-y-auto p-4">
 
         {loading ? (
           <div className="flex items-center justify-center py-8">
@@ -155,8 +151,9 @@ export function GratitudeThemesModal({ open, onOpenChange }: GratitudeThemesModa
         <Button onClick={() => onOpenChange(false)} className="w-full mt-4">
           Close
         </Button>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </ResponsiveModal>
   )
 }
 

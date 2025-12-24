@@ -137,3 +137,40 @@ export type {
   HabitCoachData,
   GoalCoachData,
 } from './useBeaconContent'
+
+// Time of day hooks (unified)
+export {
+  useTimeOfDay,
+  useTimeOfDayConfig,
+  useTimeGradient,
+  useTimeGradientClass,
+  getCurrentTimeOfDay,
+  getGreeting,
+  getTimeConfig,
+  TIME_CONFIG,
+  type TimeOfDay,
+  type TimeOfDayConfig,
+} from './useTimeOfDay'
+
+// Security & Authentication hooks (Phase 2)
+export { use2FA, clearTrustToken } from './use2FA'
+export type { TwoFAStatus, TrustedDevice, Use2FAReturn } from './use2FA'
+export { useSession } from './useSession'
+export type { SessionInfo, UseSessionReturn } from './useSession'
+
+// Timezone utilities
+export { useTimezone } from './useTimezone'
+
+// Push Notifications (FCM)
+export { usePushNotifications, type NotificationPreferences } from './useNotifications'
+
+// Capacitor/Native Platform hooks
+export { useCapacitor } from './useCapacitor'
+
+// Status Bar Color hook (for modal header matching)
+export {
+  useStatusBarColor,
+  getDefaultStatusBarColor,
+  setStatusBar,
+  resetStatusBar,
+} from './useStatusBarColor'

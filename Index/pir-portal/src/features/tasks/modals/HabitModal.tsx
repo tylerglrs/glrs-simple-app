@@ -5,7 +5,6 @@ import {
   EnhancedDialogContent,
 } from '@/components/ui/enhanced-dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -14,7 +13,6 @@ import {
   Loader2,
   Plus,
   History,
-  Share2,
   CheckCircle,
   Sparkles,
   Target,
@@ -22,9 +20,11 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { Illustration } from '@/components/common/Illustration'
 import { useModalStore } from '@/stores/modalStore'
 import { useHabits } from '../hooks/useTasksModalData'
-import { haptics } from '@/lib/animations'
+import { haptics, celebrate } from '@/lib/animations'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -105,43 +105,24 @@ const pulseAnimation = {
 
 export function HabitModal({ onClose }: HabitModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
-  const { habits, loading, addHabit, completeHabit, isHabitCompletedToday } = useHabits()
+  const { habits, loading, completeHabit, isHabitCompletedToday } = useHabits()
   const { openModal } = useModalStore()
 
-  const [newHabitName, setNewHabitName] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+  // Set iOS status bar to match modal header color (teal-500)
+  useStatusBarColor('#14B8A6', true)
+
   const [completingId, setCompletingId] = useState<string | null>(null)
 
   const completedCount = habits.filter((h) => isHabitCompletedToday(h.id)).length
   const totalCount = habits.length
   const progressPercent = totalCount > 0 ? (completedCount / totalCount) * 100 : 0
 
-  const handleAddHabit = async (_shareToCommunity = false) => {
-    if (!newHabitName.trim() || submitting) return
-
-    haptics.tap()
-    setSubmitting(true)
-    const success = await addHabit(newHabitName.trim())
-    setSubmitting(false)
-
-    if (success) {
-      setNewHabitName('')
-      haptics.success()
-    }
-  }
-
   const handleCompleteHabit = async (habitId: string) => {
     setCompletingId(habitId)
     haptics.success()
+    celebrate()
     await completeHabit(habitId)
     setCompletingId(null)
-  }
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleAddHabit(false)
-    }
   }
 
   // Loading state
@@ -271,54 +252,22 @@ export function HabitModal({ onClose }: HabitModalProps) {
             variants={containerVariants}
             initial="hidden"
             animate="visible"
-            className={cn('p-5 space-y-5', isMobile && 'p-4 space-y-4')}
+            className="p-4 space-y-4 md:p-5 md:space-y-5"
           >
-            {/* Add New Habit */}
-            <motion.div
-              variants={itemVariants}
-              className="bg-gradient-to-br from-teal-50 to-cyan-50 rounded-xl p-4 border-2 border-teal-200"
-            >
-              <label className="text-sm font-semibold text-teal-800 mb-2 block">
-                Add New Habit
-              </label>
-              <Input
-                value={newHabitName}
-                onChange={(e) => setNewHabitName(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="e.g., Drink 8 glasses of water"
-                disabled={submitting}
-                className="mb-3 text-base border-teal-200 focus:border-teal-400 focus:ring-teal-400"
-              />
-              <div className="flex gap-2">
-                <Button
-                  onClick={() => handleAddHabit(false)}
-                  disabled={!newHabitName.trim() || submitting}
-                  className="flex-1 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 shadow-lg shadow-teal-500/20"
-                >
-                  {submitting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Habit
-                    </>
-                  )}
-                </Button>
-                <Button
-                  onClick={() => handleAddHabit(true)}
-                  disabled={!newHabitName.trim() || submitting}
-                  className="flex-1 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 shadow-lg shadow-green-500/20"
-                >
-                  {submitting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Share2 className="h-4 w-4 mr-2" />
-                      Share
-                    </>
-                  )}
-                </Button>
-              </div>
+            {/* Manage Habits Button */}
+            <motion.div variants={itemVariants}>
+              <Button
+                onClick={() => {
+                  haptics.tap()
+                  onClose()
+                  openModal('manageHabits')
+                }}
+                variant="outline"
+                className="w-full py-6 border-2 border-dashed border-slate-300 hover:border-teal-400 hover:bg-teal-50 transition-all"
+              >
+                <Plus className="h-5 w-5 mr-2 text-teal-600" />
+                <span className="font-medium text-slate-700">Manage Habits</span>
+              </Button>
             </motion.div>
 
             {/* Today's Habits */}
@@ -347,15 +296,32 @@ export function HabitModal({ onClose }: HabitModalProps) {
                 <motion.div
                   initial={{ scale: 0.95, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="text-center py-10 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200"
+                  className="text-center py-10 bg-gradient-to-br from-teal-50 to-cyan-50 rounded-xl border-2 border-dashed border-teal-200"
                 >
-                  <motion.div animate={pulseAnimation}>
-                    <Target className="h-14 w-14 mx-auto text-gray-300 mb-3" />
+                  <motion.div
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+                    className="mb-4"
+                  >
+                    <Illustration name="growth" size="lg" className="mx-auto opacity-85" />
                   </motion.div>
-                  <h3 className="font-semibold text-foreground mb-1">No Habits Yet</h3>
-                  <p className="text-sm text-muted-foreground px-4">
-                    Add your first habit above to start tracking!
-                  </p>
+                  <motion.h3
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="font-semibold text-foreground mb-1"
+                  >
+                    No Habits Yet
+                  </motion.h3>
+                  <motion.p
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3 }}
+                    className="text-sm text-muted-foreground px-4"
+                  >
+                    Add your first habit above to start building positive routines!
+                  </motion.p>
                 </motion.div>
               ) : (
                 <div className="space-y-2">

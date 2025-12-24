@@ -8,12 +8,7 @@ import {
   CheckCircle,
   Calendar,
 } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
@@ -147,15 +142,16 @@ export function FinanceCountdownModal({
   const totalGoals = countdownItems.length
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] sm:max-w-md max-h-[90vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+    <ResponsiveModal open={open} onOpenChange={onOpenChange} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b shrink-0">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
             <Clock className="h-5 w-5 text-primary" />
             Financial Countdown
-          </DialogTitle>
-        </DialogHeader>
+          </h2>
+        </div>
 
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Daily Savings Info */}
         <div className="rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 p-4 text-center">
           <p className="text-xs text-muted-foreground mb-1">
@@ -251,8 +247,9 @@ export function FinanceCountdownModal({
         <Button onClick={() => onOpenChange(false)} className="w-full">
           Close
         </Button>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </ResponsiveModal>
   )
 }
 

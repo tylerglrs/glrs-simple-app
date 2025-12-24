@@ -1,11 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Loader2, AlertTriangle, Calendar, Brain } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore'
@@ -88,17 +83,16 @@ export function ChallengesModal({ open, onOpenChange }: ChallengesModalProps) {
   }, [open])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] sm:max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle>Challenges History</DialogTitle>
-        </DialogHeader>
+    <ResponsiveModal open={open} onOpenChange={onOpenChange} desktopSize="lg">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b shrink-0">
+          <h2 className="text-lg font-semibold">Challenges History</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Review the challenges you've faced and overcome in your recovery journey.
+          </p>
+        </div>
 
-        <p className="text-sm text-muted-foreground">
-          Review the challenges you've faced and overcome in your recovery journey.
-        </p>
-
-        <div className="flex-1 overflow-y-auto mt-4 -mx-6 px-6">
+        <div className="flex-1 overflow-y-auto p-4">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -200,11 +194,13 @@ export function ChallengesModal({ open, onOpenChange }: ChallengesModalProps) {
           )}
         </div>
 
-        <Button onClick={() => onOpenChange(false)} className="w-full mt-4">
-          Close
-        </Button>
-      </DialogContent>
-    </Dialog>
+        <div className="p-4 border-t shrink-0">
+          <Button onClick={() => onOpenChange(false)} className="w-full">
+            Close
+          </Button>
+        </div>
+      </div>
+    </ResponsiveModal>
   )
 }
 

@@ -6,11 +6,7 @@ import { db } from '@/lib/firebase'
 import { updateContextAfterProfileUpdate } from '@/lib/updateAIContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import {
   Form,
   FormControl,
@@ -32,9 +28,9 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { User, Phone, MapPin, Settings, Loader2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { useMediaQuery } from '@/hooks/useMediaQuery'
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
+import { AddressAutocomplete, type AddressComponents } from '@/components/common/AddressAutocomplete'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // VALIDATION SCHEMA
@@ -120,8 +116,10 @@ interface PersonalInfoModalProps {
 export function PersonalInfoModal({ onClose }: PersonalInfoModalProps) {
   const { user, userData } = useAuth()
   const { toast } = useToast()
-  const isMobile = useMediaQuery('(max-width: 768px)')
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Set iOS status bar to match modal header color
+  useStatusBarColor('#058585', true)
 
   // Get user's current timezone or detect it
   const getUserTimezone = () => {
@@ -161,6 +159,27 @@ export function PersonalInfoModal({ onClose }: PersonalInfoModalProps) {
       insuranceId: (userData as unknown as Record<string, unknown>)?.insuranceId as string || '',
     },
   })
+
+  // Handle address selection from autocomplete
+  const handleAddressSelect = useCallback((address: AddressComponents) => {
+    // Auto-fill all address fields
+    if (address.street) {
+      form.setValue('street', address.street)
+    }
+    if (address.city) {
+      form.setValue('city', address.city)
+    }
+    if (address.state) {
+      form.setValue('state', address.state)
+    }
+    if (address.zip) {
+      form.setValue('zip', address.zip)
+    }
+    // Auto-set timezone based on state (if we detected one)
+    if (address.timezone) {
+      form.setValue('timezone', address.timezone)
+    }
+  }, [form])
 
   // Handle form submission
   const onSubmit = async (values: PersonalInfoFormValues) => {
@@ -240,17 +259,18 @@ export function PersonalInfoModal({ onClose }: PersonalInfoModalProps) {
   }
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-[600px] p-0 gap-0">
-      {/* Header */}
-      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-[#058585] to-[#047272]">
-        <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-          <User className="h-6 w-6" />
-          Account Information
-        </DialogTitle>
-      </DialogHeader>
+    <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="lg">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-r from-[#058585] to-[#047272] shrink-0">
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            <User className="h-6 w-6" />
+            Account Information
+          </h2>
+        </div>
 
-      {/* Content */}
-      <ScrollArea className="max-h-[calc(90vh-180px)]">
+        {/* Content */}
+        <ScrollArea className="flex-1">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 p-6">
             {/* Basic Information Section */}
@@ -260,7 +280,7 @@ export function PersonalInfoModal({ onClose }: PersonalInfoModalProps) {
                 Basic Information
               </div>
 
-              <div className={cn('grid gap-4', isMobile ? 'grid-cols-1' : 'grid-cols-2')}>
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
                 <FormField
                   control={form.control}
                   name="firstName"
@@ -321,13 +341,13 @@ export function PersonalInfoModal({ onClose }: PersonalInfoModalProps) {
                 Contact Information
               </div>
 
-              <FormItem>
-                <FormLabel>Email Address</FormLabel>
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none">Email Address</label>
                 <Input value={user?.email || ''} disabled className="bg-muted cursor-not-allowed" />
-                <FormDescription>
+                <p className="text-[0.8rem] text-muted-foreground">
                   Email cannot be changed here. Contact support if needed.
-                </FormDescription>
-              </FormItem>
+                </p>
+              </div>
 
               <FormField
                 control={form.control}
@@ -353,7 +373,7 @@ export function PersonalInfoModal({ onClose }: PersonalInfoModalProps) {
                 Personal Details
               </div>
 
-              <div className={cn('grid gap-4', isMobile ? 'grid-cols-1' : 'grid-cols-2')}>
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
                 <FormField
                   control={form.control}
                   name="dateOfBirth"
@@ -404,21 +424,22 @@ export function PersonalInfoModal({ onClose }: PersonalInfoModalProps) {
                 Location
               </div>
 
-              <FormField
-                control={form.control}
-                name="street"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Street Address</FormLabel>
-                    <FormControl>
-                      <Input placeholder="123 Main St" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* Address Autocomplete */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Street Address
+                </label>
+                <AddressAutocomplete
+                  onAddressSelect={handleAddressSelect}
+                  initialValue={form.watch('street') || ''}
+                  placeholder="Start typing your address..."
+                />
+                <p className="text-[0.8rem] text-muted-foreground">
+                  Select an address to auto-fill city, state, ZIP, and timezone
+                </p>
+              </div>
 
-              <div className={cn('grid gap-4', isMobile ? 'grid-cols-1' : 'grid-cols-3')}>
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
                 <FormField
                   control={form.control}
                   name="city"
@@ -497,7 +518,7 @@ export function PersonalInfoModal({ onClose }: PersonalInfoModalProps) {
                 )}
               />
 
-              <div className={cn('grid gap-4', isMobile ? 'grid-cols-1' : 'grid-cols-2')}>
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
                 <FormField
                   control={form.control}
                   name="dateFormat"
@@ -553,28 +574,29 @@ export function PersonalInfoModal({ onClose }: PersonalInfoModalProps) {
         </Form>
       </ScrollArea>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30">
-        <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          onClick={form.handleSubmit(onSubmit)}
-          disabled={isSubmitting}
-          className="bg-gradient-to-r from-[#058585] to-[#047272] hover:from-[#047272] hover:to-[#036363]"
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            'Save Changes'
-          )}
-        </Button>
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30 shrink-0">
+          <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            onClick={form.handleSubmit(onSubmit)}
+            disabled={isSubmitting}
+            className="bg-gradient-to-r from-[#058585] to-[#047272] hover:from-[#047272] hover:to-[#036363]"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              'Save Changes'
+            )}
+          </Button>
+        </div>
       </div>
-    </DialogContent>
+    </ResponsiveModal>
   )
 }
 

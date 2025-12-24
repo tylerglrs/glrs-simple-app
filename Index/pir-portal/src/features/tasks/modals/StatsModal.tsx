@@ -21,6 +21,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useCheckInStats } from '../hooks/useTasksModalData'
 import { useGoalsData } from '../hooks/useGoalsData'
 import { haptics } from '@/lib/animations'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -136,6 +137,9 @@ export function StatsModal({ onClose }: StatsModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { weeklyStats, streakData, loading: checkInLoading } = useCheckInStats()
   const { stats: goalStats, loading: goalsLoading } = useGoalsData()
+
+  // Set iOS status bar to match modal header color (teal-500)
+  useStatusBarColor('#14B8A6', true)
 
   const loading = checkInLoading || goalsLoading
 
@@ -264,7 +268,7 @@ Keep up the great work in recovery!
             variants={containerVariants}
             initial="hidden"
             animate="visible"
-            className={cn('p-5 space-y-5', isMobile && 'p-4 space-y-4')}
+            className="p-4 space-y-4 md:p-5 md:space-y-5"
           >
             {/* Completion Rate Hero */}
             <motion.div

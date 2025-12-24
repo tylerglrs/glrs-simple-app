@@ -1,236 +1,28 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
-import { Search, Filter, MapPin, Loader2 } from 'lucide-react'
-import { Input } from '@/components/ui/input'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { Filter, MapPin, Loader2, X, List, Map as MapIcon, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/contexts/AuthContext'
 import { useMeetingFilters } from '../hooks/useMeetingFilters'
 import { FilterPanel } from './FilterPanel'
 import { FilterChips } from './FilterChips'
 import { MeetingList } from './MeetingList'
+import { MeetingMap } from './MeetingMap'
+import { LocationSearch } from './LocationSearch'
+import { WeekSelectorModal } from './WeekSelectorModal'
+import { LogMeetingModal, type LogMeetingDetails } from './LogMeetingModal'
+import { QuickFilters } from './QuickFilters'
+import { applyMeetingFilters } from '../utils/filterUtils'
+import { sortMeetingsByNextOccurrence } from '../utils/meetingSort'
 import type { Meeting, MeetingBrowserProps, MeetingFilters, UserLocation } from '../types'
-import { TIME_OF_DAY_OPTIONS } from '../types'
+import { getMeetingTypesFromRecoveryPrograms } from '../types'
 
 // ============================================================
-// CONSTANTS
+// VIEW MODE TYPE
 // ============================================================
 
-const DEBOUNCE_MS = 300
-
-// ============================================================
-// HELPER FUNCTIONS
-// ============================================================
-
-/**
- * Haversine formula to calculate distance between two coordinates
- */
-function calculateDistance(
-  lat1: number,
-  lng1: number,
-  lat2: number,
-  lng2: number
-): number {
-  const R = 3959 // Earth's radius in miles
-  const dLat = ((lat2 - lat1) * Math.PI) / 180
-  const dLng = ((lng2 - lng1) * Math.PI) / 180
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return R * c
-}
-
-/**
- * Get coordinates from meeting (handles various formats)
- */
-function getMeetingCoordinates(meeting: Meeting): { lat: number; lng: number } | null {
-  // Check direct coordinates
-  if (meeting.coordinates?.lat && meeting.coordinates?.lng) {
-    return { lat: meeting.coordinates.lat, lng: meeting.coordinates.lng }
-  }
-  // Check Firestore GeoPoint format
-  if (meeting.coordinates?._lat && meeting.coordinates?._long) {
-    return { lat: meeting.coordinates._lat, lng: meeting.coordinates._long }
-  }
-  // Check location.coordinates
-  if (meeting.location?.coordinates?.lat && meeting.location?.coordinates?.lng) {
-    return { lat: meeting.location.coordinates.lat, lng: meeting.location.coordinates.lng }
-  }
-  return null
-}
-
-/**
- * Parse meeting time to get hour (for time of day filtering)
- */
-function getMeetingHour(time: string): number | null {
-  if (!time) return null
-
-  // Handle HH:MM format
-  const match = time.match(/^(\d{1,2}):(\d{2})\s*(am|pm)?$/i)
-  if (!match) return null
-
-  let hours = parseInt(match[1], 10)
-  const period = match[3]?.toLowerCase()
-
-  if (period === 'pm' && hours < 12) hours += 12
-  if (period === 'am' && hours === 12) hours = 0
-
-  return hours
-}
-
-/**
- * Check if meeting time is within time of day range
- */
-function isInTimeRange(meetingHour: number, startHour: number, endHour: number): boolean {
-  if (startHour < endHour) {
-    return meetingHour >= startHour && meetingHour < endHour
-  }
-  // Handle overnight range (e.g., 22-5 for "night")
-  return meetingHour >= startHour || meetingHour < endHour
-}
-
-/**
- * Apply filters to meetings
- */
-function applyFilters(
-  meetings: Meeting[],
-  filters: MeetingFilters,
-  userLocation: UserLocation | null,
-  favorites: Set<string>
-): Meeting[] {
-  let filtered = [...meetings]
-
-  // 1. Search query
-  if (filters.searchQuery.trim()) {
-    const query = filters.searchQuery.toLowerCase().trim()
-    filtered = filtered.filter(
-      (m) =>
-        m.name.toLowerCase().includes(query) ||
-        m.locationName?.toLowerCase().includes(query) ||
-        m.location?.name?.toLowerCase().includes(query) ||
-        m.address?.formatted?.toLowerCase().includes(query) ||
-        m.city?.toLowerCase().includes(query) ||
-        m.notes?.toLowerCase().includes(query)
-    )
-  }
-
-  // 2. Day filter
-  if (filters.day !== 'all') {
-    const dayNum = parseInt(filters.day, 10)
-    filtered = filtered.filter((m) => m.day === dayNum)
-  }
-
-  // 3. Time of day filter
-  if (filters.timeOfDay !== 'all') {
-    const timeRange = TIME_OF_DAY_OPTIONS.find(
-      (opt) => opt.label.toLowerCase().includes(filters.timeOfDay)
-    )
-    if (timeRange) {
-      filtered = filtered.filter((m) => {
-        const hour = getMeetingHour(m.time)
-        if (hour === null) return true // Include if time can't be parsed
-        return isInTimeRange(hour, timeRange.startHour, timeRange.endHour)
-      })
-    }
-  }
-
-  // 4. Meeting type (AA/NA)
-  if (filters.type !== 'all') {
-    filtered = filtered.filter(
-      (m) => m.source.toLowerCase() === filters.type.toLowerCase()
-    )
-  }
-
-  // 5. Format
-  if (filters.format !== 'all') {
-    filtered = filtered.filter((m) => {
-      if (!m.types) return false
-      const codes = m.types.split(',').map((c) => c.trim().toUpperCase())
-      return codes.includes(filters.format.toUpperCase())
-    })
-  }
-
-  // 6. County/Region
-  if (filters.county !== 'all') {
-    const countyMapping: Record<string, string[]> = {
-      sf: ['san francisco', 'sf', 'marin'],
-      eastbay: ['oakland', 'berkeley', 'alameda', 'contra costa', 'richmond', 'fremont', 'hayward'],
-      santaclara: ['san jose', 'santa clara', 'palo alto', 'mountain view', 'sunnyvale', 'cupertino'],
-      santacruz: ['santa cruz', 'watsonville', 'capitola'],
-      sanmateo: ['san mateo', 'redwood city', 'daly city', 'south san francisco', 'burlingame'],
-    }
-    const targetCities = countyMapping[filters.county] || []
-    if (targetCities.length > 0) {
-      filtered = filtered.filter((m) => {
-        const city = (m.city || m.location?.city || '').toLowerCase()
-        return targetCities.some((c) => city.includes(c))
-      })
-    }
-  }
-
-  // 7. Distance (requires user location)
-  if (filters.distanceRadius !== null && userLocation) {
-    filtered = filtered
-      .map((m) => {
-        const coords = getMeetingCoordinates(m)
-        if (!coords) return { ...m, distance: null }
-        const dist = calculateDistance(
-          userLocation.lat,
-          userLocation.lng,
-          coords.lat,
-          coords.lng
-        )
-        return { ...m, distance: dist }
-      })
-      .filter((m) => m.distance !== null && m.distance <= filters.distanceRadius!)
-  }
-
-  // 8. Groups (demographics)
-  if (filters.groups.length > 0) {
-    filtered = filtered.filter((m) => {
-      if (!m.types) return false
-      const codes = m.types.split(',').map((c) => c.trim().toUpperCase())
-      return filters.groups.some((g) => codes.includes(g))
-    })
-  }
-
-  // 9. Accessibility
-  if (filters.accessibility.length > 0) {
-    filtered = filtered.filter((m) => {
-      if (!m.types) return false
-      const codes = m.types.split(',').map((c) => c.trim().toUpperCase())
-      return filters.accessibility.some((a) => codes.includes(a))
-    })
-  }
-
-  // 10. Language
-  if (filters.language !== 'all') {
-    filtered = filtered.filter((m) => {
-      if (!m.types) return filters.language === 'EN' // Default to English
-      const codes = m.types.split(',').map((c) => c.trim().toUpperCase())
-      return codes.includes(filters.language)
-    })
-  }
-
-  // 11. Special focus
-  if (filters.special.length > 0) {
-    filtered = filtered.filter((m) => {
-      if (!m.types) return false
-      const codes = m.types.split(',').map((c) => c.trim().toUpperCase())
-      return filters.special.some((s) => codes.includes(s))
-    })
-  }
-
-  // 12. Favorites only
-  if (filters.showFavoritesOnly) {
-    filtered = filtered.filter((m) => favorites.has(m.id))
-  }
-
-  return filtered
-}
+type ViewMode = 'list' | 'map'
 
 // ============================================================
 // MAIN MEETING BROWSER COMPONENT
@@ -245,6 +37,24 @@ interface MeetingBrowserInternalProps extends MeetingBrowserProps {
   onToggleFavorite: (meeting: Meeting) => void
   onRequestLocation: () => void
   locationLoading: boolean
+  /** Callback to clear the user's location */
+  onClearLocation?: () => void
+  /** Callback to schedule a meeting for multiple weeks */
+  onScheduleMeeting?: (meeting: Meeting, weeks: number) => Promise<void>
+  /** Whether scheduling is in progress */
+  isScheduling?: boolean
+  /** Callback to log a meeting manually */
+  onLogMeeting?: (details: LogMeetingDetails, date: Date, isAttended: boolean) => Promise<string | null>
+  /** Whether logging is in progress */
+  isLogging?: boolean
+  /** Callback to load more meetings (infinite scroll) */
+  onLoadMore?: () => void
+  /** Whether there are more meetings to load */
+  hasMore?: boolean
+  /** Whether more meetings are being fetched */
+  isFetchingMore?: boolean
+  /** Optional header content (e.g., tabs) to render above search bar inside scroll */
+  headerContent?: React.ReactNode
 }
 
 export function MeetingBrowser({
@@ -256,50 +66,128 @@ export function MeetingBrowser({
   onToggleFavorite,
   onRequestLocation,
   locationLoading,
+  onClearLocation,
+  onScheduleMeeting,
+  isScheduling = false,
+  onLogMeeting,
+  isLogging = false,
   className,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onBack: _onBack,
+  onLoadMore,
+  hasMore = false,
+  isFetchingMore = false,
+  headerContent,
 }: MeetingBrowserInternalProps) {
+  // Get user's recovery programs from auth context
+  const { userData } = useAuth()
+
   // Filter hook with URL sync
   const {
     filters,
     tempFilters,
     setTempFilter,
+    setFilter,
     applyFilters: commitFilters,
     clearFilters,
     resetTempFilters,
     removeFilter,
     activeFilterCount,
-    setSearchQuery,
   } = useMeetingFilters()
+
+  // Track if we've already auto-preset the filters (only do once on mount)
+  const hasAutoPreset = useRef(false)
+
+  // Auto-preset filters based on user's Recovery Settings
+  useEffect(() => {
+    // Only auto-preset once, and only if no filters are already set from URL
+    if (hasAutoPreset.current) return
+    if (filters.type !== 'all') return // User already has a type filter from URL
+    if (filters.programTypes.length > 0) return // Already has programTypes set
+
+    // Get user's recovery programs
+    const recoveryPrograms = userData?.recoveryPrograms as string[] | undefined
+    if (!recoveryPrograms || recoveryPrograms.length === 0) return
+
+    // Filter out 'none', 'other', and 'women-for-sobriety' (no meetings data yet)
+    const validPrograms = recoveryPrograms.filter(
+      p => !['none', 'other', 'women-for-sobriety'].includes(p)
+    )
+    if (validPrograms.length === 0) return
+
+    // Get the meeting types for these programs
+    const meetingTypes = getMeetingTypesFromRecoveryPrograms(validPrograms)
+    if (meetingTypes.length === 0) return
+
+    // Set the programTypes filter
+    console.log('[MeetingBrowser] Auto-presetting filters based on Recovery Settings:', meetingTypes)
+    setFilter('programTypes', meetingTypes)
+    hasAutoPreset.current = true
+  }, [userData?.recoveryPrograms, filters.type, filters.programTypes, setFilter])
 
   // Local state
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false)
-  const [searchInput, setSearchInput] = useState(filters.searchQuery)
 
-  // Debounce search input
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearchQuery(searchInput)
-    }, DEBOUNCE_MS)
-    return () => clearTimeout(timer)
-  }, [searchInput, setSearchQuery])
+  // View mode state (list vs map)
+  const [viewMode, setViewMode] = useState<ViewMode>('list')
 
-  // Filter meetings
+  // Location search state (custom location from search)
+  const [searchLocation, setSearchLocation] = useState<{
+    lat: number
+    lng: number
+    address: string
+  } | null>(null)
+
+  // Week selector modal state
+  const [selectedMeetingForSchedule, setSelectedMeetingForSchedule] = useState<Meeting | null>(null)
+  const [isWeekSelectorOpen, setIsWeekSelectorOpen] = useState(false)
+
+  // Log meeting modal state
+  const [isLogMeetingOpen, setIsLogMeetingOpen] = useState(false)
+
+  // Effective location for filtering (search location takes priority)
+  const effectiveLocation: UserLocation | null = searchLocation || userLocation
+
+  // Filter meetings using shared utility
   const filteredMeetings = useMemo(() => {
-    return applyFilters(meetings, filters, userLocation, favorites)
-  }, [meetings, filters, userLocation, favorites])
+    return applyMeetingFilters(meetings, filters, favorites, effectiveLocation)
+  }, [meetings, filters, effectiveLocation, favorites])
 
-  // Sort by distance if location is available
+  // ============================================================
+  // SORTING: Distance (if location) or Circular Day+Time (default)
+  // ============================================================
+  // When user has location enabled: sort by distance (nearest first)
+  // When no location: use circular day+time sort (next upcoming first)
+  // This ensures meetings are always in a useful order, not arbitrary
   const sortedMeetings = useMemo(() => {
-    if (!userLocation) return filteredMeetings
+    // Priority 1: Sort by distance if location is available
+    if (effectiveLocation) {
+      return [...filteredMeetings].sort((a, b) => {
+        const distA = a.distance ?? Infinity
+        const distB = b.distance ?? Infinity
+        return distA - distB
+      })
+    }
 
-    return [...filteredMeetings].sort((a, b) => {
-      const distA = a.distance ?? Infinity
-      const distB = b.distance ?? Infinity
-      return distA - distB
-    })
-  }, [filteredMeetings, userLocation])
+    // Priority 2: Circular day+time sort (next upcoming meeting first)
+    // This is the default sort when no location is available
+    // Uses modular arithmetic for week wrap-around (e.g., Saturday → Sunday)
+    return sortMeetingsByNextOccurrence(filteredMeetings)
+  }, [filteredMeetings, effectiveLocation])
+
+  // Handle location search selection
+  const handleLocationSelect = useCallback((location: { lat: number; lng: number; address: string }) => {
+    setSearchLocation(location)
+    // Clear the user's device location when using search location
+    if (onClearLocation) {
+      onClearLocation()
+    }
+  }, [onClearLocation])
+
+  // Handle location search clear
+  const handleLocationSearchClear = useCallback(() => {
+    setSearchLocation(null)
+  }, [])
 
   // Filter panel handlers
   const handleOpenFilterPanel = useCallback(() => {
@@ -319,28 +207,99 @@ export function MeetingBrowser({
 
   const handleClearFilters = useCallback(() => {
     clearFilters()
-    setSearchInput('')
     setIsFilterPanelOpen(false)
   }, [clearFilters])
+
+  // Week selector modal handlers
+  const handleOpenWeekSelector = useCallback((meeting: Meeting) => {
+    setSelectedMeetingForSchedule(meeting)
+    setIsWeekSelectorOpen(true)
+  }, [])
+
+  const handleCloseWeekSelector = useCallback(() => {
+    setIsWeekSelectorOpen(false)
+    setSelectedMeetingForSchedule(null)
+  }, [])
+
+  const handleConfirmSchedule = useCallback(async (meeting: Meeting, weeks: number) => {
+    if (!onScheduleMeeting) return
+    await onScheduleMeeting(meeting, weeks)
+    handleCloseWeekSelector()
+  }, [onScheduleMeeting, handleCloseWeekSelector])
+
+  // Log meeting modal handlers
+  const handleOpenLogMeeting = useCallback(() => {
+    setIsLogMeetingOpen(true)
+  }, [])
+
+  const handleCloseLogMeeting = useCallback(() => {
+    setIsLogMeetingOpen(false)
+  }, [])
+
+  const handleLogFuture = useCallback(async (details: LogMeetingDetails, date: Date) => {
+    if (!onLogMeeting) return
+    await onLogMeeting(details, date, false) // isAttended = false
+  }, [onLogMeeting])
+
+  const handleLogPast = useCallback(async (details: LogMeetingDetails, date: Date) => {
+    if (!onLogMeeting) return
+    await onLogMeeting(details, date, true) // isAttended = true
+  }, [onLogMeeting])
 
   // Detect mobile
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
 
-  return (
-    <div className={cn('flex flex-col h-full', className)}>
+  // Build header content that will scroll with meetings
+  const listHeader = (
+    <>
+      {/* Optional header content (e.g., tabs) */}
+      {headerContent}
+
       {/* Search and Filter Bar */}
-      <div className="sticky top-0 z-10 bg-background border-b p-3 space-y-3">
+      <div className="bg-white/10 backdrop-blur-sm border-b border-white/20 p-3 space-y-3">
         {/* Search Row */}
         <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search meetings..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="pl-9"
-            />
+          {/* Location Search - Primary search bar */}
+          <LocationSearch
+            onLocationSelect={handleLocationSelect}
+            onClear={handleLocationSearchClear}
+            currentAddress={searchLocation?.address}
+            placeholder="Search by address, city, or zip code..."
+            className="flex-1"
+          />
+
+          {/* View Mode Toggle */}
+          <div
+            className="flex items-center border rounded-md overflow-hidden shrink-0"
+            role="group"
+            aria-label="View mode"
+          >
+            <Button
+              variant={viewMode === 'list' ? 'default' : 'ghost'}
+              size="icon"
+              onClick={() => setViewMode('list')}
+              className={cn(
+                'h-9 w-9 min-w-[44px] min-h-[44px] rounded-none',
+                viewMode === 'list' && 'bg-primary text-primary-foreground'
+              )}
+              aria-label="List view"
+              aria-pressed={viewMode === 'list'}
+            >
+              <List className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            <Button
+              variant={viewMode === 'map' ? 'default' : 'ghost'}
+              size="icon"
+              onClick={() => setViewMode('map')}
+              className={cn(
+                'h-9 w-9 min-w-[44px] min-h-[44px] rounded-none',
+                viewMode === 'map' && 'bg-primary text-primary-foreground'
+              )}
+              aria-label="Map view"
+              aria-pressed={viewMode === 'map'}
+            >
+              <MapIcon className="h-4 w-4" aria-hidden="true" />
+            </Button>
           </div>
 
           {/* Filter Button */}
@@ -348,37 +307,128 @@ export function MeetingBrowser({
             variant="outline"
             size="icon"
             onClick={handleOpenFilterPanel}
-            className="relative shrink-0"
+            className="relative shrink-0 min-w-[44px] min-h-[44px]"
+            aria-label={activeFilterCount > 0 ? `Open filters (${activeFilterCount} active)` : 'Open filters'}
           >
-            <Filter className="h-4 w-4" />
+            <Filter className="h-4 w-4" aria-hidden="true" />
             {activeFilterCount > 0 && (
               <Badge
                 variant="destructive"
                 className="absolute -top-2 -right-2 h-5 w-5 p-0 flex items-center justify-center text-xs"
+                aria-hidden="true"
               >
                 {activeFilterCount}
               </Badge>
             )}
           </Button>
 
-          {/* Location Button */}
+          {/* Location Button (compact, in search bar) */}
           <Button
             variant="outline"
             size="icon"
             onClick={onRequestLocation}
             disabled={locationLoading}
             className={cn(
-              'shrink-0',
-              userLocation && 'text-primary border-primary'
+              'shrink-0 min-w-[44px] min-h-[44px]',
+              effectiveLocation && 'text-primary border-primary'
             )}
+            aria-label={effectiveLocation ? 'Location active - click to refresh' : 'Use my current location'}
+            aria-busy={locationLoading}
           >
             {locationLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             ) : (
-              <MapPin className="h-4 w-4" />
+              <MapPin className="h-4 w-4" aria-hidden="true" />
             )}
           </Button>
         </div>
+
+        {/* Location Status & Distance Selector */}
+        {effectiveLocation && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span id="distance-label" className="text-sm font-medium text-muted-foreground">Within:</span>
+            <div
+              role="group"
+              aria-labelledby="distance-label"
+              className="flex items-center gap-2"
+            >
+              {[5, 10, 25, 50].map((distance) => (
+                <Button
+                  key={distance}
+                  variant={filters.distanceRadius === distance ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFilter('distanceRadius', distance as 5 | 10 | 25 | 50)}
+                  className={cn(
+                    'min-w-[60px] min-h-[36px]',
+                    filters.distanceRadius === distance && 'bg-primary text-primary-foreground'
+                  )}
+                  aria-pressed={filters.distanceRadius === distance}
+                  aria-label={`${distance} miles radius`}
+                >
+                  {distance} mi
+                </Button>
+              ))}
+              {filters.distanceRadius !== null && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setFilter('distanceRadius', null)}
+                  className="text-muted-foreground hover:text-foreground min-h-[36px]"
+                  aria-label="Any distance"
+                >
+                  Any
+                </Button>
+              )}
+            </div>
+            {/* Show location source indicator */}
+            <span className="ml-auto text-xs text-muted-foreground flex items-center gap-1">
+              <MapPin className="h-3 w-3" aria-hidden="true" />
+              {searchLocation ? 'Custom location' : 'Your location'}
+            </span>
+            {/* Clear location button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                if (searchLocation) {
+                  handleLocationSearchClear()
+                } else if (onClearLocation) {
+                  onClearLocation()
+                }
+              }}
+              className="text-muted-foreground hover:text-destructive min-h-[36px]"
+              aria-label="Clear location"
+            >
+              <X className="h-4 w-4 mr-1" aria-hidden="true" />
+              Clear
+            </Button>
+          </div>
+        )}
+
+        {/* Prompt to enable location (only when no location is set) */}
+        {!effectiveLocation && !locationLoading && (
+          <div className="text-center py-2 text-sm text-muted-foreground">
+            <p>Search for a location above or</p>
+            <Button
+              variant="link"
+              onClick={onRequestLocation}
+              className="p-0 h-auto text-primary"
+            >
+              use your current location
+            </Button>
+            <span> to find nearby meetings</span>
+          </div>
+        )}
+
+        {/* Quick Filters */}
+        <QuickFilters
+          filters={filters}
+          onFilterChange={(partial) => {
+            Object.entries(partial).forEach(([key, value]) => {
+              setFilter(key as keyof MeetingFilters, value)
+            })
+          }}
+        />
 
         {/* Filter Chips */}
         <FilterChips
@@ -387,35 +437,78 @@ export function MeetingBrowser({
           onClearAll={handleClearFilters}
         />
 
-        {/* Results Count */}
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
+        {/* Results Count - Live region for screen readers */}
+        <div
+          className="flex items-center justify-between text-xs text-muted-foreground"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           <span>
             {filteredMeetings.length} meeting{filteredMeetings.length !== 1 ? 's' : ''} found
           </span>
-          {userLocation && (
-            <span className="flex items-center gap-1">
-              <MapPin className="h-3 w-3" />
-              Sorted by distance
+          <div className="flex items-center gap-2">
+            {effectiveLocation ? (
+              <span className="flex items-center gap-1">
+                <MapPin className="h-3 w-3" aria-hidden="true" />
+                Sorted by distance
+              </span>
+            ) : (
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" aria-hidden="true" />
+                Next upcoming first
+              </span>
+            )}
+            <span className="text-muted-foreground/70">
+              {viewMode === 'list' ? 'List' : 'Map'} view
             </span>
-          )}
+          </div>
         </div>
       </div>
+    </>
+  )
 
-      {/* Virtualized Meeting List */}
-      <MeetingList
-        meetings={sortedMeetings}
-        loading={loading}
-        error={error}
-        favorites={favorites}
-        onToggleFavorite={onToggleFavorite}
-        showDistance={!!userLocation}
-        emptyMessage="No meetings found"
-        emptySubMessage="Check back later for meeting listings"
-        activeFilterCount={activeFilterCount}
-        onClearFilters={handleClearFilters}
-        isMobile={isMobile}
-        className="flex-1"
-      />
+  return (
+    <div className={cn('flex flex-col min-h-0', className)}>
+      {/* Content Area - List or Map based on viewMode */}
+      {viewMode === 'list' ? (
+        /* Virtualized Meeting List with Infinite Scroll */
+        <MeetingList
+          meetings={sortedMeetings}
+          loading={loading}
+          error={error}
+          favorites={favorites}
+          onToggleFavorite={onToggleFavorite}
+          onAddToSchedule={onScheduleMeeting ? handleOpenWeekSelector : undefined}
+          showDistance={!!effectiveLocation}
+          emptyMessage="No meetings found"
+          emptySubMessage="Check back later for meeting listings"
+          activeFilterCount={activeFilterCount}
+          onClearFilters={handleClearFilters}
+          isMobile={isMobile}
+          className="flex-1"
+          onLoadMore={onLoadMore}
+          hasMore={hasMore}
+          isFetchingMore={isFetchingMore}
+          header={listHeader}
+        />
+      ) : (
+        /* Map View with header content */
+        <div className="flex flex-col flex-1 min-h-0 overflow-auto">
+          {/* Header content scrolls with map */}
+          {listHeader}
+          <MeetingMap
+            meetings={sortedMeetings}
+            userLocation={effectiveLocation}
+            onMeetingSelect={(meeting) => {
+              // Could open a detail modal or scroll to meeting in list
+              console.log('[MeetingBrowser] Meeting selected on map:', meeting.name)
+            }}
+            className="flex-1 min-h-[500px]"
+            center={searchLocation ? { lat: searchLocation.lat, lng: searchLocation.lng } : undefined}
+          />
+        </div>
+      )}
 
       {/* Filter Panel */}
       <FilterPanel
@@ -432,6 +525,26 @@ export function MeetingBrowser({
         meetingCount={filteredMeetings.length}
         totalCount={meetings.length}
       />
+
+      {/* Week Selector Modal */}
+      <WeekSelectorModal
+        meeting={selectedMeetingForSchedule}
+        isOpen={isWeekSelectorOpen}
+        onClose={handleCloseWeekSelector}
+        onConfirm={handleConfirmSchedule}
+        isLoading={isScheduling}
+      />
+
+      {/* Log Meeting Modal */}
+      {onLogMeeting && (
+        <LogMeetingModal
+          isOpen={isLogMeetingOpen}
+          onClose={handleCloseLogMeeting}
+          onLogFuture={handleLogFuture}
+          onLogPast={handleLogPast}
+          isLoading={isLogging}
+        />
+      )}
     </div>
   )
 }

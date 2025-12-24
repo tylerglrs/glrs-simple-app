@@ -1,10 +1,5 @@
 import { Flame, Moon, Target, TrendingUp } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
@@ -40,14 +35,16 @@ export function StreaksModal({
   const totalLongestStreak = checkInStreak.longest + reflectionStreak.longest
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+    <ResponsiveModal open={open} onOpenChange={onOpenChange} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b shrink-0">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
             <Target className="h-5 w-5 text-primary" />
             All Streaks Overview
-          </DialogTitle>
-        </DialogHeader>
+          </h2>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
 
         {/* Summary Stats */}
         <div className="grid grid-cols-2 gap-3">
@@ -153,8 +150,9 @@ export function StreaksModal({
         <Button onClick={() => onOpenChange(false)} className="w-full">
           Close
         </Button>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </ResponsiveModal>
   )
 }
 

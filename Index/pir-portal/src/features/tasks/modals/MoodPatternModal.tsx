@@ -21,6 +21,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useCheckInStats, type PatternData } from '../hooks/useTasksModalData'
 import { useCheckInsQuery } from '@/hooks/queries'
 import { haptics } from '@/lib/animations'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -92,6 +93,9 @@ export function MoodPatternModal({ onClose }: MoodPatternModalProps) {
   const { weeklyStats, loading: queryLoading } = useCheckInsQuery()
   // Use useCheckInStats for trend, dataPoints, insights (pattern analysis)
   const { moodPattern, loading: statsLoading } = useCheckInStats()
+
+  // Set iOS status bar to match modal header color (yellow-400)
+  useStatusBarColor('#FACC15', true)
 
   const loading = queryLoading || statsLoading
   // Use 7-day average from useCheckInsQuery (matches card)
@@ -238,7 +242,7 @@ export function MoodPatternModal({ onClose }: MoodPatternModalProps) {
             variants={containerVariants}
             initial="hidden"
             animate="visible"
-            className={cn('p-5 space-y-5', isMobile && 'p-4 space-y-4')}
+            className="p-4 space-y-4 md:p-5 md:space-y-5"
           >
             {/* Current Average Hero */}
             <motion.div

@@ -32,8 +32,10 @@ import { db, auth } from '@/lib/firebase'
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { updateContextAfterGratitude } from '@/lib/updateAIContext'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
-import { haptics } from '@/lib/animations'
+import { haptics, celebrate } from '@/lib/animations'
 import { useModalStore } from '@/stores/modalStore'
+import { Illustration } from '@/components/common/Illustration'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -115,6 +117,9 @@ const pulseAnimation = {
 export function GratitudeModal({ onClose }: GratitudeModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { openModal } = useModalStore()
+
+  // Set iOS status bar to match modal header color (pink-500)
+  useStatusBarColor('#EC4899', true)
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null)
   const [gratitudeText, setGratitudeText] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -142,6 +147,7 @@ export function GratitudeModal({ onClose }: GratitudeModalProps) {
 
       setSubmitted(true)
       haptics.success()
+      celebrate() // Confetti celebration
     } catch (error) {
       console.error('Error saving gratitude:', error)
       haptics.error()
@@ -170,12 +176,12 @@ export function GratitudeModal({ onClose }: GratitudeModalProps) {
         >
           <div className="flex flex-col items-center justify-center h-full min-h-[400px] p-6 bg-gradient-to-b from-pink-50 to-rose-50">
             <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 15 }}
-              className="p-4 rounded-full bg-green-100 mb-4"
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+              className="mb-4"
             >
-              <CheckCircle className="h-12 w-12 text-green-500" />
+              <Illustration name="gratitude" size="lg" className="opacity-90" />
             </motion.div>
             <motion.h3
               initial={{ opacity: 0, y: 10 }}
@@ -231,8 +237,13 @@ export function GratitudeModal({ onClose }: GratitudeModalProps) {
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="relative bg-gradient-to-br from-pink-500 via-rose-500 to-red-400 p-6"
+          className="relative bg-gradient-to-br from-pink-500 via-rose-500 to-red-400 p-6 overflow-hidden"
         >
+          {/* Decorative illustration */}
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-15 pointer-events-none">
+            <Illustration name="journal" size="md" />
+          </div>
+
           {/* Decorative elements */}
           <motion.div
             animate={pulseAnimation}

@@ -1,11 +1,8 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  EnhancedDialog,
-  EnhancedDialogContent,
-} from '@/components/ui/enhanced-dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
-import { Slider } from '@/components/ui/slider'
+import { SinglePicker } from '../components/MoodSliders'
 import {
   Sun,
   X,
@@ -23,7 +20,6 @@ import {
   Minus,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { db, auth } from '@/lib/firebase'
 import { updateContextAfterMorningCheckin } from '@/lib/updateAIContext'
 import {
@@ -181,21 +177,6 @@ const getSleepLabel = (value: number): string => {
   return 'Excellent'
 }
 
-// Get slider track gradient based on metric type
-const getSliderGradient = (key: string, _value: number) => {
-  switch (key) {
-    case 'mood':
-      return `linear-gradient(90deg, #EF4444 0%, #EAB308 50%, #22C55E 100%)`
-    case 'craving':
-      return `linear-gradient(90deg, #22C55E 0%, #EAB308 50%, #EF4444 100%)`
-    case 'anxiety':
-      return `linear-gradient(90deg, #22C55E 0%, #EAB308 50%, #EF4444 100%)`
-    case 'sleep':
-      return `linear-gradient(90deg, #EF4444 0%, #EAB308 50%, #22C55E 100%)`
-    default:
-      return `linear-gradient(90deg, #14B8A6 0%, #14B8A6 100%)`
-  }
-}
 
 // =============================================================================
 // STEP CONFIGURATION
@@ -253,7 +234,6 @@ const steps = [
 // =============================================================================
 
 export function MorningCheckinModal({ onClose, onComplete }: MorningCheckinModalProps) {
-  const isMobile = useMediaQuery('(max-width: 768px)')
   const [[step, direction], setStep] = useState([0, 0])
   const [data, setData] = useState<CheckInData>({
     mood: 5,
@@ -405,12 +385,7 @@ export function MorningCheckinModal({ onClose, onComplete }: MorningCheckinModal
     ]
 
     return (
-      <EnhancedDialog open onOpenChange={onClose}>
-        <EnhancedDialogContent
-          variant={isMobile ? 'fullscreen' : 'centered'}
-          showCloseButton={false}
-          className="p-0"
-        >
+      <ResponsiveModal open onOpenChange={onClose} showCloseButton={false} desktopSize="md">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -521,18 +496,12 @@ export function MorningCheckinModal({ onClose, onComplete }: MorningCheckinModal
               </Button>
             </motion.div>
           </motion.div>
-        </EnhancedDialogContent>
-      </EnhancedDialog>
+      </ResponsiveModal>
     )
   }
 
   return (
-    <EnhancedDialog open onOpenChange={onClose}>
-      <EnhancedDialogContent
-        variant={isMobile ? 'fullscreen' : 'centered'}
-        showCloseButton={false}
-        className="p-0 overflow-hidden"
-      >
+    <ResponsiveModal open onOpenChange={onClose} showCloseButton={false} desktopSize="md">
         {/* Header */}
         <div className="relative bg-gradient-to-r from-orange-400 via-amber-400 to-yellow-400 p-6 pb-8">
           {/* Close button */}
@@ -631,29 +600,19 @@ export function MorningCheckinModal({ onClose, onComplete }: MorningCheckinModal
 
               {/* Slider */}
               <div className="px-4 pb-4">
-                <div className="relative">
-                  <Slider
-                    value={[currentValue]}
-                    onValueChange={(value) => {
-                      setData({ ...data, [currentStep.key]: value[0] })
-                      haptics.tap()
-                    }}
-                    max={10}
-                    min={0}
-                    step={1}
-                    className="w-full"
-                  />
-                  {/* Custom gradient track overlay */}
-                  <div
-                    className="absolute top-1/2 left-0 right-0 h-2 -translate-y-1/2 rounded-full pointer-events-none opacity-30"
-                    style={{ background: getSliderGradient(currentStep.key, currentValue) }}
-                  />
-                </div>
-                <div className="flex justify-between mt-3 text-xs text-muted-foreground">
-                  <span>0</span>
-                  <span>5</span>
-                  <span>10</span>
-                </div>
+                <SinglePicker
+                  label=""
+                  value={currentValue}
+                  onChange={(value) => {
+                    setData({ ...data, [currentStep.key]: value })
+                    haptics.tap()
+                  }}
+                  lowLabel="0"
+                  highLabel="10"
+                  theme="morning"
+                  inverted={currentStep.key === 'craving' || currentStep.key === 'anxiety'}
+                  icon={currentStep.icon}
+                />
               </div>
             </motion.div>
           </AnimatePresence>
@@ -697,8 +656,7 @@ export function MorningCheckinModal({ onClose, onComplete }: MorningCheckinModal
             </Button>
           )}
         </div>
-      </EnhancedDialogContent>
-    </EnhancedDialog>
+    </ResponsiveModal>
   )
 }
 

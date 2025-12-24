@@ -13,6 +13,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useModalStore } from '@/stores/modalStore'
 import { useReflections, formatDateTime } from '../hooks/useTasksModalData'
 import { haptics } from '@/lib/animations'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -70,6 +71,9 @@ export function ReflectionModal({ onClose }: ReflectionModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { reflections, loading, addReflection } = useReflections()
   const { openModal } = useModalStore()
+
+  // Set iOS status bar to match modal header color (teal-500)
+  useStatusBarColor('#14B8A6', true)
 
   const [newReflection, setNewReflection] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -181,7 +185,7 @@ export function ReflectionModal({ onClose }: ReflectionModalProps) {
             variants={containerVariants}
             initial="hidden"
             animate="visible"
-            className={cn('p-5 space-y-5', isMobile && 'p-4 space-y-4')}
+            className="p-4 space-y-4 md:p-5 md:space-y-5"
           >
             {/* Add Reflection */}
             <motion.div variants={itemVariants}>

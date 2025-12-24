@@ -1,12 +1,9 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  EnhancedDialog,
-  EnhancedDialogContent,
-} from '@/components/ui/enhanced-dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Slider } from '@/components/ui/slider'
+import { SinglePicker } from '../components/MoodSliders'
 import {
   Moon,
   X,
@@ -22,7 +19,6 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { db, auth } from '@/lib/firebase'
 import { updateContextAfterEveningCheckin } from '@/lib/updateAIContext'
 import {
@@ -188,7 +184,6 @@ const getSteps = (todayPrompt: string) => [
 // =============================================================================
 
 export function EveningReflectionModal({ onClose, onComplete }: EveningReflectionModalProps) {
-  const isMobile = useMediaQuery('(max-width: 768px)')
   const [[step, direction], setStep] = useState([0, 0])
   const [data, setData] = useState<ReflectionData>({
     overallDay: 5,
@@ -319,16 +314,11 @@ export function EveningReflectionModal({ onClose, onComplete }: EveningReflectio
     ]
 
     return (
-      <EnhancedDialog open onOpenChange={onClose}>
-        <EnhancedDialogContent
-          variant={isMobile ? 'fullscreen' : 'centered'}
-          showCloseButton={false}
-          className="p-0 bg-gradient-to-b from-slate-900 via-indigo-950 to-slate-900"
-        >
+      <ResponsiveModal open onOpenChange={onClose} showCloseButton={false} desktopSize="md">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="flex flex-col h-full min-h-[550px] relative overflow-hidden"
+            className="flex flex-col h-full min-h-[550px] relative overflow-hidden bg-gradient-to-b from-slate-900 via-indigo-950 to-slate-900"
           >
             {/* Animated stars background */}
             {[...Array(12)].map((_, i) => (
@@ -447,18 +437,12 @@ export function EveningReflectionModal({ onClose, onComplete }: EveningReflectio
               </Button>
             </motion.div>
           </motion.div>
-        </EnhancedDialogContent>
-      </EnhancedDialog>
+      </ResponsiveModal>
     )
   }
 
   return (
-    <EnhancedDialog open onOpenChange={onClose}>
-      <EnhancedDialogContent
-        variant={isMobile ? 'fullscreen' : 'centered'}
-        showCloseButton={false}
-        className="p-0 overflow-hidden bg-gradient-to-b from-slate-900 via-indigo-950 to-slate-900"
-      >
+    <ResponsiveModal open onOpenChange={onClose} showCloseButton={false} desktopSize="md" className="bg-gradient-to-b from-slate-900 via-indigo-950 to-slate-900">
         {/* Header with night sky */}
         <div className="relative p-6 pb-8 overflow-hidden">
           {/* Animated stars */}
@@ -559,8 +543,9 @@ export function EveningReflectionModal({ onClose, onComplete }: EveningReflectio
 
               {/* Input based on type */}
               {currentStep.type === 'slider' ? (
-                <div className="space-y-6 py-4">
-                  <div className="text-center">
+                <div className="space-y-4 py-4">
+                  {/* Emoji display */}
+                  <div className="text-center mb-4">
                     <motion.span
                       key={data.overallDay}
                       initial={{ scale: 0.5 }}
@@ -570,26 +555,25 @@ export function EveningReflectionModal({ onClose, onComplete }: EveningReflectio
                       {getOverallDayEmoji(data.overallDay)}
                     </motion.span>
                     <p className="text-lg font-medium text-indigo-200">
-                      {getOverallDayLabel(data.overallDay)} ({data.overallDay}/10)
+                      {getOverallDayLabel(data.overallDay)}
                     </p>
                   </div>
-                  <div className="px-4">
-                    <Slider
-                      value={[data.overallDay]}
-                      onValueChange={(value) => {
-                        setData({ ...data, overallDay: value[0] })
+                  {/* Single Picker with evening theme - transparent card for modal */}
+                  <div className="[&_.card]:bg-white/5 [&_.card]:border-white/10 [&_.card]:border-l-violet-400 [&_h3]:text-white [&_p]:text-indigo-200">
+                    <SinglePicker
+                      label="Day Rating"
+                      description="Rate your overall day"
+                      value={data.overallDay}
+                      onChange={(value) => {
+                        setData({ ...data, overallDay: value })
                         haptics.tap()
                       }}
-                      max={10}
-                      min={0}
-                      step={1}
-                      className="w-full"
+                      lowLabel="Difficult"
+                      highLabel="Great"
+                      theme="evening"
+                      inverted={false}
+                      icon={Moon}
                     />
-                    <div className="flex justify-between mt-3 text-xs text-indigo-300">
-                      <span>0</span>
-                      <span>5</span>
-                      <span>10</span>
-                    </div>
                   </div>
                 </div>
               ) : (
@@ -653,8 +637,7 @@ export function EveningReflectionModal({ onClose, onComplete }: EveningReflectio
             </Button>
           )}
         </div>
-      </EnhancedDialogContent>
-    </EnhancedDialog>
+    </ResponsiveModal>
   )
 }
 

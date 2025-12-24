@@ -21,6 +21,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { db, auth } from '@/lib/firebase'
 import { collection, query, where, orderBy, onSnapshot, Timestamp } from 'firebase/firestore'
 import { haptics } from '@/lib/animations'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -195,6 +196,10 @@ function StatCard({ icon: Icon, value, label, gradient, index }: StatCardProps) 
 
 export function CopingHistoryModal({ onClose }: CopingHistoryModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
+
+  // Set iOS status bar to match modal header color (teal-500)
+  useStatusBarColor('#14B8A6', true)
+
   const [entries, setEntries] = useState<CopingEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<'week' | 'month' | 'all'>('week')
@@ -369,7 +374,7 @@ export function CopingHistoryModal({ onClose }: CopingHistoryModalProps) {
         </div>
 
         {/* Content */}
-        <div className={cn('p-5 pt-4 flex-1 flex flex-col', isMobile && 'p-4 pt-3')}>
+        <div className="p-4 pt-3 flex-1 flex flex-col md:p-5 md:pt-4">
           {/* Period Tabs */}
           <Tabs
             defaultValue="week"

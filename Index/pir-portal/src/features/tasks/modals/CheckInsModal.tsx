@@ -9,8 +9,10 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { Calendar, X, Loader2, Sun, Moon, CheckCircle } from 'lucide-react'
+import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { Illustration } from '@/components/common/Illustration'
 import {
   db,
   collection,
@@ -239,7 +241,7 @@ export function CheckInsModal({ onClose }: CheckInsModalProps) {
       </DialogHeader>
 
       <ScrollArea className="max-h-[55vh]">
-        <div className={cn('p-5 space-y-5', isMobile && 'p-4 space-y-4')}>
+        <div className="p-4 space-y-4 md:p-5 md:space-y-5">
           {/* Stats Summary */}
           <div className="bg-gradient-to-br from-teal-50 to-cyan-50 rounded-xl p-5 text-center border border-teal-100">
             <p className="text-sm text-muted-foreground mb-2">Check-In Rate</p>
@@ -265,13 +267,36 @@ export function CheckInsModal({ onClose }: CheckInsModalProps) {
 
           {/* Check-ins List */}
           {sortedDates.length === 0 ? (
-            <div className="text-center py-10">
-              <Calendar className="h-12 w-12 mx-auto text-gray-300 mb-3" />
-              <h3 className="font-semibold text-foreground mb-1">No Check-Ins Yet</h3>
-              <p className="text-sm text-muted-foreground">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-center py-10 bg-gradient-to-br from-teal-50 to-cyan-50 rounded-xl border-2 border-dashed border-teal-200"
+            >
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+                className="mb-4"
+              >
+                <Illustration name="no-checkins" size="lg" className="mx-auto opacity-85" />
+              </motion.div>
+              <motion.h3
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="font-semibold text-foreground mb-1"
+              >
+                No Check-Ins Yet
+              </motion.h3>
+              <motion.p
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="text-sm text-muted-foreground px-4"
+              >
                 Start tracking your daily progress with morning check-ins.
-              </p>
-            </div>
+              </motion.p>
+            </motion.div>
           ) : (
             <div className="space-y-2">
               {sortedDates.map((dateKey) => {

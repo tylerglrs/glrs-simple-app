@@ -6,12 +6,7 @@ import { db } from '@/lib/firebase'
 import { updateContextAfterProfileUpdate } from '@/lib/updateAIContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import {
   Form,
   FormControl,
@@ -43,10 +38,12 @@ import {
   Activity,
   Heart,
   Loader2,
+  MessageSquare,
+  AlertTriangle,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { useMediaQuery } from '@/hooks/useMediaQuery'
-import { useState } from 'react'
+import { Switch } from '@/components/ui/switch'
+import { useState, useEffect } from 'react'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -152,7 +149,9 @@ interface ProfileVisibilityModalProps {
 export function ProfileVisibilityModal({ onClose }: ProfileVisibilityModalProps) {
   const { user, userData } = useAuth()
   const { toast } = useToast()
-  const isMobile = useMediaQuery('(max-width: 768px)')
+
+  // Set iOS status bar to match modal header color (blue-600)
+  useStatusBarColor('#2563EB', true)
 
   // Get extended user data
   const extendedUserData = userData as Record<string, unknown> | null
@@ -160,6 +159,43 @@ export function ProfileVisibilityModal({ onClose }: ProfileVisibilityModalProps)
 
   // State
   const [isSaving, setIsSaving] = useState(false)
+
+  // Peer messaging state
+  const privacySettings = (extendedUserData?.privacy as Record<string, unknown>) || {}
+  const [peerMessagingEnabled, setPeerMessagingEnabled] = useState(
+    privacySettings.allowDirectMessages === true &&
+    privacySettings.profileVisibility === 'everyone'
+  )
+
+  // Handle peer messaging toggle
+  const handlePeerMessagingToggle = async (enabled: boolean) => {
+    if (!user?.uid) return
+
+    setPeerMessagingEnabled(enabled)
+
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        'privacy.profileVisibility': enabled ? 'everyone' : 'coach_only',
+        'privacy.allowDirectMessages': enabled,
+        updatedAt: serverTimestamp(),
+      })
+
+      toast({
+        title: enabled ? 'Peer Messaging Enabled' : 'Peer Messaging Disabled',
+        description: enabled
+          ? 'Other participants can now see your profile and send you messages.'
+          : 'Your profile is now visible only to your coach.',
+      })
+    } catch (error) {
+      console.error('[ProfileVisibilityModal] Error updating peer messaging:', error)
+      setPeerMessagingEnabled(!enabled) // Revert on error
+      toast({
+        title: 'Error',
+        description: 'Failed to update peer messaging settings.',
+        variant: 'destructive',
+      })
+    }
+  }
 
   // Form with defaults
   const form = useForm<VisibilityFormValues>({
@@ -231,17 +267,18 @@ export function ProfileVisibilityModal({ onClose }: ProfileVisibilityModalProps)
   }
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-[600px] p-0 gap-0">
-      {/* Header */}
-      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600">
-        <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-          <Eye className="h-6 w-6" />
-          Profile Visibility
-        </DialogTitle>
-        <DialogDescription className="text-blue-100">
-          Control the visibility of each field on your profile.
-        </DialogDescription>
-      </DialogHeader>
+    <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="lg">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 shrink-0">
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            <Eye className="h-6 w-6" />
+            Profile Visibility
+          </h2>
+          <p className="text-blue-100 text-sm mt-1">
+            Control the visibility of each field on your profile.
+          </p>
+        </div>
 
       {/* Quick Actions */}
       <div className="px-6 py-3 border-b bg-muted/30 flex flex-wrap gap-2">
@@ -260,10 +297,58 @@ export function ProfileVisibilityModal({ onClose }: ProfileVisibilityModalProps)
         ))}
       </div>
 
-      {/* Content */}
-      <ScrollArea className="max-h-[calc(90vh-220px)]">
+        {/* Content */}
+        <ScrollArea className="flex-1">
+        <div className="p-6 space-y-6">
+          {/* Peer Messaging Toggle - Master Setting */}
+          <Card className="border-2 border-primary/20 bg-gradient-to-r from-primary/5 to-transparent">
+            <CardContent className="pt-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <MessageSquare className="h-5 w-5 text-primary" />
+                    <h3 className="font-semibold text-foreground">Peer Messaging</h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Allow other participants to see your profile and send you direct messages.
+                  </p>
+                </div>
+                <Switch
+                  checked={peerMessagingEnabled}
+                  onCheckedChange={handlePeerMessagingToggle}
+                />
+              </div>
+
+              {peerMessagingEnabled && (
+                <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
+                  <div className="flex gap-2">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-amber-800 dark:text-amber-200">
+                      When enabled, other participants in recovery can see your name and profile picture,
+                      and may send you direct messages. Your coach can always message you regardless of
+                      this setting.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Divider with label */}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">
+                Field-Level Visibility
+              </span>
+            </div>
+          </div>
+        </div>
+
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="px-6 pb-6 space-y-6">
             {CATEGORIES.map((category) => {
               const categoryFields = FIELD_DEFINITIONS.filter(
                 (f) => f.category === category.id
@@ -296,7 +381,7 @@ export function ProfileVisibilityModal({ onClose }: ProfileVisibilityModalProps)
                                 onValueChange={formField.onChange}
                                 defaultValue={formField.value}
                               >
-                                <SelectTrigger className={cn('w-36', isMobile && 'w-28')}>
+                                <SelectTrigger className="w-28 md:w-36">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -304,7 +389,7 @@ export function ProfileVisibilityModal({ onClose }: ProfileVisibilityModalProps)
                                     <SelectItem key={option.value} value={option.value}>
                                       <div className="flex items-center gap-2">
                                         <option.icon className="h-3.5 w-3.5" />
-                                        <span className={isMobile ? 'text-xs' : 'text-sm'}>
+                                        <span className="text-xs md:text-sm">
                                           {option.label}
                                         </span>
                                       </div>
@@ -345,27 +430,28 @@ export function ProfileVisibilityModal({ onClose }: ProfileVisibilityModalProps)
         </Form>
       </ScrollArea>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30">
-        <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
-          Cancel
-        </Button>
-        <Button
-          onClick={form.handleSubmit(onSubmit)}
-          disabled={isSaving}
-          className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-        >
-          {isSaving ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            'Save Changes'
-          )}
-        </Button>
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30 shrink-0">
+          <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </Button>
+          <Button
+            onClick={form.handleSubmit(onSubmit)}
+            disabled={isSaving}
+            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              'Save Changes'
+            )}
+          </Button>
+        </div>
       </div>
-    </DialogContent>
+    </ResponsiveModal>
   )
 }
 

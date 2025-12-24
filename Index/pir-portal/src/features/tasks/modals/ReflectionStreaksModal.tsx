@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useCheckInsQuery } from '@/hooks/queries'
 import { haptics } from '@/lib/animations'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -126,6 +127,9 @@ function StreakBadge({ streak, label, icon, gradient, index }: StreakBadgeProps)
 export function ReflectionStreaksModal({ onClose }: ReflectionStreaksModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { reflectionStreak, reflectionStreakData, reflectionStats, loading } = useCheckInsQuery()
+
+  // Set iOS status bar to match modal header color (indigo-500)
+  useStatusBarColor('#6366F1', true)
 
   const getStreakIcon = (streak: number) => {
     if (streak >= 30) return <Star className="h-6 w-6 text-purple-500" />
@@ -242,7 +246,7 @@ export function ReflectionStreaksModal({ onClose }: ReflectionStreaksModalProps)
             variants={containerVariants}
             initial="hidden"
             animate="visible"
-            className={cn('p-5 space-y-5', isMobile && 'p-4 space-y-4')}
+            className="p-4 space-y-4 md:p-5 md:space-y-5"
           >
             {/* Current Streak Hero */}
             <motion.div

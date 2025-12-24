@@ -21,6 +21,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { haptics } from '@/lib/animations'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -232,6 +233,9 @@ function CopingCard({ strategy, index }: CopingCardProps) {
 
 export function CrisisModal({ onClose }: CrisisModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
+
+  // Set iOS status bar to match modal header color (red-500)
+  useStatusBarColor('#EF4444', true)
 
   return (
     <EnhancedDialog open onOpenChange={onClose}>

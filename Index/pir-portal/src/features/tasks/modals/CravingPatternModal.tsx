@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useCheckInStats, type PatternData } from '../hooks/useTasksModalData'
 import { haptics } from '@/lib/animations'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -78,6 +79,9 @@ const flameAnimation = {
 export function CravingPatternModal({ onClose }: CravingPatternModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { cravingPattern, loading } = useCheckInStats()
+
+  // Set iOS status bar to match modal header color (orange-500)
+  useStatusBarColor('#F97316', true)
 
   const getTrendIcon = (trend: PatternData['trend']) => {
     switch (trend) {

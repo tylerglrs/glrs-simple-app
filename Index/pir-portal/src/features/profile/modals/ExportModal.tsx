@@ -1,11 +1,6 @@
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import {
   Select,
   SelectContent,
@@ -39,6 +34,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
 import { db } from '@/lib/firebase'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import {
   collection,
   query,
@@ -105,6 +101,9 @@ interface ExportModalProps {
 export function ExportModal({ onClose }: ExportModalProps) {
   const { user } = useAuth()
   const { toast } = useToast()
+
+  // Set iOS status bar to match modal header color (teal-600)
+  useStatusBarColor('#0D9488', true)
 
   // State
   const [dateRange, setDateRange] = useState<DateRange>('all')
@@ -427,20 +426,21 @@ export function ExportModal({ onClose }: ExportModalProps) {
   }
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-[560px] p-0 gap-0">
-      {/* Header */}
-      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-teal-600 to-emerald-600">
-        <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-          <Download className="h-6 w-6" />
-          Export Your Data
-        </DialogTitle>
-        <DialogDescription className="text-teal-100">
-          Download your recovery data in JSON format (GDPR compliant).
-        </DialogDescription>
-      </DialogHeader>
+    <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-r from-teal-600 to-emerald-600 shrink-0">
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            <Download className="h-6 w-6" />
+            Export Your Data
+          </h2>
+          <p className="text-teal-100 text-sm mt-1">
+            Download your recovery data in JSON format (GDPR compliant).
+          </p>
+        </div>
 
-      {/* Content */}
-      <ScrollArea className="max-h-[calc(90vh-180px)]">
+        {/* Content */}
+        <ScrollArea className="flex-1">
         <div className="p-6 space-y-6">
           {/* Date Range Selection */}
           <Card>
@@ -592,30 +592,31 @@ export function ExportModal({ onClose }: ExportModalProps) {
         </div>
       </ScrollArea>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30">
-        <Button type="button" variant="outline" onClick={onClose} disabled={isExporting}>
-          {exportStats ? 'Close' : 'Cancel'}
-        </Button>
-        <Button
-          onClick={handleExport}
-          disabled={isExporting || selectedCategories.length === 0}
-          className="bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700"
-        >
-          {isExporting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Exporting...
-            </>
-          ) : (
-            <>
-              <Download className="mr-2 h-4 w-4" />
-              Export Data
-            </>
-          )}
-        </Button>
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30 shrink-0">
+          <Button type="button" variant="outline" onClick={onClose} disabled={isExporting}>
+            {exportStats ? 'Close' : 'Cancel'}
+          </Button>
+          <Button
+            onClick={handleExport}
+            disabled={isExporting || selectedCategories.length === 0}
+            className="bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700"
+          >
+            {isExporting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Exporting...
+              </>
+            ) : (
+              <>
+                <Download className="mr-2 h-4 w-4" />
+                Export Data
+              </>
+            )}
+          </Button>
+        </div>
       </div>
-    </DialogContent>
+    </ResponsiveModal>
   )
 }
 

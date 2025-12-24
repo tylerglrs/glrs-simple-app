@@ -1,9 +1,5 @@
 import { useState } from 'react'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent } from '@/components/ui/card'
@@ -17,18 +13,16 @@ import {
   Phone,
   AlertTriangle,
   Mail,
-  Clock,
   ChevronDown,
   ChevronUp,
-  ExternalLink,
   MessageSquare,
   ClipboardCheck,
   UserCheck,
   CalendarX,
-  Bell,
   ShieldCheck,
   Download,
 } from 'lucide-react'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // FAQ DATA
@@ -50,7 +44,7 @@ const FAQ_ITEMS: FAQItem[] = [
   {
     question: 'How do I contact my coach?',
     answer:
-      "Your coach's contact information is displayed in your profile and on the Home tab. You can call or message them directly through the app or using the contact information provided.",
+      "You can contact your coach by messaging them directly in the app through the Messages tab, or by calling or emailing them using the contact information in your profile. Your coach's email and work phone number are available in the Home tab.",
     icon: <UserCheck className="h-4 w-4" />,
   },
   {
@@ -58,12 +52,6 @@ const FAQ_ITEMS: FAQItem[] = [
     answer:
       "Missing occasional check-ins is okay. Focus on building consistency over time. Your coach will be notified of patterns but understands that life happens. Just get back on track when you can.",
     icon: <CalendarX className="h-4 w-4" />,
-  },
-  {
-    question: 'How do I enable push notifications?',
-    answer:
-      'Go to your Profile, tap on Notification Settings, and enable push notifications. Make sure you also allow notifications in your device settings for the GLRS app.',
-    icon: <Bell className="h-4 w-4" />,
   },
   {
     question: 'Is my data private and secure?',
@@ -90,6 +78,9 @@ interface HelpModalProps {
 export function HelpModal({ onClose }: HelpModalProps) {
   const [openItems, setOpenItems] = useState<number[]>([])
 
+  // Set iOS status bar to match modal header color (teal-500)
+  useStatusBarColor('#14B8A6', true)
+
   const toggleItem = (index: number) => {
     setOpenItems((prev) =>
       prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]
@@ -97,17 +88,18 @@ export function HelpModal({ onClose }: HelpModalProps) {
   }
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-[600px] p-0 gap-0">
-      {/* Header */}
-      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-teal-500 to-teal-600">
-        <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-          <HelpCircle className="h-6 w-6" />
-          Help & Support
-        </DialogTitle>
-      </DialogHeader>
+    <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-r from-teal-500 to-teal-600 shrink-0">
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            <HelpCircle className="h-6 w-6" />
+            Help & Support
+          </h2>
+        </div>
 
-      {/* Content */}
-      <ScrollArea className="max-h-[calc(90vh-140px)]">
+        {/* Content */}
+        <ScrollArea className="flex-1">
         <div className="p-6 space-y-6">
           {/* Crisis Hotlines - PROMINENT */}
           <Card className="bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200">
@@ -180,14 +172,6 @@ export function HelpModal({ onClose }: HelpModalProps) {
                     <div className="text-sm text-muted-foreground">Contact Your Coach</div>
                   </div>
                 </div>
-
-                <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <Clock className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <div className="text-sm font-medium">Office Hours</div>
-                    <div className="text-sm text-muted-foreground">Monday - Friday, 9am - 5pm PST</div>
-                  </div>
-                </div>
               </div>
             </CardContent>
           </Card>
@@ -233,36 +217,42 @@ export function HelpModal({ onClose }: HelpModalProps) {
             </div>
           </div>
 
-          {/* Documentation Link */}
+          {/* Crisis Resources Link */}
           <Card className="bg-muted/30">
             <CardContent className="pt-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="font-medium">Need more help?</div>
+                  <div className="font-medium">Crisis Resources</div>
                   <div className="text-sm text-muted-foreground">
-                    Visit our full documentation and guides
+                    Comprehensive crisis support and resources
                   </div>
                 </div>
                 <a
-                  href="https://glrecoveryservices.com/help"
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href="/crisis-resources"
                   className="inline-flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white font-medium rounded-lg transition-colors text-sm"
                 >
-                  View Docs
-                  <ExternalLink className="h-4 w-4" />
+                  View Resources
                 </a>
               </div>
             </CardContent>
           </Card>
+
+          {/* Legal Info Note */}
+          <div className="text-center text-sm text-muted-foreground">
+            <p>
+              For Privacy Policy, Terms & Conditions, and Health Disclaimers,
+              visit Profile → Legal & Policies.
+            </p>
+          </div>
         </div>
       </ScrollArea>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end px-6 py-4 border-t bg-muted/30">
-        <Button onClick={onClose}>Close</Button>
+        {/* Footer */}
+        <div className="flex items-center justify-end px-6 py-4 border-t bg-muted/30 shrink-0">
+          <Button onClick={onClose}>Close</Button>
+        </div>
       </div>
-    </DialogContent>
+    </ResponsiveModal>
   )
 }
 

@@ -18,7 +18,9 @@ import {
 import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useCheckInsQuery } from '@/hooks/queries'
+import { Illustration } from '@/components/common/Illustration'
 import { haptics } from '@/lib/animations'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -126,6 +128,9 @@ function StreakBadge({ streak, label, icon, gradient, index }: StreakBadgeProps)
 export function StreaksModal({ onClose }: StreaksModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { checkInStreak, checkInStreakData, weeklyStats, loading } = useCheckInsQuery()
+
+  // Set iOS status bar to match modal header color (orange-500)
+  useStatusBarColor('#F97316', true)
 
   const getStreakIcon = (streak: number) => {
     if (streak >= 30) return <Flame className="h-6 w-6 text-orange-500" />
@@ -242,7 +247,7 @@ export function StreaksModal({ onClose }: StreaksModalProps) {
             variants={containerVariants}
             initial="hidden"
             animate="visible"
-            className={cn('p-5 space-y-5', isMobile && 'p-4 space-y-4')}
+            className="p-4 space-y-4 md:p-5 md:space-y-5"
           >
             {/* Current Streak Hero */}
             <motion.div
@@ -358,19 +363,32 @@ export function StreaksModal({ onClose }: StreaksModalProps) {
             {checkInStreakData.allStreaks.length === 0 && checkInStreak === 0 && (
               <motion.div
                 variants={itemVariants}
-                className="text-center py-8 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200"
+                className="text-center py-8 bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl border-2 border-dashed border-orange-200"
               >
                 <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ type: 'spring' as const, delay: 0.3 }}
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+                  className="mb-4"
                 >
-                  <Zap className="h-14 w-14 mx-auto text-gray-300 mb-3" />
+                  <Illustration name="streak-fire" size="lg" className="mx-auto opacity-85" />
                 </motion.div>
-                <h3 className="font-semibold text-foreground mb-1">Start Your First Streak</h3>
-                <p className="text-sm text-muted-foreground px-4">
+                <motion.h3
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                  className="font-semibold text-foreground mb-1"
+                >
+                  Start Your First Streak
+                </motion.h3>
+                <motion.p
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="text-sm text-muted-foreground px-4"
+                >
                   Complete check-ins on consecutive days to build your streak!
-                </p>
+                </motion.p>
               </motion.div>
             )}
 

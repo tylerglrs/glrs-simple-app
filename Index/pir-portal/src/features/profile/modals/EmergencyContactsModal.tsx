@@ -6,11 +6,7 @@ import { db } from '@/lib/firebase'
 import { updateContextAfterProfileUpdate } from '@/lib/updateAIContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import {
   Form,
   FormControl,
@@ -56,6 +52,7 @@ import {
   UserPlus,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -113,6 +110,9 @@ interface EmergencyContactsModalProps {
 export function EmergencyContactsModal({ onClose }: EmergencyContactsModalProps) {
   const { user, userData } = useAuth()
   const { toast } = useToast()
+
+  // Set iOS status bar to match modal header color (violet-600)
+  useStatusBarColor('#7C3AED', true)
 
   // Get extended user data
   const extendedUserData = userData as unknown as Record<string, unknown> | null
@@ -262,17 +262,18 @@ export function EmergencyContactsModal({ onClose }: EmergencyContactsModalProps)
   const assignedCoachName = extendedUserData?.assignedCoachName as string | undefined
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-[600px] p-0 gap-0">
-      {/* Header */}
-      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-violet-600 to-purple-600">
-        <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-          <Users className="h-6 w-6" />
-          Emergency Contacts
-        </DialogTitle>
-      </DialogHeader>
+    <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="lg">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-r from-violet-600 to-purple-600 shrink-0">
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            <Users className="h-6 w-6" />
+            Emergency Contacts
+          </h2>
+        </div>
 
-      {/* Content */}
-      <ScrollArea className="max-h-[calc(90vh-180px)]">
+        {/* Content */}
+        <ScrollArea className="flex-1">
         <div className="p-6 space-y-6">
           {/* Assigned Coach Card (Read-Only) */}
           {assignedCoach && (
@@ -513,27 +514,28 @@ export function EmergencyContactsModal({ onClose }: EmergencyContactsModalProps)
         </div>
       </ScrollArea>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30">
-        <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
-          Cancel
-        </Button>
-        <Button
-          onClick={handleSaveAll}
-          disabled={isSaving || isAdding}
-          className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
-        >
-          {isSaving ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            'Save Changes'
-          )}
-        </Button>
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30 shrink-0">
+          <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSaveAll}
+            disabled={isSaving || isAdding}
+            className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              'Save Changes'
+            )}
+          </Button>
+        </div>
       </div>
-    </DialogContent>
+    </ResponsiveModal>
   )
 }
 

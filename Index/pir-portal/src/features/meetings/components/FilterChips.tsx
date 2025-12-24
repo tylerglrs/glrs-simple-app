@@ -13,6 +13,7 @@ import {
   ACCESSIBILITY_OPTIONS,
   LANGUAGE_OPTIONS,
   SPECIAL_OPTIONS,
+  ATTENDANCE_MODE_OPTIONS,
 } from '../types'
 
 // ============================================================
@@ -63,6 +64,11 @@ function getSpecialLabel(value: string): string {
   return option?.label || value
 }
 
+function getAttendanceModeLabel(value: string): string {
+  const option = ATTENDANCE_MODE_OPTIONS.find((o) => o.value === value)
+  return option?.label || value
+}
+
 // ============================================================
 // FILTER CHIP COMPONENT
 // ============================================================
@@ -87,10 +93,10 @@ function FilterChip({ label, onRemove, variant = 'secondary' }: FilterChipProps)
           e.stopPropagation()
           onRemove()
         }}
-        className="ml-1 rounded-full p-0.5 hover:bg-muted-foreground/20 transition-colors"
+        className="ml-1 rounded-full p-1 hover:bg-muted-foreground/20 transition-colors min-w-[24px] min-h-[24px] flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         aria-label={`Remove ${label} filter`}
       >
-        <X className="h-3 w-3" />
+        <X className="h-3 w-3" aria-hidden="true" />
       </button>
     </Badge>
   )
@@ -128,11 +134,28 @@ export function FilterChips({ filters, onRemoveFilter, onClearAll }: FilterChips
     })
   }
 
+  // Attendance Mode
+  if (filters.attendanceMode !== 'all') {
+    chips.push({
+      key: 'attendanceMode',
+      label: getAttendanceModeLabel(filters.attendanceMode),
+    })
+  }
+
   // Meeting Type
   if (filters.type !== 'all') {
     chips.push({
       key: 'type',
       label: getMeetingTypeLabel(filters.type),
+    })
+  }
+
+  // Program Types (array - each gets its own chip)
+  for (const programType of filters.programTypes || []) {
+    chips.push({
+      key: 'programTypes',
+      value: programType,
+      label: getMeetingTypeLabel(programType),
     })
   }
 
@@ -211,7 +234,11 @@ export function FilterChips({ filters, onRemoveFilter, onClearAll }: FilterChips
   return (
     <div className="flex items-center gap-2">
       <ScrollArea className="flex-1 whitespace-nowrap">
-        <div className="flex items-center gap-1.5 py-1">
+        <div
+          className="flex items-center gap-1.5 py-1"
+          role="group"
+          aria-label={`${chips.length} active filter${chips.length !== 1 ? 's' : ''}`}
+        >
           {chips.map((chip, index) => (
             <FilterChip
               key={`${chip.key}-${chip.value || index}`}
@@ -228,7 +255,8 @@ export function FilterChips({ filters, onRemoveFilter, onClearAll }: FilterChips
           variant="ghost"
           size="sm"
           onClick={onClearAll}
-          className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
+          className="shrink-0 text-xs text-muted-foreground hover:text-foreground min-h-[36px]"
+          aria-label={`Clear all ${chips.length} filters`}
         >
           Clear all
         </Button>

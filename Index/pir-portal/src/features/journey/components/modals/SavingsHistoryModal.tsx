@@ -9,12 +9,7 @@ import {
   TrendingUp,
   TrendingDown,
 } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -112,15 +107,16 @@ export function SavingsHistoryModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] sm:max-w-md max-h-[90vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+    <ResponsiveModal open={open} onOpenChange={onOpenChange} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b shrink-0">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
             <History className="h-5 w-5 text-primary" />
             Transaction History
-          </DialogTitle>
-        </DialogHeader>
+          </h2>
+        </div>
 
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Goal Info */}
         {goal && (
           <div className="rounded-lg bg-muted/50 p-3 mb-4">
@@ -217,11 +213,14 @@ export function SavingsHistoryModal({
           )}
         </div>
 
-        <Button onClick={() => onOpenChange(false)} className="w-full mt-4">
-          Close
-        </Button>
-      </DialogContent>
-    </Dialog>
+        <div className="p-4 border-t shrink-0">
+          <Button onClick={() => onOpenChange(false)} className="w-full">
+            Close
+          </Button>
+        </div>
+        </div>
+      </div>
+    </ResponsiveModal>
   )
 }
 

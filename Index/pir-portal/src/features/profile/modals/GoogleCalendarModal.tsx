@@ -4,11 +4,7 @@ import { db, functions } from '@/lib/firebase'
 import { httpsCallable } from 'firebase/functions'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import {
   Select,
   SelectContent,
@@ -55,6 +51,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -111,6 +108,9 @@ export function GoogleCalendarModal({ onClose }: GoogleCalendarModalProps) {
   const { user, userData } = useAuth()
   const { toast } = useToast()
   const isMobile = useMediaQuery('(max-width: 768px)')
+
+  // Set iOS status bar to match modal header color (blue-500)
+  useStatusBarColor('#3B82F6', true)
 
   // Get extended user data
   const extendedUserData = userData as unknown as Record<string, unknown> | null
@@ -307,17 +307,18 @@ export function GoogleCalendarModal({ onClose }: GoogleCalendarModalProps) {
   }
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-[600px] p-0 gap-0">
-      {/* Header */}
-      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-blue-500 to-blue-600">
-        <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-          <Calendar className="h-6 w-6" />
-          Google Calendar Integration
-        </DialogTitle>
-      </DialogHeader>
+    <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="lg">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-r from-blue-500 to-blue-600 shrink-0">
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            <Calendar className="h-6 w-6" />
+            Google Calendar Integration
+          </h2>
+        </div>
 
-      {/* Content */}
-      <ScrollArea className="max-h-[calc(90vh-180px)]">
+        {/* Content */}
+        <ScrollArea className="flex-1">
         <div className="p-6 space-y-5">
           {/* Error Message */}
           {error && (
@@ -372,7 +373,7 @@ export function GoogleCalendarModal({ onClose }: GoogleCalendarModalProps) {
           )}
 
           {/* Settings Grid */}
-          <div className={cn('grid gap-3', isMobile ? 'grid-cols-1' : 'grid-cols-2')}>
+          <div className={cn('grid gap-3 grid-cols-1 md:grid-cols-2')}>
             {/* Timezone */}
             <Card>
               <CardContent className="pt-4">
@@ -636,92 +637,93 @@ export function GoogleCalendarModal({ onClose }: GoogleCalendarModalProps) {
         </div>
       </ScrollArea>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30">
-        <Button type="button" variant="outline" onClick={onClose} disabled={saving || connecting}>
-          Cancel
-        </Button>
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30 shrink-0">
+          <Button type="button" variant="outline" onClick={onClose} disabled={saving || connecting}>
+            Cancel
+          </Button>
 
-        {isConnected ? (
-          <>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="text-destructive border-destructive hover:bg-destructive/10"
-                  disabled={disconnecting}
-                >
-                  {disconnecting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Disconnecting...
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="mr-2 h-4 w-4" />
-                      Disconnect
-                    </>
-                  )}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Your calendar events will no longer sync. You can reconnect at any time.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={handleDisconnectCalendar}
-                    className="bg-destructive hover:bg-destructive/90"
+          {isConnected ? (
+            <>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="text-destructive border-destructive hover:bg-destructive/10"
+                    disabled={disconnecting}
                   >
-                    Disconnect
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+                    {disconnecting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Disconnecting...
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="mr-2 h-4 w-4" />
+                        Disconnect
+                      </>
+                    )}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Your calendar events will no longer sync. You can reconnect at any time.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDisconnectCalendar}
+                      className="bg-destructive hover:bg-destructive/90"
+                    >
+                      Disconnect
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
 
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Check className="mr-2 h-4 w-4" />
+                    Save Changes
+                  </>
+                )}
+              </Button>
+            </>
+          ) : (
             <Button
-              onClick={handleSave}
-              disabled={saving}
-              className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700"
+              onClick={handleConnectCalendar}
+              disabled={connecting}
+              className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700"
             >
-              {saving ? (
+              {connecting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
+                  Connecting...
                 </>
               ) : (
                 <>
-                  <Check className="mr-2 h-4 w-4" />
-                  Save Changes
+                  <Link className="mr-2 h-4 w-4" />
+                  Connect Google Calendar
                 </>
               )}
             </Button>
-          </>
-        ) : (
-          <Button
-            onClick={handleConnectCalendar}
-            disabled={connecting}
-            className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700"
-          >
-            {connecting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Connecting...
-              </>
-            ) : (
-              <>
-                <Link className="mr-2 h-4 w-4" />
-                Connect Google Calendar
-              </>
-            )}
-          </Button>
-        )}
+          )}
+        </div>
       </div>
-    </DialogContent>
+    </ResponsiveModal>
   )
 }
 

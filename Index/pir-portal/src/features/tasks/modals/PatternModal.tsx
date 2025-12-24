@@ -318,7 +318,7 @@ function PatternTabContent({ config, data, isMobile }: PatternTabContentProps) {
             <div className="flex-1">
               <p className="text-white/80 text-sm font-medium mb-1">7-Day Average</p>
               <div className="flex items-baseline gap-2">
-                <span className={cn('font-bold text-white', isMobile ? 'text-4xl' : 'text-5xl')}>
+                <span className="font-bold text-white text-4xl md:text-5xl">
                   {value > 0 ? value.toFixed(1) : '-'}
                 </span>
                 <span className="text-white/70 text-lg">/10</span>
@@ -362,7 +362,7 @@ function PatternTabContent({ config, data, isMobile }: PatternTabContentProps) {
         {data.dataPoints.length > 0 && (
           <motion.div variants={itemVariants}>
             <div className="bg-gray-50 rounded-xl p-4">
-              <h3 className={cn('font-semibold text-gray-800 mb-3', isMobile ? 'text-sm' : 'text-base')}>
+              <h3 className="font-semibold text-gray-800 mb-3 text-sm md:text-base">
                 Recent History
               </h3>
               <div className="flex items-end justify-between gap-1 h-24">
@@ -399,14 +399,14 @@ function PatternTabContent({ config, data, isMobile }: PatternTabContentProps) {
                   <Lightbulb className="h-5 w-5 text-amber-600" />
                 </div>
                 <div>
-                  <h3 className={cn('font-semibold text-amber-800 mb-2', isMobile ? 'text-sm' : 'text-base')}>
+                  <h3 className="font-semibold text-amber-800 mb-2 text-sm md:text-base">
                     Insights
                   </h3>
                   <ul className="space-y-2">
                     {data.insights.map((insight, index) => (
                       <li
                         key={index}
-                        className={cn('text-amber-700', isMobile ? 'text-xs' : 'text-sm')}
+                        className="text-amber-700 text-xs md:text-sm"
                       >
                         {insight}
                       </li>
@@ -453,10 +453,10 @@ export function PatternModal({ initialTab = 'mood', onClose }: PatternModalProps
 
   return (
     <EnhancedDialog open onOpenChange={onClose}>
-      <EnhancedDialogContent className={cn('max-w-md', isMobile && 'h-[90vh]')}>
+      <EnhancedDialogContent className="max-w-md h-[90vh] md:h-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className={cn('font-bold text-gray-800', isMobile ? 'text-lg' : 'text-xl')}>
+          <h2 className="font-bold text-gray-800 text-lg md:text-xl">
             Your Patterns
           </h2>
           <button

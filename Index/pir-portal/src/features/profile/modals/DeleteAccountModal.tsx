@@ -11,11 +11,7 @@ import { doc, deleteDoc, collection, query, where, getDocs, writeBatch } from 'f
 import { db } from '@/lib/firebase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import {
   Form,
   FormControl,
@@ -36,6 +32,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // DATA DELETION LIST
@@ -82,6 +79,9 @@ interface DeleteAccountModalProps {
 export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
   const { user } = useAuth()
   const { toast } = useToast()
+
+  // Set iOS status bar to match modal header color (teal-600)
+  useStatusBarColor('#0D9488', true)
 
   // State
   const [isDeleting, setIsDeleting] = useState(false)
@@ -209,17 +209,18 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
   }
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-[540px] p-0 gap-0">
-      {/* Header */}
-      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-teal-600 to-teal-700">
-        <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-          <ShieldAlert className="h-6 w-6" />
-          Delete Account
-        </DialogTitle>
-      </DialogHeader>
+    <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-r from-teal-600 to-teal-700 shrink-0">
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            <ShieldAlert className="h-6 w-6" />
+            Delete Account
+          </h2>
+        </div>
 
-      {/* Content */}
-      <ScrollArea className="max-h-[calc(90vh-180px)]">
+        {/* Content */}
+        <ScrollArea className="flex-1">
         <div className="p-6 space-y-5">
           {/* Warning Description */}
           <p className="text-sm text-muted-foreground">
@@ -278,6 +279,7 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
                     <FormControl>
                       <Input
                         type="email"
+                        inputMode="email"
                         placeholder="Type your email to confirm"
                         disabled={isDeleting}
                         autoComplete="off"
@@ -369,38 +371,39 @@ export function DeleteAccountModal({ onClose }: DeleteAccountModalProps) {
         </div>
       </ScrollArea>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onClose}
-          disabled={isDeleting}
-          className="border-teal-300 text-teal-700 hover:bg-teal-50"
-        >
-          Cancel
-        </Button>
-        <Button
-          onClick={form.handleSubmit(onSubmit)}
-          disabled={!isFormValid || isDeleting}
-          className={cn(
-            'bg-gradient-to-r',
-            isFormValid && !isDeleting
-              ? 'from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800'
-              : 'from-gray-300 to-gray-400 cursor-not-allowed'
-          )}
-        >
-          {isDeleting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Deleting...
-            </>
-          ) : (
-            'Delete Account'
-          )}
-        </Button>
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30 shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={isDeleting}
+            className="border-teal-300 text-teal-700 hover:bg-teal-50"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={form.handleSubmit(onSubmit)}
+            disabled={!isFormValid || isDeleting}
+            className={cn(
+              'bg-gradient-to-r',
+              isFormValid && !isDeleting
+                ? 'from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800'
+                : 'from-gray-300 to-gray-400 cursor-not-allowed'
+            )}
+          >
+            {isDeleting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              'Delete Account'
+            )}
+          </Button>
+        </div>
       </div>
-    </DialogContent>
+    </ResponsiveModal>
   )
 }
 

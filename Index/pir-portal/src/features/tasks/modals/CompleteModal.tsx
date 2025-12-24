@@ -9,7 +9,8 @@ import { CheckCircle, X, Calendar, Sparkles, PartyPopper } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useGoalsData, formatDate } from '../hooks/useGoalsData'
-import { haptics } from '@/lib/animations'
+import { haptics, achievementCelebration } from '@/lib/animations'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES
@@ -83,6 +84,9 @@ export function CompleteModal({ onClose }: CompleteModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { assignments, loading, completeAssignment } = useGoalsData()
 
+  // Set iOS status bar to match modal header color (green-500)
+  useStatusBarColor('#22C55E', true)
+
   // Filter incomplete assignments
   const incompleteAssignments = assignments.filter(
     (assignment) => assignment.status !== 'completed'
@@ -90,6 +94,7 @@ export function CompleteModal({ onClose }: CompleteModalProps) {
 
   const handleComplete = async (assignmentId: string) => {
     haptics.success()
+    achievementCelebration()
     await completeAssignment(assignmentId)
   }
 
@@ -201,7 +206,7 @@ export function CompleteModal({ onClose }: CompleteModalProps) {
             variants={containerVariants}
             initial="hidden"
             animate="visible"
-            className={cn('p-5 space-y-4', isMobile && 'p-4 space-y-3')}
+            className="p-4 space-y-3 md:p-5 md:space-y-4"
           >
             {/* Tasks List */}
             {incompleteAssignments.length === 0 ? (

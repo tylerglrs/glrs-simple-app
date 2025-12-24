@@ -9,7 +9,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Share2, X, Loader2, Target, CheckCircle, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useGoalsData } from '../hooks/useGoalsData'
 import { db, auth } from '@/lib/firebase'
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
@@ -27,7 +26,6 @@ export interface ShareGoalModalProps {
 // =============================================================================
 
 export function ShareGoalModal({ onClose }: ShareGoalModalProps) {
-  const isMobile = useMediaQuery('(max-width: 768px)')
   const { goals, loading } = useGoalsData()
 
   const [selectedGoals, setSelectedGoals] = useState<string[]>([])
@@ -119,7 +117,7 @@ export function ShareGoalModal({ onClose }: ShareGoalModalProps) {
       </DialogHeader>
 
       <ScrollArea className="max-h-[55vh]">
-        <div className={cn('p-5 space-y-5', isMobile && 'p-4 space-y-4')}>
+        <div className="p-4 space-y-4 md:p-5 md:space-y-5">
           {/* Info */}
           <div className="bg-teal-50 rounded-lg p-4 border border-teal-100">
             <div className="flex gap-3">

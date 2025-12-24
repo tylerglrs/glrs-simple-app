@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useModalStore } from '@/stores/modalStore'
 import { useIntentions } from '../hooks/useTasksModalData'
+import { haptics } from '@/lib/animations'
 
 // =============================================================================
 // TYPES
@@ -42,6 +43,7 @@ export function IntentionsModal({ onClose }: IntentionsModalProps) {
 
     if (success) {
       setNewIntention('')
+      haptics.success()
     }
   }
 

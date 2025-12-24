@@ -1,16 +1,12 @@
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import {
   Form,
   FormControl,
@@ -59,6 +55,9 @@ export function PasswordModal({
 }: PasswordModalProps) {
   const { user } = useAuth()
   const { toast } = useToast()
+
+  // Set iOS status bar to match modal header color (gray-700)
+  useStatusBarColor('#374151', true)
 
   // State
   const [isVerifying, setIsVerifying] = useState(false)
@@ -117,18 +116,19 @@ export function PasswordModal({
   }
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-[400px] p-0 gap-0">
-      {/* Header */}
-      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-gray-700 to-gray-800">
-        <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-          <Lock className="h-6 w-6" />
-          {title}
-        </DialogTitle>
-        <DialogDescription className="text-gray-300 mt-1">{description}</DialogDescription>
-      </DialogHeader>
+    <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="sm">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-r from-gray-700 to-gray-800 shrink-0">
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            <Lock className="h-6 w-6" />
+            {title}
+          </h2>
+          <p className="text-gray-300 text-sm mt-1">{description}</p>
+        </div>
 
-      {/* Content */}
-      <div className="p-6 space-y-5">
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-6 space-y-5">
         {/* Security Badge */}
         <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
           <ShieldCheck className="h-5 w-5 text-emerald-500" />
@@ -189,27 +189,28 @@ export function PasswordModal({
         </Form>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30">
-        <Button type="button" variant="outline" onClick={onClose} disabled={isVerifying}>
-          Cancel
-        </Button>
-        <Button
-          onClick={form.handleSubmit(onSubmit)}
-          disabled={isVerifying || !form.formState.isValid}
-          className="bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-800 hover:to-gray-900"
-        >
-          {isVerifying ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Verifying...
-            </>
-          ) : (
-            'Confirm'
-          )}
-        </Button>
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30 shrink-0">
+          <Button type="button" variant="outline" onClick={onClose} disabled={isVerifying}>
+            Cancel
+          </Button>
+          <Button
+            onClick={form.handleSubmit(onSubmit)}
+            disabled={isVerifying || !form.formState.isValid}
+            className="bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-800 hover:to-gray-900"
+          >
+            {isVerifying ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Verifying...
+              </>
+            ) : (
+              'Confirm'
+            )}
+          </Button>
+        </div>
       </div>
-    </DialogContent>
+    </ResponsiveModal>
   )
 }
 

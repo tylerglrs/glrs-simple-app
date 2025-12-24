@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
-import { Search, ArrowLeft, Send, Loader2, MessageCircle, User, Shield } from 'lucide-react'
-import { DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Search, ArrowLeft, Send, Loader2, MessageCircle, User, Shield, X } from 'lucide-react'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
+import { useTimeGradient } from '@/hooks/useTimeOfDay'
 import { useEligibleUsers, type EligibleUser, type Conversation } from '../hooks/useConversations'
 import { useAuth } from '@/contexts/AuthContext'
 import { db } from '@/lib/firebase'
@@ -17,6 +18,9 @@ import {
   where,
   getDocs,
   addDoc,
+  updateDoc,
+  doc,
+  increment,
   serverTimestamp,
 } from 'firebase/firestore'
 
@@ -36,6 +40,7 @@ export function NewConversationModal({
   const { user, userData } = useAuth()
   const { toast } = useToast()
   const { eligibleUsers, loading: loadingUsers } = useEligibleUsers()
+  const gradientCSS = useTimeGradient()
 
   // State
   const [step, setStep] = useState<Step>(initialRecipientId ? 'compose' : 'select')
@@ -161,17 +166,45 @@ export function NewConversationModal({
       // Get or create conversation
       const conversationId = await getOrCreateConversation(selectedUser.id)
 
-      // Add message
+      // Build sender name for Admin compatibility
+      const senderName = userData?.firstName
+        ? `${userData.firstName} ${userData.lastName || ''}`.trim()
+        : user.email || 'User'
+
+      const trimmedText = messageText.trim()
+
+      // Add message with Admin compatibility fields
       await addDoc(collection(db, 'messages'), {
+        // PIR fields
         conversationId,
         senderId: user.uid,
         recipientId: selectedUser.id,
-        text: messageText.trim(),
-        type: 'text',
+        participants: [user.uid, selectedUser.id], // For security rules query filtering
+        text: trimmedText,
         status: 'sent',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         readAt: null,
+        // Admin compatibility fields
+        tenantId: userData?.tenantId || 'full-service',
+        content: trimmedText,  // Duplicate of text for Admin
+        type: 'direct',  // Admin expects 'direct' for DMs (not 'text')
+        contentType: 'text',  // PIR uses this to distinguish text vs image
+        senderName: senderName,
+        recipientName: selectedUser.name,
+      })
+
+      // Update conversation with lastMessage for proper list ordering
+      await updateDoc(doc(db, 'conversations', conversationId), {
+        lastMessage: {
+          text: trimmedText.length > 50 ? trimmedText.substring(0, 50) + '...' : trimmedText,
+          senderId: user.uid,
+          timestamp: serverTimestamp(),
+          type: 'text',
+        },
+        lastMessageTimestamp: serverTimestamp(),
+        [`unreadCount.${selectedUser.id}`]: increment(1),
+        updatedAt: serverTimestamp(),
       })
 
       toast({
@@ -247,93 +280,109 @@ export function NewConversationModal({
   )
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-md p-0 gap-0 overflow-hidden">
-      {/* Step 1: Select Recipient */}
-      {step === 'select' && (
-        <>
-          <DialogHeader className="p-4 pb-0">
-            <DialogTitle className="flex items-center gap-2">
-              <MessageCircle className="h-5 w-5 text-primary" />
-              New Message
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="p-4 pt-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search people..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-          </div>
-
-          <ScrollArea className="max-h-[400px]">
-            {loadingUsers ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : filteredUsers.length === 0 ? (
-              <div className="text-center py-12 px-4">
-                <User className="h-10 w-10 text-muted-foreground/50 mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">
-                  {searchQuery ? 'No users found matching your search' : 'No users available to message'}
-                </p>
-              </div>
-            ) : (
-              <div className="px-4 pb-4 space-y-4">
-                {/* Coach Section */}
-                {coach && (
-                  <div>
-                    <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1 mb-2">
-                      Your Coach
-                    </h3>
-                    <div className="rounded-lg border bg-card">
-                      {renderUserItem(coach, true)}
-                    </div>
-                  </div>
-                )}
-
-                {/* Community Members Section */}
-                {communityMembers.length > 0 && (
-                  <div>
-                    <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1 mb-2">
-                      Community Members
-                    </h3>
-                    <div className="rounded-lg border bg-card divide-y">
-                      {communityMembers.map((u) => renderUserItem(u))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </ScrollArea>
-        </>
-      )}
-
-      {/* Step 2: Compose Message */}
-      {step === 'compose' && selectedUser && (
-        <>
-          <DialogHeader className="p-4 pb-0">
-            <DialogTitle className="flex items-center gap-2">
+    <ResponsiveModal
+      open={true}
+      onOpenChange={(open) => !open && onClose()}
+      desktopSize="md"
+    >
+      {/* Full-screen container with time-of-day gradient */}
+      <div
+        className="flex flex-col h-full min-h-0"
+        style={{ background: gradientCSS }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-white/20 bg-white/10 backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            {step === 'compose' ? (
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={handleBack}
-                className="-ml-2 h-8 w-8"
+                className="h-9 w-9 text-slate-700 hover:bg-white/20"
                 disabled={sending}
               >
-                <ArrowLeft className="h-4 w-4" />
+                <ArrowLeft className="h-5 w-5" />
               </Button>
-              <span>New Message</span>
-            </DialogTitle>
-          </DialogHeader>
+            ) : (
+              <MessageCircle className="h-6 w-6 text-slate-700" />
+            )}
+            <h2 className="text-lg font-semibold text-slate-900">New Message</h2>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            className="h-9 w-9 text-slate-700 hover:bg-white/20"
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
 
-          <div className="p-4 space-y-4">
+        {/* Step 1: Select Recipient */}
+        {step === 'select' && (
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {/* Search */}
+            <div className="p-4 bg-white/10">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                <Input
+                  placeholder="Search people..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 bg-white/80 border-white/30 text-slate-900 placeholder:text-slate-500"
+                />
+              </div>
+            </div>
+
+            {/* User List */}
+            <ScrollArea className="flex-1">
+              {loadingUsers ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-slate-600" />
+                </div>
+              ) : filteredUsers.length === 0 ? (
+                <div className="text-center py-12 px-4">
+                  <User className="h-10 w-10 text-slate-400 mx-auto mb-3" />
+                  <p className="text-sm text-slate-600">
+                    {searchQuery ? 'No users found matching your search' : 'No users available to message'}
+                  </p>
+                </div>
+              ) : (
+                <div className="px-4 pb-4 space-y-4">
+                  {/* Coach Section */}
+                  {coach && (
+                    <div>
+                      <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wide px-1 mb-2">
+                        Your Coach
+                      </h3>
+                      <div className="rounded-lg border border-white/30 bg-white/60 backdrop-blur-sm">
+                        {renderUserItem(coach, true)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Community Members Section */}
+                  {communityMembers.length > 0 && (
+                    <div>
+                      <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wide px-1 mb-2">
+                        Community Members
+                      </h3>
+                      <div className="rounded-lg border border-white/30 bg-white/60 backdrop-blur-sm divide-y divide-white/30">
+                        {communityMembers.map((u) => renderUserItem(u))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+        )}
+
+        {/* Step 2: Compose Message */}
+        {step === 'compose' && selectedUser && (
+          <div className="flex-1 flex flex-col min-h-0 p-4 space-y-4">
             {/* Recipient Display */}
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-white/60 backdrop-blur-sm border border-white/30">
               <Avatar className="h-10 w-10 flex-shrink-0">
                 <AvatarImage src={selectedUser.avatar || undefined} />
                 <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
@@ -341,7 +390,7 @@ export function NewConversationModal({
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-foreground truncate flex items-center gap-2">
+                <div className="font-medium text-slate-900 truncate flex items-center gap-2">
                   {selectedUser.name}
                   {selectedUser.isCoach && (
                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-primary/10 text-primary text-xs font-medium rounded">
@@ -350,35 +399,34 @@ export function NewConversationModal({
                     </span>
                   )}
                 </div>
-                <div className="text-sm text-muted-foreground capitalize">{selectedUser.role}</div>
+                <div className="text-sm text-slate-600 capitalize">{selectedUser.role}</div>
               </div>
             </div>
 
             {/* Message Textarea */}
-            <div className="space-y-2">
+            <div className="flex-1 flex flex-col space-y-2">
               <Textarea
                 placeholder={`Write your message to ${selectedUser.name}...`}
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
-                rows={4}
-                className="resize-none"
+                className="flex-1 min-h-[120px] resize-none bg-white/80 border-white/30 text-slate-900 placeholder:text-slate-500"
                 disabled={sending}
                 autoFocus
               />
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-slate-600">
                   {messageText.length}/1000 characters
                 </span>
               </div>
             </div>
 
             {/* Send Button */}
-            <div className="flex gap-2">
+            <div className="flex gap-2 pt-2">
               <Button
                 variant="outline"
                 onClick={handleBack}
                 disabled={sending}
-                className="flex-1"
+                className="flex-1 bg-white/60 border-white/30 hover:bg-white/80"
               >
                 Back
               </Button>
@@ -401,9 +449,9 @@ export function NewConversationModal({
               </Button>
             </div>
           </div>
-        </>
-      )}
-    </DialogContent>
+        )}
+      </div>
+    </ResponsiveModal>
   )
 }
 

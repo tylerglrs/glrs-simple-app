@@ -8,7 +8,6 @@ import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Calendar, CheckCircle, X, Loader2, Sun, Moon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useCheckInStats } from '../hooks/useTasksModalData'
 
 // =============================================================================
@@ -24,15 +23,23 @@ export interface CheckRateModalProps {
 // =============================================================================
 
 export function CheckRateModal({ onClose }: CheckRateModalProps) {
-  const isMobile = useMediaQuery('(max-width: 768px)')
   const { checkIns, weeklyStats, loading } = useCheckInStats()
+
+  // Helper to get date string in local time
+  const getLocalDateString = (date: Date): string => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
 
   // Group check-ins by date
   const checkInsByDate = checkIns.reduce((acc, checkIn) => {
     const date = checkIn.createdAt instanceof Date
       ? checkIn.createdAt
       : checkIn.createdAt.toDate()
-    const dateKey = date.toISOString().split('T')[0]
+    // Use local time, not UTC
+    const dateKey = getLocalDateString(date)
 
     if (!acc[dateKey]) {
       acc[dateKey] = { morning: false, evening: false }
@@ -51,7 +58,8 @@ export function CheckRateModal({ onClose }: CheckRateModalProps) {
   const last7Days = Array.from({ length: 7 }, (_, i) => {
     const date = new Date()
     date.setDate(date.getDate() - (6 - i))
-    return date.toISOString().split('T')[0]
+    // Use local time, not UTC
+    return getLocalDateString(date)
   })
 
   if (loading) {
@@ -80,7 +88,7 @@ export function CheckRateModal({ onClose }: CheckRateModalProps) {
       </DialogHeader>
 
       <ScrollArea className="max-h-[60vh]">
-        <div className={cn('p-5 space-y-5', isMobile && 'p-4 space-y-4')}>
+        <div className="p-4 space-y-4 sm:p-5 sm:space-y-5">
           {/* Rate Overview */}
           <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-5 text-center border border-blue-100">
             <p className="text-sm text-muted-foreground mb-2">Weekly Check-In Rate</p>
@@ -99,8 +107,10 @@ export function CheckRateModal({ onClose }: CheckRateModalProps) {
             <div className="space-y-2">
               {last7Days.map((dateKey) => {
                 const checkInData = checkInsByDate[dateKey] || { morning: false, evening: false }
-                const date = new Date(dateKey)
-                const isToday = dateKey === new Date().toISOString().split('T')[0]
+                // Parse date string as local time, not UTC
+                const [year, month, day] = dateKey.split('-').map(Number)
+                const date = new Date(year, month - 1, day) // month is 0-indexed
+                const isToday = dateKey === getLocalDateString(new Date())
                 const dayName = date.toLocaleDateString('en-US', { weekday: 'short' })
                 const dateFormatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 

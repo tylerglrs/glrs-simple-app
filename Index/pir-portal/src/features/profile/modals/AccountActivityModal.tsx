@@ -1,11 +1,6 @@
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -42,6 +37,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import { db } from '@/lib/firebase'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 import {
   collection,
   query,
@@ -143,6 +139,9 @@ interface AccountActivityModalProps {
 export function AccountActivityModal({ onClose }: AccountActivityModalProps) {
   const { user, userData } = useAuth()
   const { toast } = useToast()
+
+  // Set iOS status bar to match modal header color (amber-600)
+  useStatusBarColor('#D97706', true)
 
   // State
   const [isLoading, setIsLoading] = useState(true)
@@ -283,20 +282,21 @@ export function AccountActivityModal({ onClose }: AccountActivityModalProps) {
   }
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-[600px] p-0 gap-0">
-      {/* Header */}
-      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-amber-600 to-orange-600">
-        <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-          <Activity className="h-6 w-6" />
-          Account Activity
-        </DialogTitle>
-        <DialogDescription className="text-amber-100">
-          View your login history and manage active sessions.
-        </DialogDescription>
-      </DialogHeader>
+    <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-r from-amber-600 to-orange-600 shrink-0">
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            <Activity className="h-6 w-6" />
+            Account Activity
+          </h2>
+          <p className="text-amber-100 text-sm mt-1">
+            View your login history and manage active sessions.
+          </p>
+        </div>
 
-      {/* Content */}
-      <ScrollArea className="max-h-[calc(90vh-160px)]">
+        {/* Content */}
+        <ScrollArea className="flex-1">
         <div className="p-6 space-y-6">
           {/* Current Session Info */}
           <Card className="border-green-200 bg-green-50/50">
@@ -588,22 +588,23 @@ export function AccountActivityModal({ onClose }: AccountActivityModalProps) {
         </div>
       </ScrollArea>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between gap-3 px-6 py-4 border-t bg-muted/30">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => window.location.reload()}
-          className="text-muted-foreground"
-        >
-          <RefreshCw className="h-4 w-4 mr-1" />
-          Refresh
-        </Button>
-        <Button type="button" variant="outline" onClick={onClose}>
-          Close
-        </Button>
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t bg-muted/30 shrink-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => window.location.reload()}
+            className="text-muted-foreground"
+          >
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Refresh
+          </Button>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </div>
       </div>
-    </DialogContent>
+    </ResponsiveModal>
   )
 }
 

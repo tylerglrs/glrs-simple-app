@@ -11,6 +11,7 @@ import {
   ChevronUp,
   RotateCcw,
   Check,
+  Video,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -45,10 +46,12 @@ import type {
   GroupFilter,
   AccessibilityFilter,
   SpecialFilter,
+  MeetingTypeFilter,
 } from '../types'
 import {
   DAY_FILTER_OPTIONS,
   TIME_OF_DAY_FILTER_OPTIONS,
+  ATTENDANCE_MODE_OPTIONS,
   MEETING_TYPE_OPTIONS,
   FORMAT_OPTIONS,
   COUNTY_LABELS,
@@ -57,6 +60,11 @@ import {
   LANGUAGE_OPTIONS,
   SPECIAL_OPTIONS,
 } from '../types'
+
+// Multi-select meeting type options (excluding 'all')
+const MEETING_TYPE_CHECKBOX_OPTIONS = MEETING_TYPE_OPTIONS.filter(
+  (opt) => opt.value !== 'all'
+) as { value: MeetingTypeFilter; label: string }[]
 
 // ============================================================
 // COUNTY OPTIONS (derived from COUNTY_LABELS)
@@ -78,27 +86,38 @@ interface FilterSectionProps {
   defaultOpen?: boolean
 }
 
+// Generate unique IDs for accessibility
+let sectionIdCounter = 0
+
 function FilterSection({ title, icon, children, defaultOpen = false }: FilterSectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
+  const [sectionId] = useState(() => `filter-section-${++sectionIdCounter}`)
+  const contentId = `${sectionId}-content`
 
   return (
     <div className="border-b border-border last:border-b-0">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between py-4 px-1 text-left hover:bg-accent/50 transition-colors"
+        className="flex w-full items-center justify-between py-4 px-1 text-left hover:bg-accent/50 transition-colors min-h-[44px] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+        aria-expanded={isOpen}
+        aria-controls={contentId}
       >
         <div className="flex items-center gap-2">
-          <span className="text-muted-foreground">{icon}</span>
+          <span className="text-muted-foreground" aria-hidden="true">{icon}</span>
           <span className="font-medium">{title}</span>
         </div>
         {isOpen ? (
-          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          <ChevronUp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
         ) : (
-          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
         )}
       </button>
-      {isOpen && <div className="pb-4 px-1">{children}</div>}
+      {isOpen && (
+        <div id={contentId} className="pb-4 px-1" role="region" aria-labelledby={sectionId}>
+          {children}
+        </div>
+      )}
     </div>
   )
 }
@@ -175,12 +194,21 @@ export function FilterPanel({
   }
 
   const handleCheckboxGroupChange = <
-    K extends 'groups' | 'accessibility' | 'special'
+    K extends 'groups' | 'accessibility' | 'special' | 'programTypes'
   >(
     key: K,
     values: MeetingFilters[K]
   ) => {
     onFiltersChange({ [key]: values })
+  }
+
+  // Handle meeting type multi-select changes
+  const handleMeetingTypeChange = (types: MeetingTypeFilter[]) => {
+    // When using multi-select, set type to 'all' and use programTypes array
+    onFiltersChange({
+      type: 'all',
+      programTypes: types,
+    })
   }
 
   const handleDistanceChange = (value: number[]) => {
@@ -209,12 +237,14 @@ export function FilterPanel({
         <SheetHeader className="px-4 py-3 border-b">
           <div className="flex items-center justify-between">
             <SheetTitle className="flex items-center gap-2">
-              <Filter className="h-5 w-5" />
+              <Filter className="h-5 w-5" aria-hidden="true" />
               Filters
             </SheetTitle>
             <div className="flex items-center gap-2">
               <Badge variant="secondary" className="text-xs">
+                <span className="sr-only">Showing </span>
                 {meetingCount} of {totalCount}
+                <span className="sr-only"> meetings</span>
               </Badge>
             </div>
           </div>
@@ -255,52 +285,106 @@ export function FilterPanel({
               title="Time of Day"
               icon={<Clock className="h-4 w-4" />}
             >
-              <div className="space-y-2">
+              <div className="space-y-2" role="radiogroup" aria-label="Time of day filter">
                 {TIME_OF_DAY_FILTER_OPTIONS.map((option) => (
-                  <div
+                  <button
                     key={option.value}
+                    type="button"
                     onClick={() => handleSelectChange('timeOfDay', option.value)}
                     className={cn(
-                      'flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors',
+                      'flex w-full items-center justify-between p-2 rounded-md transition-colors text-left min-h-[44px] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
                       filters.timeOfDay === option.value
                         ? 'bg-primary/10 border border-primary'
                         : 'hover:bg-accent border border-transparent'
                     )}
+                    role="radio"
+                    aria-checked={filters.timeOfDay === option.value}
+                    aria-describedby={`time-${option.value}-desc`}
                   >
                     <div>
                       <div className="font-medium text-sm">{option.label}</div>
-                      <div className="text-xs text-muted-foreground">{option.description}</div>
+                      <div id={`time-${option.value}-desc`} className="text-xs text-muted-foreground">{option.description}</div>
                     </div>
                     {filters.timeOfDay === option.value && (
-                      <Check className="h-4 w-4 text-primary" />
+                      <Check className="h-4 w-4 text-primary" aria-hidden="true" />
                     )}
-                  </div>
+                  </button>
                 ))}
               </div>
             </FilterSection>
 
             {/* ============================== */}
-            {/* 3. MEETING TYPE (AA/NA) */}
+            {/* 3. ATTENDANCE MODE (In-Person / Virtual / Hybrid) */}
+            {/* ============================== */}
+            <FilterSection
+              title="Attendance Mode"
+              icon={<Video className="h-4 w-4" />}
+              defaultOpen={true}
+            >
+              <div className="space-y-2" role="radiogroup" aria-label="Attendance mode filter">
+                {ATTENDANCE_MODE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => handleSelectChange('attendanceMode', option.value)}
+                    className={cn(
+                      'flex w-full items-center justify-between p-2 rounded-md transition-colors text-left min-h-[44px] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
+                      filters.attendanceMode === option.value
+                        ? 'bg-primary/10 border border-primary'
+                        : 'hover:bg-accent border border-transparent'
+                    )}
+                    role="radio"
+                    aria-checked={filters.attendanceMode === option.value}
+                    aria-describedby={`attendance-${option.value}-desc`}
+                  >
+                    <div>
+                      <div className="font-medium text-sm">{option.label}</div>
+                      <div id={`attendance-${option.value}-desc`} className="text-xs text-muted-foreground">{option.description}</div>
+                    </div>
+                    {filters.attendanceMode === option.value && (
+                      <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </FilterSection>
+
+            {/* ============================== */}
+            {/* 4. MEETING TYPE (Multi-select) */}
             {/* ============================== */}
             <FilterSection
               title="Meeting Type"
               icon={<Users className="h-4 w-4" />}
+              defaultOpen={true}
             >
-              <Select
-                value={filters.type}
-                onValueChange={(value) => handleSelectChange('type', value as MeetingFilters['type'])}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {MEETING_TYPE_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="space-y-3">
+                {filters.programTypes.length > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">
+                      {filters.programTypes.length} selected
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleMeetingTypeChange([])}
+                      className="h-7 px-2 text-xs"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                )}
+                <CheckboxGroup<MeetingTypeFilter>
+                  options={MEETING_TYPE_CHECKBOX_OPTIONS}
+                  selected={filters.programTypes}
+                  onChange={handleMeetingTypeChange}
+                  columns={2}
+                />
+                {filters.programTypes.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Select one or more meeting types (shows all types if none selected)
+                  </p>
+                )}
+              </div>
             </FilterSection>
 
             {/* ============================== */}
@@ -360,11 +444,11 @@ export function FilterPanel({
             >
               <div className="space-y-4">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Max distance</span>
-                  <span className="font-medium">
+                  <span id="distance-max-label" className="text-muted-foreground">Max distance</span>
+                  <span className="font-medium" aria-live="polite">
                     {filters.distanceRadius === null
                       ? 'Any'
-                      : `${filters.distanceRadius} mi`}
+                      : `${filters.distanceRadius} miles`}
                   </span>
                 </div>
                 <Slider
@@ -374,8 +458,10 @@ export function FilterPanel({
                   max={4}
                   step={1}
                   className="w-full"
+                  aria-label="Maximum distance"
+                  aria-valuetext={filters.distanceRadius === null ? 'Any distance' : `${filters.distanceRadius} miles`}
                 />
-                <div className="flex justify-between text-xs text-muted-foreground">
+                <div className="flex justify-between text-xs text-muted-foreground" aria-hidden="true">
                   <span>Any</span>
                   <span>5mi</span>
                   <span>10mi</span>
@@ -511,13 +597,18 @@ export function FilterPanel({
             <Button
               variant="outline"
               onClick={onClear}
-              className="flex-1"
+              className="flex-1 min-h-[44px]"
+              aria-label="Clear all filters"
             >
-              <RotateCcw className="h-4 w-4 mr-2" />
+              <RotateCcw className="h-4 w-4 mr-2" aria-hidden="true" />
               Clear All
             </Button>
-            <Button onClick={onApply} className="flex-1">
-              <Check className="h-4 w-4 mr-2" />
+            <Button
+              onClick={onApply}
+              className="flex-1 min-h-[44px]"
+              aria-label={`Apply filters and show ${meetingCount} meetings`}
+            >
+              <Check className="h-4 w-4 mr-2" aria-hidden="true" />
               Apply Filters
             </Button>
           </div>

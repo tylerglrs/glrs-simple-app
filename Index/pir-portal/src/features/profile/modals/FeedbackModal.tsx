@@ -6,11 +6,7 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
-import {
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import {
   Form,
   FormControl,
@@ -39,12 +35,11 @@ import {
   Heart,
   AlertCircle,
   HelpCircle,
-  X,
   Loader2,
   Send,
-  Image,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useStatusBarColor } from '@/hooks/useStatusBarColor'
 
 // =============================================================================
 // TYPES & OPTIONS
@@ -54,8 +49,8 @@ const FEEDBACK_TYPES = [
   { value: 'bug', label: 'Bug Report', icon: Bug, color: 'text-red-500' },
   { value: 'feature', label: 'Feature Request', icon: Lightbulb, color: 'text-amber-500' },
   { value: 'praise', label: 'Positive Feedback', icon: Heart, color: 'text-pink-500' },
-  { value: 'concern', label: 'Concern', icon: AlertCircle, color: 'text-orange-500' },
-  { value: 'other', label: 'Other', icon: HelpCircle, color: 'text-gray-500' },
+  { value: 'complaint', label: 'Concern', icon: AlertCircle, color: 'text-orange-500' },
+  { value: 'general', label: 'Other', icon: HelpCircle, color: 'text-gray-500' },
 ]
 
 // =============================================================================
@@ -63,7 +58,7 @@ const FEEDBACK_TYPES = [
 // =============================================================================
 
 const feedbackSchema = z.object({
-  feedbackType: z.enum(['bug', 'feature', 'praise', 'concern', 'other'], {
+  feedbackType: z.enum(['bug', 'feature', 'praise', 'complaint', 'general'], {
     message: 'Please select a feedback type',
   }),
   message: z
@@ -87,13 +82,14 @@ export function FeedbackModal({ onClose }: FeedbackModalProps) {
   const { user, userData } = useAuth()
   const { toast } = useToast()
 
+  // Set iOS status bar to match modal header color (violet-500)
+  useStatusBarColor('#8B5CF6', true)
+
   // Get extended user data
   const extendedUserData = userData as unknown as Record<string, unknown> | null
 
   // State
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [screenshot, setScreenshot] = useState<File | null>(null)
-  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null)
 
   // Form
   const form = useForm<FeedbackFormValues>({
@@ -104,45 +100,6 @@ export function FeedbackModal({ onClose }: FeedbackModalProps) {
       email: user?.email || '',
     },
   })
-
-  // Handle screenshot selection
-  const handleScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        toast({
-          title: 'Invalid file type',
-          description: 'Please select an image file (PNG, JPG, etc.)',
-          variant: 'destructive',
-        })
-        return
-      }
-
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        toast({
-          title: 'File too large',
-          description: 'Please select an image smaller than 5MB',
-          variant: 'destructive',
-        })
-        return
-      }
-
-      setScreenshot(file)
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setScreenshotPreview(reader.result as string)
-      }
-      reader.readAsDataURL(file)
-    }
-  }
-
-  // Remove screenshot
-  const removeScreenshot = () => {
-    setScreenshot(null)
-    setScreenshotPreview(null)
-  }
 
   // Submit handler
   const onSubmit = async (values: FeedbackFormValues) => {
@@ -170,13 +127,6 @@ export function FeedbackModal({ onClose }: FeedbackModalProps) {
         },
       }
 
-      // If there's a screenshot, convert to base64 and include
-      if (screenshot && screenshotPreview) {
-        feedbackData.screenshot = screenshotPreview
-        feedbackData.screenshotName = screenshot.name
-        feedbackData.screenshotSize = screenshot.size
-      }
-
       // Save to Firestore
       await addDoc(collection(db, 'feedback'), feedbackData)
 
@@ -202,17 +152,18 @@ export function FeedbackModal({ onClose }: FeedbackModalProps) {
   const selectedType = FEEDBACK_TYPES.find((t) => t.value === form.watch('feedbackType'))
 
   return (
-    <DialogContent className="max-w-[95vw] sm:max-w-[550px] p-0 gap-0">
-      {/* Header */}
-      <DialogHeader className="px-6 py-4 bg-gradient-to-r from-violet-500 to-purple-600">
-        <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-          <MessageSquarePlus className="h-6 w-6" />
-          Send Feedback
-        </DialogTitle>
-      </DialogHeader>
+    <ResponsiveModal open={true} onOpenChange={(open) => !open && onClose()} desktopSize="md">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 bg-gradient-to-r from-violet-500 to-purple-600 shrink-0">
+          <h2 className="text-xl font-bold text-white flex items-center gap-3">
+            <MessageSquarePlus className="h-6 w-6" />
+            Send Feedback
+          </h2>
+        </div>
 
-      {/* Content */}
-      <ScrollArea className="max-h-[calc(90vh-180px)]">
+        {/* Content */}
+        <ScrollArea className="flex-1">
         <div className="p-6">
           <p className="text-sm text-muted-foreground mb-6">
             Your feedback helps us improve the recovery experience for everyone. We read every
@@ -277,14 +228,14 @@ export function FeedbackModal({ onClose }: FeedbackModalProps) {
                           the app.
                         </>
                       )}
-                      {selectedType.value === 'concern' && (
+                      {selectedType.value === 'complaint' && (
                         <>
                           Your concerns are important to us. Please share what&apos;s troubling you
                           and we&apos;ll look into it.
                         </>
                       )}
-                      {selectedType.value === 'other' && (
-                        <>Share anything else on your mind about the GLRS Lighthouse app.</>
+                      {selectedType.value === 'general' && (
+                        <>Share anything else on your mind about the Recovery Compass app.</>
                       )}
                     </div>
                   </CardContent>
@@ -325,6 +276,8 @@ export function FeedbackModal({ onClose }: FeedbackModalProps) {
                     <FormControl>
                       <Input
                         type="email"
+                        inputMode="email"
+                        autoComplete="email"
                         placeholder="your.email@example.com"
                         {...field}
                       />
@@ -337,78 +290,36 @@ export function FeedbackModal({ onClose }: FeedbackModalProps) {
                 )}
               />
 
-              {/* Screenshot Upload */}
-              <div>
-                <label className="text-sm font-medium mb-2 block">
-                  Screenshot <span className="text-muted-foreground">(optional)</span>
-                </label>
-
-                {screenshotPreview ? (
-                  <Card className="relative">
-                    <CardContent className="p-2">
-                      <img
-                        src={screenshotPreview}
-                        alt="Screenshot preview"
-                        className="w-full h-auto max-h-[200px] object-contain rounded"
-                      />
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        size="icon"
-                        className="absolute top-2 right-2 h-8 w-8"
-                        onClick={removeScreenshot}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-muted-foreground/25 rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                      <Image className="h-8 w-8 text-muted-foreground mb-2" />
-                      <p className="text-sm text-muted-foreground">
-                        Click to upload a screenshot
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">PNG, JPG up to 5MB</p>
-                    </div>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept="image/*"
-                      onChange={handleScreenshotChange}
-                    />
-                  </label>
-                )}
-              </div>
             </form>
           </Form>
         </div>
       </ScrollArea>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30">
-        <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
-          Cancel
-        </Button>
-        <Button
-          onClick={form.handleSubmit(onSubmit)}
-          disabled={isSubmitting || !form.formState.isValid}
-          className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Submitting...
-            </>
-          ) : (
-            <>
-              <Send className="mr-2 h-4 w-4" />
-              Send Feedback
-            </>
-          )}
-        </Button>
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t bg-muted/30 shrink-0">
+          <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button
+            onClick={form.handleSubmit(onSubmit)}
+            disabled={isSubmitting || !form.formState.isValid}
+            className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              <>
+                <Send className="mr-2 h-4 w-4" />
+                Send Feedback
+              </>
+            )}
+          </Button>
+        </div>
       </div>
-    </DialogContent>
+    </ResponsiveModal>
   )
 }
 

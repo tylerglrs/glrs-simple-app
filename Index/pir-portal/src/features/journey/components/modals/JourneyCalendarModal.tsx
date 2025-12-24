@@ -1,10 +1,5 @@
 import { Calendar, Settings } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { ResponsiveModal } from '@/components/ui/responsive-modal'
 import { Button } from '@/components/ui/button'
 
 // =============================================================================
@@ -29,13 +24,13 @@ export function JourneyCalendarModal({
   onOpenGraphSettings,
 }: JourneyCalendarModalProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Journey Calendar</DialogTitle>
-        </DialogHeader>
+    <ResponsiveModal open={open} onOpenChange={onOpenChange} desktopSize="sm">
+      <div className="flex flex-col h-full bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b shrink-0">
+          <h2 className="text-lg font-semibold">Journey Calendar</h2>
+        </div>
 
-        <div className="space-y-3">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {/* Check-In Calendar Button */}
           <Button
             variant="outline"
@@ -84,8 +79,8 @@ export function JourneyCalendarModal({
         >
           Cancel
         </Button>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </ResponsiveModal>
   )
 }
 
